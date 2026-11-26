@@ -5,11 +5,13 @@
  * `window.matchMedia` reads queries with it in games.
  *
  * Features: `width`, `height`, `aspect-ratio` (each with `min-`/`max-`, and in range form `(400px <= width < 800px)`)
- * and `orientation`. Lengths are `px` (`em`/`rem` are 16px, as in browsers' media queries); ratios are `16/9` or a
+ * and `orientation`, and (ADR 0427) the user-preference features `prefers-reduced-motion` (`no-preference`, `reduce`)
+ * and `prefers-color-scheme` (`light`, `dark`) from `UIPreferences`, which match with or without a canvas. Lengths are `px` (`em`/`rem` are 16px, as in browsers' media queries); ratios are `16/9` or a
  * number. Media types `all` and `screen` match, any other never does. An unknown feature is unknown, which never
  * matches (`not` of it neither), as in Media Queries level 4; a query that can't be read matches nothing (`not all`).
  */
 import type { UIMediaCondition, UIMediaEnvironment, UIMediaQuery } from "./types";
+import { UIPreferences } from "../preferences";
 
 /** A query that never matches: what a query that can't be read becomes. */
 const NEVER: UIMediaQuery = { not: true, type: "all" };
@@ -75,7 +77,23 @@ function evaluate(c: UIMediaCondition, env: UIMediaEnvironment | null | undefine
   return feature(c.feature, c.op, c.value, env);
 }
 
+/** User-preference features (ADR 0427): their values, the first being the one that's false in a boolean context. */
+const PREFERENCES: Readonly<Record<string, readonly string[]>> = {
+  "prefers-reduced-motion": ["no-preference", "reduce"],
+  "prefers-color-scheme": ["light", "dark"],
+};
+
+/** A user-preference feature from `UIPreferences`, with or without a canvas. */
+function preference(name: string, op: string | undefined, value: number | string | undefined): boolean | null {
+  const actual = name === "prefers-reduced-motion" ? (UIPreferences.reducedMotion ? "reduce" : "no-preference") : UIPreferences.colorScheme;
+  // Boolean context: `prefers-color-scheme` has no "none" value, so it's always true (Media Queries level 5).
+  if (op === undefined) return name === "prefers-color-scheme" || actual !== PREFERENCES[name][0];
+  if (op !== "=" || typeof value !== "string" || !PREFERENCES[name].includes(value.toLowerCase())) return null;
+  return actual === value.toLowerCase();
+}
+
 function feature(name: string, op: string | undefined, value: number | string | undefined, env: UIMediaEnvironment | null | undefined): boolean | null {
+  if (name in PREFERENCES) return preference(name, op, value);
   if (!env) return null;
   const { width, height } = env;
   let actual: number | string;

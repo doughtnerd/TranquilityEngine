@@ -136,6 +136,8 @@ export {
   UIView,
   type UIViewElement,
   type UIViewEvent,
+  UIPreferences,
+  type UIColorScheme,
 } from "./plugins/ui/runtime";
 
 // The Environment plugin (ADR 0140).

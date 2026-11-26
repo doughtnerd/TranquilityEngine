@@ -34,6 +34,7 @@ import { uiInteractions, type UIInteractionType } from "./interactions";
 import { childPaths, labelPath } from "./documentSource";
 import type { BindingPart, MarkupAttribute, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIMediaEnvironment, UIPseudo, UIPseudoState, UIStylesheet, UITag } from "./document/types";
 import { Locale, localeMessageNames, type MessageArg } from "../localisation/Locale";
+import { uiPreferencesVersion } from "./preferences";
 import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimationReady, uiAnimator, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "./animation/UIAnimator";
 import { addUIEventFrontEnd, addUIListener, dispatchUIEvents, propagate, removeUIListener, runUIListeners, uiEventBubbles, uiEventCancelable, UIEventBase, uiListenerOptions, type UIDataTransfer, type UIEventRecord, type UIListener } from "./events";
 import { uiScrollIntoViewArg, uiScrollSizes, uiScrollToArgs, isScrollable, type UIScrollIntoViewOptions, type UIScrollToArgs } from "./scrolling";
@@ -630,6 +631,8 @@ export class UIDocument extends Component {
   private firstMedia = false;
   /** `Locale.epoch` the tree was last brought up to date with. */
   private localeEpoch = -1;
+  /** ADR 0427: the `UIPreferences` the styles last matched `@media` against. */
+  private prefsVersion = uiPreferencesVersion();
   private problemList: SourceProblem[] = [];
   /** The text of each file the build read, to rebuild when one changes. */
   private sources = new Map<string, unknown>();
@@ -1323,6 +1326,11 @@ export class UIDocument extends Component {
         el._target.lang = language;
       });
       if (this.langRules) this._styleDirty.add(root);
+    }
+    // ADR 0427: and when the player's UI preferences (reduced motion, colour scheme) change.
+    if (this.prefsVersion !== uiPreferencesVersion()) {
+      this.prefsVersion = uiPreferencesVersion();
+      if (this.mediaRules) this._styleDirty.add(root);
     }
     // ADR 0418 wave 5: `@media` rules match again when the canvas (last frame's layout) changes size.
     const size = this.canvasSize();

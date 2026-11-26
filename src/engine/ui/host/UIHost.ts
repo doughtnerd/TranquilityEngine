@@ -31,6 +31,7 @@ import { defineBuiltinSystem } from "../../core/systems";
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import { Locale } from "../../localisation/Locale";
+import { uiPreferencesVersion } from "../preferences";
 import { UIButton, UICanvas, UIInputField, UIText, isFocusableUI, type UIComponentType } from "../components";
 import { setUIValue, uiValueOf } from "../formControls";
 import { samePseudoState, uiPseudoState, uiTypeOfTag } from "../elementKinds";
@@ -760,6 +761,8 @@ export class UIHostTree {
   private readonly flushHooks = new Set<() => void>();
   private styledVersion = -1;
   private localeEpoch = Locale.epoch;
+  /** ADR 0427: the `UIPreferences` the styles last matched `@media` against. */
+  private prefsVersion = uiPreferencesVersion();
   private shapeChanged = false;
   private disposed = false;
   private readonly selectorCache = new Map<string, readonly Selector[]>();
@@ -1045,6 +1048,11 @@ export class UIHostTree {
         el._target.lang = language;
       });
       if (sheetsUseLang) this.dirty.add(this.root);
+    }
+    // ADR 0427: and when the player's UI preferences (reduced motion, colour scheme) change.
+    if (this.prefsVersion !== uiPreferencesVersion()) {
+      this.prefsVersion = uiPreferencesVersion();
+      if (sheetsUseMedia) this.dirty.add(this.root);
     }
     // ADR 0418 wave 5: `@media` rules match again when the canvas (last frame's layout) changes size.
     const size = this.canvasSize();

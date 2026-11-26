@@ -9,6 +9,9 @@ import { UIDocument } from "../../../engine/ui/UIDocument";
 import { UIControlMapper } from "./UIControlMapper";
 import { UIView } from "./UIView";
 import type { RuntimePlugin } from "../../runtimeContext";
+import type { World } from "../../../engine/core/World";
+import type { WorldServiceDef } from "../../../engine/core/worldServices";
+import { forgetUIPreferences, loadUIPreferences } from "../../../engine/ui/preferences";
 import { uiManifest } from "../manifest";
 
 export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm, UISvg, UIVideo, UIAudio, type UIButtonType, type UIInputType, type UITextAreaWrap, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UINavigationMode, type UIPositionType, type UITextAlign, type UIWordBreak } from "../../../engine/ui/components";
@@ -17,6 +20,7 @@ export type { UIMediaEvent, UIMediaEventType, UIMediaSource } from "../../../eng
 export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperSetting, type UIControlMapperSettingKind, type UIControlMapperText } from "./UIControlMapper";
 export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "../../../engine/ui/UIDocument";
 export { UIView } from "./UIView";
+export { UIPreferences, type UIColorScheme } from "../../../engine/ui/preferences";
 /** A UI element a `UIView`'s component rendered (ADR 0419): `view.query("#play")`. */
 export type { UIHostElement as UIViewElement, UIHostEvent as UIViewEvent } from "../../../engine/ui/host/UIHost";
 
@@ -35,6 +39,17 @@ const UI_SPEC: RenderFeatureSpec = {
   warms: (content) => content.worldUI,
 };
 
+/** Internal (ADR 0427): the player's saved UI preferences (namespace `settings`, key `myco.ui`), read before a runtime World's first scene. */
+const UI_PREFERENCES_SERVICE: WorldServiceDef<null, World> = {
+  id: "myco.uiPreferences",
+  load: async () => null,
+  create: (world) => world,
+  dispose: (world) => forgetUIPreferences(world),
+  neededBy: { scene: () => true },
+  runsIn: (world) => world.kind === "runtime",
+  prepareScene: (world) => loadUIPreferences(world),
+};
+
 export const uiRuntimePlugin: RuntimePlugin = {
   manifest: uiManifest,
   activate(context) {
@@ -44,5 +59,6 @@ export const uiRuntimePlugin: RuntimePlugin = {
       load: () => import("./uiFeature").then((m) => m.loadUIFeature()),
       loadWarm: () => import("./uiWarm").then((m) => m.createUIWarm),
     });
+    context.registerWorldService(UI_PREFERENCES_SERVICE);
   },
 };
