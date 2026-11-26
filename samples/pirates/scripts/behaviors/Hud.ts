@@ -1,4 +1,4 @@
-import { Audio, Camera, Color, GameBehavior, GameObject, Input, Replicated, Time, Transform, UIDocument, UIPanel, Vector3, behavior, defineSystem, type UIDocumentElement, type UILength } from "myco";
+import { Audio, Camera, GameBehavior, GameObject, Input, Replicated, Time, Transform, UIView, Vector3, behavior, defineSystem } from "myco";
 import { chartMarkers, chartPoint, compass, edgeMarker, edgeStatus, flagChartedBy, flagSeenBy, type MapMarker, type SeaShip } from "../awareness";
 import { Battery, CLOUD_RADIUS, Obstacle, Phase, Pickup, PowerUp, RELOAD, RESULTS_SECONDS, SHIP_HP, TEAM_COLORS, cloudSpots, flag, game, inCloudAmong, myShip, ranking, ships, type CloudSpot, type ObstacleView, type PickupView, type ShipInfo } from "../data";
 import { arenaRadius } from "../systems";
@@ -31,11 +31,11 @@ const MINIMAP = { left: 12 + 176, bottom: 12 + 196 };
 /** Rows the leaderboard and the results have at most. */
 const BOARD_ROWS = 8;
 const PICKUP_COLORS: Record<number, string> = { [PowerUp.wind]: "#66b3ff", [PowerUp.ghost]: "#b48cff", [PowerUp.storm]: "#8c99b0" };
-/** The minimap's layers of dots, bottom to top, by the id of their element in ui/hud.ui.xml. */
+/** The minimap's layers of dots, bottom to top, by the id of their element in ui/Hud.svelte. */
 const LAYERS = ["land", "clouds", "pickups", "flag-dots", "ships"] as const;
 type Layer = (typeof LAYERS)[number];
 
-/** A minimap dot: a row of a layer's list, its fields bound in the markup (UI pixels, CSS colours). */
+/** A minimap dot: its place, size and colours (UI pixels, CSS colours). */
 interface Dot {
   left: number;
   top: number;
@@ -58,6 +58,41 @@ interface BoardRow {
   holder: boolean;
 }
 
+/** A battery's box: its label, whether it's the chosen one, and its reload bar's width. */
+interface BatteryView {
+  label: string;
+  chosen: boolean;
+  reload: string;
+}
+
+/** A marker at the screen's edge: its top left corner in UI pixels, and its label. */
+interface MarkerView {
+  left: number;
+  top: number;
+  label: string;
+}
+
+/** What the HUD's component (ui/Hud.svelte) draws: its `hud` prop. */
+interface HudState {
+  clock: string;
+  status: string;
+  lines: string[];
+  next: string;
+  middle: string;
+  powers: string;
+  hull: { label: string; width: string; fill: string; swatch: string | null };
+  port: BatteryView;
+  starboard: BatteryView;
+  board: BoardRow[];
+  legend: string;
+  dots: Record<Layer, Dot[]>;
+  flagMarker: MarkerView | null;
+  homeMarker: MarkerView | null;
+  edge: { title: string; detail: string; background: string; opacity: number } | null;
+  fog: string | null;
+  leave: { open: boolean; canLeave: boolean; detail: string };
+}
+
 /**
  * The heads-up display. On the screen: the match clock (top middle); the leaderboard (top left:
  * rank, captain, score and the flag's holder, this captain's row highlighted); along the bottom
@@ -68,10 +103,10 @@ interface BoardRow {
  * edge for the flag and (outside) the way back, a note while this ship hides in fog, and the
  * "Leave the match?" dialog (Escape). It reads this client's ship and the replicated match.
  *
- * The screens are a UI document (ADR 0077, 0417): ui/hud.ui.xml, with their look in ui/hud.ui.css.
- * Texts are `{bindings}` filled from `ui.data`; the leaderboard, the results and the minimap's dots
- * are rows made with `ui.list()`; bars, colours and marker positions that change each frame are
- * written to the elements' fields; banners and the dialog are shown and hidden with `.hidden`.
+ * The screens are a Svelte component (ADR 0419), ui/Hud.svelte, mounted by the node's UIView: each
+ * frame the script works out what it shows (texts, the leaderboard, the results, the minimap's dots,
+ * bars, colours and marker positions) and passes it in as the `hud` prop when it changed; the
+ * dialog's buttons call back through the `on` prop.
  */
 @behavior("pirates.Hud", { worlds: ["client"] })
 export class Hud extends GameBehavior {
@@ -93,55 +128,56 @@ export class Hud extends GameBehavior {
   /** The arena's islands and rocks, as circles (`pirates.Chart` gathers them). */
   land: readonly { x: number; z: number; r: number }[] = [];
 
-  private ui!: UIDocument;
-  /** What each list was last made from, to call `list()` again only when that changes. */
-  private made = new Map<string, string>();
+  private view: UIView | null = null;
+  /** The state last passed to the view, as JSON. */
+  private shown = "";
 
   start(): void {
-    this.ui = this.node.getBehavior(UIDocument)!;
-    Object.assign(this.ui.data, {
-      clock: "",
-      status: "",
-      next: "",
-      powers: "",
-      port: "",
-      hull: "",
-      starboard: "",
-      legend: "",
-      flagLabel: "",
-      homeLabel: "Battle",
-      edgeTitle: "",
-      edgeDetail: "",
-      fogDetail: "",
-      leaveDetail: "",
-    });
+    this.view = this.node.getBehavior(UIView);
+    if (!this.view) return;
+    this.view.props = {
+      hud: this.state(),
+      on: {
+        stay: () => {
+          if (!this.leaving) return;
+          this.leaving = false;
+          this.click();
+        },
+        leave: () => {
+          if (!this.leaving || !this.leaveMatch) return;
+          this.leaving = false;
+          this.click();
+          this.leaveMatch();
+        },
+      },
+    };
   }
 
   update(): void {
-    if (!this.ui?.root) return; // the document is still loading
-    this.leaveDialog();
-    const data = this.ui.data;
+    if (!this.view) return;
+    if (Input.getKeyDown("escape")) this.leaving = !this.leaving;
+    const hud = this.state();
+    const json = JSON.stringify(hud);
+    if (json === this.shown) return;
+    this.shown = json;
+    // Changed values only, into the view's reactive state: Svelte redraws just what they show (the dots move every frame).
+    const shown = this.view.props.hud as Record<string, unknown> | undefined;
+    if (shown) patch(shown, hud as unknown as Record<string, unknown>);
+    else this.view.props.hud = hud;
+  }
+
+  /** What the HUD shows now. */
+  private state(): HudState {
     const ship = myShip();
     const g = game();
     const names = captainNames?.();
     const hp = ship ? Math.max(0, ship.data.hp) : SHIP_HP;
-    const fill = this.panel("#hull-fill");
-    const width = `${Math.round((hp / SHIP_HP) * 100)}%`;
-    if (fill.width !== width) fill.width = width;
-    setColor(fill, "backgroundColor", hp > 50 ? "#59cc4d" : hp > 25 ? "#e6a63d" : "#e6403d");
-    data.hull = `Hull ${Math.ceil(hp)}`;
-    if (ship) setColor(this.panel("#hull-swatch"), "backgroundColor", TEAM_COLORS[ship.data.team]);
-
     const battery = ship?.data.battery ?? Battery.starboard;
-    this.battery("port", "[A] Port", battery === Battery.port, ship?.data.reloadPort ?? 0);
-    this.battery("starboard", "Starboard [D]", battery === Battery.starboard, ship?.data.reloadStarboard ?? 0);
 
     const powers: string[] = [];
     if (ship && ship.data.wind > 0) powers.push(`Wind in your sails ${Math.ceil(ship.data.wind)}s`);
     if (ship && ship.data.ghost > 0) powers.push(`Ghost ship ${Math.ceil(ship.data.ghost)}s - off enemy charts${ship.data.cloud ? " - F: drop a fog cloud" : ""}`);
     if (g && g.storm > 0) powers.push(g.stormTeam === ship?.data.team ? `Your storm ${Math.ceil(g.storm)}s` : `Stormy seas ${Math.ceil(g.storm)}s - beware lightning!`);
-    data.powers = powers.join("   |   ");
-    this.show("#powers", powers.length > 0);
 
     // What this captain can tell: fog clouds hide other ships (and the flag with a hidden holder) on
     // the water and the chart; ghost ships are left off the chart (awareness.ts).
@@ -153,10 +189,7 @@ export class Hud extends GameBehavior {
     const theFlag = f ? { x: f.node.transform!.position.x, z: f.node.transform!.position.z, carrier: f.data.carrier } : null;
     const seenFlag = flagSeenBy(viewer, theFlag, sea, clouds);
     const chartedFlag = flagChartedBy(viewer, theFlag, sea, clouds);
-
     const order = ranking(all);
-    this.leaderboard(order, seenFlag?.carrier ?? -1, names);
-    data.clock = g ? clock(g.phase === Phase.playing ? g.timeLeft : 0) : "";
 
     let status = "";
     let lines: string[] = [];
@@ -169,48 +202,42 @@ export class Hud extends GameBehavior {
       const left = Math.max(0, Math.ceil(RESULTS_SECONDS - g.results));
       next = this.resultsNote ?? (left > 0 ? `Next match in ${left}` : "");
     } else if (ship.data.sunk > 0) status = `Sunk! Back in ${Math.ceil(ship.data.sunk)}`;
-    data.status = status;
-    // Always eight lines (empty ones too), so the middle keeps its size and place.
-    this.list("#lines", Array.from({ length: BOARD_ROWS }, (_, i) => ({ text: lines[i] ?? "" })));
-    data.next = next;
-    setColor(this.panel("#middle"), "backgroundColor", "#0d1219", lines.length ? 0.85 : 0);
 
     const afloat = !!ship && ship.data.sunk <= 0 && g?.phase === Phase.playing;
     const radius = arenaRadius();
-    data.legend = chartedFlag
-      ? chartedFlag.carrier < 0
-        ? "Flag: loose"
-        : `Flag: ${captainOf(all, chartedFlag.carrier, names)}`
-      : seenFlag
-        ? `Flag: ${captainOf(all, seenFlag.carrier, names)}, a ghost`
-        : "Flag: hidden in the fog";
-    this.chart(viewer, sea, clouds, theFlag, radius);
-    this.edge(afloat ? ship : null, radius);
-    this.fog(afloat ? ship : null, clouds);
-    this.markers(ship, g?.phase === Phase.playing ? chartedFlag : null, afloat ? edgeStatus(ship.node.transform!.position.x, ship.node.transform!.position.z, radius) : null, order.length);
-  }
-
-  /** The "Leave the match?" dialog: Escape opens and closes it, as does Keep sailing; Leave goes back to the room. */
-  private leaveDialog(): void {
-    if (Input.getKeyDown("escape")) this.leaving = !this.leaving;
+    const markers = this.markers(ship, g?.phase === Phase.playing ? chartedFlag : null, afloat ? edgeStatus(ship.node.transform!.position.x, ship.node.transform!.position.z, radius) : null, order.length);
     const canLeave = !!this.leaveMatch;
-    this.show("#leave-go", canLeave);
-    this.ui.data.leaveDetail = canLeave ? "A bot takes your ship's place." : "This match has no harbour to go back to.";
-    if (this.leaving && this.el("#leave-stay").clicked) {
-      this.leaving = false;
-      this.click();
-    }
-    if (this.leaving && canLeave && this.el("#leave-go").clicked) {
-      this.leaving = false;
-      this.click();
-      this.leaveMatch!();
-    }
-    this.show("#leave", this.leaving);
+    return {
+      clock: g ? clock(g.phase === Phase.playing ? g.timeLeft : 0) : "",
+      status,
+      // Always eight lines (empty ones too), so the middle keeps its size and place.
+      lines: Array.from({ length: BOARD_ROWS }, (_, i) => lines[i] ?? ""),
+      next,
+      middle: withAlpha("#0d1219", lines.length ? 0.85 : 0),
+      powers: powers.join("   |   "),
+      hull: { label: `Hull ${Math.ceil(hp)}`, width: `${Math.round((hp / SHIP_HP) * 100)}%`, fill: hp > 50 ? "#59cc4d" : hp > 25 ? "#e6a63d" : "#e6403d", swatch: ship ? TEAM_COLORS[ship.data.team] : null },
+      port: this.battery("[A] Port", battery === Battery.port, ship?.data.reloadPort ?? 0),
+      starboard: this.battery("Starboard [D]", battery === Battery.starboard, ship?.data.reloadStarboard ?? 0),
+      board: this.leaderboard(order, seenFlag?.carrier ?? -1, names),
+      legend: chartedFlag
+        ? chartedFlag.carrier < 0
+          ? "Flag: loose"
+          : `Flag: ${captainOf(all, chartedFlag.carrier, names)}`
+        : seenFlag
+          ? `Flag: ${captainOf(all, seenFlag.carrier, names)}, a ghost`
+          : "Flag: hidden in the fog",
+      dots: this.chart(viewer, sea, clouds, theFlag, radius),
+      flagMarker: markers.flag,
+      homeMarker: markers.home,
+      edge: this.edge(afloat ? ship : null, radius),
+      fog: this.fog(afloat ? ship : null, clouds),
+      leave: { open: this.leaving, canLeave, detail: canLeave ? "A bot takes your ship's place." : "This match has no harbour to go back to." },
+    };
   }
 
   /** The leaderboard: a row per captain, best first, with the flag on its holder's row (when it can be seen) and this captain's row lit. */
-  private leaderboard(order: readonly ShipInfo[], holder: number, names: ReadonlyMap<number, string> | undefined): void {
-    const rows: BoardRow[] = order.slice(0, BOARD_ROWS).map((s, i) => ({
+  private leaderboard(order: readonly ShipInfo[], holder: number, names: ReadonlyMap<number, string> | undefined): BoardRow[] {
+    return order.slice(0, BOARD_ROWS).map((s, i) => ({
       team: s.data.team,
       rank: `${i + 1}.`,
       name: captain(s, names),
@@ -220,14 +247,6 @@ export class Hud extends GameBehavior {
       sunk: s.data.sunk > 0,
       holder: s.data.team === holder,
     }));
-    const made = this.list("#leaderboard", rows, "team");
-    if (!made) return;
-    for (const row of made) {
-      const r = row.item as BoardRow;
-      row.classList.toggle("mine", r.mine);
-      row.classList.toggle("sunk", r.sunk);
-      row.classList.toggle("holder", r.holder);
-    }
   }
 
   private click(): void {
@@ -235,7 +254,7 @@ export class Hud extends GameBehavior {
   }
 
   /** The minimap: land, fog clouds, power-ups, the loose flag and the ships this captain can see. */
-  private chart(viewer: number, sea: readonly SeaShip[], clouds: readonly CloudSpot[], theFlag: { x: number; z: number; carrier: number } | null, radius: number): void {
+  private chart(viewer: number, sea: readonly SeaShip[], clouds: readonly CloudSpot[], theFlag: { x: number; z: number; carrier: number } | null, radius: number): Record<Layer, Dot[]> {
     const pickups: { x: number; z: number; power: number }[] = [];
     for (const rep of GameObject.findObjectsOfType(Replicated)) {
       const data = rep.node.isValid ? (rep.node.getData(Pickup) as PickupView | null) : null;
@@ -260,56 +279,44 @@ export class Hud extends GameBehavior {
           break;
       }
     }
-    for (const layer of LAYERS) this.list(`#${layer}`, dots[layer]);
+    return dots;
   }
 
-  /** The banner near and past the arena's edge. */
-  private edge(ship: ShipInfo | null, radius: number): void {
+  /** The banner near and past the arena's edge, or null inside. */
+  private edge(ship: ShipInfo | null, radius: number): HudState["edge"] {
     const p = ship?.node.transform!.position;
     const at = p ? edgeStatus(p.x, p.z, radius) : null;
-    this.show("#edge", !!at && at.state !== "inside");
-    if (!at || at.state === "inside") return;
-    const box = this.panel("#edge-box");
+    if (!at || at.state === "inside") return null;
     const way = compass(at.homeX, at.homeZ);
-    const data = this.ui.data;
     if (at.state === "outside") {
-      data.edgeTitle = "Return to the battle!";
-      data.edgeDetail = `You're taking damage - steer ${way}`;
-      setColor(box, "backgroundColor", "#bf1f14", 0.88);
       const pulse = Math.round((0.75 + 0.25 * Math.sin(Time.time * 8)) * 20) / 20;
-      if (box.opacity !== pulse) box.opacity = pulse;
-    } else {
-      data.edgeTitle = "The edge of the arena";
-      data.edgeDetail = `Turn back ${way} - beyond it your hull takes damage`;
-      setColor(box, "backgroundColor", "#b3730f", 0.85);
-      if (box.opacity !== 1) box.opacity = 1;
+      return { title: "Return to the battle!", detail: `You're taking damage - steer ${way}`, background: withAlpha("#bf1f14", 0.88), opacity: pulse };
     }
+    return { title: "The edge of the arena", detail: `Turn back ${way} - beyond it your hull takes damage`, background: withAlpha("#b3730f", 0.85), opacity: 1 };
   }
 
-  /** The note while this ship is inside a fog cloud. */
-  private fog(ship: ShipInfo | null, clouds: readonly CloudSpot[]): void {
+  /** The note while this ship is inside a fog cloud, or null. */
+  private fog(ship: ShipInfo | null, clouds: readonly CloudSpot[]): string | null {
     const p = ship?.node.transform!.position;
-    const hidden = !!p && inCloudAmong(clouds, p.x, p.z);
-    this.show("#fog", hidden);
-    if (!hidden) return;
-    const own = inCloudAmong(clouds.filter((c) => c.team === ship!.data.team), p!.x, p!.z);
-    this.ui.data.fogDetail = own ? "Your enemies can't see you" : "Hidden from all but the cloud's captain";
+    if (!p || !inCloudAmong(clouds, p.x, p.z)) return null;
+    const own = inCloudAmong(clouds.filter((c) => c.team === ship!.data.team), p.x, p.z);
+    return own ? "Your enemies can't see you" : "Hidden from all but the cloud's captain";
   }
 
   /** Markers at the screen's edge: the flag (or its holder) when it's off screen, and the way back when outside the arena. */
-  private markers(ship: ShipInfo | null, seenFlag: { x: number; z: number; carrier: number } | null, at: ReturnType<typeof edgeStatus> | null, rows: number): void {
+  private markers(ship: ShipInfo | null, seenFlag: { x: number; z: number; carrier: number } | null, at: ReturnType<typeof edgeStatus> | null, rows: number): { flag: MarkerView | null; home: MarkerView | null } {
+    const out: { flag: MarkerView | null; home: MarkerView | null } = { flag: null, home: null };
     const camera = Camera.main;
-    if (!camera) return;
+    if (!camera) return out;
     // The camera's view: its middle is half the canvas, in canvas pixels; the HUD scales those to UI pixels.
     const middle = camera.worldToScreenPoint(camera.node.transform!.localToWorld.transformPoint({ x: 0, y: 0, z: 10 }));
     const width = middle.x * 2, height = middle.y * 2;
     const k = height > 0 ? UI_HEIGHT / height : 1;
     const uiWidth = width * k, uiHeight = height * k;
     let taken: { x: number; y: number } | null = null;
-    const place = (marker: "#flag-marker" | "#home-marker", x: number, z: number, label: string): void => {
+    const place = (marker: "flag" | "home", x: number, z: number, label: string): void => {
       const s = camera.worldToScreenPoint(new Vector3(x, 1, z));
       const m = edgeMarker(s.x * k, s.y * k, s.z, uiWidth, uiHeight, MARKER_INSETS);
-      this.show(marker, !!m);
       if (!m) return;
       // Two markers in one spot (the flag in the middle, seen from outside the arena): slide this one along the edge.
       if (taken && Math.abs(taken.x - m.x) < 64 && Math.abs(taken.y - m.y) < 64) {
@@ -322,54 +329,46 @@ export class Hud extends GameBehavior {
       if (m.x - 32 < BOARD.right && m.y - 18 < boardBottom) m.y = boardBottom + 22;
       if (m.x + 32 > uiWidth - MINIMAP.left && m.y - 18 < MINIMAP.bottom) m.y = MINIMAP.bottom + 22;
       taken = m;
-      const panel = this.panel(marker);
-      setLength(panel, "left", Math.round(m.x - 32));
-      setLength(panel, "top", Math.round(m.y - 18));
-      this.ui.data[marker === "#flag-marker" ? "flagLabel" : "homeLabel"] = label;
+      out[marker] = { left: Math.round(m.x - 32), top: Math.round(m.y - 18), label };
     };
     const p = ship?.node.transform!.position;
     const distance = (x: number, z: number) => (p ? `${Math.round(Math.hypot(x - p.x, z - p.z))} m` : "");
-    if (at?.state === "outside") place("#home-marker", 0, 0, "Battle");
-    else this.show("#home-marker", false);
+    if (at?.state === "outside") place("home", 0, 0, "Battle");
     const mine = !!ship && !!seenFlag && seenFlag.carrier === ship.data.team;
-    if (seenFlag && !mine) place("#flag-marker", seenFlag.x, seenFlag.z, distance(seenFlag.x, seenFlag.z));
-    else this.show("#flag-marker", false);
+    if (seenFlag && !mine) place("flag", seenFlag.x, seenFlag.z, distance(seenFlag.x, seenFlag.z));
+    return out;
   }
 
-  private battery(id: "port" | "starboard", label: string, chosen: boolean, reload: number): void {
-    const panel = this.panel(`#${id}`);
-    setColor(panel, "borderColor", chosen ? "#ffd966" : "#667080");
-    if (panel.opacity !== (chosen ? 1 : 0.6)) panel.opacity = chosen ? 1 : 0.6;
-    this.ui.data[id] = reload > 0 ? `${label}  ${reload.toFixed(1)}s` : `${label}  ready`;
-    const fill = this.panel(`#${id} .reload`);
-    const width = `${Math.round((1 - reload / RELOAD) * 100)}%`;
-    if (fill.width !== width) fill.width = width;
+  private battery(label: string, chosen: boolean, reload: number): BatteryView {
+    return { label: reload > 0 ? `${label}  ${reload.toFixed(1)}s` : `${label}  ready`, chosen, reload: `${Math.round((1 - reload / RELOAD) * 100)}%` };
   }
+}
 
-  // --- UI helpers ---------------------------------------------------------------------------------
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-  private el(selector: string): UIDocumentElement {
-    const el = this.ui.query(selector);
-    if (!el) throw new Error(`ui/hud.ui.xml has no "${selector}".`);
-    return el;
+/** Write `source`'s values into `target` where they differ, object by object and array item by item (arrays take its length). */
+function patch(target: Record<string, unknown>, source: Record<string, unknown>): void {
+  for (const k of Object.keys(source)) {
+    const m = merged(target[k], source[k]);
+    if (target[k] !== m) target[k] = m;
   }
+  for (const k of Object.keys(target)) if (!(k in source)) delete target[k];
+}
 
-  private panel(selector: string): UIPanel {
-    return this.el(selector).as(UIPanel);
+function merged(current: unknown, next: unknown): unknown {
+  if (Array.isArray(current) && Array.isArray(next)) {
+    next.forEach((v, i) => {
+      const m = merged(current[i], v);
+      if (current[i] !== m) current[i] = m;
+    });
+    if (current.length > next.length) current.length = next.length;
+    return current;
   }
-
-  /** Show or hide an element with the stylesheet's `.hidden` (`display: none`). */
-  private show(selector: string, on: boolean): void {
-    this.el(selector).classList.toggle("hidden", !on);
+  if (isRecord(current) && isRecord(next)) {
+    patch(current, next);
+    return current;
   }
-
-  /** `ui.list()`, called again only when the items change. Returns the rows when it was called. */
-  private list<T extends object>(selector: string, items: readonly T[], key?: keyof T): UIDocumentElement[] | null {
-    const made = JSON.stringify(items);
-    if (this.made.get(selector) === made) return null;
-    this.made.set(selector, made);
-    return this.ui.list(selector, items, undefined, key ? { key } : {});
-  }
+  return next;
 }
 
 /** A minimap dot at (x, z), `size` UI pixels across, in a CSS colour with `alpha`. */
@@ -419,18 +418,4 @@ function seaShip(s: ShipInfo): SeaShip {
 function captainOf(all: readonly ShipInfo[], team: number, names?: ReadonlyMap<number, string>): string {
   const s = all.find((x) => x.data.team === team);
   return s ? captain(s, names) : `Captain ${team + 1}`;
-}
-
-/** Sets a length field only when it changes. */
-function setLength(panel: UIPanel, field: "width" | "height" | "left" | "top", value: number): void {
-  if (panel[field] !== value) panel[field] = value as UILength;
-}
-
-/** Sets a colour field only when it differs, as a new value (UI fields are compared, not watched). */
-function setColor(panel: UIPanel, field: "backgroundColor" | "borderColor", hex: string, alpha = 1): void {
-  const current = panel[field];
-  if (current && current.toHex().toLowerCase() === hex.slice(0, 7).toLowerCase() && Math.abs(current.a - alpha) < 0.01) return;
-  const c = Color.from(hex.slice(0, 7));
-  c.a = alpha;
-  panel[field] = c;
 }

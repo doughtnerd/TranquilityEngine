@@ -524,9 +524,9 @@
       "transform": false,
       "components": [
         {
-          "type": "engine.UIDocument",
+          "type": "engine.UIView",
           "data": {
-            "document": "asset:ui/spatial.ui.xml"
+            "component": "asset:ui/Spatial.svelte"
           }
         }
       ]

@@ -3,7 +3,7 @@
 // listening-pass item P1); and game over dips the Music bus, which comes back when the next run starts.
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, Input, SceneManager, UIDocument } from "../../myco";
+import { Assets, Engine, GameObject, Input, SceneManager, UIView } from "../../myco";
 import { readProject } from "../../server/project";
 import { Audio, AudioSource } from "../../plugins/audio/runtime";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
@@ -13,6 +13,7 @@ import "../../editor/sampleTypes";
 import { BirdEvents } from "../../../samples/flappy/scripts/data";
 import { GameManager } from "../../../samples/flappy/scripts/behaviors/GameManager";
 import { DomInput } from "./domInput";
+import { serveSampleUI } from "./sampleUI";
 
 const SAMPLE = fileURLToPath(new URL("../../../samples/flappy/", import.meta.url));
 const fake = makeFakeBackend();
@@ -36,6 +37,7 @@ async function boot(): Promise<void> {
   const project = await readProject(SAMPLE);
   Assets.clearSources();
   Assets.addSource(project.assets);
+  serveSampleUI(import.meta.glob("../../../samples/flappy/ui/*.svelte", { eager: true }));
   engine = await Engine.create({ headless: true, project: project.settings });
   engine.world.render = RENDER;
   await SceneManager.load("scenes/main.scene.json");
@@ -43,7 +45,7 @@ async function boot(): Promise<void> {
 }
 
 const manager = () => GameObject.findObjectOfType(GameManager)!;
-const readout = () => manager().hud!.getBehavior(UIDocument)!.data.music as string;
+const readout = () => manager().hud!.getBehavior(UIView)!.props.music as string;
 
 beforeEach(() => {
   fake.clear();

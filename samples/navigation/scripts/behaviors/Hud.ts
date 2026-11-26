@@ -1,4 +1,4 @@
-import { GameBehavior, GameObject, Navigation, Time, UIDocument, behavior } from "myco";
+import { GameBehavior, GameObject, Navigation, Time, UIView, behavior } from "myco";
 import type { AgentSpawner } from "../data";
 import { Course } from "./Course";
 import { Crowd } from "./Crowd";
@@ -24,7 +24,7 @@ export function spawners(): AgentSpawner[] {
 }
 
 /**
- * The status panel (the `{status}` binding of its node's UI document, ui/hud.ui.xml): the loaded chunks, the goal, the gate, and each kind of agent with how
+ * The status panel (the `status` prop of its node's UIView, ui/Hud.svelte): the loaded chunks, the goal, the gate, and each kind of agent with how
  * many are moving, waiting for a chunk to load, and have arrived. Rebuilt four times a second, not every frame.
  */
 @behavior("navdemo.Hud")
@@ -35,8 +35,8 @@ export class Hud extends GameBehavior {
     this.timer -= Time.unscaledDeltaTime;
     if (this.timer > 0) return;
     this.timer = 0.25;
-    const ui = this.node.getBehavior(UIDocument);
-    if (ui) ui.data.status = this.lines().join("\n");
+    const ui = this.node.getBehavior(UIView);
+    if (ui) ui.props.status = this.lines().join("\n");
   }
 
   lines(): string[] {

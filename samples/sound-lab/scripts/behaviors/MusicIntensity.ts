@@ -12,7 +12,7 @@ import { setHud } from "../labHud";
  */
 @behavior("lab.MusicIntensity")
 export class MusicIntensity extends GameBehavior {
-  /** The page's UI document node (ui/*.ui.xml): this script fills its `{music}` binding. */
+  /** The page's HUD node (a UIView of ui/<Page>.svelte): this script passes its `music` prop. */
   @field(GameObject) hud: GameObject | null = null;
   @field(String) upKey = "m";
   @field(String) downKey = "n";

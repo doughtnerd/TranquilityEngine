@@ -21,7 +21,7 @@ import { Loudness } from "./Loudness";
  */
 @behavior("lab.MixerLab")
 export class MixerLab extends GameBehavior {
-  /** The page's UI document node (ui/*.ui.xml): this script fills its `{mixer}` binding. */
+  /** The page's HUD node (a UIView of ui/<Page>.svelte): this script passes its `mixer` prop. */
   @field(GameObject) hud: GameObject | null = null;
   @field(String) voiceKey = "1";
   @field(String) sfxKey = "2";

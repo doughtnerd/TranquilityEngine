@@ -78,7 +78,8 @@ const UI_CSS_PREFIX = "\0myco-ui-css:";
  * don't depend on the checkout's location. Vitest uses it; the editor and the export compile the same way
  * through the project code linker (`projectCode/compileUI.ts`), which parses the CSS while compiling. Here,
  * in Node, the parser (TypeScript with decorators behind it) can't load while compiling, so the compiled
- * module calls it when it loads.
+ * module calls it when it loads. The editor (dev server and build) uses it too, for the engine's built-in UI components
+ * (ADR 0419 wave B, each plugin's `builtinUI.ts`), which it compiles with its shared runtime.
  */
 export function svelteUI(options: { dev?: boolean } = {}): Plugin {
   const root = fileURLToPath(new URL(".", import.meta.url));
@@ -87,6 +88,8 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
     name: "myco:svelte-ui",
     enforce: "pre",
     async resolveId(source, importer) {
+      // The renderer compiled components import (in every config that compiles them, aliased or not).
+      if (source === "myco/ui-renderer") return SVELTE_UI_RENDERER;
       // UI code's `svelte/reactivity` is Svelte's with `MediaQuery` on the canvas (ADR 0418 wave 5), as in the editor and games.
       if (source === "svelte/reactivity" && importer && /\.svelte(\.[jt]s)?$/.test(importer.split("?")[0])) return SVELTE_UI_REACTIVITY;
       if (!importer || !source.endsWith(".css") || !/\.svelte(\.[jt]s)?$/.test(importer.split("?")[0])) return null;

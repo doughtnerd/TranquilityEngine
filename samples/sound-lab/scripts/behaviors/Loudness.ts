@@ -19,7 +19,7 @@ import { exposeKeyScopes, keysClaimed } from "../keyScope";
  */
 @behavior("lab.Loudness")
 export class Loudness extends GameBehavior {
-  /** The page's UI document node (ui/*.ui.xml): this script fills its `{loudness}` binding. */
+  /** The page's HUD node (a UIView of ui/<Page>.svelte): this script passes its `loudness` prop. */
   @field(GameObject) hud: GameObject | null = null;
   @field(String) referenceKey = "l";
   @field(String) hotKey = "w";

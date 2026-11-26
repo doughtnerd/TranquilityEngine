@@ -6,6 +6,8 @@ import { subtitlesManifest } from "../manifest";
 export const subtitlesEditorPlugin: EditorPlugin = {
   manifest: subtitlesManifest,
   activate(context) {
+    // The built-in subtitle display's component (ADR 0419 wave B), compiled with the editor.
+    void import("../builtinUI");
     context.registerPlayToolbarItem({ id: "myco.subtitles.overlay", view: () => import("./OverlayToggle").then((m) => m.OverlayToggle) });
   },
 };

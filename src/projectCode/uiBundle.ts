@@ -15,6 +15,7 @@ import type { EsbuildApi } from "../editor/packages";
 import { PackageResolver, dirname, join, type PackageFiles } from "../editor/packageResolver";
 import { relativeSpecifier } from "../export/format";
 import { compilerOptions, SCRIPT_EMIT } from "../scriptCompiler.mjs";
+import { BUILTIN_UI_COMPONENTS } from "./builtinUI";
 import { ENGINE_SOURCE_DIR, UI_HOST_FILE, UI_REACTIVITY_SOURCE, UI_RENDERER_SOURCE, UI_RUNTIME_SPECIFIERS } from "./uiModules";
 
 /** Where a game's UI runtime comes from: the engine's files, and esbuild to bundle them with. */
@@ -161,7 +162,7 @@ export async function bundleUI(modules: ReadonlyMap<string, string>, source: UIR
 /**
  * The engine's files a game's UI bundle can read (ADR 0421), by path from the engine's root: every runtime module
  * compiled UI code may import, the files they import in turn, the renderer and its own imports, and the
- * `package.json` files resolving them reads. The editor serves these (it can't read the engine's folder), so its
+ * `package.json` files resolving them reads, and the built-in UI components' sources. The editor serves these (it can't read the engine's folder), so its
  * exports bundle exactly what `npm run export` does from the folder itself.
  */
 export async function collectUIRuntimeFiles(files: PackageFiles): Promise<Map<string, string>> {
@@ -186,5 +187,7 @@ export async function collectUIRuntimeFiles(files: PackageFiles): Promise<Map<st
     if (code === null || result.file.endsWith(".json") || result.file.endsWith(".d.ts")) continue;
     for (const imp of importSites(ts, code)) queue.push({ specifier: imp.specifier, importer: result.file });
   }
+  // The engine's built-in UI components' sources (ADR 0419 wave B), which a build compiles when the project uses them.
+  for (const c of BUILTIN_UI_COMPONENTS) await files.read(c.source).then((text) => text !== null && read.set(c.source, text));
   return read;
 }

@@ -1,4 +1,4 @@
-import { Audio, GameBehavior, Lobby, Time, UIButton, UIDocument, behavior, type LobbyRoom, type UIDocumentElement } from "myco";
+import { Audio, GameBehavior, Lobby, Time, UIView, behavior, type LobbyRoom } from "myco";
 import { TEAM_COLORS } from "../data";
 import { ARENAS, BOT_NAMES, MATCH_LENGTHS, SHIP_COUNTS, arenaOf, forgetLeftMatch, leftMatchEarly, shipsOf } from "../lobby";
 
@@ -49,12 +49,35 @@ function save(key: string, value: string): void {
   }
 }
 
+/** The menu's state as its component (ui/Menu.svelte) draws it: what the lobby says, read each frame. */
+interface MenuState {
+  where: string;
+  status: string;
+  error: string;
+  screen: "home" | "room" | null;
+  sailing: boolean;
+  rooms: { code: string; label: string }[];
+  showLocal: boolean;
+  room: {
+    title: string;
+    code: string;
+    seats: Seat[];
+    settingsTitle: string;
+    settings: { key: string; label: string; value: string }[];
+    canSet: boolean;
+    results: { title: string; lines: string[] } | null;
+    status: string;
+    ready: boolean;
+    host: boolean;
+  } | null;
+}
+
 /**
  * The main menu and the room view (ADR 0068), over the sea (scenes/menu.scene.json). The screens are
- * a UI document (ADR 0077, 0417): ui/menu.ui.xml, with their look in ui/menu.ui.css.
- * Buttons and fields get handlers once; each frame the script reads `Lobby` into `ui.data` (the
- * markup's `{bindings}`), makes the open rooms, the crew, the settings and the results with
- * `ui.list()` when they change, and shows the screen the lobby is in (the `hidden` class).
+ * a Svelte component (ADR 0419), ui/Menu.svelte, mounted by the node's UIView. Its props: `menu`, what
+ * the script reads from `Lobby` each frame (the screen the lobby is in, the open rooms, the crew, the
+ * settings and the results); `fields`, the name, room code and server address fields (bound both
+ * ways); and `on`, what the buttons do.
  *
  * While a match plays, the lobby pauses this World and the match World takes the screen; when the
  * match ends, this World resumes and shows the room with the results.
@@ -71,72 +94,50 @@ export class Menu extends GameBehavior {
   private startWhenHost = false;
   private shownError = "";
   private errorSince = 0;
-  private ui!: UIDocument;
-  private wired = false;
-  /** What each list was last made from, to remake it only when that changes. */
-  private made = new Map<string, string>();
+  private view!: UIView;
+  /** The state last passed to the view, as JSON. */
+  private shown = "";
 
   start(): void {
-    this.ui = this.node.getBehavior(UIDocument)!;
-    Object.assign(this.ui.data, { where: "", status: "", error: "", roomTitle: "", roomCode: "", settingsTitle: "", resultsTitle: "", roomStatus: "", readyLabel: "" });
-    if (this.ui.root) this.wire();
-    else void this.ui.ready.then(() => this.wire());
+    this.view = this.node.getBehavior(UIView)!;
+    this.view.props = {
+      menu: this.state(),
+      fields: { name: load(NAME_KEY) || `Captain ${10 + Math.floor(Math.random() * 90)}`, code: "", url: load(SERVER_KEY) || defaultServer() },
+      on: {
+        quickMatch: () => this.act(() => Lobby.quickMatch()),
+        practice: () =>
+          this.act(() => {
+            Lobby.createRoom({ name: "Practice", public: false });
+            this.startWhenHost = true;
+          }),
+        createRoom: () => this.act(() => Lobby.createRoom({ name: `${this.name()}'s room`, public: true })),
+        joinCode: () => {
+          const wanted = this.fields().code.trim().toUpperCase();
+          if (wanted) this.act(() => Lobby.joinRoom(wanted));
+        },
+        joinRoom: (code: string) => this.act(() => Lobby.joinRoom(code)),
+        joinServer: () => {
+          const address = this.fields().url.trim();
+          if (!address) return;
+          save(SERVER_KEY, address);
+          this.connect(/^wss?:\/\//i.test(address) ? address : `ws://${address}`);
+        },
+        local: () => this.connect("local"),
+        ready: () => Lobby.setReady(!this.ready()),
+        start: () => {
+          if (Lobby.me?.host) Lobby.start();
+        },
+        leave: () => {
+          this.startWhenHost = false;
+          Lobby.leaveRoom();
+        },
+        step: (key: string, by: number) => this.step(key, by),
+      },
+    };
     this.connect("local");
   }
 
-  /** Handlers on the document's buttons and fields (they're kept when the files hot-reload). */
-  private wire(): void {
-    const ui = this.ui;
-    const name = this.el("#name");
-    name.value = load(NAME_KEY) || `Captain ${10 + Math.floor(Math.random() * 90)}`;
-    this.el("#url").value = load(SERVER_KEY) || defaultServer();
-
-    this.el("#quick-match").on("click", () => this.act(() => Lobby.quickMatch()));
-    this.el("#practice").on("click", () =>
-      this.act(() => {
-        Lobby.createRoom({ name: "Practice", public: false });
-        this.startWhenHost = true;
-      }),
-    );
-    this.el("#create-room").on("click", () => this.act(() => Lobby.createRoom({ name: `${this.name()}'s room`, public: true })));
-
-    const code = this.el("#code");
-    code.on("change", () => {
-      const upper = code.value!.toUpperCase();
-      if (upper !== code.value) code.value = upper;
-    });
-    const joinByCode = () => {
-      const wanted = code.value!.trim();
-      if (wanted) this.act(() => Lobby.joinRoom(wanted));
-    };
-    this.el("#join").on("click", joinByCode);
-    code.on("submit", joinByCode);
-
-    const url = this.el("#url");
-    const joinServer = () => {
-      const address = url.value!.trim();
-      if (!address) return;
-      save(SERVER_KEY, address);
-      this.connect(/^wss?:\/\//i.test(address) ? address : `ws://${address}`);
-    };
-    this.el("#connect").on("click", joinServer);
-    url.on("submit", joinServer);
-    this.el("#local").on("click", () => this.connect("local"));
-
-    this.el("#ready").on("click", () => Lobby.setReady(!this.ready()));
-    this.el("#start").on("click", () => {
-      if (Lobby.me?.host) Lobby.start();
-    });
-    this.el("#leave").on("click", () => {
-      this.startWhenHost = false;
-      Lobby.leaveRoom();
-    });
-    this.made.clear();
-    this.wired = !!ui.root;
-  }
-
   update(): void {
-    if (!this.wired) return;
     const state = Lobby.state;
     if (this.pending && state === "lobby") {
       const action = this.pending;
@@ -147,37 +148,43 @@ export class Menu extends GameBehavior {
       this.startWhenHost = false;
       Lobby.start();
     }
+    const menu = this.state();
+    const json = JSON.stringify(menu);
+    if (json !== this.shown) {
+      this.shown = json;
+      this.view.props.menu = menu;
+    }
+  }
+
+  /** What the menu shows now. */
+  private state(): MenuState {
+    const state = Lobby.state;
     const room = Lobby.room;
     const inRoom = (state === "room" || state === "starting") && room !== null;
-    this.show("#home", !inRoom && state !== "match");
-    this.show("#room", inRoom);
-    this.show("#sailing", state === "match" || this.startWhenHost);
-    if (inRoom) this.room(room!);
-    else this.home();
-    this.header();
+    return {
+      ...this.header(),
+      screen: inRoom ? "room" : state !== "match" ? "home" : null,
+      sailing: state === "match" || this.startWhenHost,
+      rooms: inRoom ? [] : this.rooms(),
+      showLocal: this.address !== "local",
+      room: inRoom ? this.room(room!) : null,
+    };
   }
 
   // --- home ---------------------------------------------------------------------------------------
 
-  private home(): void {
-    const rooms = Lobby.rooms
+  private rooms(): { code: string; label: string }[] {
+    return Lobby.rooms
       .filter((r) => r.state !== "playing" && r.members < r.maxPlayers)
       .slice(0, 4)
       .map((r) => ({ code: r.code, label: `${r.name}  -  ${arenaOf(r.settings).name}  -  ${r.members}/${r.maxPlayers}` }));
-    this.list("#rooms", rooms, (row) => row.query("Button")!.on("click", (e) => this.act(() => Lobby.joinRoom((e.item as { code: string }).code))), "code");
-    this.show("#rooms", rooms.length > 0);
-    this.show("#no-rooms", rooms.length === 0);
-    this.show("#local", this.address !== "local");
   }
 
   // --- the room -----------------------------------------------------------------------------------
 
-  private room(room: LobbyRoom): void {
+  private room(room: LobbyRoom): NonNullable<MenuState["room"]> {
     const me = Lobby.me;
     const host = !!me?.host;
-    const data = this.ui.data;
-    data.roomTitle = room.name;
-    data.roomCode = room.public ? `Room code ${room.code}  -  open to all` : `Room code ${room.code}  -  private`;
 
     // Crew: players by slot, then the bots that fill the empty places up to the ship count.
     let bots = Math.max(0, shipsOf(room.settings) - room.members.length);
@@ -195,50 +202,38 @@ export class Menu extends GameBehavior {
         bot: !member,
       });
     }
-    const rows = this.list("#slots", seats, undefined, "slot");
-    for (const row of rows) {
-      const seat = row.item as Seat;
-      row.classList.toggle("me", seat.me);
-      row.classList.toggle("bot", seat.bot);
-    }
 
     // The host's settings: one row per setting, its < and > only for the host (the stylesheet hides them otherwise).
-    data.settingsTitle = host ? "Settings" : "Settings (the host picks)";
     const settings = SETTINGS.map((s) => {
       const value = room.settings[s.key] ?? s.choices[0];
       return { key: s.key, label: s.label, value: s.name(value) };
     });
-    this.list("#setting-rows", settings, (row) => {
-      row.query(".prev")!.on("click", (e) => this.step((e.item as { key: string }).key, -1));
-      row.query(".next")!.on("click", (e) => this.step((e.item as { key: string }).key, 1));
-    }, "key");
-    const canSet = host && room.state !== "playing";
-    for (const b of this.ui.queryAll(".step")) {
-      const button = b.as(UIButton);
-      if (button.interactable !== canSet) button.interactable = canSet;
-    }
 
     // The last match's results.
-    const results = room.results;
-    this.show("#results", !!results);
-    if (results) {
-      data.resultsTitle = results.winner ? `${results.winner} is the King of Pirates!` : "The match is over";
-      const lines = results.winner ? [1, 2, 3, 4].filter((i) => results[String(i)]).map((i) => `${i}.  ${results[String(i)]}`) : [results.reason ?? ""];
-      this.list("#result-lines", lines.map((text) => ({ text })));
-    }
+    const r = room.results;
+    const results = r ? { title: r.winner ? `${r.winner} is the King of Pirates!` : "The match is over", lines: r.winner ? [1, 2, 3, 4].filter((i) => r[String(i)]).map((i) => `${i}.  ${r[String(i)]}`) : [r.reason ?? ""] } : null;
 
     // Status and buttons.
-    const ready = this.ready();
     if (room.state !== "playing") forgetLeftMatch();
-    if (room.state === "countdown") data.roomStatus = `Setting sail in ${room.countdown}...`;
-    else if (room.state === "playing" && leftMatchEarly()) data.roomStatus = "You left the match. The others sail on; the results come here when it ends.";
-    else if (room.state === "playing") data.roomStatus = "Setting sail...";
-    else if (room.quick) data.roomStatus = "Quick match: setting sail soon. Bots take the empty places.";
-    else if (host) data.roomStatus = room.members.length > 1 ? "Start when you like, or when everyone is ready." : "Start when you like: bots take the empty places.";
-    else data.roomStatus = "Ready up: the match starts when every captain is ready.";
-    data.readyLabel = ready ? "Ready!" : "Ready?";
-    this.el("#ready").classList.toggle("on", ready);
-    this.show("#start", host);
+    let status: string;
+    if (room.state === "countdown") status = `Setting sail in ${room.countdown}...`;
+    else if (room.state === "playing" && leftMatchEarly()) status = "You left the match. The others sail on; the results come here when it ends.";
+    else if (room.state === "playing") status = "Setting sail...";
+    else if (room.quick) status = "Quick match: setting sail soon. Bots take the empty places.";
+    else if (host) status = room.members.length > 1 ? "Start when you like, or when everyone is ready." : "Start when you like: bots take the empty places.";
+    else status = "Ready up: the match starts when every captain is ready.";
+    return {
+      title: room.name,
+      code: room.public ? `Room code ${room.code}  -  open to all` : `Room code ${room.code}  -  private`,
+      seats,
+      settingsTitle: host ? "Settings" : "Settings (the host picks)",
+      settings,
+      canSet: host && room.state !== "playing",
+      results,
+      status,
+      ready: this.ready(),
+      host,
+    };
   }
 
   private step(key: string, by: number): void {
@@ -257,10 +252,8 @@ export class Menu extends GameBehavior {
 
   // --- header and footer --------------------------------------------------------------------------
 
-  private header(): void {
+  private header(): { where: string; status: string; error: string } {
     const state = Lobby.state;
-    const data = this.ui.data;
-    data.where = this.address === "local" ? "Harbour: this computer" : `Harbour: ${this.address}`;
     const status: Record<string, string> = {
       offline: "Offline",
       connecting: "Connecting...",
@@ -269,14 +262,17 @@ export class Menu extends GameBehavior {
       starting: "Setting sail...",
       match: "At sea",
     };
-    data.status = status[state] ?? state;
 
     const error = Lobby.error;
     if (error !== this.shownError) {
       this.shownError = error;
       this.errorSince = Time.realtimeSinceStartup;
     }
-    data.error = error && Time.realtimeSinceStartup - this.errorSince < ERROR_SECONDS ? error : "";
+    return {
+      where: this.address === "local" ? "Harbour: this computer" : `Harbour: ${this.address}`,
+      status: status[state] ?? state,
+      error: error && Time.realtimeSinceStartup - this.errorSince < ERROR_SECONDS ? error : "",
+    };
   }
 
   // --- the lobby connection -----------------------------------------------------------------------
@@ -299,32 +295,18 @@ export class Menu extends GameBehavior {
   }
 
   private name(): string {
-    return this.ui.query("#name")?.value?.trim() || "Captain";
+    return this.fields().name.trim() || "Captain";
+  }
+
+  /** The name, room code and server address fields, as the player typed them (the view binds them). */
+  private fields(): { name: string; code: string; url: string } {
+    return this.view.props.fields as { name: string; code: string; url: string };
   }
 
   // --- UI helpers ---------------------------------------------------------------------------------
 
   private click(): void {
     Audio.playOneShot("audio/ui_click.wav", { volume: 0.6 });
-  }
-
-  private el(selector: string): UIDocumentElement {
-    const el = this.ui.query(selector);
-    if (!el) throw new Error(`ui/menu.ui.xml has no "${selector}".`);
-    return el;
-  }
-
-  /** Show or hide an element with the stylesheet's `.hidden` (`display: none`: it takes no space). */
-  private show(selector: string, on: boolean): void {
-    this.el(selector).classList.toggle("hidden", !on);
-  }
-
-  /** `ui.list()`, called again only when the items change. Returns the rows. */
-  private list<T extends object>(selector: string, items: readonly T[], setup?: (row: UIDocumentElement, item: T) => void, key?: keyof T): UIDocumentElement[] {
-    const made = JSON.stringify(items);
-    if (this.made.get(selector) === made) return this.el(selector).children.filter((c) => c.item !== undefined);
-    this.made.set(selector, made);
-    return this.ui.list(selector, items, setup, key ? { key } : {});
   }
 }
 

@@ -139,9 +139,9 @@
       "transform": false,
       "components": [
         {
-          "type": "engine.UIDocument",
+          "type": "engine.UIView",
           "data": {
-            "document": "asset:ui/mixer.ui.xml"
+            "component": "asset:ui/Mixer.svelte"
           }
         }
       ]

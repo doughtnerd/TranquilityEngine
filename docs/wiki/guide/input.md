@@ -223,7 +223,7 @@ img.src = glyph.url;                               // an HTML <img>; glyph.svg i
 
 ### A rebinding screen
 
-**UIControlMapper** (Add Component › UI) is a ready-made controls screen. Put it on any node and it makes its own screen canvas; to place it inside one of your [UI documents](ui.md), add it from a script to a document element's node (`ui.query("#controls")!.node.addComponent(UIControlMapper, …)`), and it lays out in that document's canvas:
+**UIControlMapper** (Add Component › UI) is a ready-made controls screen, drawn by a built-in Svelte component (`@myco/ui/ControlMapper.svelte`) on a `UIView` it makes as its node's child. Put it on any node and it draws on a screen canvas of its own; under a game's canvas, its canvas takes that canvas's settings and draws just above it:
 
 - One row per action (`actions`: a comma-separated list, empty for every action but the engine's UI actions), one per part for a d-pad or axis composite ("Move Up"…), with a **Keyboard** and a **Gamepad** cell. Each shows the binding's glyphs and label; the gamepad column follows the pad the player last used.
 - Every cell and button is a focusable `UIButton`, so the game UI's [keyboard and gamepad navigation](ui.md#keyboard-and-gamepad-navigation) drives the screen: the arrow keys, d-pad or left stick move focus, and Enter, Space or the south button press the focused button. The screen takes focus when it appears, so a d-pad player can start without clicking. The focused button has an `accentColor` border, after mouse use too.

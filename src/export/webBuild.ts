@@ -11,6 +11,7 @@ import type { ProjectSettingsInput } from "../engine";
 import { pickMainScene } from "../editor/projects";
 import type { PackageSource } from "../editor/packages";
 import { isProjectFile, skipsFolder } from "../engine/scene/projectFiles";
+import { usedBuiltinUI } from "../projectCode/builtinUI";
 import { isUISourcePath } from "../projectCode/uiModules";
 import { LEGACY_AUDIO_MESSAGE, hasLegacyAudio } from "../engine/audio/project/load";
 import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudioEvent";
@@ -231,8 +232,9 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   const shippedFiles = lineFiles.size > 0 && !copies.includes(LINE_INDEX_PATH) ? [...copies, LINE_INDEX_PATH].sort() : copies;
   // The selected code links into build files (ADR 0329); any problem, a plugin entry's included, stops the build.
   const shipped = copies;
+  const ui = await withBuiltinUI(source);
   const linked = await link(
-    { code: pluginPlan.code, json: source.json, ui: source.ui, packages: source.packages, extraEntries: pluginPlan.npmEntries, isAsset: (p) => shipped.includes(p) },
+    { code: pluginPlan.code, json: source.json, ui, packages: source.packages, extraEntries: pluginPlan.npmEntries, isAsset: (p) => shipped.includes(p) },
 
     buildTarget({ ui: source.uiRuntime }),
   );
@@ -443,4 +445,23 @@ export function debugServeScript(options: { readonly lan: boolean; readonly rend
   console.log(\`Serving the game at http://127.0.0.1:\${bound}/ (Ctrl+C stops)\`);
 ${lan}${pairing}});
 `;
+}
+
+/**
+ * The project's UI code, plus the engine's built-in UI components it uses (ADR 0419 wave B): those whose engine
+ * component (`UIControlMapper`, `SubtitleDisplay`) a scene, prefab, script or UI source names. They compile into the
+ * game's own code with the project's components (the player carries no Svelte, ADR 0421), each at its `@myco/ui/` path,
+ * from the engine's files the UI runtime comes from.
+ */
+async function withBuiltinUI(source: BuildSource): Promise<ReadonlyMap<string, string> | undefined> {
+  const used = usedBuiltinUI([...source.json.values(), ...source.scripts.values(), ...(source.ui?.values() ?? [])]);
+  if (used.length === 0) return source.ui;
+  if (!source.uiRuntime) throw new ExportError(`The project uses ${used.flatMap((c) => c.usedBy).join(" and ")}, whose built-in UI needs the engine's Svelte runtime, which this build has none of.`);
+  const ui = new Map(source.ui ?? []);
+  for (const c of used) {
+    const text = await source.uiRuntime.files.read(c.source);
+    if (text === null) throw new ExportError(`The engine's built-in UI component ${c.source} can't be read.`);
+    ui.set(c.path, text);
+  }
+  return ui;
 }

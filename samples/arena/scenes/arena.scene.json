@@ -71,7 +71,7 @@
       "name": "Scoreboard",
       "transform": false,
       "components": [
-        { "type": "engine.UIDocument", "data": { "document": "asset:ui/hud.ui.xml" } },
+        { "type": "engine.UIView", "data": { "component": "asset:ui/Hud.svelte" } },
         { "type": "arena.Hud" }
       ]
     }

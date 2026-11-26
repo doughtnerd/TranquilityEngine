@@ -2,7 +2,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Color, Engine, Lobby } from "../index";
 import { UIButton, UIInputField, UIPanel, UIText } from "../ui/components";
-import { UIDocument, type UIDocumentElement } from "../ui/UIDocument";
+import { UIView } from "../../plugins/ui/runtime/UIView";
+import type { UIHostElement } from "../ui/host/UIHost";
+import { serveSampleUI } from "./sampleUI";
 import type { World } from "../core/World";
 import { readProject } from "../../server/project";
 import { UIPointer } from "./uiPointer";
@@ -23,10 +25,10 @@ import { Menu } from "../../../samples/pirates/scripts/behaviors/Menu";
 import "../../../samples/pirates/scripts/behaviors/MenuBackdrop";
 import "../../../samples/pirates/scripts/lobby";
 
-// The pirates menu is a UI document (ADR 0077, 0417): scenes/menu.scene.json has one UI node, with a
-// UIDocument (ui/menu.ui.xml, ui/menu.ui.css) and the Menu script. Played headless from the sample's
-// own bootstrap, it builds with no problems, fills its bindings from the lobby, makes the crew and
-// settings rows with list(), and its buttons create rooms, step settings and start a practice match.
+// The pirates menu is a Svelte component (ADR 0419): scenes/menu.scene.json has one UI node, with a
+// UIView (ui/Menu.svelte) and the Menu script. Played headless from the sample's own bootstrap, it
+// mounts with no problems, shows what the lobby says, renders the crew and settings rows, and its
+// buttons create rooms, step settings and start a practice match.
 
 const SAMPLE = fileURLToPath(new URL("../../../samples/pirates", import.meta.url));
 const STEP = 1 / 60;
@@ -53,16 +55,18 @@ async function stepUntil(engine: Engine, done: () => boolean, what: string, maxF
 }
 
 /** The sample, from its own bootstrap: the Menu World on scenes/menu.scene.json. */
-async function openMenu(warnings: string[]): Promise<{ engine: Engine; menu: World; ui: UIDocument; click(el: UIDocumentElement): void }> {
+async function openMenu(warnings: string[]): Promise<{ engine: Engine; menu: World; ui: UIView; click(el: UIHostElement): void }> {
   vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => void warnings.push(args.map(String).join(" ")));
   const project = await readProject(SAMPLE);
   Assets.addSource(project.assets);
+  serveSampleUI(import.meta.glob("../../../samples/pirates/ui/*.svelte", { eager: true }));
   const engine = await Engine.create({ headless: true, project: project.settings });
   engines.push(engine);
   const menu = engine._world("Menu")!;
   await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
   engine.step(STEP); // the script shows the state it's in from the next frame
-  const ui = menu._componentsOfType(UIDocument)[0];
+  const ui = menu._componentsOfType(UIView)[0];
+  await ui.ready;
   // The buttons are pressed through a UI core and Input, as the renderer routes a player's clicks.
   const pointer = await UIPointer.create(menu);
   pointers.push(pointer);
@@ -70,22 +74,21 @@ async function openMenu(warnings: string[]): Promise<{ engine: Engine; menu: Wor
 }
 
 /** Laid out and drawn: its node active, and neither it nor an element above it `display: none` (the script's `.hidden`). */
-const shown = (el: UIDocumentElement | null): boolean => {
+const shown = (el: UIHostElement | null): boolean => {
   if (!el || !el.node.activeInHierarchy) return false;
-  for (let e: UIDocumentElement | null = el; e; e = e.parent) if ((e.component as UIPanel).display === "none") return false;
+  for (let e: UIHostElement | null = el; e; e = e.parent) if ((e.component as UIPanel).display === "none") return false;
   return true;
 };
-const textOf = (el: UIDocumentElement | null) => el!.as(UIText).text;
+const textOf = (el: UIHostElement | null) => el!.as(UIText).text;
 
-describe("the pirates menu (a UI document)", () => {
-  it("builds from the markup and stylesheet with no problems, bound to the lobby", { timeout: 60_000 }, async () => {
+describe("the pirates menu (a Svelte component)", () => {
+  it("mounts the component with no problems, showing what the lobby says", { timeout: 60_000 }, async () => {
     const warnings: string[] = [];
     const { menu, ui } = await openMenu(warnings);
     expect(menu._componentsOfType(Menu)).toHaveLength(1);
-    expect(ui.problems).toEqual([]);
-    expect(warnings.filter((w) => /ui\/menu\.ui\.(xml|css)/.test(w))).toEqual([]);
+    expect(warnings.filter((w) => /Menu\.svelte/.test(w))).toEqual([]);
 
-    // The scene has one UI node: the document's (its elements aren't in the scene file).
+    // The scene has one UI node: the view's (its elements aren't in the scene file).
     expect(ui.node.children.map((n) => n.name)).toEqual(["Canvas"]);
     for (const id of ["title", "name", "quick-match", "practice", "create-room", "code", "join", "rooms", "no-rooms", "url", "connect", "local", "room", "slots", "setting-rows", "ready", "start", "leave", "sailing", "help", "error"]) {
       expect(ui.query(`#${id}`), id).not.toBeNull();
@@ -96,10 +99,10 @@ describe("the pirates menu (a UI document)", () => {
     const quick = ui.query("#quick-match")!.as(UIButton);
     expect(quick.height).toBe("60");
     expect(quick.hoverColor.toHex().toLowerCase()).toBe(new Color(0.95, 0.7, 0.26).toHex().toLowerCase());
-    expect(ui.query("#quick-match Text")!.as(UIText).fontWeight).toBe("bold"); // inherited through the button
+    expect(ui.query("#quick-match span")!.as(UIText).fontWeight).toBe("bold"); // inherited through the button
     expect(ui.query("#left")!.as(UIPanel).width).toBe("430");
     expect(ui.query("#code")!.as(UIInputField).maxLength).toBe(5);
-    expect(ui.query("#help")!.as(UIText).text).toContain("mouse.  A / D"); // an attribute keeps its double spaces
+    expect(ui.query("#help")!.as(UIText).text).toContain("mouse.  A / D"); // an expression keeps its double spaces
 
     // Bindings and the home screen.
     expect(textOf(ui.query("#where"))).toBe("Harbour: this computer");
@@ -112,7 +115,7 @@ describe("the pirates menu (a UI document)", () => {
     expect(shown(ui.query("#sailing"))).toBe(false);
     expect(ui.query("#sailing")!.as(UIPanel).positionType).toBe("absolute"); // `position: absolute`
     // Screens are hidden with a class (`display: none`), not by deactivating nodes: their nodes stay active.
-    expect(ui.query("#room")!.classList.contains("hidden")).toBe(true);
+    expect(ui.query("#room")!.classes.includes("hidden")).toBe(true);
     expect(ui.query("#room")!.node.activeInHierarchy).toBe(true);
   });
 
@@ -130,10 +133,10 @@ describe("the pirates menu (a UI document)", () => {
     // Six ships: the player, then five bots.
     const seats = ui.queryAll("#slots > .slot");
     expect(seats).toHaveLength(6);
-    expect(seats[0].classList.contains("me")).toBe(true);
+    expect(seats[0].classes.includes("me")).toBe(true);
     expect(textOf(seats[0].query(".slot-name"))).toMatch(/\(you\)$/);
     expect(textOf(seats[0].query(".slot-tag"))).toBe("Host");
-    expect(seats.slice(1).every((s) => s.classList.contains("bot") && / \(bot\)$/.test(textOf(s.query(".slot-name"))))).toBe(true);
+    expect(seats.slice(1).every((s) => s.classes.includes("bot") && / \(bot\)$/.test(textOf(s.query(".slot-name"))))).toBe(true);
     expect(seats[1].query(".slot-name")!.as(UIText).color.a).toBeCloseTo(0.55, 2); // .slot.bot .slot-name
     expect(seats[1].query(".swatch")!.as(UIPanel).backgroundColor!.a).toBeCloseTo(0.45, 2); // bound colour
 
@@ -157,9 +160,9 @@ describe("the pirates menu (a UI document)", () => {
 
     // Ready, then Leave goes home.
     click(ui.query("#ready")!);
-    await stepUntil(engine, () => textOf(ui.query("#ready Text")) === "Ready!", "ready");
+    await stepUntil(engine, () => textOf(ui.query("#ready span")) === "Ready!", "ready");
     expect(Lobby.room!.members.find((m) => m.slot === Lobby.me!.slot)!.ready).toBe(true);
-    expect(ui.query("#ready")!.classList.contains("on")).toBe(true);
+    expect(ui.query("#ready")!.classes.includes("on")).toBe(true);
     expect(ui.query("#ready")!.as(UIButton).backgroundColor!.toHex().toLowerCase()).toBe("#3f8f4a");
     click(ui.query("#leave")!);
     await stepUntil(engine, () => Lobby.state === "lobby", "back in the lobby");

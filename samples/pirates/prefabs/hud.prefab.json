@@ -10,9 +10,9 @@
           "data": {}
         },
         {
-          "type": "engine.UIDocument",
+          "type": "engine.UIView",
           "data": {
-            "document": "asset:ui/hud.ui.xml"
+            "component": "asset:ui/Hud.svelte"
           }
         },
         {

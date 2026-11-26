@@ -428,15 +428,16 @@ describe("exportProject (Node)", () => {
     return dir;
   };
 
-  it("writes the Flappy sample as a web build: player, project files, compiled scripts, manifest", async () => {
+  // The first build that compiles Svelte UI loads svelte/compiler and esbuild (ADR 0419, 0421): several seconds.
+  it("writes the Flappy sample as a web build: player, project files, compiled scripts and UI, manifest", { timeout: 120_000 }, async () => {
     const out = join(temp(), "web");
     const result = await exportProject({ projectDir: join(SAMPLES, "flappy"), out, playerDir: fakePlayer() });
     expect(readFileSync(join(out, "index.html"), "utf8")).toContain("<title>player</title>");
     expect(existsSync(join(out, "player.html"))).toBe(false);
-    for (const file of ["myco.js", "assets/player-x.js", "game.json", "serve.mjs", "README.txt", "project/project.json", "project/images/flappyBird.png", "project/music/town.mp3", "code/scripts/behaviors/Bird.js"]) {
+    for (const file of ["myco.js", "assets/player-x.js", "game.json", "serve.mjs", "README.txt", "project/project.json", "project/images/flappyBird.png", "project/music/town.mp3", "code/scripts/behaviors/Bird.js", "code/ui/Hud.svelte.js"]) {
       expect(existsSync(join(out, file)), file).toBe(true);
     }
-    for (const file of ["project/sample.json", "project/scripts/behaviors/Bird.ts", "code/scripts/behaviors/Bird.ts"]) expect(existsSync(join(out, file)), file).toBe(false);
+    for (const file of ["project/sample.json", "project/scripts/behaviors/Bird.ts", "code/scripts/behaviors/Bird.ts", "project/ui/Hud.svelte"]) expect(existsSync(join(out, file)), file).toBe(false);
     const manifest = JSON.parse(readFileSync(join(out, "game.json"), "utf8")) as GameManifest;
     expect(manifest).toMatchObject({ name: "flappy", mainScene: "scenes/main.scene.json" });
     expect(manifest.scripts.map((s) => s.source)).toContain("scripts/behaviors/GameManager.ts");

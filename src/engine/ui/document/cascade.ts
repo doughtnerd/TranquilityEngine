@@ -786,6 +786,10 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   for (const m of matched) {
     if (isVariable(m.declaration.property)) out.set(m.declaration.property, { field: m.declaration.property, value: m.declaration.value, source: { kind: "rule", rule: m.rule, declaration: m.declaration, file: m.file } });
   }
+  // An inline style's variables (`style="--accent: red"`, and Svelte's CSS custom property props) beat the rules', as on the web.
+  for (const a of element.attributes) {
+    if (isVariable(a.name)) out.set(a.name, { field: a.name, value: a.value, source: { kind: "attribute", attribute: a, file: element.file } });
+  }
   const vars = new Map<string, string>();
   for (const [k, v] of out) vars.set(k, String(v.value));
 
