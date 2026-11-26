@@ -42,7 +42,7 @@ export interface TilemapLayerData {
   sortingLayer: string;
   orderInLayer: number;
   visible: boolean;
-  /** Whether this layer's tiles make colliders (with a TilemapCollider2D). */
+  /** Whether this layer's tiles make colliders (with a ShapeCollider2D). */
   collision: boolean;
   /** Tint as `#rrggbb`, multiplied with the tiles. */
   tint: string;

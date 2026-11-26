@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BallJoint, BoxCollider, BoxCollider2D, CapsuleCollider, CircleCollider2D, HingeJoint, HingeJoint2D, MeshCollider, RigidBody, RigidBody2D, RopeJoint,
-  RopeJoint2D, SliderJoint, SliderJoint2D, SphereCollider, SpringJoint, SpringJoint2D, TilemapCollider2D,
+  RopeJoint2D, SliderJoint, SliderJoint2D, SphereCollider, SpringJoint, SpringJoint2D, ShapeCollider2D,
 } from "../../myco";
 import { isFieldAnimatable } from "../../engine/core/registry";
 import type { ComponentClass } from "../../engine/core/registry";
@@ -12,7 +12,7 @@ const OPT_OUTS: [string, ComponentClass, string[]][] = [
   ["RigidBody2D", RigidBody2D, ["bodyType"]],
   ["CapsuleCollider", CapsuleCollider, ["direction"]],
   ["MeshCollider", MeshCollider, ["mesh", "convex"]],
-  ["TilemapCollider2D", TilemapCollider2D, ["mode"]],
+  ["ShapeCollider2D", ShapeCollider2D, ["mode"]],
   ["HingeJoint", HingeJoint, ["anchor", "connectedAnchor", "autoConfigureConnectedAnchor", "enableCollision", "axis", "useLimits"]],
   ["SliderJoint", SliderJoint, ["axis", "useLimits"]],
   ["BallJoint", BallJoint, ["axis", "useLimits"]],

@@ -1,7 +1,7 @@
 /**
  * 2D collision shape sources (ADR 0136). A Component that can describe 2D collision shapes (a Tilemap's
  * tiles today; a sprite outline or a procedural level tomorrow) implements `CollisionShapeSource2D`, and a
- * 2D collider on the same node (Physics 2D's `TilemapCollider2D`) builds colliders from whatever source it
+ * 2D collider on the same node (Physics 2D's `ShapeCollider2D`) builds colliders from whatever source it
  * finds. Neither side knows the other: physics plugins and content plugins meet here, in core.
  * No physics engine types (ADR 0010).
  */

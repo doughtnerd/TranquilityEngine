@@ -334,8 +334,44 @@ export function isFieldAnimatable(type: ComponentClass, name: string): boolean {
   return t === Number || t === Boolean || t === AssetRef || t === Vector2 || t === Vector3 || t === Quaternion || t === Color;
 }
 
+/** Component id aliases (ADR 0423): an old id a component was renamed from, mapped to its current id. */
+const aliases = new Map<string, string>();
+let aliasVersion = 0;
+
+/**
+ * Read the component id `oldId` as `newId` (ADR 0423): scenes, prefabs and prefab overrides that name the old id
+ * load the class registered under the new one, and documents are written with the new id. For renamed
+ * components; registering the same alias again is harmless. Returns the undo.
+ */
+export function registerComponentAlias(oldId: string, newId: string): () => void {
+  if (oldId === newId) throw new Error(`registerComponentAlias: "${oldId}" can't be an alias of itself.`);
+  if (resolveComponentId(newId) === oldId) throw new Error(`registerComponentAlias: "${oldId}" → "${newId}" would make a cycle.`);
+  aliases.set(oldId, newId);
+  aliasVersion++;
+  return () => {
+    if (aliases.get(oldId) !== newId) return;
+    aliases.delete(oldId);
+    aliasVersion++;
+  };
+}
+
+/** The current id for a component id: `id` itself, or what its alias (and any alias of that) names. */
+export function resolveComponentId(id: string): string {
+  let out = id;
+  for (let hops = 0; hops < 8; hops++) {
+    const next = aliases.get(out);
+    if (next === undefined) return out;
+    out = next;
+  }
+  return out;
+}
+
+/** @internal Changes whenever an alias is added or removed, so files read before can be read again. */
+export const _componentAliasVersion = (): number => aliasVersion;
+
+/** The class registered under `id`, or under the id `id` is an alias of (ADR 0423). */
 export function getComponentClass(id: string): ComponentClass | undefined {
-  return classById.get(id);
+  return classById.get(id) ?? (aliases.size ? classById.get(resolveComponentId(id)) : undefined);
 }
 
 /** @internal Every registered component id, in registration order (for the editor's Add Component list). */

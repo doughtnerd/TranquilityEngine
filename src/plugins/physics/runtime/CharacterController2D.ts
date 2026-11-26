@@ -45,6 +45,8 @@ export class CharacterController2D extends Collider2D {
   @field(Number) mass = 1;
   /** Ride kinematic and dynamic bodies it stands on (moving platforms), moving with them each fixed step. */
   @field(Boolean) moveWithPlatforms = true;
+  /** A character controller is never a one-way platform itself; it honours other colliders' `oneWay` (ADR 0423). */
+  @field(Boolean, { hidden: true }) override oneWay = false;
 
   /** @internal */ _flags: CollisionFlags = NO_FLAGS;
   /** @internal */ _velocity = new Vector2();
@@ -86,6 +88,15 @@ export class CharacterController2D extends Collider2D {
     this.setVelocity(result.movement.x, result.movement.y);
     for (const hit of result.hits) this._world._sendMessage([this.node, this.owner], "onControllerColliderHit", hit);
     return this._flags;
+  }
+
+  /**
+   * Pass down through every one-way collider it stands on or overlaps now (ADR 0423): Down + Jump on a plank. One-way
+   * colliders reached later still hold it, so the next platform below catches it; solid colliders always do. Does
+   * nothing on a backend without one-way platforms.
+   */
+  dropThrough(): void {
+    physics2DOf(this._world)?.dropThrough(this);
   }
 
   /** Walk at `speed.x` units per second for this frame, falling with gravity when not grounded. Returns `isGrounded`. */

@@ -19,12 +19,12 @@ import { RigidBody2D } from "./RigidBody2D";
 import { componentIds, physicsSystems, physicsWorldService, type PhysicsDimensionDescription, type PhysicsDimensionInfo } from "./services";
 import { PHYSICS_2D } from "./systems2d";
 import { PHYSICS_3D } from "./systems3d";
-import { TilemapCollider2D } from "./TilemapCollider2D";
+import { ShapeCollider2D } from "./ShapeCollider2D";
 
 const PHYSICS_2D_DIMENSION: PhysicsDimensionDescription<PhysicsWorld2D> = {
   dimension: "2d",
   serviceId: PHYSICS_2D,
-  components: [RigidBody2D, BoxCollider2D, CircleCollider2D, PolygonCollider2D, EdgeCollider2D, TilemapCollider2D, CharacterController2D, FixedJoint2D, HingeJoint2D, SliderJoint2D, RopeJoint2D, SpringJoint2D],
+  components: [RigidBody2D, BoxCollider2D, CircleCollider2D, PolygonCollider2D, EdgeCollider2D, ShapeCollider2D, CharacterController2D, FixedJoint2D, HingeJoint2D, SliderJoint2D, RopeJoint2D, SpringJoint2D],
   systemStem: "engine.Physics",
   create: (world, core, backend) => new core.PhysicsWorld2D(world, backend as PhysicsBackend2D),
 };
