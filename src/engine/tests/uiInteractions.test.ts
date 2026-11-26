@@ -57,6 +57,24 @@ function focus(p: UIPointer, field: UIInputField): void {
 }
 
 describe("UI interaction events (ADR 0309)", () => {
+  it("gives two clicks on two buttons in one long frame each to its own button, in order", async () => {
+    const doc = buildUI(`<Canvas><Panel flex-direction="row"><Button id="a" width="100" height="50">A</Button><Button id="b" width="100" height="50">B</Button></Panel></Canvas>`);
+    const a = byId(doc, "a", UIButton);
+    const b = byId(doc, "b", UIButton);
+    const p = await pointer();
+    const seen: string[] = [];
+    const frame = () => {
+      engine.step(DT);
+      p.sync();
+      seen.push(`${a.clicked ? "a" : ""}${b.clicked ? "b" : ""}`);
+    };
+    frame();
+    p.click(a);
+    p.click(b); // before the World steps again: the second press waits in the queue
+    for (let i = 0; i < 4; i++) frame();
+    expect(seen).toEqual(["", "a", "", "b", ""]);
+  });
+
   it("doesn't report a script's value write in fixedUpdate as a change", async () => {
     const doc = await form();
     const name = doc.query("#name")!;

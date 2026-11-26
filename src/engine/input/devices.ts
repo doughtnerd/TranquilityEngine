@@ -243,7 +243,8 @@ export type InputRouter = (pointer: PointerFrame) => InputClaim | void;
 export const mouseKey = (button: number): string => `mouse${button}`;
 const isMouseKey = (k: string) => /^mouse\d+$/.test(k);
 
-type QueuedEvent = { down: boolean; key: string; time: number };
+/** A key or pointer button change; a pointer button's carries where the pointer was then (`x`, `y`, canvas pixels). */
+type QueuedEvent = { down: boolean; key: string; time: number; x?: number; y?: number };
 
 type PadEvent =
   | { kind: "connect"; info: GamepadInfo; time: number }
@@ -530,6 +531,12 @@ class DeviceSnapshot implements DeviceEventSink {
   /** Last frame's `downNow`: a key read down then (pressed, maybe released too) isn't pressed again until a frame reads it up. */
   private readonly lastDown = new Set<string>();
   private readonly pointer = new Vector2();
+  /**
+   * Where the pointer was at the last pointer button change applied this frame, or null when none was: the frame's
+   * pointer position then, so a press or release that waited in the queue reads where it happened, not where the
+   * pointer has moved since (two quick taps on two buttons during a long frame each hit their own).
+   */
+  private pressAt: Vector2 | null = null;
   private readonly pendingMove = new Vector2();
   private readonly moved = new Vector2();
   private readonly pendingScroll = new Vector2();
@@ -576,11 +583,11 @@ class DeviceSnapshot implements DeviceEventSink {
   }
 
   buttonDown(button: number): void {
-    this.queue.push({ down: true, key: mouseKey(button), time: now() });
+    this.queue.push({ down: true, key: mouseKey(button), time: now(), x: this.pointer.x, y: this.pointer.y });
   }
 
   buttonUp(button: number): void {
-    this.queue.push({ down: false, key: mouseKey(button), time: now() });
+    this.queue.push({ down: false, key: mouseKey(button), time: now(), x: this.pointer.x, y: this.pointer.y });
   }
 
   pointerAt(x: number, y: number): void {
@@ -603,7 +610,7 @@ class DeviceSnapshot implements DeviceEventSink {
       if (ev.down) down.add(ev.key);
       else down.delete(ev.key);
     }
-    for (const k of down) this.queue.push({ down: false, key: k, time });
+    for (const k of down) this.queue.push(isMouseKey(k) ? { down: false, key: k, time, x: this.pointer.x, y: this.pointer.y } : { down: false, key: k, time });
     this.touchscreen.releaseAll(time);
     this.penDevice.releaseAll(time);
   }
@@ -690,6 +697,7 @@ class DeviceSnapshot implements DeviceEventSink {
     this.upNow.clear();
     this.rawEvents.length = 0;
     const keyEvents: QueuedEvent[] = [];
+    this.pressAt = null;
     // One press per key per frame, each with the keys held at that moment (see the module comment): an event that
     // would break that waits, with every event after it, for the next frame.
     let applied = 0;
@@ -701,11 +709,13 @@ class DeviceSnapshot implements DeviceEventSink {
         this.downNow.add(ev.key);
         this.heldKeys.add(ev.key);
         keyEvents.push(ev);
+        this.notePress(ev);
       } else if (this.heldKeys.has(ev.key)) {
         if (this.downNow.size > 0 && !this.downNow.has(ev.key)) break;
         this.heldKeys.delete(ev.key);
         this.upNow.add(ev.key);
         keyEvents.push(ev);
+        this.notePress(ev);
       }
     }
     this.queue.splice(0, applied);
@@ -841,14 +851,23 @@ class DeviceSnapshot implements DeviceEventSink {
     };
   }
 
+  private notePress(ev: QueuedEvent): void {
+    if (ev.x !== undefined && ev.y !== undefined) (this.pressAt ??= new Vector2()).set(ev.x, ev.y);
+  }
+
+  /** The frame's pointer: where the last applied pointer button change happened, else where the pointer is. */
+  private get framePointer(): Vector2 {
+    return this.pressAt ?? this.pointer;
+  }
+
   private route(): void {
     this.pointerToUI = false;
     this.keyboardToUI = false;
     this.uiDown.clear();
     this.uiUp.clear();
     const frame: PointerFrame = {
-      x: this.pointer.x,
-      y: this.pointer.y,
+      x: this.framePointer.x,
+      y: this.framePointer.y,
       down: (b) => this.downNow.has(mouseKey(b)),
       held: (b) => this.heldKeys.has(mouseKey(b)),
       up: (b) => this.upNow.has(mouseKey(b)),
@@ -897,6 +916,7 @@ class DeviceSnapshot implements DeviceEventSink {
     this.upNow.clear();
     this.lastDown.clear();
     this.queue.length = 0;
+    this.pressAt = null;
     this.moved.set(0, 0);
     this.pendingMove.set(0, 0);
     this.scrolled.set(0, 0);
@@ -948,7 +968,7 @@ class DeviceSnapshot implements DeviceEventSink {
 
   /** Copies. */
   get pointerPosition(): Vector2 {
-    return this.pointer.clone();
+    return this.framePointer.clone();
   }
 
   get movement(): Vector2 {
@@ -973,10 +993,10 @@ class DeviceSnapshot implements DeviceEventSink {
     return this.scrolled.y;
   }
   get pointerX(): number {
-    return this.pointer.x;
+    return this.framePointer.x;
   }
   get pointerY(): number {
-    return this.pointer.y;
+    return this.framePointer.y;
   }
 
   /** The touchscreen this frame, after routing. */
