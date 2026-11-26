@@ -25,7 +25,7 @@ type Compound = {
 const IDENT = /^-?(?:[A-Za-z_]|[^\x00-\x7f]|\\.)(?:[\w-]|[^\x00-\x7f]|\\.)*/;
 
 /** The pseudo-classes of the cascade, for messages. */
-const SUPPORTED = ":hover, :pressed, :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), :first-of-type, :last-of-type, :only-of-type, :nth-of-type(), :nth-last-of-type(), :empty and :root";
+const SUPPORTED = ":hover, :pressed (or :active), :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), :first-of-type, :last-of-type, :only-of-type, :nth-of-type(), :nth-last-of-type(), :empty and :root";
 
 /**
  * Parse a selector list (`#shop .row > span, button:hover`) into selectors to match. Throws an Error
@@ -160,6 +160,7 @@ function readPseudo(r: Reader, out: Compound): void {
   const at = r.i;
   const name = ident(r, "a pseudo-class").toLowerCase();
   if (PSEUDO.has(name)) out.pseudo.push(name as UIPseudo);
+  else if (name === "active") out.pseudo.push("pressed"); // ADR 0428: CSS's name for `:pressed`
   else if (name === "is" || name === "where") {
     open(r, name);
     const selectors = readList(r);

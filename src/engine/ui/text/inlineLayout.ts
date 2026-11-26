@@ -6,11 +6,19 @@
  *
  * - **Line breaking across runs.** The runs' text is joined and broken where `lineBreak.ts` allows (spaces, CJK with the
  *   kinsoku rules, Thai words; anywhere for `wrap: "anywhere"`), so a word split between runs (`<b>bo</b>ld`) stays
- *   whole and a break can fall inside a run. An inline image is a place to break on both sides; a line break run (`\n`)
- *   ends the line. Lines fill greedily; trailing spaces hang past the width; a piece wider than the width overflows.
- * - **Line boxes.** Each line is as tall as its tallest run (font size × line height, images by their height), with the
- *   paragraph's own font as a strut, so plain text keeps its line height. Runs sit on a common baseline, `shift` raising
- *   or lowering theirs (`sub`, `super`); `middle`, `top`, `bottom`, `text-top` and `text-bottom` align as in CSS.
+ *   whole and a break can fall inside a run. An inline object (an image, or an atomic inline box) is a place to break on
+ *   both sides; a line break (`\n`: a `<br>` run, or one kept by `white-space`) ends the line. Lines fill greedily;
+ *   trailing spaces hang past the width; a piece wider than the width overflows. ADR 0428: a run with `nowrap` has no
+ *   break after its characters, and a run with `keepSpaces` keeps its trailing spaces on the line, taking room (and a
+ *   break after each of them).
+ * - **Inline boxes (ADR 0428).** An inline element with margins, borders or padding (`UITextRun.boxes`) takes room for its
+ *   start side before its first character and for its end side after its last; a box broken across lines is sliced, and
+ *   each line reports its parts (`UIInlineLine.boxes`), border boxes around the element's glyph box, for drawing and
+ *   hit-testing. Vertical padding and borders are drawn, not laid out, as in CSS.
+ * - **Line boxes.** Each line is as tall as its tallest run (font size × line height; images and atomic boxes by their
+ *   height), with the paragraph's own font as a strut, so plain text keeps its line height. Runs sit on a common
+ *   baseline, `shift` raising or lowering theirs (`sub`, `super`); `middle`, `top`, `bottom`, `text-top` and
+ *   `text-bottom` align as in CSS. An atomic box's baseline is its own (its last line's), an image's its bottom edge.
  * - **Direction.** Lines are aligned per `align` (an edge, `start`/`end` already resolved); in a right-to-left paragraph a
  *   line's fragments are placed from the right in logical order, and the browser orders mixed text within each fragment
  *   (a known simplification of the bidi algorithm across runs, as 0356 records for input fields).
@@ -18,9 +26,9 @@
  * Pure: the caller passes the width of a string in a run's font (`RunMeasure`).
  */
 import { lineSegments, type LineBreakMode } from "./lineBreak";
-import type { UIInlineRun, UITextWrap } from "../uiCoreTypes";
+import type { UIInlineBox, UIInlineRun, UITextWrap } from "../uiCoreTypes";
 
-/** The character an inline image stands for in the joined text (one UTF-16 unit). */
+/** The character an inline object (an image, an atomic inline box) stands for in the joined text (one UTF-16 unit). */
 export const INLINE_OBJECT = "￼";
 /** A run's ascent and descent as shares of its font size: the box glyphs are drawn and backgrounds painted in (1.2 em, as a line). */
 export const INLINE_ASCENT = 0.95;
@@ -37,9 +45,21 @@ export interface UIInlineFragment {
   readonly x: number;
   readonly width: number;
   readonly baseline: number;
-  /** The box its glyphs (or its image) fill: what its background paints and its decorations span. */
+  /** The box its glyphs (or its image, or its atomic box's margin box) fill: what its background paints and its decorations span. */
   readonly top: number;
   readonly height: number;
+}
+
+/** ADR 0428: one line's part of an inline box (`UITextRun.boxes[box]`): its border box, from the content box's corner. */
+export interface UIInlineBoxPart {
+  readonly box: number;
+  readonly x: number;
+  readonly width: number;
+  readonly top: number;
+  readonly height: number;
+  /** Whether this part has the box's left side and its right side (a box broken across lines has its start side on its first line only, its end side on its last). */
+  readonly left: boolean;
+  readonly right: boolean;
 }
 
 /** One line: its fragments in visual order, and the part of the joined text it holds. */
@@ -56,6 +76,8 @@ export interface UIInlineLine {
   readonly x: number;
   readonly width: number;
   readonly fragments: readonly UIInlineFragment[];
+  /** ADR 0428: its parts of inline boxes, outer boxes before the boxes inside them. Absent: none. */
+  readonly boxes?: readonly UIInlineBoxPart[];
 }
 
 /** A paragraph of runs laid out: its lines, the widest line's width and the total height. */
@@ -63,7 +85,7 @@ export interface UIInlineLayout {
   readonly lines: readonly UIInlineLine[];
   readonly width: number;
   readonly height: number;
-  /** The runs' text joined (images as U+FFFC, line breaks as `\n`). */
+  /** The runs' text joined (inline objects as U+FFFC, line breaks as `\n`). */
   readonly text: string;
   /** Where the content box starts inside the element's border box (its padding and border), set by the UI core. */
   readonly inset?: { readonly x: number; readonly y: number };
@@ -86,6 +108,8 @@ export interface InlineLayoutOptions {
   readonly fontSize: number;
   /** A line break at the very end starts an empty last line (editable text); otherwise it makes none, as in HTML. */
   readonly keepTrailingBreak?: boolean;
+  /** ADR 0428: the text's inline boxes (`UITextRun.boxes`). */
+  readonly boxes?: readonly UIInlineBox[];
 }
 
 /** A run's CSS font (`italic 700 16px Inter, system-ui`), as a 2D canvas takes it. */
@@ -125,11 +149,18 @@ function runIndexAt(starts: readonly number[], runs: readonly UIInlineRun[], i: 
   return found;
 }
 
+/** An inline object's width, height and baseline (down from its top): an atomic box's own, an image's bottom edge. */
+function objectOf(run: UIInlineRun): { width: number; height: number; baseline: number } | null {
+  if (run.atom) return run.atom;
+  if (run.image) return { width: run.image.width, height: run.image.height, baseline: run.image.height };
+  return null;
+}
+
 interface Metrics {
   /** How far its inline box reaches above and below the line's baseline (`top`/`bottom` boxes: placed once the line is known). */
   above: number;
   below: number;
-  /** Its inline box's height: font size × line height, or an image's height. */
+  /** Its inline box's height: font size × line height, or an object's height. */
   height: number;
   /** Text: the half-leading, from the inline box's top to the glyph box's. */
   half: number;
@@ -137,10 +168,10 @@ interface Metrics {
 
 /** A fragment of `run`'s inline box against its line's baseline (`base`: the paragraph's font size, which `middle` and `text-*` align to). */
 function metricsOf(run: UIInlineRun, lineHeight: number, base: number): Metrics {
-  const image = run.image;
-  const h = image ? image.height : run.fontSize * lineHeight;
-  const half = image ? 0 : (h - (INLINE_ASCENT + INLINE_DESCENT) * run.fontSize) / 2;
-  let above = (image ? h : half + INLINE_ASCENT * run.fontSize) + run.shift;
+  const object = objectOf(run);
+  const h = object ? object.height : run.fontSize * lineHeight;
+  const half = object ? 0 : (h - (INLINE_ASCENT + INLINE_DESCENT) * run.fontSize) / 2;
+  let above = (object ? object.baseline : half + INLINE_ASCENT * run.fontSize) + run.shift;
   switch (run.verticalAlign) {
     case "middle":
       above = h / 2 + 0.25 * base;
@@ -155,6 +186,45 @@ function metricsOf(run: UIInlineRun, lineHeight: number, base: number): Metrics 
   return { above, below: h - above, height: h, half };
 }
 
+/** ADR 0428: the room inline boxes take at each run's start and end, and each box's effective run range (runs with text). */
+interface Edges {
+  /** By run: the boxes starting at it (outer first) and ending at it (inner first). */
+  readonly opens: (readonly number[])[];
+  readonly closes: (readonly number[])[];
+  /** By run: the boxes it's inside (outer first). */
+  readonly inside: (readonly number[])[];
+  /** By run: room before its first character and after its last. */
+  readonly before: Float64Array;
+  readonly after: Float64Array;
+}
+
+/** A box's room on its start side and its end side (each a margin, then a border plus padding), for the direction. */
+function sidesOf(b: UIInlineBox, rtl: boolean): { startMargin: number; startInner: number; endInner: number; endMargin: number } {
+  return rtl
+    ? { startMargin: b.margin[1], startInner: b.border[1] + b.padding[1], endInner: b.padding[3] + b.border[3], endMargin: b.margin[0] }
+    : { startMargin: b.margin[0], startInner: b.border[3] + b.padding[3], endInner: b.padding[1] + b.border[1], endMargin: b.margin[1] };
+}
+
+function edgesOf(runs: readonly UIInlineRun[], boxes: readonly UIInlineBox[] | undefined, rtl: boolean): Edges | null {
+  if (!boxes?.length) return null;
+  const n = runs.length;
+  const opens: number[][] = runs.map(() => []), closes: number[][] = runs.map(() => []), inside: number[][] = runs.map(() => []);
+  const before = new Float64Array(n), after = new Float64Array(n);
+  boxes.forEach((b, i) => {
+    let first = Math.max(0, b.first), last = Math.min(n - 1, b.last);
+    while (first <= last && runs[first].text.length === 0) first++;
+    while (last >= first && runs[last].text.length === 0) last--;
+    if (first > last) return;
+    opens[first].push(i);
+    closes[last].unshift(i);
+    for (let k = first; k <= last; k++) inside[k].push(i);
+    const s = sidesOf(b, rtl);
+    before[first] += s.startMargin + s.startInner;
+    after[last] += s.endInner + s.endMargin;
+  });
+  return { opens, closes, inside, before, after };
+}
+
 /**
  * Lay `runs` out. Offsets in the result index the joined text (`inlineText`). Empty runs take no room; a paragraph with
  * no text is one empty line, its strut's height.
@@ -162,19 +232,35 @@ function metricsOf(run: UIInlineRun, lineHeight: number, base: number): Metrics 
 export function layoutInline(runs: readonly UIInlineRun[], o: InlineLayoutOptions, measure: RunMeasure): UIInlineLayout {
   const text = inlineText(runs);
   const starts = runStarts(runs);
+  const rtl = o.direction === "rtl";
+  const edges = edgesOf(runs, o.boxes, rtl);
   const mode: LineBreakMode = o.wrap === "anywhere" ? "anywhere" : "normal";
   const wraps = o.wrap !== "none" && Number.isFinite(o.maxWidth);
   // A width Yoga reports (float32) can come back a hair under the one measured: lines laid out at it wrap as measured.
   const maxWidth = o.maxWidth + Math.max(1e-3, o.maxWidth * 1e-6);
-  /** The width of `[a, b)`, measured run by run. */
+  // ADR 0428: each character's run, for the white space rules that differ by run (no break, spaces that take room).
+  const special = runs.some((r) => r.nowrap || r.keepSpaces);
+  const runOf = special ? new Int32Array(text.length) : null;
+  if (runOf) runs.forEach((r, k) => runOf.fill(k, starts[k], starts[k] + r.text.length));
+  /** True when the space at `i` hangs past a line's end (and so is dropped from the line's content). */
+  const hangs = (i: number) => text.charCodeAt(i) === 32 && !(runOf && runs[runOf[i]].keepSpaces);
+  const trim = (start: number, end: number) => {
+    while (end > start && hangs(end - 1)) end--;
+    return end;
+  };
+  /** The width of `[a, b)`, measured run by run, with the room inline boxes take where they start and end in it. */
   const span = (a: number, b: number): number => {
     let w = 0;
     for (let k = runIndexAt(starts, runs, a); k < runs.length && starts[k] < b; k++) {
       const r = runs[k];
       const from = Math.max(a, starts[k]), to = Math.min(b, starts[k] + r.text.length);
       if (to <= from) continue;
-      if (r.image) w += r.image.width * (to - from);
-      else w += measure(text.slice(from, to), r);
+      const object = objectOf(r);
+      w += object ? object.width * (to - from) : measure(text.slice(from, to), r);
+      if (edges) {
+        if (from === starts[k]) w += edges.before[k];
+        if (to === starts[k] + r.text.length) w += edges.after[k];
+      }
     }
     return w;
   };
@@ -186,8 +272,8 @@ export function layoutInline(runs: readonly UIInlineRun[], o: InlineLayoutOption
     const nl = text.indexOf("\n", p);
     const pe = nl < 0 ? text.length : nl;
     const next = nl < 0 ? text.length + 1 : nl + 1;
-    if (!wraps || pe === p) ranges.push({ start: p, end: trimEnd(text, p, pe), next: Math.min(next, text.length) });
-    else wrapParagraph(text, p, pe, mode, maxWidth, span, ranges);
+    if (!wraps || pe === p) ranges.push({ start: p, end: trim(p, pe), next: Math.min(next, text.length) });
+    else wrapParagraph(text, p, pe, mode, maxWidth, span, trim, runOf ? (i) => !!runs[runOf[i]].nowrap : null, runOf ? (i) => !!runs[runOf[i]].keepSpaces && text.charCodeAt(i) === 32 : null, ranges);
     if (nl >= 0 && ranges.length) ranges[ranges.length - 1].next = nl + 1;
     p = next;
     if (nl < 0) break;
@@ -203,9 +289,10 @@ export function layoutInline(runs: readonly UIInlineRun[], o: InlineLayoutOption
   const lines: UIInlineLine[] = [];
   let y = 0;
   let widest = 0;
-  const sized: { range: (typeof ranges)[number]; frags: { run: number; start: number; end: number; width: number; m: Metrics }[]; width: number; above: number; below: number }[] = [];
+  type Sized = { run: number; start: number; end: number; width: number; before: number; after: number; m: Metrics };
+  const sized: { range: (typeof ranges)[number]; frags: Sized[]; width: number; above: number; below: number }[] = [];
   for (const range of ranges) {
-    const frags: (typeof sized)[number]["frags"] = [];
+    const frags: Sized[] = [];
     let width = 0;
     let above = strut.above, below = strut.below;
     if (range.end > range.start) {
@@ -213,14 +300,17 @@ export function layoutInline(runs: readonly UIInlineRun[], o: InlineLayoutOption
         const r = runs[k];
         const a = Math.max(range.start, starts[k]), b = Math.min(range.end, starts[k] + r.text.length);
         if (b <= a) continue;
-        const w = r.image ? r.image.width * (b - a) : measure(text.slice(a, b), r);
+        const object = objectOf(r);
+        const w = object ? object.width * (b - a) : measure(text.slice(a, b), r);
         const m = metricsOf(r, o.lineHeight, o.fontSize);
         if (r.verticalAlign !== "top" && r.verticalAlign !== "bottom") {
           above = Math.max(above, m.above);
           below = Math.max(below, m.below);
         }
-        frags.push({ run: k, start: a, end: b, width: w, m });
-        width += w;
+        const before = edges && a === starts[k] ? edges.before[k] : 0;
+        const after = edges && b === starts[k] + r.text.length ? edges.after[k] : 0;
+        frags.push({ run: k, start: a, end: b, width: w, before, after, m });
+        width += before + w + after;
       }
     }
     // `top` and `bottom` boxes taller than the line grow it (downward for `top`, upward for `bottom`).
@@ -238,20 +328,55 @@ export function layoutInline(runs: readonly UIInlineRun[], o: InlineLayoutOption
     const baseline = y + s.above;
     const free = alignWidth - s.width;
     const lx = o.align === "right" ? free : o.align === "center" ? free / 2 : 0;
+    /** A logical span `[at, at + w)` on this line, placed (from the right in right-to-left text). */
+    const place = (at: number, w: number) => (rtl ? lx + s.width - at - w : lx + at);
     const fragments: UIInlineFragment[] = [];
+    const parts: UIInlineBoxPart[] = [];
+    const open = new Map<number, { left: number; start: boolean }>();
+    const close = (box: number, right: number, end: boolean) => {
+      const at = open.get(box)!;
+      open.delete(box);
+      const b = o.boxes![box];
+      const glyphTop = baseline - b.shift - INLINE_ASCENT * b.fontSize;
+      const top = glyphTop - b.padding[0] - b.border[0];
+      const h = (INLINE_ASCENT + INLINE_DESCENT) * b.fontSize + b.padding[0] + b.padding[2] + b.border[0] + b.border[2];
+      parts.push({ box, x: place(at.left, right - at.left), width: right - at.left, top, height: h, left: rtl ? end : at.start, right: rtl ? at.start : end });
+    };
     let cursor = 0;
     for (const f of s.frags) {
       const r = runs[f.run];
-      const x = o.direction === "rtl" ? lx + s.width - cursor - f.width : lx + cursor;
+      if (edges) {
+        // Boxes it's inside that this line hasn't opened yet continue from the line before (sliced: no start side).
+        const opening = f.start === starts[f.run] ? edges.opens[f.run] : [];
+        for (const box of edges.inside[f.run]) if (!open.has(box) && !opening.includes(box)) open.set(box, { left: cursor, start: false });
+        for (const box of opening) {
+          const sides = sidesOf(o.boxes![box], rtl);
+          open.set(box, { left: cursor + sides.startMargin, start: true });
+          cursor += sides.startMargin + sides.startInner;
+        }
+      }
+      const x = place(cursor, f.width);
       cursor += f.width;
       // Its inline box's top: on the baseline as its metrics say, or at the line box's top or bottom.
       const boxTop = r.verticalAlign === "top" ? y : r.verticalAlign === "bottom" ? y + height - f.m.height : baseline - f.m.above;
       const top = boxTop + f.m.half;
-      const h = r.image ? r.image.height : (INLINE_ASCENT + INLINE_DESCENT) * r.fontSize;
-      const fb = r.image ? top + h : top + INLINE_ASCENT * r.fontSize;
+      const object = objectOf(r);
+      const h = object ? object.height : (INLINE_ASCENT + INLINE_DESCENT) * r.fontSize;
+      const fb = object ? top + object.baseline : top + INLINE_ASCENT * r.fontSize;
       fragments.push({ run: f.run, start: f.start, end: f.end, text: text.slice(f.start, f.end), x, width: f.width, baseline: fb, top, height: h });
+      if (edges && f.end === starts[f.run] + r.text.length) {
+        for (const box of edges.closes[f.run]) {
+          const sides = sidesOf(o.boxes![box], rtl);
+          cursor += sides.endInner;
+          if (open.has(box)) close(box, cursor, true);
+          cursor += sides.endMargin;
+        }
+      }
     }
-    lines.push({ start: s.range.start, end: s.range.end, next: s.range.next, top: y, height, baseline, x: lx, width: s.width, fragments });
+    // Boxes still open go on to the next line (sliced: no end side here). Outer boxes first, as they're drawn.
+    for (const box of [...open.keys()]) close(box, cursor, false);
+    parts.sort((a, b) => a.box - b.box);
+    lines.push({ start: s.range.start, end: s.range.end, next: s.range.next, top: y, height, baseline, x: lx, width: s.width, fragments, ...(parts.length ? { boxes: parts } : {}) });
     y += height;
   }
   return { lines, width: widest, height: y, text };
@@ -260,38 +385,48 @@ export function layoutInline(runs: readonly UIInlineRun[], o: InlineLayoutOption
 /** The strut's run: only its size matters. */
 const BASE_STRUT: UIInlineRun = { text: "", fontSize: 16, fontWeight: "400", fontStyle: "normal", fontFamily: "", color: "", decoration: "", background: null, verticalAlign: "baseline", shift: 0, image: null, owner: null, source: null };
 
-/** `end` moved back over the spaces before it (not before `start`). */
-function trimEnd(text: string, start: number, end: number): number {
-  while (end > start && text.charCodeAt(end - 1) === 32) end--;
-  return end;
-}
-
-/** Greedy wrapping of the paragraph `[ps, pe)` into `out`. */
-function wrapParagraph(text: string, ps: number, pe: number, mode: LineBreakMode, maxWidth: number, span: (a: number, b: number) => number, out: { start: number; end: number; next: number }[]): void {
-  // Break opportunities: the line breaker's pieces, split again around inline images.
-  const pieces: { start: number; end: number }[] = [];
+/**
+ * Greedy wrapping of the paragraph `[ps, pe)` into `out`. `trim` moves an end back over hanging spaces; ADR 0428:
+ * `noBreakAfter(i)` is true where the character at `i` has no break after it (`nowrap`), `breakAfter(i)` where it has one
+ * (a space that takes room: `break-spaces`).
+ */
+function wrapParagraph(text: string, ps: number, pe: number, mode: LineBreakMode, maxWidth: number, span: (a: number, b: number) => number, trim: (start: number, end: number) => number, noBreakAfter: ((i: number) => boolean) | null, breakAfter: ((i: number) => boolean) | null, out: { start: number; end: number; next: number }[]): void {
+  // Break opportunities: the line breaker's pieces, split again around inline objects (and after spaces that take room).
+  const raw: { start: number; end: number }[] = [];
   let at = ps;
   for (const seg of lineSegments(text.slice(ps, pe), mode)) {
     let s = at;
     const e = at + seg.length;
     for (let i = at; i < e; i++) {
+      if (breakAfter?.(i)) {
+        raw.push({ start: s, end: i + 1 });
+        s = i + 1;
+        continue;
+      }
       if (text[i] !== INLINE_OBJECT) continue;
-      if (i > s) pieces.push({ start: s, end: i });
-      // The image and the spaces after it.
+      if (i > s) raw.push({ start: s, end: i });
+      // The object and the spaces after it.
       let j = i + 1;
-      while (j < e && text.charCodeAt(j) === 32) j++;
-      pieces.push({ start: i, end: j });
+      while (j < e && text.charCodeAt(j) === 32 && !breakAfter?.(j)) j++;
+      raw.push({ start: i, end: j });
       s = j;
       i = j - 1;
     }
-    if (s < e) pieces.push({ start: s, end: e });
+    if (s < e) raw.push({ start: s, end: e });
     at = e;
   }
+  // A piece ending inside a `nowrap` run joins the next one: no break there.
+  const pieces: { start: number; end: number }[] = [];
+  for (const piece of raw) {
+    const last = pieces[pieces.length - 1];
+    if (last && noBreakAfter?.(last.end - 1)) last.end = piece.end;
+    else pieces.push({ ...piece });
+  }
   let lineStart = ps;
-  let lineEnd = ps; // where the line's content ends so far (its trailing spaces excluded)
+  let lineEnd = ps; // where the line's content ends so far (its hanging spaces excluded)
   let full = 0; // the line's width so far, its trailing spaces included
   for (const piece of pieces) {
-    const content = trimEnd(text, piece.start, piece.end);
+    const content = trim(piece.start, piece.end);
     const w = content > piece.start ? span(piece.start, content) : 0;
     const spaces = content < piece.end ? span(content, piece.end) : 0;
     if (content > piece.start && lineEnd > lineStart && full + w > maxWidth) {
@@ -324,7 +459,7 @@ export function caretAt(layout: UIInlineLayout, runs: readonly UIInlineRun[], in
   for (const f of line.fragments) {
     if (index < f.start || index > f.end) continue;
     const r = runs[f.run];
-    const before = r.image ? (index > f.start ? f.width : 0) : measure(f.text.slice(0, index - f.start), r);
+    const before = r.image || r.atom ? (index > f.start ? f.width : 0) : measure(f.text.slice(0, index - f.start), r);
     return { x: rtl ? f.x + f.width - before : f.x + before, top: line.top, height: line.height };
   }
   const first = line.fragments[0];
@@ -354,7 +489,7 @@ export function indexAt(layout: UIInlineLayout, runs: readonly UIInlineRun[], x:
   const into = rtl ? best.x + best.width - x : x - best.x;
   if (into <= 0) return best.start;
   if (into >= best.width) return best.end === line.end ? line.end : best.end;
-  if (r.image) return into < best.width / 2 ? best.start : best.end;
+  if (r.image || r.atom) return into < best.width / 2 ? best.start : best.end;
   // Walk the graphemes for the nearest boundary.
   let prev = 0, at = best.start;
   const chars = [...best.text];

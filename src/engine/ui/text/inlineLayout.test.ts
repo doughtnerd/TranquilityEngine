@@ -2,7 +2,7 @@
 // caret, hit-testing and selection on that layout.
 import { describe, expect, it } from "vitest";
 import { caretAt, indexAt, inlineFont, layoutInline, selectionRects, type InlineLayoutOptions } from "./inlineLayout";
-import type { UIInlineRun } from "../uiCoreTypes";
+import type { UIInlineBox, UIInlineRun } from "../uiCoreTypes";
 
 const run = (text: string, extra: Partial<UIInlineRun> = {}): UIInlineRun => ({
   text, fontSize: 10, fontWeight: "400", fontStyle: "normal", fontFamily: "Inter", color: "white", decoration: "", background: null, verticalAlign: "baseline", shift: 0, image: null, owner: null, source: null, ...extra,
@@ -105,5 +105,81 @@ describe("inline layout: caret, hit-testing and selection", () => {
 
   it("writes a run's font as a canvas takes it", () => {
     expect(inlineFont(run("x", { fontStyle: "italic", fontWeight: "700", fontSize: 12 }))).toBe("italic 700 12px Inter");
+  });
+});
+
+describe("inline layout: white space by run (ADR 0428)", () => {
+  it("doesn't break after a nowrap run's characters, and wraps around it", () => {
+    expect(texts([run("aa "), run("bb cc", { nowrap: true }), run(" dd")], { maxWidth: 6 })).toEqual(["aa", "bb cc", "dd"]);
+    // A nowrap run wider than the line overflows on its own line, as an overlong word does.
+    expect(texts([run("a "), run("b c d e f", { nowrap: true })], { maxWidth: 4 })).toEqual(["a", "b c d e f"]);
+  });
+
+  it("keeps spaces that take room on the line (and can break after each), where other spaces hang", () => {
+    const hang = layoutInline([run("ab   cd")], opts({ maxWidth: 4 }), measure);
+    expect(hang.lines.map((l) => [l.end - l.start, l.width])).toEqual([[2, 2], [2, 2]]);
+    const keep = layoutInline([run("ab   cd", { keepSpaces: true })], opts({ maxWidth: 4 }), measure);
+    expect(keep.lines[0].fragments[0].text).toBe("ab  ");
+    expect(keep.lines[0].width).toBe(4);
+  });
+
+  it("breaks lines at line breaks kept in a run's text", () => {
+    expect(texts([run("a\nb c")], { maxWidth: Infinity })).toEqual(["a", "b c"]);
+  });
+});
+
+describe("inline layout: inline boxes (ADR 0428)", () => {
+  const box = (first: number, last: number, extra: Partial<UIInlineBox> = {}): UIInlineBox => ({
+    owner: null as unknown as UIInlineBox["owner"], first, last, margin: [1, 2], border: [1, 1, 1, 1], padding: [2, 3, 2, 3], fontSize: 10, shift: 0, background: "red", borderColor: "black", radius: 0, ...extra,
+  });
+
+  it("takes room for a box's start side before its first character and its end side after its last", () => {
+    const runs = [run("ab "), run("cd"), run(" ef")];
+    const laid = layoutInline(runs, opts({ boxes: [box(1, 1)] }), measure);
+    const [ab, cd, ef] = laid.lines[0].fragments;
+    // Start side: margin 1 + border 1 + padding 3; end side: padding 3 + border 1 + margin 2.
+    expect(cd.x).toBe(ab.width + 5);
+    expect(ef.x).toBe(cd.x + 2 + 6);
+    expect(laid.width).toBe(3 + 5 + 2 + 6 + 3);
+    // Its part: the border box, around its glyph box with the vertical padding and border (which the line doesn't grow by).
+    const part = laid.lines[0].boxes![0];
+    expect(part).toMatchObject({ box: 0, x: 3 + 1, width: 1 + 3 + 2 + 3 + 1, left: true, right: true });
+    expect(part.height).toBeCloseTo(12 + 2 * 2 + 2);
+    expect(laid.height).toBeCloseTo(12);
+  });
+
+  it("slices a box broken across lines: its start side on the first line, its end side on the last", () => {
+    const runs = [run("aa "), run("bb cc"), run(" dd")];
+    const laid = layoutInline(runs, opts({ maxWidth: 9, boxes: [box(1, 1, { margin: [0, 0], border: [0, 0, 0, 0], padding: [0, 1, 0, 1] })] }), measure);
+    expect(laid.lines.map((l) => l.fragments.map((f) => f.text).join("|"))).toEqual(["aa |bb", "cc| dd"]);
+    expect(laid.lines[0].boxes).toEqual([expect.objectContaining({ x: 3, width: 3, left: true, right: false })]);
+    expect(laid.lines[1].boxes).toEqual([expect.objectContaining({ x: 0, width: 3, left: false, right: true })]);
+  });
+
+  it("mirrors the sides in right-to-left text", () => {
+    const laid = layoutInline([run("ab"), run("cd")], opts({ direction: "rtl", align: "right", alignWidth: 20, boxes: [box(1, 1, { margin: [0, 0], border: [0, 0, 0, 0], padding: [0, 4, 0, 1] })] }), measure);
+    const [ab, cd] = laid.lines[0].fragments;
+    // Logically "ab", then the box's start side (its right: 4), "cd", its end side (its left: 1); placed from the right.
+    expect(ab.x).toBe(18);
+    expect(cd.x).toBe(18 - 4 - 2);
+    expect(laid.lines[0].boxes![0]).toMatchObject({ x: 11, width: 7, left: true, right: true });
+  });
+});
+
+describe("inline layout: atomic inline boxes (ADR 0428)", () => {
+  it("places an atomic box on the line by its own baseline and size", () => {
+    const atom = run("￼", { atom: { width: 6, height: 20, baseline: 15 } });
+    const laid = layoutInline([run("ab "), atom, run(" c")], opts(), measure);
+    const [ab, a] = laid.lines[0].fragments;
+    expect(a.width).toBe(6);
+    expect(a.baseline).toBeCloseTo(ab.baseline); // its baseline on the line's
+    expect(a.top).toBeCloseTo(ab.baseline - 15);
+    expect(laid.lines[0].height).toBeGreaterThan(20 - 1);
+  });
+
+  it("breaks around an atomic box unless it's in a nowrap run", () => {
+    const atom = (extra: Partial<UIInlineRun> = {}) => run("￼", { atom: { width: 4, height: 10, baseline: 10 }, ...extra });
+    expect(texts([run("aaa"), atom(), run("b")], { maxWidth: 5 })).toEqual(["aaa", "￼|b"]);
+    expect(texts([run("aaa", { nowrap: true }), atom({ nowrap: true }), run("b")], { maxWidth: 5 })).toEqual(["aaa|￼|b"]);
   });
 });

@@ -869,6 +869,8 @@ export class UIHostTree {
     el._comp = this.world._addComponent(el._node.entity, uiTypeOfTag(uiTag));
     // ADR 0425: text the renderer made between a text element's inline children: a run of it, not an element.
     if (el.synthetic && el._comp instanceof UIText && p._comp instanceof UIText) el._comp._textPiece = true;
+    // ADR 0428: a `<br>` is a forced line break, whatever the white space rules (a text that is only a line break is not).
+    if (el._comp instanceof UIText && tag.toLowerCase() === "br") el._comp._lineBreak = true;
     el._parent = p;
     el._target = targetOf(el, tag, p._target);
     this.applyAttributes(el, attributes, options.written);

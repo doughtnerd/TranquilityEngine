@@ -301,6 +301,13 @@ function pathOf(e: Entry): Entry[] {
   return out;
 }
 
+/** ADR 0428: the text elements and inline runs at or above `e` (what `:hover` and `:active` apply to). */
+function textsOn(e: Entry | null): ReadonlySet<UIComponentType> | undefined {
+  let out: Set<UIComponentType> | undefined;
+  for (let at = e; at && at.kind !== "canvas"; at = up(at)) if (at.kind === "text") (out ??= new Set()).add(at.comp);
+  return out;
+}
+
 /** ADR 0422: the nearest element both are in (themselves included), below their canvas; null when they share none. */
 function commonAncestor(a: Entry, b: Entry): Entry | null {
   const path = pathOf(a);
@@ -867,7 +874,7 @@ export class UICore implements UICoreLike {
 
   /** ADR 0425: a text run with inline runs laid out at `maxWidth` (and aligned in `alignWidth`). */
   private layoutRuns(run: UITextRun, maxWidth: number, alignWidth?: number): UIInlineLayout {
-    return layoutInline(run.runs!, { maxWidth: run.wrap === "none" ? Infinity : maxWidth, alignWidth, wrap: run.wrap, lineHeight: run.lineHeight, align: run.align, direction: run.direction, fontSize: run.fontSize, keepTrailingBreak: !!run.editable }, this.runWidth);
+    return layoutInline(run.runs!, { maxWidth: run.wrap === "none" ? Infinity : maxWidth, alignWidth, wrap: run.wrap, lineHeight: run.lineHeight, align: run.align, direction: run.direction, fontSize: run.fontSize, keepTrailingBreak: !!run.editable, boxes: run.boxes }, this.runWidth);
   }
 
   /** An entry's content box size at its last layout (a canvas's own size): what its children's percentages are of. */
@@ -1607,7 +1614,9 @@ export class UICore implements UICoreLike {
       }
     }
 
-    log.route({ hovered: usable(hit) ? (hit.comp as UIButton) : null, pressed: (this.pressed?.comp as UIButton | undefined) ?? null, clicked }, records);
+    // ADR 0428: text elements and runs on the hovered path are `:hover`; on the pressed path while held, `:active`.
+    const heldOn = raw.held(0) ? live(this.pressTarget) : null;
+    log.route({ hovered: usable(hit) ? (hit.comp as UIButton) : null, pressed: (this.pressed?.comp as UIButton | undefined) ?? null, clicked, hoveredText: textsOn(live(this.hoverTarget)), pressedText: textsOn(heldOn) }, records);
 
     const focused = log.focused;
     const typing = focused instanceof UIInputField && focused.typing;

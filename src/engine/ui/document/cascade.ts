@@ -52,7 +52,7 @@ export const UI_TAGS: ReadonlySet<string> = UI_KIND_TAGS;
 /** The pseudo-classes UI elements have. */
 export const PSEUDO: ReadonlySet<string> = new Set<UIPseudo>(["hover", "pressed", "focus", "disabled", "checked", "indeterminate", "placeholder-shown"]);
 /** Text fields children inherit, as on the web (camelCase field names). */
-export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign", "textOutlineColor", "textOutlineWidth", "textShadowColor", "textShadowOffsetX", "textShadowOffsetY", "textShadowBlur", "fontStyle"]);
+export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign", "textOutlineColor", "textOutlineWidth", "textShadowColor", "textShadowOffsetX", "textShadowOffsetY", "textShadowBlur", "fontStyle", "whiteSpaceCollapse", "textWrapMode"]);
 
 /**
  * ADR 0425: what HTML's own stylesheet gives phrasing elements, by tag as written: below every author declaration (an
@@ -584,8 +584,49 @@ function typedShorthand(property: string): ((value: string) => PaintExpansion) |
   if (Object.prototype.hasOwnProperty.call(PAINT_SHORTHANDS, property)) return PAINT_SHORTHANDS[property];
   if (Object.prototype.hasOwnProperty.call(TRANSFORM_SHORTHANDS, property)) return TRANSFORM_SHORTHANDS[property];
   if (property === "filter") return filterShorthand;
+  if (Object.prototype.hasOwnProperty.call(WHITE_SPACE_SHORTHANDS, property)) return WHITE_SPACE_SHORTHANDS[property];
   return undefined;
 }
+
+// --- White space (ADR 0428) ----------------------------------------------------------------------
+//
+// `white-space` is a shorthand of `white-space-collapse` and `text-wrap-mode` (CSS Text 4), both inherited text fields
+// (`INHERITED_FIELDS`). It takes the CSS 2 keywords (`normal`, `nowrap`, `pre`, `pre-wrap`, `pre-line`, `break-spaces`)
+// or the longhands' values in either order (`preserve nowrap`); `text-wrap` takes `wrap` or `nowrap` (its style values,
+// `balance`, `pretty` and `stable`, wrap as `wrap` does).
+
+const COLLAPSE_VALUES: ReadonlySet<string> = new Set(["collapse", "preserve", "preserve-breaks", "break-spaces"]);
+const WRAP_MODE_VALUES: ReadonlySet<string> = new Set(["wrap", "nowrap"]);
+/** `white-space`'s CSS 2 keywords as their longhands' values. */
+const WHITE_SPACE_KEYWORDS: Readonly<Record<string, readonly [collapse: string, wrap: string]>> = {
+  normal: ["collapse", "wrap"],
+  nowrap: ["collapse", "nowrap"],
+  pre: ["preserve", "nowrap"],
+  "pre-wrap": ["preserve", "wrap"],
+  "pre-line": ["preserve-breaks", "wrap"],
+  "break-spaces": ["break-spaces", "wrap"],
+};
+
+const WHITE_SPACE_SHORTHANDS: Readonly<Record<string, (value: string) => PaintExpansion>> = {
+  whiteSpace: (value) => {
+    const parts = value.trim().toLowerCase().split(/\s+/);
+    const keyword = parts.length === 1 && Object.prototype.hasOwnProperty.call(WHITE_SPACE_KEYWORDS, parts[0]) ? WHITE_SPACE_KEYWORDS[parts[0]] : null;
+    if (keyword) return { ok: true, fields: [["whiteSpaceCollapse", keyword[0]], ["textWrapMode", keyword[1]]] };
+    let collapse = "collapse", wrap = "wrap", seen = 0;
+    for (const p of parts) {
+      if (COLLAPSE_VALUES.has(p) && !(seen & 1)) (collapse = p), (seen |= 1);
+      else if (WRAP_MODE_VALUES.has(p) && !(seen & 2)) (wrap = p), (seen |= 2);
+      else return { ok: false, problem: "isn't a white-space value (normal, nowrap, pre, pre-wrap, pre-line, break-spaces, or a white-space-collapse and a text-wrap-mode value)." };
+    }
+    return { ok: true, fields: [["whiteSpaceCollapse", collapse], ["textWrapMode", wrap]] };
+  },
+  textWrap: (value) => {
+    const parts = value.trim().toLowerCase().split(/\s+/);
+    const mode = parts.find((p) => WRAP_MODE_VALUES.has(p)) ?? "wrap";
+    if (!parts.every((p) => WRAP_MODE_VALUES.has(p) || p === "balance" || p === "pretty" || p === "stable" || p === "auto")) return { ok: false, problem: "isn't a text-wrap value (wrap, nowrap, balance, pretty, stable)." };
+    return { ok: true, fields: [["textWrapMode", mode]] };
+  },
+};
 
 // --- Shorthands (ADR 0418 wave 1) ---------------------------------------------------------------
 //

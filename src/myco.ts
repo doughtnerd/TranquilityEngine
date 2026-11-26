@@ -122,6 +122,8 @@ export {
   type UIPositionType,
   type UITextAlign,
   type UIWordBreak,
+  type UIWhiteSpaceCollapse,
+  type UITextWrapMode,
   UIActions,
   UI_CONTEXT_PRIORITY,
   type UITag,

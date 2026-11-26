@@ -59,6 +59,8 @@ export interface UITextRun {
    * the fields above, as before.
    */
   readonly runs?: readonly UIInlineRun[];
+  /** ADR 0428: its inline elements with padding, borders or margins (outer ones before those inside them). Absent: none. */
+  readonly boxes?: readonly UIInlineBox[];
   /** ADR 0425: `contenteditable`: whitespace is kept as typed (line breaks break lines) and the player edits the text. */
   readonly editable?: boolean;
 }
@@ -95,10 +97,53 @@ export interface UIInlineRun {
   readonly owner: UIComponentType | null;
   /** The component whose `text` holds this run's text (what editing changes); null for line breaks and images. */
   readonly source: UIComponentType | null;
+  /** ADR 0428: `text-wrap-mode: nowrap`: no line breaks after its characters (only forced ones). Absent: it wraps. */
+  readonly nowrap?: boolean;
+  /** ADR 0428: its spaces at a line's end take room (`break-spaces`, or `pre` that doesn't wrap) rather than hanging past it. */
+  readonly keepSpaces?: boolean;
+  /**
+   * ADR 0428: an atomic inline box (`display: inline-block`, a button, a form control, an SVG or media element inside a
+   * text): `text` U+FFFC, `owner` the element, which is laid out in a Yoga tree of its own and drawn as itself. Its margin
+   * box's size and its baseline down from that box's top, in UI pixels. Absent or null otherwise.
+   */
+  readonly atom?: UIInlineAtomSize | null;
+}
+
+/** ADR 0428: an atomic inline box's margin box size and its baseline (down from that box's top), in UI pixels. */
+export interface UIInlineAtomSize {
+  readonly width: number;
+  readonly height: number;
+  readonly baseline: number;
+}
+
+/**
+ * ADR 0428: an inline element with padding, a border or margins (or a background with any of those), as CSS lays out an
+ * inline box: its start side's margin, border and padding take room before its first run's text and its end side's after
+ * its last run's; top and bottom ones are drawn but don't change the line's height. A box broken across lines is sliced:
+ * each line's part has its start and end sides only where the box starts and ends.
+ */
+export interface UIInlineBox {
+  /** The element. */
+  readonly owner: UIComponentType;
+  /** The runs inside it, `[first, last]` (indices into the text's runs). */
+  readonly first: number;
+  readonly last: number;
+  /** Margins, borders and padding: `[start, end]` for margins (horizontal only, as CSS's inline boxes), `[top, right, bottom, left]` for the others. */
+  readonly margin: readonly [number, number];
+  readonly border: readonly [number, number, number, number];
+  readonly padding: readonly [number, number, number, number];
+  /** Its font size and baseline shift: its content area is its font's glyph box around its baseline. */
+  readonly fontSize: number;
+  readonly shift: number;
+  /** CSS colours: its background (null: none) and border. */
+  readonly background: string | null;
+  readonly borderColor: string;
+  /** Its corners' radius in UI pixels. */
+  readonly radius: number;
 }
 
 /** A text run to measure, for Yoga's layout of text elements (direction and alignment don't change its size). */
-export interface TextMeasureRequest extends Omit<UITextRun, "direction" | "align" | "runs" | "editable"> {
+export interface TextMeasureRequest extends Omit<UITextRun, "direction" | "align" | "runs" | "boxes" | "editable"> {
   /** Width available in UI pixels (Infinity when unbounded, and always for `wrap: "none"`); text wraps to it. */
   readonly maxWidth: number;
 }

@@ -467,7 +467,11 @@ describe("UICore text", () => {
     text.text = "abcdefgh";
     sync(c);
     expect(c.rectOf(text)!.width).toBeCloseTo(0.55 * 10 * 8);
+    // ADR 0428: a line break shows only where `white-space` keeps it (HTML's default collapses it to a space).
     text.text = "ab\ncd";
+    sync(c);
+    expect(c.rectOf(text)!.height).toBeCloseTo(12);
+    text.whiteSpaceCollapse = "preserve-breaks";
     sync(c);
     expect(c.rectOf(text)!.height).toBeCloseTo(24);
   });

@@ -28,8 +28,12 @@ export type UIFlexDirection = "row" | "column" | "row-reverse" | "column-reverse
 export type UIJustify = "flex-start" | "center" | "flex-end" | "space-between" | "space-around" | "space-evenly";
 export type UIAlign = "flex-start" | "center" | "flex-end" | "stretch" | "baseline";
 export type UIPositionType = "relative" | "absolute";
-/** `none` takes an element and its children out of layout, drawing and the pointer. */
-export type UIDisplay = "flex" | "none";
+/**
+ * `none` takes an element and its children out of layout, drawing and the pointer. ADR 0428: inside a text element,
+ * `inline-block` (or `inline-flex`) lays an element out as an atomic inline box on the text's lines, its content in a
+ * layout of its own; elsewhere both lay out as `flex`.
+ */
+export type UIDisplay = "flex" | "none" | "inline-block" | "inline-flex";
 export type UICanvasMode = "screen" | "world";
 /**
  * `start` and `end` follow the text direction of the current language (ADR 0356 §5): `start` is the left edge in
@@ -41,6 +45,14 @@ export type UIWordBreak = "break-word" | "break-all" | "keep-all";
 export type UIFontStyle = "normal" | "italic" | "oblique";
 /** ADR 0425: an inline run's `vertical-align`. */
 export type UIVerticalAlign = "baseline" | "sub" | "super" | "middle" | "top" | "bottom" | "text-top" | "text-bottom";
+/**
+ * ADR 0428: how a text's spaces and line breaks show (CSS `white-space-collapse`): `collapse` (HTML's default: runs of
+ * spaces, tabs and line breaks are one space), `preserve` (kept as written), `preserve-breaks` (line breaks kept, spaces
+ * collapsed), `break-spaces` (kept, and spaces at the end of a line take room there and may wrap).
+ */
+export type UIWhiteSpaceCollapse = "collapse" | "preserve" | "preserve-breaks" | "break-spaces";
+/** ADR 0428: whether a text's lines wrap at its width (CSS `text-wrap-mode`). */
+export type UITextWrapMode = "wrap" | "nowrap";
 export type UIImageFit = "cover" | "contain" | "fill";
 /**
  * How `navigate` leaves a focusable element (ADR 0340): `auto` takes its explicit neighbours, else the
@@ -146,7 +158,13 @@ abstract class UIElement extends UIComponent {
    * `display: none`, while its node stays active (its scripts run, and its state reads as before).
    * `flex` (the default) lays it out.
    */
-  @field(String, { choices: ["flex", "none"] }) display: UIDisplay = "flex";
+  @field(String, { choices: ["flex", "none", "inline-block", "inline-flex"] }) display: UIDisplay = "flex";
+  /**
+   * Its place on a text's line (`vertical-align`), as an inline run or (ADR 0428) an atomic inline box: `sub` and `super`
+   * lower and raise its baseline; `middle`, `top`, `bottom`, `text-top`, `text-bottom` align its box. Outside a text it
+   * does nothing.
+   */
+  @field(String, { choices: ["baseline", "sub", "super", "middle", "top", "bottom", "text-top", "text-bottom"] }) verticalAlign: UIVerticalAlign = "baseline";
   /**
    * Whether the pointer stops at this element, like Unity's `Graphic.raycastTarget` (ADR 0385). True (the default):
    * a press over it goes to the UI, never to the game (`Input.pointerOverUI` is true), and reaches the button or
@@ -387,12 +405,32 @@ export class UIText extends UIElement {
   @field(String) textDecoration = "none";
   /** Painted behind the text: an inline run's glyphs (and its inline children's), or the whole box of a text element; null paints nothing. */
   @field(Color) backgroundColor: Color | null = null;
-  /** An inline run's place on its line (`vertical-align`): `sub` and `super` lower and raise its baseline; `middle`, `top`, `bottom`, `text-top`, `text-bottom` align its box. */
-  @field(String, { choices: ["baseline", "sub", "super", "middle", "top", "bottom", "text-top", "text-bottom"] }) verticalAlign: UIVerticalAlign = "baseline";
   /** `contenteditable`: the player edits the text (a press puts the caret, typing and the IME go through the hidden input, `input` events follow); whitespace is kept as typed. */
   @field(Boolean) contentEditable = false;
   /** @internal A run of text between a text element's inline children (not an element): events on it go to its parent. */
   _textPiece = false;
+  /** @internal ADR 0428: a `<br>`: a forced line break, whatever the white space rules. */
+  _lineBreak = false;
+
+  // ADR 0428: white space, and borders (an inline run's box, or the text's own).
+  /** How spaces and line breaks show (`white-space-collapse`, inherited; a stylesheet's `white-space` sets it with `textWrapMode`). An editable text keeps them as typed. */
+  @field(String, { choices: ["collapse", "preserve", "preserve-breaks", "break-spaces"] }) whiteSpaceCollapse: UIWhiteSpaceCollapse = "collapse";
+  /** Whether lines wrap at the text's width (`text-wrap-mode`, inherited); `nowrap` keeps them whole, so only line breaks break them. */
+  @field(String, { choices: ["wrap", "nowrap"] }) textWrapMode: UITextWrapMode = "wrap";
+  /**
+   * A border on every side, in UI pixels (`border-width`; `border` takes a width, `solid` or `none`, and a colour). It
+   * lays out and draws around a text's box; on an inline run, around its part of each line (its start and end sides
+   * only where the run starts and ends, as CSS slices an inline box), taking room on the line only at those sides.
+   */
+  @field(Number) borderWidth = 0;
+  /** The border's width on one side (`border-top-width` …). Null (the default): `borderWidth`. */
+  @field(Number) borderTopWidth: number | null = null;
+  @field(Number) borderRightWidth: number | null = null;
+  @field(Number) borderBottomWidth: number | null = null;
+  @field(Number) borderLeftWidth: number | null = null;
+  @field(Color) borderColor = Color.black;
+  /** Rounds the corners of its border and background, in UI pixels (`border-radius` with one value). */
+  @field(Number) borderRadius = 0;
 }
 
 /** A texture laid out as an element. */

@@ -13,7 +13,7 @@ import type { WorldServiceDef } from "../../../engine/core/worldServices";
 import { forgetUIPreferences, loadUIPreferences } from "../../../engine/ui/preferences";
 import { uiManifest } from "../manifest";
 
-export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm, UISvg, UIVideo, UIAudio, type UIButtonType, type UIInputType, type UITextAreaWrap, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UINavigationMode, type UIPositionType, type UITextAlign, type UIWordBreak } from "../../../engine/ui/components";
+export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm, UISvg, UIVideo, UIAudio, type UIButtonType, type UIInputType, type UITextAreaWrap, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UINavigationMode, type UIPositionType, type UITextAlign, type UIWordBreak, type UIWhiteSpaceCollapse, type UITextWrapMode } from "../../../engine/ui/components";
 export { UIActions, UI_CONTEXT_PRIORITY } from "../../../engine/ui/navigation";
 export type { UIMediaEvent, UIMediaEventType, UIMediaSource } from "../../../engine/ui/media";
 export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperSetting, type UIControlMapperSettingKind, type UIControlMapperText } from "./UIControlMapper";

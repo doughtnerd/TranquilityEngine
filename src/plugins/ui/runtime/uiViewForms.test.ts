@@ -38,7 +38,7 @@ async function view(): Promise<{ v: UIView; log: string[]; api: Api; echo: () =>
   const v = GameObject.create("UI").addBehavior(UIView, { component: "asset:ui/controls.svelte", props: { log: (s: string) => log.push(s), onapi: (a: Api) => (api = a) } });
   await v.ready;
   pointer = await UIPointer.create(World.require(), 1280, 1000);
-  return { v, log, api, echo: () => v.query("#echo")!.as(UIText).text };
+  return { v, log, api, echo: () => v.query("#echo")!.as(UIText).text.replace(/\s+/g, " ").trim() }; // ADR 0428: its text is as written; collapsed as the UI core shows it
 }
 
 /** A frame, then the renderer's layout; a click waits a second frame (one press per frame). */
@@ -119,7 +119,7 @@ describe("UIView: form elements (ADR 0424)", () => {
     fake.emit("keydown", { key: "Enter" });
     fake.typeText("one\ntwo");
     frame(2);
-    expect(echo()).toContain(" one\ntwo".replace("\n", " ")); // text collapses whitespace when drawn in <p>
+    expect(echo()).toContain(" one two"); // the line break collapses in the <p>
     click(v.query("#go")!.as(UIButton));
     expect(log).toEqual(["submit"]);
     // A reset button puts the controls back to HTML's defaults (none written here: unchecked, empty, a select's first

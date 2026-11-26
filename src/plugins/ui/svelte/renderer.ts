@@ -1546,11 +1546,6 @@ function isEditable(el: UIRenderElement): boolean {
   return v !== null && v !== "false";
 }
 
-/** ADR 0425: text inside a run with its whitespace collapsed (spaces at its ends stay, one each: the text's layout joins runs). */
-function collapseInner(text: string): string {
-  return text.replace(/[ \t\n\r\f]+/g, " ");
-}
-
 /** The hosted element `parent`'s children attach to (null: the canvas, for the mount container); undefined: children aren't built there. */
 function hostedParent(parent: UIParent): UIHostElement | null | undefined {
   if (!(parent instanceof UIRenderElement)) return undefined;
@@ -1736,7 +1731,7 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
     if (!node.data.trim()) return null;
     const label = tree.create("#text", "Text", hp, hostedBefore(node), new Map(), { synthetic: true });
     node._hosted = label;
-    tree.setText(label, collapse(node.data));
+    tree.setText(label, node.data); // ADR 0428: white space is the UI core's (by the text's `white-space`)
     return label;
   }
   if (parent instanceof UIRenderElement && isLeafKind(parent)) {
@@ -1836,14 +1831,13 @@ function refreshText(el: UIRenderElement | null): void {
   if (!el?._hosted) return;
   const tree = el._hosted.tree;
   if (el.localName.toLowerCase() === "br") return tree.setText(el._hosted, "\n");
-  // An empty Text with a `text` attribute shows the attribute, as written (spaces and line breaks kept).
+  // An empty Text with a `text` attribute shows the attribute (its white space as the text's `white-space` says, ADR 0428).
   if (el._children.length === 0 && el.hasAttribute("text")) return;
-  const editable = isEditable(el);
   if (el._children.some((c) => c instanceof UIRenderElement)) {
     tree.setText(el._hosted, "");
     for (const c of el._children) {
       if (!(c instanceof UIRenderText)) continue;
-      const t = editable ? c.data : collapseInner(c.data);
+      const t = c.data; // ADR 0428: as written; the UI core applies `white-space` (an editable text keeps it as typed)
       if (!c._hosted) {
         if (t === "") continue;
         c._hosted = tree.create("#text", "Text", el._hosted, hostedBefore(c), new Map(), { synthetic: true });
@@ -1860,7 +1854,7 @@ function refreshText(el: UIRenderElement | null): void {
     }
   }
   const flat = el.textContent;
-  tree.setText(el._hosted, editable ? flat : isRun(el) ? collapseInner(flat) : collapse(flat));
+  tree.setText(el._hosted, flat);
 }
 
 /**
@@ -2297,7 +2291,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     if (!tree || !node._parent) return;
     const blank = !text.trim();
     if (node._hosted && blank) dematerialize(node, tree);
-    else if (node._hosted) tree.setText(node._hosted, collapse(text));
+    else if (node._hosted) tree.setText(node._hosted, text);
     else if (!blank) {
       const made = materialize(node, tree);
       if (made) tree.restyle(made);
