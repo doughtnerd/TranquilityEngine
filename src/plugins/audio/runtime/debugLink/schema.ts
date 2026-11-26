@@ -1,7 +1,8 @@
 // The audio debug-link topic's schema (ADR 0376's "audio topics" gap, 0348's open question, ADR 0403 plan contract C4):
 // what the Audio Studio and the editor ask a running build's audio for, and in what form. Both ends import this module:
-// the build's topic (`topic.ts`, A1; `upload.ts`, A2; `mixCommands.ts`, A3) and the tools (`takeReceiver.ts`, A2; the
-// Studio's Profiler, Take and Mixer, U5/U8). The topic is registered by A1 (`audio/runtime/index.ts`), not here.
+// the build's topic (`topic.ts`, A1; `upload.ts`, A2; `mixCommands.ts`, A3) and the tools' one audio link client
+// (`editor/debugLink/audioLinkClient.ts`, ADR 0417), which the Studio's Profiler, Take and Mixer use.
+// The topic is registered by A1 (`audio/runtime/index.ts`), not here.
 //
 // Topic `audio`, channel `reliable` (`DebugTopic.channel`): a capture segment or an upload chunk lost would leave a hole
 // a live follow can't skip (plan §12 finding 6).

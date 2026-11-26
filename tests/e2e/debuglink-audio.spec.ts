@@ -2,13 +2,13 @@ import { expect, test } from "./fixtures";
 import { exportAndServe, stopServed, type Served } from "./audioExport";
 import { startDebugLinkTool, type DebugLinkTool } from "./debugLinkFixture";
 import { openTakeFile } from "../../src/plugins/audio/runtime/capture/takeFile";
-import { createTakeReceiver, type TakeReceiveResult } from "../../src/plugins/audio/editor/debugLink/takeReceiver";
-import { AudioRequest, decodeTakeChunk, type TakeStateReply, type TakeUploadReply } from "../../src/plugins/audio/runtime/debugLink/schema";
+import { audioLinkClient } from "../../src/plugins/audio/editor/debugLink/audioLinkClient";
+import { AudioRequest, type TakeStateReply } from "../../src/plugins/audio/runtime/debugLink/schema";
 
 // The debug link in a real exported game (plan task S1, ADR 0376, 0403): samples/flappy is exported for the web with debugging
 // on, pointing at a Node tool listener (`debugLinkFixture.ts`); Chromium opens it, the build connects and says hello, and the
 // tool records a take over the link (`take.start`, `take.mark`, `take.stop`), uploads it (`take.upload`, the `upload`
-// subscription, `createTakeReceiver`) and opens the bytes as a take file. The game's own save isn't reachable without internals,
+// subscription, reassembled by the audio link client, ADR 0417) and opens the bytes as a take file. The game's own save isn't reachable without internals,
 // so the check is on what the take says: it opens, its duration matches what the link reported, it holds the tool's mark.
 
 test.describe.configure({ timeout: 180_000 });
@@ -61,37 +61,20 @@ test.describe("the debug link in an exported game", { tag: "@slow" }, () => {
     expect(stopped.state).toBe("stopped");
     expect(stopped.seconds).toBeGreaterThanOrEqual(2);
 
-    const reply = (await peer.request("audio", AudioRequest.upload)) as TakeUploadReply;
-    expect(reply.bytes).toBeGreaterThan(0);
-    expect(reply.seconds).toBeCloseTo(stopped.seconds, 1);
-    const rx = createTakeReceiver(reply);
-    const result = await new Promise<TakeReceiveResult>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`the upload didn't finish (${rx.received} of ${reply.bytes} bytes)`)), 30_000);
-      const sub = peer.subscribe(
-        "audio",
-        { kind: "upload", upload: reply.upload },
-        (records) => {
-          for (const r of records) {
-            const chunk = decodeTakeChunk(r.payload);
-            const got: TakeReceiveResult = "refused" in chunk ? { status: "error", error: chunk.refused } : rx.push(chunk);
-            if (got.status !== "more") {
-              clearTimeout(timer);
-              sub.unsubscribe();
-              resolve(got);
-              return;
-            }
-          }
-        },
-        (message) => (clearTimeout(timer), reject(new Error(message))),
-      );
-    });
-    if (result.status !== "done") throw new Error(`upload failed: ${result.status === "error" ? result.error : "incomplete"}`);
-    expect(result.bytes.byteLength).toBe(reply.bytes);
+    // take.upload and its chunks, reassembled by the audio link client.
+    let received = 0;
+    let total = 0;
+    const bytes = await Promise.race([
+      audioLinkClient(peer).uploadTake({ onProgress: (p) => ((received = p.bytes), (total = p.total)) }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`the upload didn't finish (${received} of ${total} bytes)`)), 30_000)),
+    ]);
+    expect(bytes.byteLength).toBeGreaterThan(0);
+    expect(bytes.byteLength).toBe(total);
 
     // The bytes open as a take file, whose length and requests are what the link said.
-    const opened = await openTakeFile(result.bytes);
+    const opened = await openTakeFile(bytes);
     expect(opened.take.duration).toBeGreaterThanOrEqual(2);
-    expect(opened.take.duration).toBeCloseTo(reply.seconds, 0);
+    expect(opened.take.duration).toBeCloseTo(stopped.seconds, 0);
     expect(opened.take.requests.length).toBeGreaterThanOrEqual(1);
     expect(opened.take.marks().map((m) => m.text)).toContain(MARK);
     expect(errors).toEqual([]);

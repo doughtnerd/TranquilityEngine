@@ -7,7 +7,7 @@ import { Audio } from "../../plugins/audio/runtime/Audio";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
 import { releaseCapture } from "../../plugins/audio/runtime/capture/capture";
 import type { CaptureChunkControl } from "../../plugins/audio/runtime/capture/testSupport";
-import { linkedBuild, type LinkedBuild } from "../screens/profiler/buildLinkTestSupport";
+import { linkedBuild, type LinkedBuild } from "../../plugins/audio/editor/debugLink/buildLinkTestSupport";
 import { followLiveTake, liveTake, liveTakeState } from "./liveTake";
 import {
   DEFAULT_TAKE_PICTURE_WIDTH, followTakePictureWidth, sendTakePictureWidth, takePictureWidth, takePictureWidthOf, takePictureWidthResult, type TakePicturesBuild,
