@@ -1,8 +1,8 @@
 {
   "version": "5.59.2",
   "counts": {
-    "pass": 1125,
-    "fail": 186,
+    "pass": 1130,
+    "fail": 181,
     "skip": 53
   },
   "passing": [
@@ -281,6 +281,7 @@
     "async-fork-write-back",
     "async-head",
     "async-hidden-write-version-no-rerun",
+    "async-html-tag",
     "async-if",
     "async-if-after-await-in-script",
     "async-if-block-unskip",
@@ -644,6 +645,7 @@
     "each-bind-this-member",
     "each-bind-this-member-2",
     "each-block-default-arg",
+    "each-dynamic-html",
     "each-effect-linking",
     "each-fallback",
     "each-fallback-outer-scope",
@@ -832,10 +834,13 @@
     "hmr-each-keyed-unshift",
     "hmr-removal",
     "html-entity-line-feed",
+    "html-tag-empty",
+    "html-tag-escaping",
     "hydratable",
     "hydratable-complex-nesting",
     "hydratable-promise-placeholder-collision",
     "hydration-attribute-changed-ignored",
+    "hydration-html-changed-ignored",
     "if-block-dependencies",
     "if-dependency-order",
     "image-loading-attribute",
