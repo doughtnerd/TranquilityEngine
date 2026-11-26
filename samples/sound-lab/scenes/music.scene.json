@@ -63,9 +63,9 @@
       "transform": false,
       "components": [
         {
-          "type": "engine.UIDocument",
+          "type": "engine.UIView",
           "data": {
-            "document": "asset:ui/music.ui.xml"
+            "component": "asset:ui/Music.svelte"
           }
         }
       ]

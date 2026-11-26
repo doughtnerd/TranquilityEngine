@@ -86,7 +86,7 @@
       "id": "hud",
       "name": "HUD",
       "transform": false,
-      "components": [{ "type": "engine.UIDocument", "data": { "document": "asset:ui/hud.ui.xml" } }]
+      "components": [{ "type": "engine.UIView", "data": { "component": "asset:ui/Hud.svelte" } }]
     },
 
     {

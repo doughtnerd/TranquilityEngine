@@ -11,7 +11,7 @@ import { setHud } from "../labHud";
  */
 @behavior("lab.EngineBench")
 export class EngineBench extends GameBehavior {
-  /** The page's UI document node (ui/*.ui.xml): this script fills its `{engine}` binding. */
+  /** The page's HUD node (a UIView of ui/<Page>.svelte): this script passes its `engine` prop. */
   @field(GameObject) hud: GameObject | null = null;
   @field(String) blendEvent = "audio/events/engine.playlist.json";
   @field(String) singleEvent = "audio/events/engine-single.playlist.json";

@@ -926,6 +926,8 @@ function detach(node: UINode): void {
 /** A Text element's content changed: write its text. */
 function refreshText(el: UIRenderElement | null): void {
   if (!el?._hosted) return;
+  // An empty Text with a `text` attribute shows the attribute, as written (spaces and line breaks kept).
+  if (el._children.length === 0 && el.hasAttribute("text")) return;
   el._hosted.tree.setText(el._hosted, collapse(el.textContent));
 }
 

@@ -69,7 +69,7 @@ export interface RhythmState {
  */
 @behavior("lab.RhythmLab")
 export class RhythmLab extends GameBehavior {
-  /** The page's UI document node (ui/*.ui.xml): this script fills its `{rhythm}` binding. */
+  /** The page's HUD node (a UIView of ui/<Page>.svelte): this script passes its `rhythm` prop. */
   @field(GameObject) hud: GameObject | null = null;
   @field(String) clickEvent = "audio/music/rhythm-click.playlist.json";
   @field(String) gameEvent = "audio/music/rhythm-game.playlist.json";

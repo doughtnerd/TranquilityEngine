@@ -100,9 +100,9 @@
       "transform": false,
       "components": [
         {
-          "type": "engine.UIDocument",
+          "type": "engine.UIView",
           "data": {
-            "document": "asset:ui/events.ui.xml"
+            "component": "asset:ui/Events.svelte"
           }
         }
       ]

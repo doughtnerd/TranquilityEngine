@@ -1,4 +1,4 @@
-import { Audio, GameBehavior, GameObject, Input, SceneManager, Storage, UIDocument, behavior, field } from "myco";
+import { Audio, GameBehavior, GameObject, Input, SceneManager, Storage, UIView, behavior, field } from "myco";
 import { BirdEvents, GameState } from "../data";
 import { MusicReadout, touchToggle } from "../musicReadout";
 import { Bird, flapPressed } from "./Bird";
@@ -27,7 +27,7 @@ function restoreMusic(seconds: number): void {
 export class GameManager extends GameBehavior {
   @field(GameObject) bird: GameObject | null = null;
   @field(GameObject) spawner: GameObject | null = null;
-  /** The HUD's UI document (ui/hud.ui.xml): the score, the message and the music readout (key M, or the music button on a touch screen). */
+  /** The HUD's UIView (ui/Hud.svelte): the score, the message and the music readout (key M, or the music button on a touch screen). */
   @field(GameObject) hud: GameObject | null = null;
   @field(String) musicKey = "m";
   @field(Number) restartDelay = 0.6;
@@ -40,13 +40,13 @@ export class GameManager extends GameBehavior {
   private touchPressed = false;
   private removeTouchToggle: (() => void) | null = null;
 
-  private get ui(): UIDocument | null {
-    return this.hud?.getBehavior(UIDocument) ?? null;
+  private get ui(): UIView | null {
+    return this.hud?.getBehavior(UIView) ?? null;
   }
 
   async start(): Promise<void> {
     restoreMusic(0.2);
-    if (this.ui) Object.assign(this.ui.data, { score: "", message: "", music: "" });
+    if (this.ui) Object.assign(this.ui.props, { score: "", message: "", music: "" });
     this.removeTouchToggle = touchToggle(() => (this.touchPressed = true));
     this.setMessage("Press Space or click to flap");
     this.setScore();
@@ -105,14 +105,14 @@ export class GameManager extends GameBehavior {
     if (Input.getKeyDown(this.musicKey) || this.touchPressed) this.readout.toggle();
     this.touchPressed = false;
     const ui = this.ui;
-    if (ui) ui.data.music = this.readout.lines();
+    if (ui) ui.props.music = this.readout.lines();
   }
 
   private setScore(): void {
-    if (this.ui) this.ui.data.score = String(this.score);
+    if (this.ui) this.ui.props.score = String(this.score);
   }
 
   private setMessage(text: string): void {
-    if (this.ui) this.ui.data.message = text;
+    if (this.ui) this.ui.props.message = text;
   }
 }

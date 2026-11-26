@@ -1,4 +1,4 @@
-import { Engine, GameBehavior, Input, UIDocument, behavior, field, type WorldHandle } from "myco";
+import { Engine, GameBehavior, Input, UIView, behavior, field, type WorldHandle } from "myco";
 import { ARENA_SCENE, DEDICATED_SERVER_URL, SERVER_WORLD } from "../data";
 
 /**
@@ -18,9 +18,9 @@ export class Menu extends GameBehavior {
 
   private busy = false;
 
-  /** The menu's UI document (ui/menu.ui.xml): `join` is the Join item's text, `status` the message line. */
+  /** The menu's UIView's props (ui/Menu.svelte): `join` is the Join item's text, `status` the message line. */
   private get data(): Record<string, unknown> | null {
-    return this.node.getBehavior(UIDocument)?.data ?? null;
+    return this.node.getBehavior(UIView)?.props ?? null;
   }
 
   start(): void {

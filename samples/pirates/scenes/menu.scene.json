@@ -524,9 +524,9 @@
        "data": {}
       },
       {
-       "type": "engine.UIDocument",
+       "type": "engine.UIView",
        "data": {
-        "document": "asset:ui/menu.ui.xml"
+        "component": "asset:ui/Menu.svelte"
        }
       },
       {

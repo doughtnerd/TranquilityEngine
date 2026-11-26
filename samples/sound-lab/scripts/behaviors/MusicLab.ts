@@ -38,7 +38,7 @@ import { TouchBar } from "../touchBar";
  */
 @behavior("lab.MusicLab")
 export class MusicLab extends GameBehavior {
-  /** The page's UI document node (ui/*.ui.xml): this script fills its `{music}` binding. */
+  /** The page's HUD node (a UIView of ui/<Page>.svelte): this script passes its `music` prop. */
   @field(GameObject) hud: GameObject | null = null;
   @field(String) worldEvent = "audio/music/music-world.playlist.json";
   @field(String) loopEvent = "audio/music/music-loop.playlist.json";

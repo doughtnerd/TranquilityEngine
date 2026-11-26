@@ -1,4 +1,4 @@
-/* The Sound Lab's page text (ADR 0077), shared by every page's document: white text with a black outline, top left. */
+/* The Sound Lab's page text (ADR 0419), imported by every page's component: white text with a black outline, top left. */
 #hud {
   position: absolute;
   top: 20px;
@@ -22,7 +22,7 @@
 }
 #loudness, #mixer { font-size: 20px; }
 
-/* Labels over the game let the pointer through to it, as the old screen Text did (ADR 0385, 0417). */
-Text {
+/* Labels over the game let the pointer through to it (ADR 0385). */
+#hud span {
   raycast-target: false;
 }

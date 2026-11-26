@@ -1,9 +1,0 @@
-<!--
-  The arena's heads-up display as a UI document (ADR 0077): the replicated scores along the top and
-  the controls along the bottom. scripts/behaviors/Hud.ts fills the {bindings}.
--->
-<Canvas>
-  <Style src="hud.ui.css"/>
-  <Text id="scoreboard">{scores}</Text>
-  <Text id="help">{help}</Text>
-</Canvas>

@@ -30,7 +30,7 @@
       "name": "Menu",
       "transform": false,
       "components": [
-        { "type": "engine.UIDocument", "data": { "document": "asset:ui/menu.ui.xml" } },
+        { "type": "engine.UIView", "data": { "component": "asset:ui/Menu.svelte" } },
         { "type": "arena.Menu", "data": { "serverUrl": "ws://localhost:7777" } }
       ]
     }

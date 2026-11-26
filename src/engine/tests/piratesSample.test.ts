@@ -2,7 +2,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, Lobby, Replicated, SceneInstance } from "../index";
 import { UIButton, UIPanel, UIText } from "../ui/components";
-import { UIDocument, type UIDocumentElement } from "../ui/UIDocument";
+import { UIView } from "../../plugins/ui/runtime/UIView";
+import type { UIHostElement } from "../ui/host/UIHost";
+import { serveSampleUI } from "./sampleUI";
 import { World } from "../core/World";
 import { readProject } from "../../server/project";
 import { UIPointer } from "./uiPointer";
@@ -47,26 +49,26 @@ async function click(world: World, button: UIButton): Promise<void> {
   p.click(button);
 }
 
-/** The UI document on the node of a behavior (the menu's, the HUD's). */
-function uiOf(behavior: { node: GameObject }): UIDocument {
-  return behavior.node.getBehavior(UIDocument)!;
+/** The UIView on the node of a behavior (the menu's, the HUD's). */
+function uiOf(behavior: { node: GameObject }): UIView {
+  return behavior.node.getBehavior(UIView)!;
 }
 
-/** An element of a document, which must be there. */
-function at(ui: UIDocument, selector: string): UIDocumentElement {
+/** An element a view rendered, which must be there. */
+function at(ui: UIView, selector: string): UIHostElement {
   const el = ui.query(selector);
-  if (!el) throw new Error(`no "${selector}" in ${ui.document}`);
+  if (!el) throw new Error(`no "${selector}" in ${ui.component}`);
   return el;
 }
 
 /** Laid out and drawn: its node active, and neither it nor an element above it `display: none` (the scripts' `.hidden`). */
-function shown(el: UIDocumentElement): boolean {
+function shown(el: UIHostElement): boolean {
   if (!el.node.activeInHierarchy) return false;
-  for (let e: UIDocumentElement | null = el; e; e = e.parent) if ((e.component as UIPanel).display === "none") return false;
+  for (let e: UIHostElement | null = el; e; e = e.parent) if ((e.component as UIPanel).display === "none") return false;
   return true;
 }
 
-const textOf = (el: UIDocumentElement | null) => el!.as(UIText).text;
+const textOf = (el: UIHostElement | null) => el!.as(UIText).text;
 
 /** Other players' pages, stepped with this one. */
 const pages: OtherPage[] = [];
@@ -159,6 +161,7 @@ describe("the King of Pirates sample", () => {
 
     const project = await readProject(SAMPLE);
     Assets.addSource(project.assets);
+    serveSampleUI(import.meta.glob("../../../samples/pirates/ui/*.svelte", { eager: true }));
     const engine = await Engine.create({ headless: true, project: project.settings });
     engines.push(engine);
     const menu = engine._world("Menu")!;
@@ -226,10 +229,10 @@ describe("the King of Pirates sample", () => {
     expect(mine[0].rep.isPredictedLocally).toBe(true);
     // The player's ship sails under their room slot's colours; the HUD names the bots.
     expect(mine[0].data.team).toBe(Lobby.me!.slot);
-    // The HUD is a UI document (ui/hud.ui.xml): its leaderboard rows are a list() of the captains.
+    // The HUD is a Svelte component (ui/Hud.svelte): its leaderboard rows are an {#each} of the captains.
     const hud = uiOf(client._componentsOfType(Hud)[0]);
-    expect(hud.problems).toEqual([]);
-    expect(warnings.filter((w) => /ui\/hud\.ui\.(xml|css)/.test(w))).toEqual([]);
+    await hud.ready;
+    expect(warnings.filter((w) => /Hud\.svelte/.test(w))).toEqual([]);
     const rows = () => hud.queryAll("#leaderboard > .board-row").filter(shown);
     expect(rows()).toHaveLength(6);
     const names = rows().map((r) => textOf(r.query(".name")));
@@ -249,7 +252,7 @@ describe("the King of Pirates sample", () => {
 
     // The HUD's awareness. The minimap shows the ships afloat the player's chart shows: their own,
     // and any not inside another team's fog cloud (bots may have dropped some) and not a ghost.
-    const activeDots = (layer: string) => at(hud, `#${layer}`).children.filter((n) => n.item !== undefined && shown(n)).length;
+    const activeDots = (layer: string) => at(hud, `#${layer}`).children.filter(shown).length;
     const playerTeam = mine[0].data.team;
     const cloudsIn = (world: World) =>
       world._componentsOfType(Replicated).filter((r) => r.node.isValid && r.node.hasData(Cloud)).map((r) => ({ team: (r.node.getData(Cloud) as CloudView).team, x: r.node.transform!.position.x, z: r.node.transform!.position.z }));
@@ -335,6 +338,7 @@ describe("the King of Pirates sample", () => {
 
     const project = await readProject(SAMPLE);
     Assets.addSource(project.assets);
+    serveSampleUI(import.meta.glob("../../../samples/pirates/ui/*.svelte", { eager: true }));
     const engine = await Engine.create({ headless: true, project: project.settings });
     engines.push(engine);
     const menuWorld = engine._world("Menu")!;
@@ -413,6 +417,7 @@ describe("the King of Pirates sample", () => {
 
     const project = await readProject(SAMPLE);
     Assets.addSource(project.assets);
+    serveSampleUI(import.meta.glob("../../../samples/pirates/ui/*.svelte", { eager: true }));
     // A 20-second match and a short quick-match wait, for the test.
     const settings = structuredClone(project.settings) as unknown as { bootstrap: { templates: { Lobby: { lobby: { quickMatchWait: number; settings: { length: { choices: string[] } } } } } } };
     const lobby = settings.bootstrap.templates.Lobby.lobby;

@@ -1,4 +1,4 @@
-import { Engine, GameBehavior, Input, UIDocument, behavior } from "myco";
+import { Engine, GameBehavior, Input, UIView, behavior } from "myco";
 import { SECOND_CLIENT_WORLD, SERVER_WORLD, connectionStates, players } from "../data";
 
 /**
@@ -12,7 +12,7 @@ import { SECOND_CLIENT_WORLD, SERVER_WORLD, connectionStates, players } from "..
 @behavior("arena.Hud", { worlds: ["client"] })
 export class Hud extends GameBehavior {
   update(): void {
-    const data = (this.node.getBehavior(UIDocument) ?? null)?.data;
+    const data = this.node.getBehavior(UIView)?.props;
     if (!data) return;
     const hosting = Engine.findWorld(SERVER_WORLD) !== null;
     const second = Engine.findWorld(SECOND_CLIENT_WORLD);

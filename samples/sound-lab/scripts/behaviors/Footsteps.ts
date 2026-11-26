@@ -12,7 +12,7 @@ const SURFACES = ["Grass", "Gravel", "Wood", "Metal"];
  */
 @behavior("lab.Footsteps")
 export class Footsteps extends GameBehavior {
-  /** The page's UI document node (ui/*.ui.xml): this script fills its `{footsteps}` binding. */
+  /** The page's HUD node (a UIView of ui/<Page>.svelte): this script passes its `footsteps` prop. */
   @field(GameObject) hud: GameObject | null = null;
   @field(String) event = "audio/events/footstep.playlist.json";
   @field(String) walkKey = "w";

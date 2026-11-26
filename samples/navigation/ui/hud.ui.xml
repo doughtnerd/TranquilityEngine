@@ -1,8 +1,0 @@
-<!--
-  The navigation sample's status panel as a UI document (ADR 0077): one text block, filled by
-  scripts/behaviors/Hud.ts through the {status} binding. The look is in hud.ui.css.
--->
-<Canvas>
-  <Style src="hud.ui.css"/>
-  <Text id="status">{status}</Text>
-</Canvas>

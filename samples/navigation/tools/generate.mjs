@@ -115,35 +115,33 @@ function write(path, content) {
   written.push(path);
 }
 
-// ---------------------------------------------------------------------------------------------- the HUD document
+// ---------------------------------------------------------------------------------------------- the HUD component
 
-// The status panel is a UI document (ADR 0077); scripts/behaviors/Hud.ts fills its {status} binding.
-const HUD_XML = `<!--
-  The navigation sample's status panel as a UI document (ADR 0077): one text block, filled by
-  scripts/behaviors/Hud.ts through the {status} binding. The look is in hud.ui.css.
--->
-<Canvas>
-  <Style src="hud.ui.css"/>
-  <Text id="status">{status}</Text>
-</Canvas>
-`;
-const HUD_CSS = `/* The navigation HUD's look (ADR 0077): white text with a black outline, top left, in reference pixels. */
-#status {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  text-align: left;
-  font-size: 18px;
-  font-weight: bold;
-  color: white;
-  text-outline-color: black;
-  text-outline-width: 3px;
-}
+// The status panel is a Svelte component (ADR 0419); scripts/behaviors/Hud.ts passes its `status` prop.
+const HUD_SVELTE = `<script lang="ts">
+  // The navigation sample's status panel (ADR 0419): one text block, which scripts/behaviors/Hud.ts passes in
+  // through its UIView's props.
+  let { status = "" }: { status?: string } = $props();
+</script>
 
-/* Labels over the game let the pointer through to it, as the old screen Text did (ADR 0385, 0417). */
-Text {
-  raycast-target: false;
-}
+<span id="status" text={status}></span>
+
+<style>
+  /* White text with a black outline, top left, in reference pixels. */
+  #status {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    text-align: left;
+    font-size: 18px;
+    font-weight: bold;
+    color: white;
+    text-outline-color: black;
+    text-outline-width: 3px;
+    /* A label over the game lets the pointer through to it (ADR 0385). */
+    raycast-target: false;
+  }
+</style>
 `;
 
 // ---------------------------------------------------------------------------------------------- navigation settings
@@ -727,7 +725,7 @@ function buildMain() {
   course("Jump course", "jumper", PREFABS.jumper, COUNTS.jumpers, 12, 48, 1);
   course("Climb course", "climber", PREFABS.climber, COUNTS.climbers, -12, -48, 0.75);
 
-  scene.add("HUD", [{ type: "engine.UIDocument", data: { document: "asset:ui/hud.ui.xml" } }, { type: "navdemo.Hud" }], undefined, false);
+  scene.add("HUD", [{ type: "engine.UIView", data: { component: "asset:ui/Hud.svelte" } }, { type: "navdemo.Hud" }], undefined, false);
   return { file: scene.file(), groupCount };
 }
 
@@ -752,8 +750,7 @@ const main = buildMain();
 writeMaterials(main.groupCount);
 writePrefabs();
 write("scenes/main.scene.json", main.file);
-write("ui/hud.ui.xml", HUD_XML);
-write("ui/hud.ui.css", HUD_CSS);
+write("ui/Hud.svelte", HUD_SVELTE);
 for (let i = 0; i < 9; i++) write(chunkScene(i), buildChunk(i));
 
 const total = COUNTS.walkers + COUNTS.flyers + COUNTS.walkFlyers + COUNTS.groups * COUNTS.groupSize + COUNTS.flyerGroups * COUNTS.flyerGroupSize + COUNTS.walkFlyGroups * COUNTS.walkFlyGroupSize + COUNTS.jumpers + COUNTS.climbers;

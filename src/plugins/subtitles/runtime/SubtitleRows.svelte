@@ -36,8 +36,8 @@
   {#each rows as row (row.id)}
     <div class={`row ${row.kind}`} style:opacity={row.opacity}>
       <div class="box" style:opacity={background}></div>
-      <span class="speaker" style:display={row.speaker === "" ? "none" : null} style:font-size={`${fontSize}px`} style:color={row.color}>{row.speaker}</span>
-      <span class="line" style:font-size={`${fontSize}px`}>{row.text}</span>
+      <span class="speaker" style:display={row.speaker === "" ? "none" : null} style:font-size={`${fontSize}px`} style:color={row.color} text={row.speaker}></span>
+      <span class="line" style:font-size={`${fontSize}px`} text={row.text}></span>
     </div>
   {/each}
 </div>

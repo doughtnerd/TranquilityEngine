@@ -12,6 +12,7 @@ import { setAudioBackend } from "../backend";
 import { makeFakeBackend, endAudioSession } from "../testing";
 import { playlistHost } from "../playlists/host";
 import { DomInput } from "../../../../engine/tests/domInput";
+import { serveSampleUI } from "../../../../engine/tests/sampleUI";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab", import.meta.url));
 const fake = makeFakeBackend();
@@ -25,6 +26,7 @@ async function boot(scene: string): Promise<void> {
   const project = await readProject(SAMPLE);
   Assets.clearSources();
   Assets.addSource(project.assets);
+  serveSampleUI(import.meta.glob("../../../../../samples/sound-lab/ui/*.svelte", { eager: true }));
   engine = await Engine.create({ headless: true, project: project.settings });
   engine.world.render = RENDER;
   await SceneManager.load(scene);

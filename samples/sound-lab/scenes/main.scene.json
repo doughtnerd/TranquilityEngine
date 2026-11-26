@@ -527,9 +527,9 @@
       "transform": false,
       "components": [
         {
-          "type": "engine.UIDocument",
+          "type": "engine.UIView",
           "data": {
-            "document": "asset:ui/main.ui.xml"
+            "component": "asset:ui/Main.svelte"
           }
         }
       ]
