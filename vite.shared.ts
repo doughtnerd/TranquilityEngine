@@ -63,6 +63,9 @@ const ENGINE_TYPES = "virtual:myco-types";
 /** The engine's Svelte renderer module (ADR 0419), which compiled UI components import as `myco/ui-renderer`. */
 export const SVELTE_UI_RENDERER = fileURLToPath(new URL("./src/plugins/ui/svelte/renderer.ts", import.meta.url));
 
+/** What compiled UI components get for `svelte/reactivity` (ADR 0418 wave 5): Svelte's with `MediaQuery` on the canvas. */
+const SVELTE_UI_REACTIVITY = fileURLToPath(new URL("./src/plugins/ui/svelte/reactivity.ts", import.meta.url));
+
 /** The cascade's stylesheet parser, which Vitest's compiled components call when they load (ADR 0419). */
 const UI_STYLESHEET_PARSER = fileURLToPath(new URL("./src/engine/ui/document/stylesheet.ts", import.meta.url));
 /** The id prefix of a plain `.css` file a component imports, as a module registering its rules. */
@@ -84,6 +87,8 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
     name: "myco:svelte-ui",
     enforce: "pre",
     async resolveId(source, importer) {
+      // UI code's `svelte/reactivity` is Svelte's with `MediaQuery` on the canvas (ADR 0418 wave 5), as in the editor and games.
+      if (source === "svelte/reactivity" && importer && /\.svelte(\.[jt]s)?$/.test(importer.split("?")[0])) return SVELTE_UI_REACTIVITY;
       if (!importer || !source.endsWith(".css") || !/\.svelte(\.[jt]s)?$/.test(importer.split("?")[0])) return null;
       const resolved = await this.resolve(source, importer, { skipSelf: true });
       return resolved ? UI_CSS_PREFIX + resolved.id : null;

@@ -34,10 +34,15 @@ import type {
   SimpleSelector,
   StyleRule,
   StyleTarget,
+  UIAttributeSelector,
+  UIMediaEnvironment,
+  UINthSelector,
   UIPseudo,
   UIStylesheet,
   ValueSource,
 } from "./types";
+import { matchMediaQueries } from "./mediaQuery";
+import { linearLength, resolveMath } from "./cssMath";
 
 
 export const UI_TAGS: ReadonlySet<string> = UI_KIND_TAGS;
@@ -74,7 +79,12 @@ function matchesSimple(s: SimpleSelector, t: StyleTarget): boolean {
   for (const c of s.classes) if (!t.classes.includes(c)) return false;
   for (const p of s.pseudo) if (!t.state[p]) return false;
   for (const range of s.lang) if (!langMatches(t.lang, range)) return false;
+  if (s.root && t.parent) return false;
+  if (s.attributes) for (const a of s.attributes) if (!matchAttribute(a, t)) return false;
+  if (s.empty && !(t.children !== undefined && t.children.length === 0 && !t.content)) return false;
+  if (s.nth) for (const n of s.nth) if (!matchNth(n, t)) return false;
   if (s.is) for (const g of s.is) if (!matchesGroup(g, t)) return false;
+  if (s.not) for (const list of s.not) if (list.some((sel) => matchFrom(sel, sel.parts.length - 1, t))) return false;
   return true;
 }
 
@@ -86,9 +96,9 @@ function langMatches(language: string | undefined, range: string): boolean {
   return l === r || l.startsWith(`${r}-`);
 }
 
-/** True when a selector matches an element (`:root` selectors match nothing: they only declare variables). */
+/** True when a selector matches an element (`:root` matches the tree's root: the element without a parent). */
 export function matchSelector(selector: Selector, target: StyleTarget): boolean {
-  if (selector.root) return false;
+  if (selector.root && target.parent) return false; // rule data from before wave 5 marks `:root` only here
   return matchFrom(selector, selector.parts.length - 1, target);
 }
 
@@ -97,9 +107,143 @@ function matchFrom(selector: Selector, index: number, target: StyleTarget): bool
   if (!matchesSimple(part.selector, target)) return false;
   if (index === 0) return true;
   // The combinator before this part joins it to the part on its left.
-  if (part.combinator === ">") return target.parent !== null && matchFrom(selector, index - 1, target.parent);
+  switch (part.combinator) {
+    case ">":
+      return target.parent !== null && matchFrom(selector, index - 1, target.parent);
+    case "+":
+    case "~": {
+      const siblings = siblingsOf(target);
+      const at = siblings ? siblings.indexOf(target) : -1;
+      if (at <= 0) return false;
+      if (part.combinator === "+") return matchFrom(selector, index - 1, siblings![at - 1]);
+      for (let i = at - 1; i >= 0; i--) if (matchFrom(selector, index - 1, siblings![i])) return true;
+      return false;
+    }
+  }
   for (let p = target.parent; p; p = p.parent) if (matchFrom(selector, index - 1, p)) return true;
   return false;
+}
+
+// --- Structural and attribute selectors (ADR 0418 wave 5) --------------------------------------------
+// Positions count child elements (text isn't one), so a button's label text doesn't make its first span a second
+// child. The root counts as the only child of nothing, as in CSS. Targets without `children` (or `attributes`) can't
+// say, so the tests that need them don't match.
+
+/** The element and its siblings, in order; null when its parent doesn't list its children. */
+function siblingsOf(t: StyleTarget): readonly StyleTarget[] | null {
+  if (!t.parent) return [t];
+  return t.parent.children ?? null;
+}
+
+/** True when some `n ≥ 0` gives `a·n + b = position`. */
+function nthMatches(a: number, b: number, position: number): boolean {
+  if (a === 0) return position === b;
+  const n = (position - b) / a;
+  return Number.isInteger(n) && n >= 0;
+}
+
+function matchNth(nth: UINthSelector, t: StyleTarget): boolean {
+  const siblings = siblingsOf(t);
+  if (!siblings) return false;
+  let list = siblings;
+  if (nth.ofType) list = list.filter((c) => sameTag(c.tag, t.tag));
+  if (nth.of) {
+    const of = nth.of;
+    list = list.filter((c) => of.some((sel) => matchFrom(sel, sel.parts.length - 1, c)));
+  }
+  const i = list.indexOf(t);
+  if (i < 0) return false;
+  return nthMatches(nth.a, nth.b, nth.last ? list.length - i : i + 1);
+}
+
+function matchAttribute(a: UIAttributeSelector, t: StyleTarget): boolean {
+  const attrs = t.attributes;
+  if (!attrs) return false;
+  let value: string | undefined = attrs.get(a.name);
+  if (value === undefined) {
+    for (const [k, v] of attrs) {
+      if (k.toLowerCase() === a.name) {
+        value = v;
+        break;
+      }
+    }
+  }
+  if (value === undefined) return false;
+  if (!a.op) return true;
+  let want = a.value ?? "";
+  if (a.insensitive) {
+    value = value.toLowerCase();
+    want = want.toLowerCase();
+  }
+  switch (a.op) {
+    case "=":
+      return value === want;
+    case "~=":
+      return want !== "" && !/\s/.test(want) && value.split(/\s+/).includes(want);
+    case "|=":
+      return value === want || value.startsWith(`${want}-`);
+    case "^=":
+      return want !== "" && value.startsWith(want);
+    case "$=":
+      return want !== "" && value.endsWith(want);
+    case "*=":
+      return want !== "" && value.includes(want);
+  }
+  return false;
+}
+
+/**
+ * A selector's specificity from its parts: ids; classes, pseudo-classes and attribute selectors; tags. `:is()`,
+ * `:not()` and `:nth-child(… of S)` add their most specific argument's, `:where()` nothing.
+ */
+export function selectorSpecificity(parts: Selector["parts"]): [number, number, number] {
+  let ids = 0;
+  let classes = 0;
+  let tags = 0;
+  const addMost = (list: readonly Selector[]) => {
+    const [a, b, c] = groupSpecificity({ selectors: list, zero: false });
+    ids += a;
+    classes += b;
+    tags += c;
+  };
+  for (const p of parts) {
+    const s = p.selector;
+    if (s.id) ids++;
+    classes += s.classes.length + s.pseudo.length + s.lang.length + (s.attributes?.length ?? 0) + (s.root ? 1 : 0) + (s.empty ? 1 : 0) + (s.nth?.length ?? 0);
+    if (s.tag) tags++;
+    for (const g of s.is ?? []) {
+      const [a, b, c] = groupSpecificity(g);
+      ids += a;
+      classes += b;
+      tags += c;
+    }
+    for (const list of s.not ?? []) addMost(list);
+    for (const n of s.nth ?? []) if (n.of) addMost(n.of);
+  }
+  return [ids, classes, tags];
+}
+
+/** True when any rule of these sheets uses a structural pseudo-class or a sibling combinator (so moving, adding and removing elements restyles their siblings). */
+export function usesStructure(sheets: readonly { rules: readonly StyleRule[] }[]): boolean {
+  return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => sel.parts.some((p, i) => i > 0 && (p.combinator === "+" || p.combinator === "~")) || selectorUses(sel, (p) => !!p.nth?.length || !!p.empty))));
+}
+
+/** True when any rule of these sheets is inside `@media` (so the rules match again when the canvas size changes). */
+export function usesMedia(sheets: readonly { rules: readonly StyleRule[] }[]): boolean {
+  return sheets.some((s) => s.rules.some((r) => !!r.media?.length));
+}
+
+/** The canvas a target's `@media` rules match against: its root's. */
+function mediaOf(t: StyleTarget): UIMediaEnvironment | null {
+  let root = t;
+  while (root.parent) root = root.parent;
+  return root.media ?? null;
+}
+
+/** True when every `@media` block a rule is in matches the canvas. */
+function ruleInMedia(rule: StyleRule, env: UIMediaEnvironment | null): boolean {
+  if (!rule.media) return true;
+  return rule.media.every((list) => matchMediaQueries(list, env));
 }
 
 /** True when any rule of these sheets uses a pseudo-class (so elements restyle when their state changes). */
@@ -148,9 +292,13 @@ function matchesGroup(g: SelectorGroup, t: StyleTarget): boolean {
   return g.selectors.some((sel) => matchFrom(sel, sel.parts.length - 1, t));
 }
 
-/** True when `test` holds for a compound of the selector, or of a selector inside its `:is()` / `:where()`. */
+/** True when `test` holds for a compound of the selector, or of a selector inside its `:is()`, `:where()`, `:not()` or `:nth-*(… of S)`. */
 function selectorUses(sel: Selector, test: (s: SimpleSelector) => boolean): boolean {
-  return sel.parts.some((p) => test(p.selector) || (p.selector.is ?? []).some((g) => g.selectors.some((inner) => selectorUses(inner, test))));
+  const inner = (list: readonly Selector[]) => list.some((s) => selectorUses(s, test));
+  return sel.parts.some((p) => {
+    const s = p.selector;
+    return test(s) || (s.is ?? []).some((g) => inner(g.selectors)) || (s.not ?? []).some(inner) || (s.nth ?? []).some((n) => !!n.of && inner(n.of));
+  });
 }
 
 // --- Values -------------------------------------------------------------------------------------
@@ -209,6 +357,8 @@ export function convertValue(raw: string, info: FieldInfo, file: string): unknow
     if (LENGTH_FIELDS.has(info.name)) {
       if (s === "auto" || /^-?(\d+\.?\d*|\.\d+)%$/.test(s)) return s;
       if (s === "none" && NONE_LENGTH_FIELDS.has(info.name)) return s;
+      // `calc()` mixing % and px (ADR 0418 wave 5), in the form `resolveMath` writes: the UI core resolves it at layout.
+      if (linearLength(s)) return s;
       const n = parseNumber(s);
       return n === undefined ? undefined : String(n);
     }
@@ -565,10 +715,10 @@ export function referenceField(attribute: MarkupAttribute): string | null {
 /** A variable's key in a resolved map: `--name` (variables inherit, like the text properties). */
 const isVariable = (key: string) => key.startsWith("--");
 
-/** Variables declared on `:root` in these sheets, in cascade order. */
-function rootVariables(sheets: readonly { rules: readonly StyleRule[]; file: string }[]): Map<string, ResolvedValue> {
+/** Variables declared on `:root` in these sheets (in `@media` blocks that match `env`), in cascade order. */
+function rootVariables(sheets: readonly { rules: readonly StyleRule[]; file: string }[], env: UIMediaEnvironment | null): Map<string, ResolvedValue> {
   const out = new Map<string, ResolvedValue>();
-  const rules = sheets.flatMap((s) => s.rules.map((r) => ({ r, file: s.file }))).filter(({ r }) => r.selectors.some((sel) => sel.root));
+  const rules = sheets.flatMap((s) => s.rules.map((r) => ({ r, file: s.file }))).filter(({ r }) => r.selectors.some((sel) => sel.root) && ruleInMedia(r, env));
   rules.sort((a, b) => a.r.order - b.r.order);
   for (const { r, file } of rules) {
     for (const d of r.declarations) if (isVariable(d.property)) out.set(d.property, { field: d.property, value: d.value, source: { kind: "rule", rule: r, declaration: d, file } });
@@ -589,8 +739,10 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
 
   // Matching declarations in cascade order: specificity, then rule order, then position in the rule.
   const matched: { rule: StyleRule; declaration: Declaration; file: string; spec: readonly [number, number, number]; index: number }[] = [];
+  const env = mediaOf(target);
   for (const sheet of sheets) {
     for (const rule of sheet.rules) {
+      if (rule.media && !ruleInMedia(rule, env)) continue;
       let best: readonly [number, number, number] | null = null;
       for (const sel of rule.selectors) {
         if (!matchSelector(sel, target)) continue;
@@ -603,7 +755,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   matched.sort((a, b) => compareSpec(a.spec, b.spec) || a.rule.order - b.rule.order || a.index - b.index);
 
   // Variables: inherited (the root's from `:root`), then this element's own.
-  const inheritedVars = parent ? [...parent].filter(([k]) => isVariable(k)) : [...rootVariables(sheets)];
+  const inheritedVars = parent ? [...parent].filter(([k]) => isVariable(k)) : [...rootVariables(sheets, env)];
   for (const [k, v] of inheritedVars) out.set(k, v);
   for (const m of matched) {
     if (isVariable(m.declaration.property)) out.set(m.declaration.property, { field: m.declaration.property, value: m.declaration.value, source: { kind: "rule", rule: m.rule, declaration: m.declaration, file: m.file } });
@@ -611,15 +763,27 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   const vars = new Map<string, string>();
   for (const [k, v] of out) vars.set(k, String(v.value));
 
+  /** A declared value with variables substituted and math functions worked out (ADR 0418 wave 5); undefined, warned once, when it can't be. */
+  const prepare = (raw: string, where: string): string | undefined => {
+    const substituted = substituteVars(raw, vars);
+    if (substituted === undefined) {
+      warnOnce(`${where}: "${raw}" uses a variable that isn't defined.`);
+      return undefined;
+    }
+    const math = resolveMath(substituted);
+    if (!math.ok) {
+      warnOnce(`${where}: "${substituted}" ${math.problem}`);
+      return undefined;
+    }
+    return math.value;
+  };
+
   const set = (field: string, raw: string, source: ValueSource, where: string) => {
     const shorthand = SHORTHANDS.get(field);
     const info = fields.get(field);
     if (!info && !shorthand) return false;
-    const substituted = substituteVars(raw, vars);
-    if (substituted === undefined) {
-      warnOnce(`${where}: "${raw}" uses a variable that isn't defined.`);
-      return false;
-    }
+    const substituted = prepare(raw, where);
+    if (substituted === undefined) return false;
     if (shorthand) {
       // ADR 0418: every longhand this element has, or none when one of them isn't valid.
       const invalid = () => warnOnce(`${where}: "${substituted}" isn't a valid ${field} for <${target.tag}>.`);
@@ -647,11 +811,8 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
 
   // A paint or transform shorthand (ADR 0418 waves 2 and 3) sets its longhands: this element's own, and inherited ones it passes on.
   const setShorthand = (property: string, raw: string, source: ValueSource, where: string) => {
-    const substituted = substituteVars(raw, vars);
-    if (substituted === undefined) {
-      warnOnce(`${where}: "${raw}" uses a variable that isn't defined.`);
-      return;
-    }
+    const substituted = prepare(raw, where);
+    if (substituted === undefined) return;
     const expanded = typedShorthand(property)!(substituted);
     if (!expanded.ok) {
       warnOnce(`${where}: "${substituted}" ${expanded.problem}`);
@@ -670,7 +831,9 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     const prop = m.declaration.property;
     if (isVariable(prop)) continue;
     if (isAnimationProperty(prop)) {
-      animation.declare(prop, substituteVars(m.declaration.value, vars), { kind: "rule", rule: m.rule, declaration: m.declaration, file: m.file }, `${m.file} "${m.rule.selectorText}" ${prop}`, warnOnce);
+      const where = `${m.file} "${m.rule.selectorText}" ${prop}`;
+      const value = prepare(m.declaration.value, where);
+      if (value !== undefined) animation.declare(prop, value, { kind: "rule", rule: m.rule, declaration: m.declaration, file: m.file }, where, warnOnce);
       continue;
     }
     const field = propertyField(prop);
@@ -686,7 +849,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
       set(field, m.declaration.value, source, where);
     } else if (INHERITED_FIELDS.has(field)) {
       // Not this element's field, but its children inherit it (a Panel's color reaches its Text).
-      const substituted = substituteVars(m.declaration.value, vars);
+      const substituted = prepare(m.declaration.value, where);
       if (substituted !== undefined) out.set(field, { field, value: substituted, source });
     }
   }
@@ -696,7 +859,9 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     const field = attributeField(a);
     if (!field || hasBinding(a.value)) continue;
     if (isAnimationProperty(a.name)) {
-      animation.declare(a.name, substituteVars(a.value, vars), { kind: "attribute", attribute: a, file: element.file }, `${element.file} <${element.tag} ${a.name}>`, warnOnce);
+      const where = `${element.file} <${element.tag} ${a.name}>`;
+      const value = prepare(a.value, where);
+      if (value !== undefined) animation.declare(a.name, value, { kind: "attribute", attribute: a, file: element.file }, where, warnOnce);
       continue;
     }
     if (typedShorthand(field)) {
@@ -900,11 +1065,17 @@ export function keyframeTracks(
     for (const d of frame.declarations) {
       if (isVariable(d.property) || isAnimationProperty(d.property)) continue;
       const where = `${found.file} @keyframes ${name} ${d.property}`;
-      const raw = substituteVars(d.value, vars);
-      if (raw === undefined) {
+      const substituted = substituteVars(d.value, vars);
+      if (substituted === undefined) {
         warn(`${where}: "${d.value}" uses a variable that isn't defined.`);
         continue;
       }
+      const math = resolveMath(substituted);
+      if (!math.ok) {
+        warn(`${where}: "${substituted}" ${math.problem}`);
+        continue;
+      }
+      const raw = math.value;
       const values = keyframeValues(propertyField(d.property), raw, fields, file);
       if (typeof values === "string") {
         warn(`${where}: "${raw}" ${values}`);

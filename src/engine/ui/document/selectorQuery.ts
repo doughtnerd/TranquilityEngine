@@ -1,13 +1,31 @@
 // Selector lists for queries (`UIView.query("#play")`, ADR 0419), read without a CSS parser: the
 // cascade's selector grammar (tags, `*`, `#id`, `.class`, `:hover`/`:pressed`/`:focus`/`:disabled`,
-// `:lang()`, `:is()`/`:where()`, descendant and child combinators) as the same `Selector` data the
-// stylesheet parser makes, so games using only Svelte UI can query without loading css-tree.
-import { groupSpecificity, isKnownTag, PSEUDO, type SelectorGroup } from "./cascade";
-import type { Selector, SimpleSelector, UIPseudo } from "./types";
+// `:lang()`, `:is()`/`:where()`/`:not()`, the structural pseudo-classes, `:empty`, `:root`, attribute
+// selectors, and the descendant, child and sibling combinators, ADR 0418 wave 5) as the same `Selector`
+// data the stylesheet parser makes, so games using only Svelte UI can query without loading css-tree.
+// The stylesheet parser reads attribute selectors and the wave 5 pseudo-classes with it too
+// (`parseCompoundText`), so rule data and queries read them alike.
+import { isKnownTag, PSEUDO, selectorSpecificity, type SelectorGroup } from "./cascade";
+import type { Combinator, Selector, SimpleSelector, UIAttributeSelector, UINthSelector, UIPseudo } from "./types";
 
-type Compound = { tag: string | null; id: string | null; classes: string[]; pseudo: UIPseudo[]; lang: string[]; is?: SelectorGroup[] };
+type Compound = {
+  tag: string | null;
+  id: string | null;
+  classes: string[];
+  pseudo: UIPseudo[];
+  lang: string[];
+  is?: SelectorGroup[];
+  not?: Selector[][];
+  nth?: UINthSelector[];
+  attributes?: UIAttributeSelector[];
+  empty?: boolean;
+  root?: boolean;
+};
 
-const IDENT = /^-?(?:[A-Za-z_]|[^\x00-\x7f])(?:[\w-]|[^\x00-\x7f])*/;
+const IDENT = /^-?(?:[A-Za-z_]|[^\x00-\x7f]|\\.)(?:[\w-]|[^\x00-\x7f]|\\.)*/;
+
+/** The pseudo-classes of the cascade, for messages. */
+const SUPPORTED = ":hover, :pressed, :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), :first-of-type, :last-of-type, :only-of-type, :nth-of-type(), :nth-last-of-type(), :empty and :root";
 
 /**
  * Parse a selector list (`#shop .row > span, button:hover`) into selectors to match. Throws an Error
@@ -19,6 +37,17 @@ export function parseSelectorQuery(text: string): Selector[] {
   skipSpace(reader);
   if (reader.i < text.length) fail(reader, `unexpected "${text[reader.i]}"`);
   return list;
+}
+
+/**
+ * The compound selector `text` is (`[data-open]`, `:nth-child(2n+1 of .row)`, `li.a:not(.b)`): what the stylesheet
+ * parser hands over for the parts it doesn't read itself. Throws an Error saying what's wrong.
+ */
+export function parseCompoundText(text: string): SimpleSelector {
+  const reader = { text, i: 0 };
+  const compound = readCompound(reader);
+  if (!compound || reader.i < text.length) fail(reader, `"${text}" isn't one compound selector`);
+  return compound;
 }
 
 interface Reader {
@@ -36,11 +65,12 @@ function skipSpace(r: Reader): boolean {
   return r.i > start;
 }
 
+/** An identifier, with CSS escapes (`\:`) undone. */
 function ident(r: Reader, what: string): string {
   const m = IDENT.exec(r.text.slice(r.i));
   if (!m) fail(r, `expected ${what}`);
   r.i += m[0].length;
-  return m[0];
+  return m[0].replace(/\\(.)/g, "$1");
 }
 
 /** A comma-separated list, up to the end or a `)`. */
@@ -56,40 +86,27 @@ function readList(r: Reader): Selector[] {
 
 function readComplex(r: Reader): Selector {
   skipSpace(r);
-  const parts: { selector: SimpleSelector; combinator: " " | ">" | null }[] = [];
-  let combinator: " " | ">" | null = null;
+  const parts: { selector: SimpleSelector; combinator: Combinator | null }[] = [];
+  let combinator: Combinator | null = null;
   for (;;) {
     const compound = readCompound(r);
     if (!compound) {
-      if (parts.length === 0 || combinator === ">") fail(r, "expected a selector");
+      if (parts.length === 0 || (combinator !== null && combinator !== " ")) fail(r, "expected a selector");
       break;
     }
     parts.push({ selector: compound, combinator: parts.length === 0 ? null : (combinator ?? " ") });
     const spaced = skipSpace(r);
     const c = r.text[r.i];
-    if (c === ">") {
+    if (c === ">" || c === "+" || c === "~") {
       r.i++;
       skipSpace(r);
-      combinator = ">";
-    } else if (c === "+" || c === "~") fail(r, `the "${c}" combinator isn't supported; use descendants (A B) or children (A > B)`);
-    else if (spaced && c !== undefined && c !== "," && c !== ")") combinator = " ";
+      combinator = c;
+    } else if (spaced && c !== undefined && c !== "," && c !== ")") combinator = " ";
     else break;
   }
-  let ids = 0;
-  let classes = 0;
-  let tags = 0;
-  for (const p of parts) {
-    if (p.selector.id) ids++;
-    classes += p.selector.classes.length + p.selector.pseudo.length + p.selector.lang.length;
-    if (p.selector.tag) tags++;
-    for (const g of p.selector.is ?? []) {
-      const [a, b, c] = groupSpecificity(g);
-      ids += a;
-      classes += b;
-      tags += c;
-    }
-  }
-  return { parts, specificity: [ids, classes, tags], root: false };
+  const only = parts.length === 1 ? parts[0].selector : null;
+  const root = !!only?.root && !only.tag && !only.id && !only.classes.length && !only.pseudo.length && !only.lang.length && !only.is && !only.not && !only.nth && !only.attributes && !only.empty;
+  return { parts, specificity: selectorSpecificity(parts), root };
 }
 
 /** A compound selector, or null when none starts here. */
@@ -120,27 +137,120 @@ function readCompound(r: Reader): SimpleSelector | null {
     } else if (c === ":") {
       r.i++;
       if (r.text[r.i] === ":") fail(r, "pseudo-elements aren't supported");
-      const name = ident(r, "a pseudo-class");
-      if (PSEUDO.has(name)) out.pseudo.push(name as UIPseudo);
-      else if (name === "is" || name === "where") {
-        open(r, name);
-        const selectors = readList(r);
-        close(r, name);
-        (out.is ??= []).push({ selectors, zero: name === "where" });
-      } else if (name === "lang") {
-        open(r, name);
-        skipSpace(r);
-        const range = /^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*/.exec(r.text.slice(r.i));
-        if (!range) fail(r, ":lang() takes one language code, such as :lang(de)");
-        r.i += range[0].length;
-        out.lang.push(range[0]);
-        close(r, name);
-      } else fail(r, `:${name} isn't supported; UI pseudo-classes are :hover, :pressed, :focus, :disabled, :lang(), :is() and :where()`);
-    } else if (c === "[") fail(r, "attribute selectors aren't supported");
-    else break;
+      readPseudo(r, out);
+    } else if (c === "[") {
+      (out.attributes ??= []).push(readAttribute(r));
+    } else break;
     any = true;
   }
   return any ? out : null;
+}
+
+const NTH: Readonly<Record<string, { last?: true; ofType?: true }>> = {
+  "nth-child": {},
+  "nth-last-child": { last: true },
+  "nth-of-type": { ofType: true },
+  "nth-last-of-type": { last: true, ofType: true },
+};
+
+function readPseudo(r: Reader, out: Compound): void {
+  const at = r.i;
+  const name = ident(r, "a pseudo-class").toLowerCase();
+  if (PSEUDO.has(name)) out.pseudo.push(name as UIPseudo);
+  else if (name === "is" || name === "where") {
+    open(r, name);
+    const selectors = readList(r);
+    close(r, name);
+    (out.is ??= []).push({ selectors, zero: name === "where" });
+  } else if (name === "not") {
+    open(r, name);
+    const selectors = readList(r);
+    close(r, name);
+    (out.not ??= []).push(selectors);
+  } else if (name === "lang") {
+    open(r, name);
+    skipSpace(r);
+    const range = /^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*/.exec(r.text.slice(r.i));
+    if (!range) fail(r, ":lang() takes one language code, such as :lang(de)");
+    r.i += range[0].length;
+    out.lang.push(range[0]);
+    close(r, name);
+  } else if (name === "first-child" || name === "first-of-type") (out.nth ??= []).push({ a: 0, b: 1, ...(name === "first-of-type" ? { ofType: true } : {}) });
+  else if (name === "last-child" || name === "last-of-type") (out.nth ??= []).push({ a: 0, b: 1, last: true, ...(name === "last-of-type" ? { ofType: true } : {}) });
+  else if (name === "only-child" || name === "only-of-type") {
+    const ofType = name === "only-of-type" ? { ofType: true as const } : {};
+    (out.nth ??= []).push({ a: 0, b: 1, ...ofType }, { a: 0, b: 1, last: true, ...ofType });
+  } else if (NTH[name]) {
+    open(r, name);
+    skipSpace(r);
+    const { a, b } = readAnPlusB(r, name);
+    skipSpace(r);
+    let of: Selector[] | undefined;
+    if (/^of\s/i.test(r.text.slice(r.i))) {
+      if (NTH[name].ofType) fail(r, `:${name}() takes no "of" selector`);
+      r.i += 2;
+      of = readList(r);
+    }
+    close(r, name);
+    (out.nth ??= []).push({ a, b, ...NTH[name], ...(of ? { of } : {}) });
+  } else if (name === "empty") out.empty = true;
+  else if (name === "root") out.root = true;
+  else {
+    r.i = at;
+    fail(r, `:${name} isn't supported; UI pseudo-classes are ${SUPPORTED}`);
+  }
+}
+
+/** `an+b`, `odd`, `even`, `3`, `-n+2`… */
+function readAnPlusB(r: Reader, name: string): { a: number; b: number } {
+  const rest = r.text.slice(r.i);
+  const word = /^(odd|even)(?![\w-])/i.exec(rest);
+  if (word) {
+    r.i += word[0].length;
+    return word[1].toLowerCase() === "odd" ? { a: 2, b: 1 } : { a: 2, b: 0 };
+  }
+  const m = /^([+-]?\d*)n(?:\s*([+-])\s*(\d+))?|^([+-]?\d+)/i.exec(rest);
+  if (!m) fail(r, `:${name}() takes an+b (2n+1, odd, even, 3)`);
+  r.i += m[0].length;
+  if (m[4] !== undefined) return { a: 0, b: parseInt(m[4], 10) };
+  const a = m[1] === "" || m[1] === "+" ? 1 : m[1] === "-" ? -1 : parseInt(m[1], 10);
+  const b = m[3] !== undefined ? parseInt(m[3], 10) * (m[2] === "-" ? -1 : 1) : 0;
+  return { a, b };
+}
+
+/** `[name]`, `[name op value]`, `[name op "value" i]`. */
+function readAttribute(r: Reader): UIAttributeSelector {
+  r.i++; // [
+  skipSpace(r);
+  const name = ident(r, "an attribute name").toLowerCase();
+  skipSpace(r);
+  if (r.text[r.i] === "]") {
+    r.i++;
+    return { name };
+  }
+  const op = /^([~|^$*]?=)/.exec(r.text.slice(r.i));
+  if (!op) fail(r, `expected "]" or an attribute operator (=, ~=, |=, ^=, $=, *=)`);
+  r.i += op[1].length;
+  skipSpace(r);
+  let value: string;
+  const q = r.text[r.i];
+  if (q === '"' || q === "'") {
+    const end = r.text.indexOf(q, r.i + 1);
+    if (end < 0) fail(r, "the attribute value's quote isn't closed");
+    value = r.text.slice(r.i + 1, end).replace(/\\(.)/g, "$1");
+    r.i = end + 1;
+  } else value = ident(r, "an attribute value");
+  skipSpace(r);
+  let insensitive = false;
+  const flag = /^([is])(?![\w-])/i.exec(r.text.slice(r.i));
+  if (flag) {
+    insensitive = flag[1].toLowerCase() === "i";
+    r.i += 1;
+    skipSpace(r);
+  }
+  if (r.text[r.i] !== "]") fail(r, `the attribute selector isn't closed with "]"`);
+  r.i++;
+  return { name, op: op[1] as UIAttributeSelector["op"], value, ...(insensitive ? { insensitive } : {}) };
 }
 
 function open(r: Reader, name: string): void {

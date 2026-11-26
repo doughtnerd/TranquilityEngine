@@ -31,6 +31,9 @@ export const isUIRuntimeSpecifier = (specifier: string): boolean => RUNTIME.has(
 /** The engine's renderer (`myco/ui-renderer`) among the engine's files, by path from the engine's root. */
 export const UI_RENDERER_SOURCE = "src/plugins/ui/svelte/renderer.ts";
 
+/** What UI code's `svelte/reactivity` is (ADR 0418 wave 5): Svelte's module with `MediaQuery` on the canvas, by path from the engine's root. */
+export const UI_REACTIVITY_SOURCE = "src/plugins/ui/svelte/reactivity.ts";
+
 /** The engine's own modules, by path from the engine's root: what the renderer imports from there stays in the player. */
 export const ENGINE_SOURCE_DIR = "src/engine/";
 

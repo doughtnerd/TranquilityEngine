@@ -9,10 +9,15 @@
  *   field is typing, nor a key a UI router claimed), `pointerdown`/`pointerup` (and `mousedown`/`mouseup`) for
  *   buttons pressed outside UI that takes the pointer, `pointermove`/`mousemove` and `wheel`. They go to the body,
  *   then the document, then the window, as a DOM event bubbles from the body; `stopPropagation` ends that.
- *   The window also gets `resize` when the drawing canvas's size changes, and `online`/`offline`; the document,
+ *   The window also gets `resize` when the canvas's size changes, and `online`/`offline`; the document,
  *   `visibilitychange`. Events come in play, not in the editor's edit mode.
- * - **State and bindings.** `window`: `innerWidth`/`innerHeight` (and `outerWidth`/`outerHeight`, the same: a game
- *   has no window chrome) are the drawing canvas's size in CSS pixels, `devicePixelRatio`, `online`, and
+ * - **The canvas is the window, in UI pixels** (the coordinator's units ruling, ADR 0418 wave 5): `innerWidth`/
+ *   `innerHeight` (and `outerWidth`/`outerHeight`, the same: a game has no window chrome) are the UI canvas's size
+ *   after the canvas scaler, the units of `getBoundingClientRect` and canvas `@media`; `devicePixelRatio` is device
+ *   pixels per UI pixel. `matchMedia(query)` evaluates against the same canvas (so Svelte's `MediaQuery` follows
+ *   canvas `@media`), with `change` events when its result flips. The canvas is the first `UIView`'s in the active
+ *   World (each view's own `@media` rules match its own canvas); before a layout, the drawing canvas's CSS size.
+ * - **State and bindings.** `window`: the sizes and pixel ratio above, `online`, and
  *   `scrollX`/`scrollY` (always 0: nothing scrolls the page). `document`: `activeElement` (the node with the UI's
  *   focus, ADR 0340, else the body), `visibilityState`, `fullscreenElement`/`pointerLockElement` (null), and
  *   `title`, which a `<title>` in `<svelte:head>` sets: the page's title in a browser build and the window's in a
@@ -21,7 +26,9 @@
  */
 import { World } from "../../../engine/core/World";
 import { devices, KEYBOARD_DEVICE, POINTER_DEVICE } from "../../../engine/input/devices";
-import { onUIHostFrame, uiHostFocused, uiHostViewport, type UIHostElement } from "../../../engine/ui/host/UIHost";
+import { onUIHostFrame, uiHostCanvas, uiHostFocused, uiHostViewport, type UIHostElement } from "../../../engine/ui/host/UIHost";
+import { matchMediaQueries, parseMediaQueryList } from "../../../engine/ui/document/mediaQuery";
+import type { UIMediaQuery } from "../../../engine/ui/document/types";
 
 export type GlobalKind = "window" | "document" | "body";
 
@@ -165,22 +172,23 @@ export class UIGlobalTarget {
   }
 }
 
-/** The window: its sizes, pixel ratio, connection and `resize`. */
+/** The window: the canvas's sizes and pixel ratio in UI pixels, `matchMedia`, connection and `resize`. */
 export class UIGlobalWindow extends UIGlobalTarget {
   get innerWidth(): number {
-    return this.size().width;
+    return canvasOf(World.active).width;
   }
   get innerHeight(): number {
-    return this.size().height;
+    return canvasOf(World.active).height;
   }
   get outerWidth(): number {
-    return this.size().width;
+    return canvasOf(World.active).width;
   }
   get outerHeight(): number {
-    return this.size().height;
+    return canvasOf(World.active).height;
   }
+  /** Device pixels per UI pixel. */
   get devicePixelRatio(): number {
-    return pixelRatio();
+    return canvasOf(World.active).ratio;
   }
   get scrollX(): number {
     return 0;
@@ -191,8 +199,86 @@ export class UIGlobalWindow extends UIGlobalTarget {
   get document(): UIGlobalDocument {
     return this.globals.document;
   }
-  private size(): { width: number; height: number } {
-    return viewportOf(World.active);
+
+  /** A media query list evaluated against the canvas in UI pixels, as canvas `@media` rules are (ADR 0418 wave 5). */
+  matchMedia(query: string): UIMediaQueryList {
+    return new UIMediaQueryList(String(query), this.globals);
+  }
+}
+
+/**
+ * What the window's `matchMedia` returns: whether a media query matches the canvas now (`matches`), and `change` events
+ * (to listeners and `onchange`) when that flips, checked once a frame while something listens. A global target, so the
+ * renderer hands its listeners straight to it, as Svelte's `MediaQuery` adds them.
+ */
+export class UIMediaQueryList extends UIGlobalTarget {
+  /** The query as given. */
+  readonly media: string;
+  private changeHandler: ((this: UIMediaQueryList, e: UIGlobalEvent) => void) | null = null;
+  private readonly queries: readonly UIMediaQuery[];
+  /** @internal The result last reported (or read when listening started). */ _last: boolean;
+
+  constructor(query: string, globals: UIGlobals) {
+    super("window", globals);
+    this.media = query;
+    this.queries = parseMediaQueryList(query);
+    this._last = this.matches;
+  }
+
+  get matches(): boolean {
+    return matchMediaQueries(this.queries, canvasOf(World.active).media);
+  }
+
+  get onchange(): ((this: UIMediaQueryList, e: UIGlobalEvent) => void) | null {
+    return this.changeHandler;
+  }
+
+  set onchange(handler: ((this: UIMediaQueryList, e: UIGlobalEvent) => void) | null) {
+    this.changeHandler = typeof handler === "function" ? handler : null;
+    this.listened();
+  }
+
+  override addEventListener(type: string, listener: Listener | null, options?: boolean | { once?: boolean }): void {
+    if (!this._has("change") && !this.changeHandler) this._last = this.matches;
+    super.addEventListener(type, listener, options);
+    this.listened();
+  }
+
+  override removeEventListener(type: string, listener: Listener | null): void {
+    super.removeEventListener(type, listener);
+    this.listened();
+  }
+
+  /** The old Safari form of `addEventListener("change", listener)`. */
+  addListener(listener: Listener | null): void {
+    this.addEventListener("change", listener);
+  }
+
+  removeListener(listener: Listener | null): void {
+    this.removeEventListener("change", listener);
+  }
+
+  /** Checked each frame only while something listens. */
+  private listened(): void {
+    if (this._has("change") || this.changeHandler) this.globals._media.add(this);
+    else this.globals._media.delete(this);
+    this.globals._changed();
+  }
+
+  /** @internal Once a frame while listened to: a `change` event when the result flipped. */
+  _check(): void {
+    const now = this.matches;
+    if (now === this._last) return;
+    this._last = now;
+    const e = new UIGlobalEvent("change", { matches: now, media: this.media });
+    this.dispatchEvent(e);
+    if (typeof this.onchange === "function") {
+      try {
+        this.onchange.call(this, e);
+      } catch (err) {
+        console.error(`[myco] a matchMedia("${this.media}") onchange handler threw:`, err);
+      }
+    }
   }
 }
 
@@ -250,11 +336,18 @@ function visibility(): string {
   return typeof document !== "undefined" && typeof document.visibilityState === "string" ? document.visibilityState : "visible";
 }
 
-function viewportOf(world: World | null): { width: number; height: number } {
+/**
+ * The canvas the window stands for: the first `UIView`'s canvas in UI pixels after the canvas scaler, with device pixels
+ * per UI pixel, and the size `@media` matches (null before a layout). Before a layout, the drawing canvas's CSS size (or
+ * the page's) at the device's pixel ratio.
+ */
+function canvasOf(world: World | null): { width: number; height: number; ratio: number; media: { width: number; height: number } | null } {
+  const c = world ? uiHostCanvas(world) : null;
+  if (c) return { width: c.width, height: c.height, ratio: pixelRatio() * c.scale, media: { width: c.width, height: c.height } };
   const v = world ? uiHostViewport(world) : null;
-  if (v && (v.width > 0 || v.height > 0)) return v;
+  if (v && (v.width > 0 || v.height > 0)) return { width: v.width, height: v.height, ratio: pixelRatio(), media: null };
   const w = globalThis as { innerWidth?: number; innerHeight?: number };
-  return { width: w.innerWidth ?? 0, height: w.innerHeight ?? 0 };
+  return { width: w.innerWidth ?? 0, height: w.innerHeight ?? 0, ratio: pixelRatio(), media: null };
 }
 
 const KEY_EVENTS = ["keydown", "keyup"];
@@ -268,6 +361,8 @@ export class UIGlobals {
   private stopFrame: (() => void) | null = null;
   private lastFrame = -1;
   private last: { width: number; height: number; online: boolean; visibility: string } | null = null;
+  /** @internal `matchMedia` lists something listens to: checked each frame. */
+  readonly _media = new Set<UIMediaQueryList>();
 
   constructor(
     /** The element `<svelte:head>` content goes into. */
@@ -291,12 +386,12 @@ export class UIGlobals {
       switch (name) {
         case "innerWidth":
         case "outerWidth":
-          return () => viewportOf(World.active).width;
+          return () => canvasOf(World.active).width;
         case "innerHeight":
         case "outerHeight":
-          return () => viewportOf(World.active).height;
+          return () => canvasOf(World.active).height;
         case "devicePixelRatio":
-          return pixelRatio;
+          return () => canvasOf(World.active).ratio;
         case "online":
           return online;
         case "scrollX":
@@ -325,7 +420,7 @@ export class UIGlobals {
 
   /** @internal A listener or binding came or went: run the frame hook only while something needs it. */
   _changed(): void {
-    const needed = [this.window, this.document, this.body].some((t) => t._bindings.size > 0 || [...t._listeners.values()].some((s) => s.size > 0));
+    const needed = this._media.size > 0 || [this.window, this.document, this.body].some((t) => t._bindings.size > 0 || [...t._listeners.values()].some((s) => s.size > 0));
     if (needed && !this.stopFrame) {
       this.last = null;
       this.stopFrame = onUIHostFrame((w) => this.frame(w));
@@ -376,7 +471,7 @@ export class UIGlobals {
         this.bubble("wheel", () => new UIGlobalEvent("wheel", { deltaX: devices.scrollX, deltaY: devices.scrollY, deltaZ: 0, deltaMode: 0, clientX: devices.pointerX, clientY: devices.pointerY, ...mods() }, true));
       }
     }
-    const size = viewportOf(world);
+    const size = canvasOf(world);
     const now = { width: size.width, height: size.height, online: online(), visibility: visibility() };
     const was = this.last;
     this.last = now;
@@ -393,5 +488,6 @@ export class UIGlobals {
         b.set(v);
       }
     }
+    for (const m of [...this._media]) m._check();
   }
 }

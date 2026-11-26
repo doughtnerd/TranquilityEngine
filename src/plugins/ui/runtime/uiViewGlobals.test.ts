@@ -49,7 +49,10 @@ async function view(component: string, props: Record<string, unknown>): Promise<
 const text = (v: UIView, selector: string) => v.query(selector)!.as(UIText).text;
 
 describe("UIView: the Svelte patch's hooks", () => {
-  it("binds the window's size and pixel ratio to the canvas, and sends resize when it changes", async () => {
+  it("binds the window's size and pixel ratio to the canvas in UI pixels, and sends resize when it changes", async () => {
+    // The coordinator's units ruling (ADR 0418 wave 5): the window is the view's canvas after the canvas scaler (1280×720
+    // reference pixels, matching height), and the pixel ratio is device pixels per UI pixel, as getBoundingClientRect
+    // and canvas @media measure.
     const log: string[] = [];
     const nodes: Record<string, unknown> = {};
     const v = await view("ui/globals.svelte", { log: (s: string) => log.push(s), onnode: (k: string, n: unknown) => (nodes[k] = n) });
@@ -59,9 +62,17 @@ describe("UIView: the Svelte patch's hooks", () => {
     expect(log).not.toContain("resize");
 
     pointer.dispose();
-    pointer = await UIPointer.create(World.require(), 800, 600);
+    vi.stubGlobal("devicePixelRatio", 2);
+    pointer = await UIPointer.create(World.require(), 1920, 1080); // scaled 1.5: the same canvas in UI pixels, at 3 device pixels each
     engine.step(DT);
-    expect(text(v, "#size")).toBe("800x600 @1");
+    expect(text(v, "#size")).toBe("1280x720 @3");
+    expect(log).not.toContain("resize");
+
+    pointer.dispose();
+    vi.stubGlobal("devicePixelRatio", 1);
+    pointer = await UIPointer.create(World.require(), 800, 600); // 960×720 UI pixels at 5/6 of a CSS pixel each
+    engine.step(DT);
+    expect(text(v, "#size")).toBe(`960x720 @${600 / 720}`);
     expect(log.filter((l) => l === "resize")).toHaveLength(1);
   });
 

@@ -19,7 +19,8 @@ const LOADERS: Readonly<Record<string, Loader>> = {
   "svelte/events": () => import("svelte/events"),
   "svelte/legacy": () => import("svelte/legacy"),
   "svelte/motion": () => import("svelte/motion"),
-  "svelte/reactivity": () => import("svelte/reactivity"),
+  // Svelte's module with `MediaQuery` on the canvas (ADR 0418 wave 5).
+  "svelte/reactivity": () => import("./reactivity"),
   "svelte/reactivity/window": () => import("svelte/reactivity/window"),
   "svelte/store": () => import("svelte/store"),
   "svelte/transition": () => import("svelte/transition"),
