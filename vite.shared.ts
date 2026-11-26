@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import type { Plugin, Rollup, UserConfig } from "vite";
 import { compilerOptions as scriptCompilerOptions, SCRIPT_EMIT } from "./src/scriptCompiler.mjs";
-import { UI_RUNTIME_SPECIFIERS, uiRuntimeFile } from "./src/projectCode/uiModules";
+import { ENGINE_SOURCE_DIR, UI_HOST_FILE } from "./src/projectCode/uiModules";
 
 
 /**
@@ -115,31 +115,106 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
   };
 }
 
-/** The id prefix of a UI runtime entry of the player (`\0myco-ui-runtime:svelte/internal/client`). */
-const UI_RUNTIME_ENTRY = "\0myco-ui-runtime:";
+const REPO_ROOT = fileURLToPath(new URL(".", import.meta.url));
+
+/** A TypeScript module a relative import names, as written or with `.ts`, `.tsx` or `/index.ts`. */
+function tsModuleFile(base: string): string {
+  for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts"), base]) if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  throw new Error(`Can't find the module ${base}.`);
+}
 
 /**
- * The player's UI runtime entries (ADR 0419): one per module compiled Svelte UI imports (`UI_RUNTIME_SPECIFIERS`),
- * at a fixed name beside myco.js (`uiRuntimeFile`: `svelte/index.js`, `svelte/internal/client.js`,
- * `svelte/myco-ui-renderer.js`), each re-exporting the engine's copy. A game's compiled components import them by
- * relative path; Rollup shares their code with the player's own lazy UIView chunk, so components, the renderer and
- * UIView run on one Svelte instance. A game without Svelte UI loads none of them; `svelte/compiler` is never one.
+ * What the engine's renderer, and the files beside it that it imports, import from the engine's own modules
+ * (`ENGINE_SOURCE_DIR`): the value names by module file. Type-only imports are left out.
  */
-export function uiRuntimeEntries(): { input: Record<string, string>; names: ReadonlySet<string>; plugin: Plugin } {
-  const input = Object.fromEntries(UI_RUNTIME_SPECIFIERS.map((s) => [uiRuntimeFile(s).slice(0, -".js".length), UI_RUNTIME_ENTRY + s]));
+function uiHostImports(): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const seen = new Set<string>();
+  const visit = (file: string) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest);
+    for (const st of source.statements) {
+      if (!(ts.isImportDeclaration(st) || ts.isExportDeclaration(st)) || !st.moduleSpecifier || !ts.isStringLiteral(st.moduleSpecifier)) continue;
+      if (!st.moduleSpecifier.text.startsWith(".")) continue;
+      const target = tsModuleFile(join(dirname(file), st.moduleSpecifier.text));
+      if (!relative(REPO_ROOT, target).split(sep).join("/").startsWith(ENGINE_SOURCE_DIR)) {
+        visit(target);
+        continue;
+      }
+      const names = out.get(target) ?? new Set<string>();
+      out.set(target, names);
+      if (ts.isExportDeclaration(st)) throw new Error(`${file}: the renderer can't re-export from the engine's modules (the player's UI host entry re-exports only what it imports).`);
+      const clause = st.importClause;
+      if (!clause || clause.isTypeOnly) continue;
+      if (clause.name || (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings))) throw new Error(`${file}: import the engine's modules by name (no default or namespace import), so the player's UI host entry can export them.`);
+      for (const el of clause.namedBindings?.elements ?? []) if (!el.isTypeOnly) names.add((el.propertyName ?? el.name).text);
+    }
+  };
+  visit(SVELTE_UI_RENDERER);
+  return out;
+}
+
+/** The id of the player's UI host entry. */
+const UI_HOST_ENTRY = "\0myco-ui-host";
+
+/**
+ * The player's UI host entry (ADR 0421), `myco-ui-host.js` beside myco.js: it re-exports what the engine's renderer
+ * imports from the engine's own modules, by the names it imports (read from the renderer's source, so it follows
+ * the renderer). A game's UI bundle carries the renderer with Svelte and imports these from it, so they're the
+ * player's engine instance (Rollup shares the code with myco.js). Engine code only: the player has no Svelte.
+ */
+export function uiHostEntry(): { input: Record<string, string>; fileName: string; plugin: Plugin } {
+  const name = UI_HOST_FILE.slice(0, -".js".length);
   return {
-    input,
-    names: new Set(Object.keys(input)),
+    input: { [name]: UI_HOST_ENTRY },
+    fileName: UI_HOST_FILE,
     plugin: {
-      name: "myco:ui-runtime-entries",
-      resolveId: (id) => (id.startsWith(UI_RUNTIME_ENTRY) ? id : null),
+      name: "myco:ui-host-entry",
+      resolveId: (id) => (id === UI_HOST_ENTRY ? id : null),
       load(id) {
-        if (!id.startsWith(UI_RUNTIME_ENTRY)) return null;
-        const spec = id.slice(UI_RUNTIME_ENTRY.length);
-        const target = JSON.stringify(spec === "myco/ui-renderer" ? SVELTE_UI_RENDERER : spec);
-        // The flag modules export nothing: importing them is what sets the flag.
-        return `import ${target};\nexport * from ${target};\n${spec === "myco/ui-renderer" ? `export { default } from ${target};\n` : ""}`;
+        if (id !== UI_HOST_ENTRY) return null;
+        const owner = new Map<string, string>();
+        let code = "";
+        for (const [file, names] of uiHostImports()) {
+          this.addWatchFile(file);
+          for (const n of names) {
+            if (owner.has(n) && owner.get(n) !== file) throw new Error(`The renderer imports "${n}" from two engine modules (${owner.get(n)} and ${file}); the UI host entry needs one name per value.`);
+            owner.set(n, file);
+          }
+          code += names.size > 0 ? `export { ${[...names].sort().join(", ")} } from ${JSON.stringify(file)};\n` : `import ${JSON.stringify(file)};\n`;
+        }
+        return code;
       },
+    },
+  };
+}
+
+/** The editor's copy of the engine's files a game's UI bundle reads (ADR 0421). */
+const UI_RUNTIME_FILES = "virtual:myco-ui-runtime";
+
+/**
+ * The engine's files a game's UI bundle reads (ADR 0421: Svelte's client runtime, the renderer, the `package.json`
+ * files resolving them reads), by path from the repository, as a virtual module, `virtual:myco-ui-runtime`. The
+ * editor's exports bundle UI code from it (it can't read the engine's folder, which `npm run export` reads), loading
+ * it on the first export with Svelte UI.
+ */
+export function uiRuntimeFiles(): Plugin {
+  const resolved = `\0${UI_RUNTIME_FILES}`;
+  return {
+    name: "myco:ui-runtime-files",
+    resolveId: (id) => (id === UI_RUNTIME_FILES ? resolved : null),
+    async load(id) {
+      if (id !== resolved) return null;
+      const { collectUIRuntimeFiles } = await import("./src/projectCode/uiBundle");
+      const files = await collectUIRuntimeFiles({
+        read: async (path) => {
+          const file = join(REPO_ROOT, ...path.split("/"));
+          return existsSync(file) && statSync(file).isFile() ? readFileSync(file, "utf8") : null;
+        },
+      });
+      for (const path of files.keys()) this.addWatchFile(join(REPO_ROOT, ...path.split("/")));
+      return `export default ${JSON.stringify(Object.fromEntries([...files].sort(([a], [b]) => (a < b ? -1 : 1))))};`;
     },
   };
 }

@@ -5,15 +5,16 @@
 // the exporters (`npm run export`, and the editor, which serves a copy at player/).
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import { CAPTURE_CODEC, DEBUG_LINK, lazyOnly, playerFileList, typescriptTranspile, uiRuntimeEntries } from "./vite.shared.ts";
+import { CAPTURE_CODEC, DEBUG_LINK, lazyOnly, playerFileList, typescriptTranspile, uiHostEntry } from "./vite.shared.ts";
 
-// ADR 0419: Svelte's runtime and the engine's renderer, entries at fixed names that games' compiled components import.
-const uiRuntime = uiRuntimeEntries();
+// ADR 0421: the player carries no Svelte. A game's UI bundle (Svelte and the renderer) imports the engine pieces the
+// renderer uses from this fixed-name entry, myco-ui-host.js, sharing the engine instance with myco.js.
+const uiHost = uiHostEntry();
 
 export default defineConfig({
   plugins: [
     typescriptTranspile(),
-    uiRuntime.plugin,
+    uiHost.plugin,
 
     playerFileList({ debug: DEBUG_LINK }), // files.json's `debug`: the debug link's chunks, which release exports leave out (ADR 0376)
     lazyOnly([CAPTURE_CODEC]), // a game that never records loads none of the capture codec
@@ -29,11 +30,11 @@ export default defineConfig({
       input: {
         player: fileURLToPath(new URL("./player.html", import.meta.url)),
         myco: fileURLToPath(new URL("./src/myco.ts", import.meta.url)), // the public module (ADR 0135)
-        ...uiRuntime.input,
+        ...uiHost.input,
       },
       preserveEntrySignatures: "strict",
       output: {
-        entryFileNames: (chunk) => (chunk.name === "myco" ? "myco.js" : uiRuntime.names.has(chunk.name) ? `${chunk.name}.js` : "assets/[name]-[hash].js"),
+        entryFileNames: (chunk) => (chunk.name === "myco" ? "myco.js" : chunk.name in uiHost.input ? uiHost.fileName : "assets/[name]-[hash].js"),
 
       },
     },

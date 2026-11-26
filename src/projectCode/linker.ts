@@ -55,7 +55,8 @@ export interface TargetLink<Output> {
   packages(key: string, bundle: () => Promise<PackageBundle>): Promise<EmittedPackages>;
   /**
    * Get the UI runtime modules the code imports ready before any `specifier` names them (ADR 0419), when the
-   * target needs to (the memory target loads the host's own copies). Throws when one can't load.
+   * target needs to (the memory target loads the host's own copies; the build target checks it has a runtime to
+   * bundle, ADR 0421). Throws when one can't load.
    */
   uiRuntime?(specifiers: readonly string[]): Promise<void>;
   /** Emit the module of a JSON file a script imports (called once per file); its address. */
@@ -63,14 +64,14 @@ export interface TargetLink<Output> {
   json(path: string, value: unknown): string;
   /**
    * What script `from` writes to import the engine (`"myco"`), the editor SDK (`"myco/editor"`), a UI runtime
-   * module (`ui`: Svelte's runtime or the engine's renderer, ADR 0419, provided by the host), or the module at `address`.
+   * module (`ui`: Svelte's runtime or the engine's renderer, ADR 0419, provided by the host or bundled, ADR 0421), or the module at `address`.
    */
   specifier(from: string, to: { readonly engine: true } | { readonly editorSdk: true } | { readonly ui: string } | { readonly address: string }): string;
 
   /** Emit script `path`'s rewritten module, after the modules it imports; its address. Throws when the module fails to load. */
   script(path: string, code: string): Promise<string>;
-  /** The link is done: `loaded` are the scripts emitted, in order. */
-  close(loaded: readonly string[]): Output;
+  /** The link is done: `loaded` are the scripts emitted, in order. May finish asynchronously (the build target bundles UI code). */
+  close(loaded: readonly string[]): Output | Promise<Output>;
 }
 
 /** Where linked code goes: the seam between the linker and a host's destination. */
@@ -206,7 +207,7 @@ export async function link<Output>(input: LinkInput, target: LinkTarget<Output>)
       problems.push({ path, message: err instanceof Error ? err.message : String(err) });
     }
   }
-  return { loaded, problems, assetRefs, specifiers, entries, output: out.close(loaded) };
+  return { loaded, problems, assetRefs, specifiers, entries, output: await out.close(loaded) };
 }
 
 /** The package specifiers `scripts` import (ADR 0125). */

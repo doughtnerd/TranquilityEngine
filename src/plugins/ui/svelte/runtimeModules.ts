@@ -3,7 +3,7 @@
 // server) provides them: each specifier compiled UI code may import (`projectCode/uiModules.ts`) loads the
 // engine's own copy, so components share one Svelte instance with the renderer `UIView` mounts through. Each
 // loads on demand, as its import would: the flag modules set their flag only when some component imports them.
-// A game build provides the same modules as entries of the prebuilt player (vite.player.config.ts).
+// A game build bundles the same modules into its own code instead, tree-shaken (ADR 0421, projectCode/uiBundle.ts).
 import { UI_RUNTIME_SPECIFIERS } from "../../../projectCode/uiModules";
 
 type Loader = () => Promise<object>;
