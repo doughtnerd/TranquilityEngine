@@ -131,7 +131,41 @@ An element with `overflow: auto` or `scroll` scrolls its children ([ADR 0423](..
 - **`UIButton`**: a panel that takes the pointer, with `hoverColor`, `pressedColor` and `interactable`. Its children are its label.
 - **`UIInputField`**: a one-line text field: `value`, `placeholder`, `maxLength` (0: no limit), `fontSize`, `color`, `placeholderColor`, and the panel's style.
 - Buttons and input fields also take focus: `focusable`, `focusColor`, `navigation` and `navUp`, `navDown`, `navLeft`, `navRight` ([below](#keyboard-and-gamepad-navigation)).
+- The form elements of the [next section](#form-elements): checkboxes, radio buttons, sliders, text areas, drop-downs, progress bars, meters, labels and forms.
 - **`UIControlMapper`**: a ready-made controls screen that lists a player's actions and rebinds them (see [Input](input.md#a-rebinding-screen)). It builds its elements as its node's children, under a canvas a document built.
+
+## Form elements
+
+HTML's form elements work as in a browser ([ADR 0424](../../decisions/0424-ui-gains-html-form-elements-built-from-ui-core-primitives.md)), in UI documents and Svelte views alike. Each is an element kind of its own, styled by the stylesheet like a panel (its box is the element: size, background, border, radius), with its marks drawn in `accent-color`:
+
+| Svelte (HTML) | Document tag and component | Fields |
+|---|---|---|
+| `<input type="checkbox">` | `Toggle`, `UIToggle` | `checked`, `indeterminate` (a dash until the player toggles it), `name`, `value`, `accentColor` |
+| `<input type="radio">` | `Radio`, `UIRadio` | `checked`, `name`, `value`, `accentColor`: one checked per `name` in a form (outside forms, in the canvas) |
+| `<input type="range">` | `Slider`, `UISlider` | `min`, `max`, `step` (0: any value), `value`, `accentColor` |
+| `<input type="text\|password\|number">` (and `search`, `email`, `tel`, `url`) | `InputField`, `UIInputField` | `type` (`password` draws dots; `number`'s arrow keys step it), `min`, `max`, `step` |
+| `<textarea>` | `TextArea`, `UITextArea` | an input field with `rows` (its height in lines) and `wrap` (`soft` or `off`); Enter starts a line, and it scrolls |
+| `<select>` with `<option>`s | `Select`/`Option`, `UISelect`/`UIOption` | `value`, `multiple`, `open`; options' `value`, `selected`, `label` |
+| `<progress>` | `Progress`, `UIProgress` | `value` out of `max`; no `value`: indeterminate, a moving bar |
+| `<meter>` | `Meter`, `UIMeter` | `value`, `min`, `max`, `low`, `high`, `optimum`: green, yellow or red by HTML's regions |
+| `<label>` | `Label`, `UILabel` | `for` (an element id), else the control inside it |
+| `<form>` | `Form`, `UIForm` | `requestSubmit()`, `reset()`, `submitted` |
+
+```xml
+<Form id="settings" gap="8">
+  <Label><Toggle id="music" checked="true"/>Music</Label>
+  <Label for="volume">Volume</Label><Slider id="volume" value="80"/>
+  <Select id="quality"><Option value="low">Low</Option><Option value="high" selected="true">High</Option></Select>
+  <Button>Save</Button>
+</Form>
+```
+
+- **What the player does:** a click (or Space, Enter or the south button with focus) toggles a checkbox, checks a radio and opens a drop-down. A drop-down's list is drawn above everything else in its canvas, outside its parents' clips, below it (above where it wouldn't fit); a click on an option chooses it, a press elsewhere closes it. A press on a slider jumps its thumb there and drags it. A click on a label toggles or clicks its control, or focuses a field (typing), slider or drop-down.
+- **Keys and the gamepad:** left and right step a focused slider (Page Up/Down a tenth, Home/End its ends) and move a radio group's check; up and down leave them, as they do any control. An open drop-down's list takes up and down; Enter chooses, Escape closes. A typing number field's arrow keys step it.
+- **Events:** `input` then `change` when the player changes a control (a slider sends `input` as it moves and `change` when it's let go); a script writing a field sends none. Each control's `changed` is true for that frame. A form sends `submit` (cancelable; nothing else happens) for a `submit` button's click (a button's `type`: `submit`, the default, `reset` or `button`) or Enter in one of its fields, and `reset`, after which its controls go back to how they were built unless a handler prevented it. Every default action can be prevented: a checkbox's `click` handler calling `e.preventDefault()` keeps it as it was.
+- **`interactable`** is HTML's `disabled` (the attribute sets it): every control has it. Disabled controls draw their marks faded.
+- **Pseudo-classes:** `:checked` (checkboxes, radios, chosen options), `:indeterminate` (checkboxes, progress bars without a value), `:disabled` and `:placeholder-shown` (fields showing their placeholder).
+- **Svelte bindings:** `bind:checked` and `bind:indeterminate` on checkboxes, `bind:group` on radios (the bound value is the checked one's `value`) and checkboxes (an array of the checked ones' values), and `bind:value` on inputs (a number, or null when empty, for `type="number"` and `"range"`), text areas and selects (the chosen option's `value` as given, `value={2}` binding the number 2; an array with `multiple`). After a form's reset, the bindings read the controls again. Nodes have `checked`, `indeterminate`, `selected`, `options`, `selectedIndex`, `valueAsNumber`, `form`, and on forms `requestSubmit()` and `reset()`. An `<input>` whose `type` changes is made again in place as the new kind.
 
 ## Paint: shadows, gradients and rounded corners
 
@@ -409,11 +443,11 @@ Make a component with the Assets panel's **Create > UI > New Svelte Component** 
 </style>
 ```
 
-- **Tags are HTML names.** `div`, `section`, `nav`, `ul`, `li`… are panels; `span`, `p`, `h1`–`h6`, `label`, `b`, `em`… are text; `img` is an image; `button` a button; `input` and `textarea` input fields. Other tags warn once and are panels.
+- **Tags are HTML names.** `div`, `section`, `nav`, `ul`, `li`… are panels; `span`, `p`, `h1`–`h6`, `b`, `em`… are text; `img` is an image; `button` a button; `input` (by its `type`), `textarea`, `select`, `option`, `progress`, `meter`, `label` and `form` are the [form elements](#form-elements). Other tags warn once and are panels.
 - **Attributes are fields** in kebab-case, as in UI documents (`flex-direction="column"`, `font-size={24}`). `class`, `id`, `style`, `class:` and `style:` feed the cascade. HTML-only attributes (`type`, `alt`, `aria-*`, `data-*`…) stay on the node.
 - **Text** inside a text tag is its text, nested tags included (`<p>Hi <b>you</b></p>`). Text anywhere else becomes its own text element (a button's label).
 - **Events:** `onclick`, `oninput`, `onchange`, `onsubmit`, `onfocus`, `onblur`, `onpointerenter`, `onpointerleave`, and the pointer, key, focus, drag and scroll events of the document section (`onpointerdown`, `onmousedown`, `onwheel`, `onkeydown`, `onfocusin`, `ondragstart`, `onscroll`…), or the older `on:click` form with its modifiers (`|once`, `|preventDefault`, `|stopPropagation`, `|capture`, `|passive`). They come from the UI core, so the mouse, touch, keyboard and gamepad all reach them, and their changes show in the same frame. They travel through the nodes as DOM events do: `onclickcapture` (or `addEventListener(type, fn, { capture: true })`) hears an event on its way down, and one that bubbles out of the view goes on to `<svelte:body>`, `<svelte:document>` and `<svelte:window>` (so `<svelte:window onclick>` hears clicks on the UI). `e.target` is the node it happened on, `e.currentTarget` the one listening; `e.currentTarget.value` reads an input field. `node.dispatchEvent(event)` propagates the same way (by `event.bubbles`).
-- **Bindings:** `bind:value` on `input`, and `bind:this`, which gives a node with an Element subset for actions and attachments: `setAttribute`/`getAttribute`, `classList`, `style` (`node.style.color = "red"`), `dataset`, `addEventListener`/`dispatchEvent`, `focus`/`blur` (the UI's focus), `getBoundingClientRect` (in canvas UI pixels, through transforms), `closest`/`matches`/`querySelector`, `contains`, `parentElement`/`children`/`nextElementSibling`…, `value`, `textContent`, and scrolling (`scrollTop`, `scrollHeight`, `scrollTo`, `scrollIntoView`…).
+- **Bindings:** `bind:value`, `bind:checked`, `bind:indeterminate` and `bind:group` on the [form elements](#form-elements), and `bind:this`, which gives a node with an Element subset for actions and attachments: `setAttribute`/`getAttribute`, `classList`, `style` (`node.style.color = "red"`), `dataset`, `addEventListener`/`dispatchEvent`, `focus`/`blur` (the UI's focus), `getBoundingClientRect` (in canvas UI pixels, through transforms), `closest`/`matches`/`querySelector`, `contains`, `parentElement`/`children`/`nextElementSibling`…, `value`, `textContent`, and scrolling (`scrollTop`, `scrollHeight`, `scrollTo`, `scrollIntoView`…).
 - **The window:** `<svelte:window>`, `<svelte:document>` and `<svelte:body>` work. `onkeydown`/`onkeyup` get the keys the game gets (none while a text field is typing) and the ones that bubble out of the focused node, `onpointerdown`/`onpointerup`/`onpointermove`/`onwheel` the pointer outside UI and what bubbles out of the view, and `onresize` fires when the view's canvas changes size. The window is the canvas in UI pixels, the units of `getBoundingClientRect` and `@media`: `bind:innerWidth`/`bind:innerHeight` (and `outerWidth`/`outerHeight`) are the canvas's size after the canvas scaler (960×720 for a 1280×720-reference canvas matching height on an 800×600 window), `bind:devicePixelRatio` is device pixels per UI pixel, and `window.matchMedia(query)` (and `svelte/reactivity`'s `MediaQuery`) answers against it, with `change` events. With several views, that's the first view's canvas. `bind:online` and `<svelte:document bind:activeElement>` (the focused element) work too.
 - **`<svelte:head>`:** its `<title>` sets the browser tab's or the desktop window's title; anything else in it is ignored with a warning.
 - **Localised text:** `import { t } from "myco"` and write `{t("menu.start")}` or `{t("hud.coins", { count })}`: the message in the current language, as `Locale.t`, which follows `Locale.setLanguage` (and string table edits) in the same frame.
@@ -439,11 +473,11 @@ A document builds its elements in any World. Only a World with a render backend 
 
 ## Known gaps
 
-- No sliders, toggles or dropdowns. Scrolling doesn't follow `flex-direction: *-reverse` or right-to-left text (it starts at the top-left), and a scrollbar is drawn over the content rather than beside it.
+- Form controls have no part pseudo-elements yet (style a checkbox's mark or a slider's thumb through `accent-color` only), no `<datalist>`, `<optgroup>` labels, `<input type="date|color|file">` (drawn as text fields) or on-screen number spinners; a text area's caret ignores soft-wrapped lines. Scrolling doesn't follow `flex-direction: *-reverse` or right-to-left text (it starts at the top-left), and a scrollbar is drawn over the content rather than beside it.
 - Events from the pointer go only to elements that stop it (raycast targets): a click on a bare layout panel's gap goes to the game, not to the panel's handlers. Touch events (`touchstart`…) aren't sent; touches arrive as pointer events.
 - No 3D transforms, `skew()` or `matrix()`; a rotation inside an unequal scale (a parent scaled `2 1` with a turned child) is drawn without its skew, though the pointer still follows the exact transform.
 - No on-screen keyboard: a gamepad can focus an input field but not type in it.
 - In a Svelte component, `ontransitionend={…}` and the other animation event attributes aren't wired yet; listen with `on("transitionend", …)` on the element from `UIView.query`.
-- No styling of focus beyond `focusColor` (a `:focus` rule styles input fields only).
+- No styling of focus beyond `focusColor` (a `:focus` rule styles input fields and the form controls, not buttons). A slider shows navigation's focus only through its border, which it has none of by default.
 - `fit: contain` in a box with both sides fixed stretches like `fill`.
 - A script can add elements at runtime only through `list()` and a `<Template>`.
