@@ -31,6 +31,8 @@ import { uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
 import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIPseudo, UIStylesheet, UITag } from "../document/types";
+import type { UIAnimationSpec, UITransitionSpec } from "../document/animationValues";
+import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimator, type UIAnimationEvent, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "../animation/UIAnimator";
 
 type Cascade = typeof import("./hostSupport");
 type ComponentClass = new () => UIComponentType;
@@ -124,7 +126,9 @@ function warnOnce(message: string): void {
 
 // --- Events ---------------------------------------------------------------------------------------
 
-export type UIHostEventType = "click" | "input" | "change" | "submit" | "focus" | "blur" | "pointerenter" | "pointerleave";
+export type UIHostEventType =
+  | "click" | "input" | "change" | "submit" | "focus" | "blur" | "pointerenter" | "pointerleave"
+  | "transitionend" | "animationstart" | "animationiteration" | "animationend";
 
 /** A UI event on a hosted element (ADR 0419): what an `onclick`, `oninput`… handler gets. */
 export class UIHostEvent {
@@ -132,6 +136,12 @@ export class UIHostEvent {
   currentTarget: unknown;
   /** The element the event happened on; a renderer sets it to its own node (as the DOM's `target`). */
   target: unknown;
+  /** `transitionend` (ADR 0418 wave 4): the property whose transition finished (kebab-case); "" otherwise. */
+  readonly propertyName: string;
+  /** Animation events: the animation's name; "" otherwise. */
+  readonly animationName: string;
+  /** Transition and animation events: seconds it had run, its delay not counted; 0 otherwise. */
+  readonly elapsedTime: number;
   private prevented = false;
   private stopped = false;
 
@@ -139,9 +149,14 @@ export class UIHostEvent {
     readonly type: UIHostEventType,
     /** The hosted element the event happened on. */
     readonly element: UIHostElement,
+    /** A transition or animation event's details. */
+    detail?: Pick<UIAnimationEvent, "propertyName" | "animationName" | "elapsedTime">,
   ) {
     this.currentTarget = element;
     this.target = element;
+    this.propertyName = detail?.propertyName ?? "";
+    this.animationName = detail?.animationName ?? "";
+    this.elapsedTime = detail?.elapsedTime ?? 0;
   }
 
   /** An input field's text (null for other elements). */
@@ -218,6 +233,7 @@ export class UIHostElement {
   /** @internal Last frame's hover, for `pointerleave`. */ _hovered = false;
   /** @internal The field's value changed since the last `change` event. */ _edited = false;
   /** @internal Content attributes last written (`CONTENT_ATTRIBUTES`). */ _content = new Map<string, string>();
+  /** @internal Styled at least once (a first style starts no transitions, ADR 0418 wave 4). */ _styled = false;
 
   /** @internal */
   constructor(
@@ -327,7 +343,11 @@ export class UIHostElement {
     return e.transform ? boundsOf(transformRect(e.transform, e)) : { x: e.x, y: e.y, width: e.width, height: e.height };
   }
 
-  /** Listen to a UI event (`click`, `input`, `change`, `submit`, `focus`, `blur`, `pointerenter`, `pointerleave`). */
+  /**
+   * Listen to a UI event (`click`, `input`, `change`, `submit`, `focus`, `blur`, `pointerenter`, `pointerleave`), or
+   * to stylesheet animation (ADR 0418 wave 4: `transitionend`, `animationstart`, `animationiteration`, `animationend`,
+   * the frame after they happened).
+   */
   on(type: UIHostEventType, listener: UIHostListener): void {
     let set = this._listeners.get(type);
     if (!set) this._listeners.set(type, (set = new Set()));
@@ -580,6 +600,7 @@ export class UIHostTree {
     if (this.disposed) return;
     this.disposed = true;
     liveTrees.delete(this);
+    uiAnimationOwnerGone(this.world, this);
     this.flushHooks.clear();
     walk(this.root, (e) => {
       e._alive = false;
@@ -633,6 +654,11 @@ export class UIHostTree {
         if (log.happened(c, "focus")) push("focus");
       }
     });
+    // Last frame's transition and animation events (ADR 0418 wave 4), in the order they happened.
+    for (const { element, event } of takeUIAnimationEvents(this.world, this)) {
+      const el = element as UIHostElement;
+      if (el._alive && (el._listeners.get(event.type)?.size ?? 0) > 0) events.push(new UIHostEvent(event.type, el, event));
+    }
     for (const e of events) if (e.element._alive) e.element.dispatch(e);
   }
 
@@ -776,14 +802,33 @@ export class UIHostTree {
     const fields = P.fieldsOf(type);
     const content = new Set(CONTENT_ATTRIBUTES[el.uiTag] ?? []);
     const next = new Set<string>();
+    const writes: UIStyleWrite[] = [];
+    const write = (name: string, value: unknown) => {
+      writes.push({ field: name, before: comp[name], after: value });
+      comp[name] = value;
+    };
     for (const [name, rv] of resolved) {
       if (name.startsWith("--") || content.has(name) || !fields.has(name)) continue;
       next.add(name);
       const prev = el._resolved.get(name);
       if (prev && el._applied.has(name) && prev.source === rv.source && sameValue(prev.value, rv.value)) continue;
-      comp[name] = P.cloneValue(rv.value);
+      write(name, P.cloneValue(rv.value));
     }
-    for (const name of el._applied) if (!next.has(name)) comp[name] = defaultOf(type, name);
+    for (const name of el._applied) if (!next.has(name)) write(name, defaultOf(type, name));
+    // Transitions and keyframe animations (ADR 0418 wave 4): the animator takes what changed from here.
+    const transitions = resolved.get(P.TRANSITION_KEY)?.value as readonly UITransitionSpec[] | undefined;
+    const animations = resolved.get(P.ANIMATION_KEY)?.value as readonly UIAnimationSpec[] | undefined;
+    const first = !el._styled;
+    el._styled = true;
+    if (transitions?.length || animations?.length || uiAnimating(this.world, el._comp)) {
+      uiAnimator(this.world).styled(
+        { owner: this, element: el, comp: el._comp, fields, animate: !this.world.inEditMode(el._node.entity) },
+        writes,
+        first,
+        transitions?.map((spec): UIResolvedTransition => ({ spec, fields: P.transitionFields(spec.property, fields) })) ?? null,
+        animations?.map((spec): UIResolvedAnimation => ({ spec, tracks: () => P.keyframeTracks(sheets, spec.name, type, resolved, el._markup.file, warn) })) ?? null,
+      );
+    }
     // A button's hover and pressed colours come from `:hover` / `:pressed` backgrounds, so the drawing shows them.
     if (sheetsUsePseudo && el._comp instanceof UIButton) {
       const at = (state: Partial<Record<UIPseudo, boolean>>) =>

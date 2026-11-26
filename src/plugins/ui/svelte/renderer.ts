@@ -64,6 +64,11 @@ const EVENTS: Readonly<Record<string, UIHostEventType>> = {
   pointerleave: "pointerleave",
   mouseenter: "pointerenter",
   mouseleave: "pointerleave",
+  // ADR 0418 wave 4: stylesheet animation events, the frame after they happen.
+  transitionend: "transitionend",
+  animationstart: "animationstart",
+  animationiteration: "animationiteration",
+  animationend: "animationend",
 };
 
 /** Tags that belong in a page's head (`<svelte:head>`), not in a UI. */

@@ -9,7 +9,7 @@ import parse from "css-tree/parser";
 import type { CssNode, Declaration as CssDeclaration, Rule as CssRule, Selector as CssSelector } from "css-tree";
 import { groupSpecificity, isKnownTag, PSEUDO, UI_TAGS, type SelectorGroup } from "./cascade";
 import { problemAt } from "./sourceText";
-import type { Declaration, ParseStylesheet, Selector, SimpleSelector, SourceProblem, StyleRule, UIPseudo } from "./types";
+import type { Declaration, ParseStylesheet, Selector, SimpleSelector, SourceProblem, StyleRule, UIKeyframe, UIKeyframes, UIPseudo } from "./types";
 
 export * from "./cascade";
 
@@ -19,6 +19,7 @@ export const parseStylesheet: ParseStylesheet = (source, file, firstOrder = 0) =
   const problems: SourceProblem[] = [];
   const report = (start: number, end: number, message: string) => problems.push(problemAt(source, file, { start, end }, message));
   const rules: StyleRule[] = [];
+  const keyframes: UIKeyframes[] = [];
   let ast: CssNode;
   try {
     ast = parse(source, {
@@ -37,6 +38,11 @@ export const parseStylesheet: ParseStylesheet = (source, file, firstOrder = 0) =
     const start = loc?.start.offset ?? 0;
     const end = loc?.end.offset ?? 0;
     if (node.type === "Atrule") {
+      if (node.name.toLowerCase() === "keyframes") {
+        const block = parseKeyframes(node, source, report);
+        if (block) keyframes.push(block);
+        continue;
+      }
       report(start, end, `@${node.name} isn't supported in UI stylesheets; the rule is ignored.`);
       continue;
     }
@@ -44,8 +50,65 @@ export const parseStylesheet: ParseStylesheet = (source, file, firstOrder = 0) =
     const rule = parseRule(node, source, report);
     if (rule) rules.push({ ...rule, order: firstOrder + rules.length });
   }
-  return { file, rules, problems };
+  return keyframes.length ? { file, rules, problems, keyframes } : { file, rules, problems };
 };
+
+// --- @keyframes (ADR 0418 wave 4) ------------------------------------------------------------------
+
+/** A `@keyframes name { from {…} 50% {…} to {…} }` block: its keyframes, with their offsets (0–1) and declarations. */
+function parseKeyframes(node: CssNode, source: string, report: (start: number, end: number, message: string) => void): UIKeyframes | null {
+  if (node.type !== "Atrule") return null;
+  const start = node.loc?.start.offset ?? 0;
+  const end = node.loc?.end.offset ?? 0;
+  const prelude = node.prelude?.type === "AtrulePrelude" ? node.prelude.children.toArray() : [];
+  const head = prelude.length === 1 ? prelude[0] : null;
+  const name = head?.type === "Identifier" ? head.name : head?.type === "String" ? head.value : null;
+  if (!name || name === "none") {
+    report(start, end, "@keyframes needs one name (not none); the block is ignored.");
+    return null;
+  }
+  if (!node.block) {
+    report(start, end, `@keyframes ${name} has no block; it's ignored.`);
+    return null;
+  }
+  const frames: UIKeyframe[] = [];
+  for (const child of node.block.children.toArray()) {
+    const cs = child.loc?.start.offset ?? 0;
+    const ce = child.loc?.end.offset ?? 0;
+    if (child.type !== "Rule" || child.prelude.type !== "SelectorList") {
+      report(cs, ce, `@keyframes ${name}: "${source.slice(cs, ce).trim()}" isn't a keyframe (from, to or a percentage, then declarations).`);
+      continue;
+    }
+    const offsets: number[] = [];
+    let ok = true;
+    for (const sel of child.prelude.children.toArray()) {
+      const parts = sel.type === "Selector" ? sel.children.toArray() : [];
+      const p = parts.length === 1 ? parts[0] : null;
+      const offset = p?.type === "TypeSelector" && p.name.toLowerCase() === "from" ? 0 : p?.type === "TypeSelector" && p.name.toLowerCase() === "to" ? 1 : p?.type === "Percentage" ? parseFloat(p.value) / 100 : NaN;
+      if (!(offset >= 0 && offset <= 1)) ok = false;
+      else offsets.push(offset);
+    }
+    if (!ok || offsets.length === 0) {
+      report(cs, ce, `@keyframes ${name}: a keyframe selector is from, to or a percentage from 0% to 100%; the keyframe is ignored.`);
+      continue;
+    }
+    const declarations: Declaration[] = [];
+    for (const d of child.block.children.toArray()) {
+      const ds = d.loc?.start.offset ?? 0;
+      const de = d.loc?.end.offset ?? 0;
+      if (d.type !== "Declaration") {
+        report(ds, de, `"${source.slice(ds, de).trim()}" isn't a declaration (property: value).`);
+        continue;
+      }
+      const decl = d as CssDeclaration;
+      if (decl.important) report(ds, de, `!important is ignored inside @keyframes.`);
+      const value = decl.value.type === "Raw" ? decl.value.value : source.slice(decl.value.loc?.start.offset ?? ds, decl.value.loc?.end.offset ?? de);
+      declarations.push({ property: decl.property, value: value.replace(/\s*!\s*important\s*$/i, "").trim(), span: { start: ds, end: de } });
+    }
+    frames.push({ offsets, declarations, span: { start: cs, end: ce } });
+  }
+  return { name, frames, span: { start, end } };
+}
 
 function parseRule(node: CssRule, source: string, report: (start: number, end: number, message: string) => void): Omit<StyleRule, "order"> | null {
   const start = node.loc?.start.offset ?? 0;

@@ -8,6 +8,7 @@ import type { UIViewElement } from "./index";
 import * as HudModule from "./testComponents/Hud.svelte";
 import * as FormModule from "./testComponents/Form.svelte";
 import * as PriceModule from "./testComponents/Price.svelte";
+import * as FaderModule from "./testComponents/Fader.svelte";
 
 // ADR 0419 wave A: game UI as Svelte components, mounted by `UIView` through the engine's renderer onto the
 // UI core's external tree host. Components compile in the test run (vitest.config.mts's `svelteUI()`), as the
@@ -20,7 +21,7 @@ let pointer: UIPointer | null = null;
 beforeEach(async () => {
   Input.reset();
   Assets.clearSources();
-  Assets.addSource(Assets.fromObject({ "ui/hud.svelte": HudModule, "ui/form.svelte": FormModule, "ui/price.svelte": PriceModule }));
+  Assets.addSource(Assets.fromObject({ "ui/hud.svelte": HudModule, "ui/form.svelte": FormModule, "ui/price.svelte": PriceModule, "ui/fader.svelte": FaderModule }));
   engine = await Engine.create({ headless: true });
 });
 
@@ -215,5 +216,16 @@ describe("UIView", () => {
 
   it("still refuses UI components from addComponent", () => {
     expect(() => GameObject.create("X").addComponent(UIPanel)).toThrow(/UIView/);
+  });
+
+  it("hears a stylesheet transition's end through ontransitionend (ADR 0418 wave 4)", async () => {
+    const ended: string[] = [];
+    const v = await view("ui/fader.svelte", { on: false, ended: (name: string) => ended.push(name) });
+    engine.step(DT);
+    v.props = { on: true, ended: (name: string) => ended.push(name) };
+    for (let i = 0; i < 20 && ended.length === 0; i++) engine.step(DT);
+    expect(ended).toEqual(["opacity"]);
+    const box = v.root!.children.find((c) => c.id === "box")!;
+    expect((box.component as UIPanel).opacity).toBe(1);
   });
 });

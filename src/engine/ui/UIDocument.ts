@@ -33,6 +33,8 @@ import { uiInteractions, type UIInteractionType } from "./interactions";
 import { childPaths, labelPath } from "./documentSource";
 import type { BindingPart, MarkupAttribute, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIPseudo, UIStylesheet, UITag } from "./document/types";
 import { Locale, localeMessageNames, type MessageArg } from "../localisation/Locale";
+import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimationReady, uiAnimator, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "./animation/UIAnimator";
+import type { UIAnimationSpec, UITransitionSpec } from "./document/animationValues";
 
 export type { SourceProblem, UITag } from "./document/types";
 
@@ -60,7 +62,7 @@ export function loadUIDocumentSupport(): Promise<void> {
 
 // --- Events -------------------------------------------------------------------------------------
 
-export type UIEventType = "click" | "change" | "submit" | "hover" | "focus" | "blur" | "cancel";
+export type UIEventType = "click" | "change" | "submit" | "hover" | "focus" | "blur" | "cancel" | "transitionend" | "animationstart" | "animationiteration" | "animationend";
 
 /** One UI event of the frame. */
 export interface UIEvent {
@@ -69,6 +71,12 @@ export interface UIEvent {
   readonly document: UIDocument;
   /** The list item of the row the element is in (`list()`), or undefined outside rows. */
   readonly item: unknown;
+  /** `transitionend` (ADR 0418 wave 4): the property whose transition finished (kebab-case, `background-color`). */
+  readonly propertyName?: string;
+  /** `animationstart`, `animationiteration`, `animationend`: the animation's name (its `@keyframes`). */
+  readonly animationName?: string;
+  /** Transition and animation events: seconds it had run, its delay not counted. */
+  readonly elapsedTime?: number;
 }
 
 export type UIEventHandler = (event: UIEvent) => void;
@@ -77,7 +85,9 @@ export type UIEventHandler = (event: UIEvent) => void;
  * The frame's UI events from documents (ADR 0077), for systems: clicks, changes, submits and hovers
  * (the pointer moving onto a button), as the UI core recorded them (ADR 0309); focus and blur (the
  * pointer or keyboard and gamepad navigation moving focus) and cancel (on the document's root, ADR
- * 0340). Filled right after UI input routing, before behaviors' `update`; cleared at the end of the frame.
+ * 0340), and last frame's stylesheet animation events (`transitionend`, `animationstart`, `animationiteration`,
+ * `animationend`, ADR 0418 wave 4). Filled right after UI input routing, before behaviors' `update`; cleared at the
+ * end of the frame.
  */
 export const UIEvents = defineBuffer<UIEvent>("engine.UIEvents");
 
@@ -194,6 +204,7 @@ export class UIDocumentElement {
   /** @internal */ _alive = true;
   /** @internal True for a button's label made from its text content. */ _synthetic = false;
   /** @internal Its static path (the rule is `documentSource.ts`'s); null in list rows and inside them. */ _path: string | null = null;
+  /** @internal Styled at least once since it was built (a first style starts no transitions). */ _styled = false;
 
   /** @internal */
   constructor(readonly document: UIDocument) {
@@ -262,6 +273,10 @@ export class UIDocumentElement {
    * root, the player presses `cancel` (Escape, the east button) with focus on its canvas. Handlers run
    * once per frame, right after UI input routing and before behaviors' `update`, exactly when the
    * matching polled state is true. They're dropped with the element.
+   *
+   * Stylesheet animation (ADR 0418 wave 4): `transitionend` when a property's transition finishes, and
+   * `animationstart`, `animationiteration` and `animationend` for keyframe animations, the frame after
+   * they happened (the event names the property or animation, and the seconds it had run).
    */
   on(type: UIEventType, handler: UIEventHandler): this {
     const list = this._handlers.get(type);
@@ -414,6 +429,8 @@ export class UIDocument extends Component {
   private rootElement: UIDocumentElement | null = null;
   private sheets: UIStylesheet[] = [];
   private pseudo = false;
+  /** The sheets declare transitions, animations or `@keyframes` (ADR 0418 wave 4). */
+  private animates = false;
   /** The sheets use `:lang()`: a language change restyles the tree (ADR 0356 §4). */
   private langRules = false;
   /** `Locale.epoch` the tree was last brought up to date with. */
@@ -427,10 +444,10 @@ export class UIDocument extends Component {
   private readyResolve: (() => void) | null = null;
   private selectorCache = new Map<string, readonly Selector[]>();
 
-  /** Resolves once the document has been built (at once if it already is). */
+  /** Resolves once the document has been built (at once if it already is), with its stylesheets' animation support loaded. */
   get ready(): Promise<void> {
-    if (this.builtFrom !== null) return Promise.resolve();
-    return (this.readyPromise ??= new Promise<void>((resolve) => (this.readyResolve = resolve)));
+    const built = this.builtFrom !== null ? Promise.resolve() : (this.readyPromise ??= new Promise<void>((resolve) => (this.readyResolve = resolve)));
+    return built.then(() => (this.animates && this.node.isValid ? uiAnimationReady(this._world) : undefined));
   }
 
   /** The document's root element, or null before it's built (or when it has none). */
@@ -608,6 +625,7 @@ export class UIDocument extends Component {
   /** @internal */
   override _onDetach(): void {
     liveDocuments.delete(this);
+    uiAnimationOwnerGone(this._world, this);
     // Called while the World flushes its destroys: queue the tree (that flush picks it up), never flush again here.
     this.teardown(null, false);
   }
@@ -651,6 +669,8 @@ export class UIDocument extends Component {
         }
         this.pseudo = P.usesPseudo(this.sheets);
         this.langRules = P.usesLang(this.sheets);
+        this.animates = P.usesAnimation(this.sheets);
+        if (this.animates) void uiAnimator(this._world).open(); // the tween backend loads while the tree builds
         this.localeEpoch = Locale.epoch;
         for (const p of this.problemList) warn(p.message);
         if (markup.root) {
@@ -713,6 +733,7 @@ export class UIDocument extends Component {
     el._list = null;
     el._applied = new Set();
     el._resolved = new Map();
+    el._styled = false;
     el._target = {
       tag: markup.tag,
       id: idAttr,
@@ -832,14 +853,34 @@ export class UIDocument extends Component {
     const comp = el._comp as unknown as Record<string, unknown>;
     const fields = P.fieldsOf(type);
     const next = new Set<string>();
+    const writes: UIStyleWrite[] = [];
+    const write = (name: string, value: unknown) => {
+      writes.push({ field: name, before: comp[name], after: value });
+      comp[name] = value;
+    };
     for (const [name, rv] of resolved) {
       if (name.startsWith("--") || bound.has(name) || !fields.has(name)) continue;
       next.add(name);
       const prev = el._resolved.get(name);
       if (prev && el._applied.has(name) && prev.source === rv.source && sameValue(prev.value, rv.value)) continue;
-      comp[name] = P.cloneValue(rv.value);
+      write(name, P.cloneValue(rv.value));
     }
-    for (const name of el._applied) if (!next.has(name)) comp[name] = defaultOf(type, name);
+    for (const name of el._applied) if (!next.has(name)) write(name, defaultOf(type, name));
+    // Transitions and keyframe animations (ADR 0418 wave 4): the animator takes what changed from here.
+    const transitions = resolved.get(P.TRANSITION_KEY)?.value as readonly UITransitionSpec[] | undefined;
+    const animations = resolved.get(P.ANIMATION_KEY)?.value as readonly UIAnimationSpec[] | undefined;
+    const first = !el._styled;
+    el._styled = true;
+    if (transitions?.length || animations?.length || uiAnimating(this._world, el._comp)) {
+      const sheets = this.sheets;
+      uiAnimator(this._world).styled(
+        { owner: this, element: el, comp: el._comp, fields, animate: !this._world.inEditMode(el._node.entity) },
+        writes,
+        first,
+        transitions?.map((spec): UIResolvedTransition => ({ spec, fields: P.transitionFields(spec.property, fields) })) ?? null,
+        animations?.map((spec): UIResolvedAnimation => ({ spec, tracks: () => P.keyframeTracks(sheets, spec.name, type, resolved, el._markup.file, warn) })) ?? null,
+      );
+    }
     // A button's hover and pressed colours come from `:hover` / `:pressed` backgrounds, so the drawing shows them.
     if (this.pseudo && el._comp instanceof UIButton) {
       const at = (state: Partial<Record<UIPseudo, boolean>>) =>
@@ -988,6 +1029,11 @@ export class UIDocument extends Component {
     const log = uiInteractions(world);
     const events: UIEvent[] = [];
     if (this._canceled()) events.push({ type: "cancel", element: root, document: this, item: undefined });
+    // Last frame's transition and animation events (ADR 0418 wave 4), in the order they happened.
+    for (const { element, event } of takeUIAnimationEvents(world, this)) {
+      const el = element as UIDocumentElement;
+      if (el._alive) events.push({ type: event.type, element: el, document: this, item: el.item, propertyName: event.propertyName, animationName: event.animationName, elapsedTime: event.elapsedTime });
+    }
     walk(root, (el) => {
       if (!el._alive) return;
       const c = el._comp;

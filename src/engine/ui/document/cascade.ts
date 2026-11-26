@@ -14,6 +14,17 @@ import { hasBinding, resolvePath } from "./sourceText";
 import { parseColor } from "./cssColor";
 import { parseBackgroundImage, parseCornerRadii, parseShadow } from "./paintValues";
 import { parseRotate, parseScale, parseTransform, parseTransformOrigin, parseTranslate } from "./transformValues";
+import {
+  animationSpecs,
+  ANIMATION_PROPERTIES,
+  parseAnimationLonghand,
+  parseTimingFunction,
+  parseTransitionLonghand,
+  transitionSpecs,
+  type UIAnimationLonghands,
+  type UITimingFunction,
+  type UITransitionLonghands,
+} from "./animationValues";
 import type {
   Declaration,
   MarkupAttribute,
@@ -24,6 +35,7 @@ import type {
   StyleRule,
   StyleTarget,
   UIPseudo,
+  UIStylesheet,
   ValueSource,
 } from "./types";
 
@@ -650,10 +662,17 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     }
   };
 
+  // Transitions and animations (ADR 0418 wave 4) are cascade data, ordered like the fields.
+  const animation = new AnimationCascade();
+
   // Rules.
   for (const m of matched) {
     const prop = m.declaration.property;
     if (isVariable(prop)) continue;
+    if (isAnimationProperty(prop)) {
+      animation.declare(prop, substituteVars(m.declaration.value, vars), { kind: "rule", rule: m.rule, declaration: m.declaration, file: m.file }, `${m.file} "${m.rule.selectorText}" ${prop}`, warnOnce);
+      continue;
+    }
     const field = propertyField(prop);
     if (!isKnownField(field)) {
       warnOnce(`${m.file}: unknown property "${prop}" (in "${m.rule.selectorText}").`);
@@ -676,6 +695,10 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   for (const a of element.attributes) {
     const field = attributeField(a);
     if (!field || hasBinding(a.value)) continue;
+    if (isAnimationProperty(a.name)) {
+      animation.declare(a.name, substituteVars(a.value, vars), { kind: "attribute", attribute: a, file: element.file }, `${element.file} <${element.tag} ${a.name}>`, warnOnce);
+      continue;
+    }
     if (typedShorthand(field)) {
       setShorthand(field, a.value, { kind: "attribute", attribute: a, file: element.file }, `${element.file} <${element.tag} ${a.name}>`);
       continue;
@@ -704,6 +727,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
       if (value !== undefined) out.set(name, { field: name, value: cloneValue(value), source });
     }
   }
+  animation.finish(out);
   return out;
 };
 
@@ -716,4 +740,208 @@ export function cloneValue(value: unknown): unknown {
   if (value instanceof Color) return new Color(value.r, value.g, value.b, value.a);
   if (value instanceof Vector2) return new Vector2(value.x, value.y);
   return value;
+}
+
+// --- Animation (ADR 0418 wave 4) ----------------------------------------------------------------
+//
+// `transition`, `animation`, their longhands and `@keyframes` are cascade data, not component fields: declarations
+// (rules, then attributes, an inline style last) are ordered like the fields', and whichever comes later wins per
+// longhand (a shorthand resets all of its longhands). The resolved map carries them under two keys that are never
+// fields, `TRANSITION_KEY` and `ANIMATION_KEY`; the document and the UI host hand them to the UI animator
+// (`ui/animation/`), which runs them on the tween backend (ADR 0420). Keyframe values convert here, per element, as
+// rule values do: shorthands expand, variables substitute, and a value that can't convert is warned about once.
+
+/** The resolved-map key holding an element's transitions (`UITransitionSpec[]`); never a field. */
+export const TRANSITION_KEY = "@transition";
+/** The resolved-map key holding an element's animations (`UIAnimationSpec[]`); never a field. */
+export const ANIMATION_KEY = "@animation";
+
+/** `transitionDuration` and `transition-duration` both name `transition-duration`. */
+const kebabName = (name: string) => name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`).toLowerCase();
+
+/** True for a transition or animation property (kebab-case or camelCase): cascade data, not a field. */
+export function isAnimationProperty(name: string): boolean {
+  return ANIMATION_PROPERTIES.has(kebabName(name));
+}
+
+/** Declarations already read (an element restyles often; its sheets' values are few): the longhands set, or a problem. */
+const longhandCache = new Map<string, Readonly<UITransitionLonghands | UIAnimationLonghands> | string>();
+
+function parsedLonghands(name: string, raw: string, transition: boolean): Readonly<UITransitionLonghands | UIAnimationLonghands> | string {
+  const key = `${name}:${raw}`;
+  let parsed = longhandCache.get(key);
+  if (parsed === undefined) {
+    const into: UITransitionLonghands & UIAnimationLonghands = {};
+    const problem = transition ? parseTransitionLonghand(name, raw, into) : parseAnimationLonghand(name, raw, into);
+    parsed = problem ?? into;
+    if (longhandCache.size >= 1024) longhandCache.clear();
+    longhandCache.set(key, parsed);
+  }
+  return parsed;
+}
+
+/** The transition and animation declarations that apply to one element, in cascade order. */
+class AnimationCascade {
+  private readonly transition: UITransitionLonghands = {};
+  private readonly animation: UIAnimationLonghands = {};
+  private transitionSource: ValueSource | null = null;
+  private animationSource: ValueSource | null = null;
+
+  declare(property: string, raw: string | undefined, source: ValueSource, where: string, warn: (message: string) => void): void {
+    if (raw === undefined) return warn(`${where}: uses a variable that isn't defined.`);
+    const name = kebabName(property);
+    const transition = name.startsWith("transition");
+    const parsed = parsedLonghands(name, raw, transition);
+    if (typeof parsed === "string") return warn(`${where}: "${raw}" isn't valid: ${parsed}`);
+    if (transition) {
+      Object.assign(this.transition, parsed);
+      this.transitionSource = source;
+    } else {
+      Object.assign(this.animation, parsed);
+      this.animationSource = source;
+    }
+  }
+
+  finish(out: Map<string, ResolvedValue>): void {
+    if (this.transitionSource) out.set(TRANSITION_KEY, { field: TRANSITION_KEY, value: transitionSpecs(this.transition), source: this.transitionSource });
+    if (this.animationSource) out.set(ANIMATION_KEY, { field: ANIMATION_KEY, value: animationSpecs(this.animation), source: this.animationSource });
+  }
+}
+
+/** True when any sheet declares a transition or animation, or has `@keyframes` (so the tween backend can open early). */
+export function usesAnimation(sheets: readonly UIStylesheet[]): boolean {
+  return sheets.some((s) => (s.keyframes?.length ?? 0) > 0 || s.rules.some((r) => r.declarations.some((d) => isAnimationProperty(d.property))));
+}
+
+/** The longhand fields of a shorthand property (camelCase), or null when it isn't one. */
+function longhandsOf(property: string): readonly string[] | null {
+  const plain = SHORTHANDS.get(property);
+  if (plain) return plain.longhands;
+  switch (property) {
+    case "transform":
+      return ["translateX", "translateY", "scaleX", "scaleY", "rotate"];
+    case "translate":
+      return ["translateX", "translateY"];
+    case "scale":
+      return ["scaleX", "scaleY"];
+    case "transformOrigin":
+      return ["transformOriginX", "transformOriginY"];
+    case "boxShadow":
+      return ["boxShadowColor", "boxShadowOffsetX", "boxShadowOffsetY", "boxShadowBlur"];
+    case "textShadow":
+      return ["textShadowColor", "textShadowOffsetX", "textShadowOffsetY", "textShadowBlur"];
+    case "borderRadius":
+      return ["borderRadius", ...CORNERS];
+  }
+  return null;
+}
+
+/**
+ * The fields of `fields` a `transition-property` name covers: every field for `all`, a shorthand's longhands
+ * (`padding` its sides, `transform` the transform fields, `box-shadow` the shadow's), or the one field it names.
+ */
+export function transitionFields(property: string, fields: ReadonlyMap<string, FieldInfo>): string[] {
+  if (property === "all") return [...fields.keys()];
+  const field = propertyField(property);
+  const longhands = longhandsOf(field);
+  return (longhands ?? [field]).filter((f) => fields.has(f));
+}
+
+/** One stop of a keyframe track: where it is (0–1), the field's value there, and the timing of the segment it starts. */
+export interface UIKeyframeStop {
+  readonly offset: number;
+  readonly value: unknown;
+  /** `animation-timing-function` of its keyframe, or null (the animation's). */
+  readonly timing: UITimingFunction | null;
+}
+
+/** The last `@keyframes` named `name` across the sheets (later sheets, then later blocks, win), or null. */
+function findKeyframes(sheets: readonly UIStylesheet[], name: string) {
+  for (let i = sheets.length - 1; i >= 0; i--) {
+    const blocks = sheets[i].keyframes;
+    if (!blocks) continue;
+    for (let j = blocks.length - 1; j >= 0; j--) if (blocks[j].name === name) return { block: blocks[j], file: sheets[i].file };
+  }
+  return null;
+}
+
+/**
+ * The tracks `@keyframes name` gives an element of `component`: per field, its stops in offset order (a keyframe
+ * listing the same offset again overrides the field there). Values convert as rule values do, with the element's
+ * variables (`resolved`); `file` resolves relative asset paths. Null when no such block exists.
+ */
+export function keyframeTracks(
+  sheets: readonly UIStylesheet[],
+  name: string,
+  component: abstract new (...args: never[]) => object,
+  resolved: ReadonlyMap<string, ResolvedValue>,
+  file: string,
+  warn: (message: string) => void,
+): Map<string, UIKeyframeStop[]> | null {
+  const found = findKeyframes(sheets, name);
+  if (!found) return null;
+  const fields = fieldsOf(component);
+  const vars = new Map<string, string>();
+  for (const [k, v] of resolved) if (isVariable(k)) vars.set(k, String(v.value));
+  const tracks = new Map<string, Map<number, UIKeyframeStop>>();
+  const put = (field: string, offset: number, value: unknown, timing: UITimingFunction | null) => {
+    let track = tracks.get(field);
+    if (!track) tracks.set(field, (track = new Map()));
+    track.set(offset, { offset, value: cloneValue(value), timing });
+  };
+  for (const frame of found.block.frames) {
+    let timing: UITimingFunction | null = null;
+    const timingDecl = [...frame.declarations].reverse().find((d) => kebabName(d.property) === "animation-timing-function");
+    if (timingDecl) {
+      const t = parseTimingFunction(substituteVars(timingDecl.value, vars) ?? "");
+      if (t.ok) timing = t.value;
+      else warn(`${found.file} @keyframes ${name}: ${t.problem}`);
+    }
+    for (const d of frame.declarations) {
+      if (isVariable(d.property) || isAnimationProperty(d.property)) continue;
+      const where = `${found.file} @keyframes ${name} ${d.property}`;
+      const raw = substituteVars(d.value, vars);
+      if (raw === undefined) {
+        warn(`${where}: "${d.value}" uses a variable that isn't defined.`);
+        continue;
+      }
+      const values = keyframeValues(propertyField(d.property), raw, fields, file);
+      if (typeof values === "string") {
+        warn(`${where}: "${raw}" ${values}`);
+        continue;
+      }
+      for (const offset of frame.offsets) for (const [field, value] of values) put(field, offset, value, timing);
+    }
+  }
+  const out = new Map<string, UIKeyframeStop[]>();
+  for (const [field, stops] of tracks) out.set(field, [...stops.values()].sort((a, b) => a.offset - b.offset));
+  return out;
+}
+
+/** A keyframe declaration's fields and values for an element with `fields` (none it lacks), or why it can't be read. */
+function keyframeValues(field: string, raw: string, fields: ReadonlyMap<string, FieldInfo>, file: string): (readonly [string, unknown])[] | string {
+  const typed = typedShorthand(field);
+  if (typed) {
+    const expanded = typed(raw);
+    if (!expanded.ok) return expanded.problem;
+    return expanded.fields.filter(([f]) => fields.has(f));
+  }
+  const shorthand = SHORTHANDS.get(field);
+  if (shorthand) {
+    const longhands = shorthand.expand(raw);
+    if (!longhands) return `isn't a valid ${field}.`;
+    const out: [string, unknown][] = [];
+    for (const [f, r] of longhands) {
+      const info = fields.get(f);
+      if (!info) continue;
+      const v = r === null ? null : convertValue(r, info, file);
+      if (v === undefined) return `isn't a valid ${field}.`;
+      out.push([f, v]);
+    }
+    return out;
+  }
+  const info = fields.get(field);
+  if (!info) return isKnownField(field) ? [] : "isn't a known property.";
+  const value = convertValue(raw, info, file);
+  return value === undefined ? `isn't a valid ${field}.` : [[field, value]];
 }

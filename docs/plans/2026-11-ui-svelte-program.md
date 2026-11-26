@@ -17,9 +17,9 @@ The coordinator's plan for building ADRs 0418 (the UI core grows toward web CSS)
 
 | Wave | Contents | Depends on |
 |---|---|---|
-| X1 | 0418 wave 4: transitions, `@keyframes`, `animation`, on the tween backend; `transitionend`/`animationend` | 0420 |
+| X1 ✅ merged | 0418 wave 4: transitions, `@keyframes`, `animation`, on the tween backend; `transitionend`/`animationend` | 0420 |
 | X2 ✅ merged (conformance 1077/1311, 82.2%) | Svelte hooks without UI core dependencies: legacy `on:`, `globalTarget` (`<svelte:window/document/body>`, events and size bindings), `addStyles` (`css: 'injected'`), `<svelte:head>` title; `t()`; the Element subset on renderer nodes | 0419 A |
-| X3 | 0421: Svelte runtime and renderer bundled into each game's code at export, tree-shaken | 0419 A |
+| X3 ✅ merged (UI bundle 24.9 KB + cascade 10.7 KB gzip) | 0421: Svelte runtime and renderer bundled into each game's code at export, tree-shaken | 0419 A |
 | Y1 | 0418 wave 5: `:not`, structural, attribute and sibling selectors, `calc()`, canvas `@media` (+ `MediaQuery`) | X1 (cascade) |
 | Y2 | Svelte `animate`/`measure` hooks: `transition:`/`in:`/`out:`/`animate:` and `svelte/transition` built-ins on the tween backend and transformed boxes | X1, wave 3 |
 | Y3 | Event bubbling and capture (0422); scrolling containers (0423) | X2 |
@@ -37,4 +37,6 @@ The coordinator's plan for building ADRs 0418 (the UI core grows toward web CSS)
 - Transform lists that would skew are refused, and skew isn't drawn (0418 wave 3 as built); Z2's matrix transforms lift both.
 - Units ruling (coordinator): Svelte's `window.innerWidth/innerHeight` and `devicePixelRatio` move to canvas **UI pixels** (device pixels per UI pixel), matching `getBoundingClientRect` and canvas `@media`; done in wave Y1. The 0418 implementation-status row's "getBoundingClientRect on transformed boxes missing" is done (X2).
 - 0421 as built: the renderer (and files beside it that it imports) may import from `src/engine/` only by name (no default or namespace import, no re-export): the player's `myco-ui-host.js` re-exports exactly those names, read from its source at player build, and a game's UI bundle imports them from there. Compiled components export `$mount`, which `UIView` calls. Rebuild the player after changing the renderer's engine imports.
-- e2e specs already known to be affected: `ui-navigation`, `localisation`, `arena`, `input`, `input-mapper`, `sample`, `hierarchy-create`, `selection`, `sound-lab-touch`, plus Code panel, Assets Create, export and player-boot specs (wave A part 2).
+- Wave 4 gaps: `UIView.ready` doesn't wait for the tween backend (a view's very first segment eases in TS, values correct); mid-transition inheritance to children, reversed-transition shortening, `transition-behavior`, `linear()`. Svelte `on*` animation event attributes mapped (coordinator).
+- Both tween backends hold only 256 sequences (vs 4,096 tweens): Y2's Svelte transitions should use tweens per segment as wave 4 does.
+- e2e specs already known to be affected: `ui-navigation`, `localisation`, `arena`, `input`, `input-mapper`, `sample`, `hierarchy-create`, `selection`, `sound-lab-touch`, `inspector-fields`, `worldspanel`, `export`, `export-capture`, `animation-export`, `studio-export`, plus Code panel, Assets Create, export and player-boot specs (wave A part 2).

@@ -132,6 +132,22 @@ export interface UIStylesheet {
   readonly file: string;
   readonly rules: readonly StyleRule[];
   readonly problems: readonly SourceProblem[];
+  /** `@keyframes` blocks (ADR 0418 wave 4), in source order; absent when the sheet has none. */
+  readonly keyframes?: readonly UIKeyframes[];
+}
+
+/** One keyframe of a `@keyframes` block: its offsets (`from` 0, `to` 1, `50%` 0.5) and declarations. */
+export interface UIKeyframe {
+  readonly offsets: readonly number[];
+  readonly declarations: readonly Declaration[];
+  readonly span: SourceSpan;
+}
+
+/** A `@keyframes` block (ADR 0418 wave 4): the last one with a name, across a document's sheets, is the one used. */
+export interface UIKeyframes {
+  readonly name: string;
+  readonly frames: readonly UIKeyframe[];
+  readonly span: SourceSpan;
 }
 
 /** Parse a stylesheet. Never throws: problems are reported. `firstOrder` numbers its rules after earlier sheets'. */
