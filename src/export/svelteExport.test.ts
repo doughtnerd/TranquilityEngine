@@ -144,6 +144,20 @@ describe("exporting Svelte UI", () => {
     expect(new Map(uiFiles(fromServed))).toEqual(new Map(uiFiles(await hudPlan())));
   });
 
+  it("compiles the engine's built-in UI a project uses into its code (0419 wave B), and none that it doesn't", async () => {
+    expect((await hudPlan()).manifest.scripts.some((s) => s.source.startsWith("@myco/"))).toBe(false);
+    const scene = JSON.stringify({ format: "myco.scene@1", nodes: [{ name: "Controls", components: [{ type: "engine.UIControlMapper" }] }] });
+    const json = new Map([["project.json", '{ "name": "Mapper" }'], ["scenes/main.scene.json", scene]]);
+    const plan = await planWebBuild({ name: "mapper", settings: { name: "Mapper" }, files: [...json.keys()], scripts: new Map(), json, uiRuntime: nodeUIRuntimeSource() });
+    expect(plan.manifest.scripts).toEqual([{ source: "@myco/ui/ControlMapper.svelte", module: "code/@myco/ui/ControlMapper.svelte.js" }]);
+    expect(plan.copies).not.toContain("@myco/ui/ControlMapper.svelte");
+    const code = [...plan.generated].filter(([p]) => p.startsWith("code/")).map(([, c]) => c).join("\n");
+    expect(code).toContain("$mount");
+    expect(code).not.toMatch(/svelte\/compiler|css-tree|parseStylesheet/);
+    const { uiRuntime: _, ...withoutRuntime } = { name: "mapper", settings: { name: "Mapper" }, files: [...json.keys()], scripts: new Map<string, string>(), json, uiRuntime: nodeUIRuntimeSource() };
+    await expect(planWebBuild(withoutRuntime)).rejects.toThrow(/uses UIControlMapper, whose built-in UI needs the engine's Svelte runtime/);
+  });
+
   it("a project with Svelte UI can't be built without the runtime", async () => {
     const { uiRuntime: _, ...withoutRuntime } = source();
     await expect(planWebBuild(withoutRuntime)).rejects.toThrow(/ui\/Hud\.svelte: the UI runtime \(Svelte\) didn't load: this build has no Svelte runtime/);
