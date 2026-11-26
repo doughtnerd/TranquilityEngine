@@ -1,17 +1,14 @@
 // ADR 0356 §8, §9 (T7): the Localisation panel's models — the project's tables and ownership, the Strings grid (rows,
-// status, search and filters, ICU problems, refused-or-next edits), the Report (gathering and the fit check) and the
+// status, search and filters, ICU problems, refused-or-next edits), the Report (gathering) and the
 // Exchange (export files, import preview and writes) — and the `strings` asset kind's format, through their interfaces.
 import { describe, expect, it } from "vitest";
 import { gatherKeys } from "../../../engine/localisation/exchange/gather";
-import { estimateText } from "../../../engine/ui/layout";
 import { parseLanguages } from "../../../engine/localisation/languages";
 import { effectiveStatus } from "../../../engine/localisation/strings/translation";
 import { textHash } from "../../../engine/localisation/textHash";
 import type { EditResult } from "../../sdk/editResult";
 import { exportFiles, formatOfFile, importPreviewOf, importWrites, previewSummary } from "./exchangeModel";
-import { fitCheck } from "./fitCheck";
 import { exchangeProjectOf, studioOwnedTables, tableAccess } from "./localisationData";
-import { keyMatches, keyPreview, suggestKey, suggestTable } from "./localiseModel";
 import { localisationReport } from "./reportModel";
 import { stringsFormat } from "./stringsKind";
 import {
@@ -33,7 +30,7 @@ const FILES: [string, unknown][] = [
   ["strings/menu.de.strings.json", { format: "myco.translation@1", language: "de", strings: { "menu.start": { text: "Los" } } }],
   ["audio/vo/ch1.lines.json", { format: "myco.lines@1", lines: [{ key: "intro_01" }] }],
   ["audio/vo/ch1.strings.json", { format: "myco.strings@1", language: "en", strings: [{ key: "intro_01", text: "Hello." }] }],
-  ["ui/menu.ui.xml", '<Canvas><Text id="start" width="60" height="20" t:text="menu.start"/><Text id="quit" width="400" t:text="menu.quit"/><Text t:text="hud.coins"/></Canvas>'],
+  ["ui/Menu.svelte", '<script lang="ts">\n  import { t } from "myco";\n</script>\n\n<p id="start">{t("menu.start")}</p>\n<p id="quit">{t("menu.quit")}</p>\n<p>{t("hud.coins", { count: 3 })}</p>\n'],
 ];
 
 const project = () => exchangeProjectOf(languages, FILES);
@@ -135,34 +132,15 @@ describe("the Strings grid", () => {
 });
 
 describe("the Report", () => {
-  it("lists counts and the gathering's lists, with the fit check's overflows", () => {
+  it("lists counts and the gathering's lists", () => {
     const gather = gatherKeys({ files: FILES, languages });
-    const fit = fitCheck({ project: project(), documents: [["ui/menu.ui.xml", FILES[5][1] as string]], read: () => null, measure: estimateText, languages: ["en", "fr", "qps-ploc"] });
-    expect(fit.checked).toBe(2);
-    expect(fit.skipped).toBe(1);
-    expect(fit.overflows.map((o) => [o.where, o.language, o.reason])).toEqual([["#start", "fr", "lines"], ["#start", "qps-ploc", "lines"]]);
-    const report = localisationReport(gather, fit);
+    const report = localisationReport(gather);
     expect(report.languages.map((l) => [l.language, l.translated, l.needsReview, l.missing])).toEqual([["fr", 2, 1, 1], ["de", 1, 0, 3]]);
     const section = (id: string) => report.sections.find((s) => s.id === id)!;
     expect(section("missing").rows.map((r) => [r.key, r.detail])).toEqual([["intro_01", "missing in fr, de"], ["menu.quit", "missing in de"], ["hud.coins", "missing in de"]]);
     expect(section("unused").rows).toEqual([]);
-    expect(section("fit").rows[0].detail).toMatch(/^fr: \d+ px tall, box 20 px · ui\/menu.ui.xml #start$/);
-    expect(report.issues).toBe(5);
-    expect(localisationReport(gather, null).sections.some((s) => s.id === "fit")).toBe(false);
-  });
-});
-
-describe("the Inspector's Localise control", () => {
-  it("finds keys by name or text with previews in the preview language, and suggests keys and tables", () => {
-    const p = project();
-    expect(keyMatches(p, "quitter", "fr").map((m) => [m.key, m.preview])).toEqual([["menu.quit", "Quitter"]]);
-    expect(keyMatches(p, "menu.start", "de")[0]).toEqual({ key: "menu.start", table: "strings/menu.strings.json", preview: "Los" });
-    expect(keyPreview(p, "menu.quit", "qps-ploc")).toBe("Quit game");
-    expect(keyPreview(p, "nope", "fr")).toBeNull();
-    expect(suggestKey(p, "ui/menu.ui.xml", "start", "Text", "text")).toBe("menu.start_2");
-    expect(suggestKey(p, "ui/hud.ui.xml", null, "InputField", "placeholder")).toBe("hud.placeholder_inputfield");
-    expect(suggestTable(p, "ui/menu.ui.xml")).toBe("strings/menu.strings.json");
-    expect(suggestTable(p, "ui/hud.ui.xml")).toBe("audio/vo/ch1.strings.json");
+    expect(report.sections.map((x) => x.id)).toEqual(["missing", "undefined", "unused", "duplicates"]);
+    expect(report.issues).toBe(3);
   });
 });
 

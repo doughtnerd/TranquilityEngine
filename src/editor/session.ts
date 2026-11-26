@@ -46,7 +46,6 @@ import { installViewportSelection } from "./viewportSelection";
 import { installViewportTools } from "./viewportTools";
 import { installUIElementOutline } from "./uiOutline";
 import { installUIHandles } from "./uiHandles";
-import { loadUIDocumentSupport } from "../engine/ui/UIDocument";
 import { reloadGraphics } from "./graphicsPreview";
 
 let session: { engine: Engine; dispose(): void } | null = null;
@@ -128,11 +127,7 @@ async function loadProject(project: EditorProject): Promise<{ problem: boolean }
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;
   void setUpScripting(project);
-  // UI documents' parsers load with the editor (ADR 0077), so documents build with the scene, not a moment after.
-  const [engine] = await Promise.all([
-    Engine.create({ kind: "editor", container: viewportElements().viewport, project: editorSettings(project), storage: await projectStorage(project) }),
-    loadUIDocumentSupport().catch((err: unknown) => console.warn("[editor] the UI document parsers didn't load; documents build once they do:", err)),
-  ]);
+  const engine = await Engine.create({ kind: "editor", container: viewportElements().viewport, project: editorSettings(project), storage: await projectStorage(project) });
   reloadGraphics(engine.settings.graphics); // the Quality menu lists the project's tiers
   // Editor tools live under the World root, outside the edited scene, so they keep running (ADR 0026).
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));

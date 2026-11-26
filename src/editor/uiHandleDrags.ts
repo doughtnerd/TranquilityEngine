@@ -1,21 +1,16 @@
-// The edits behind the scene view's UI handles (ADR 0077 §4, wave B part 3): which elements get
+// The edits behind the scene view's UI handles (ADR 0077 §4, wave B part 3; ADR 0419 wave C): which elements get
 // handles, and the resize, move and reorder drags, each one undo step over the element's file (see
 // uiHandles.ts, which draws the handles and turns pointer events into these drags). A drag reads
 // boxes on the canvas through the `BoxOf` it's given.
 //
-// ADR 0419 wave C: the same handles work on the elements a UIView renders from a Svelte component. Both kinds are
-// reached through a `HandleSubject` (the element, its parent and flow siblings with their places in the file, and
-// the edits that write attributes or reorder it), so the drags don't care which file format they write; on a
-// view's dynamic parts (expressions, `{#each}` rows, child components) handles are refused with the reason.
-import type { UIDocumentElement } from "../engine/ui/UIDocument";
+// The elements are those a UIView renders from a Svelte component, reached through a `HandleSubject` (the element,
+// its parent and flow siblings with their places in the file, and the edits that write attributes or reorder it); on
+// a view's dynamic parts (expressions, `{#each}` rows, child components) handles are refused with the reason.
 import type { UIComponentType } from "../engine/ui/components";
 import type { UIHostElement } from "../engine/ui/host/UIHost";
-import { elementSource } from "../engine/ui/documentSource";
 import { uiBorderEdges } from "../engine/ui/layout";
 import { hasTransform, type UITransformFields } from "../engine/ui/transform2d";
 import { openScene } from "./state";
-import { beginUIEdit, moveUIElement, setUIElementAttributes } from "./uiDocumentEdits";
-import { whyNotEdit } from "./editGate";
 import type { UndoStep } from "./undoStep";
 import {
   boxMap,
@@ -32,7 +27,6 @@ import {
   type Point,
   type ReorderTarget,
 } from "./uiHandleMath";
-import { elementLabel, resolveUIElement, type UIElementRef } from "./uiDocuments";
 import { refOfViewElement, resolveUIViewElement, sourceOfFile, viewElementLabel, type UIViewRef } from "./uiViews";
 import { beginUIViewEdit, moveUIViewElement, setUIViewElementAttributes, whyNotEditViewElement } from "./uiViewEdits";
 import { elementAtLocation } from "./uiEdit/svelteText";
@@ -49,7 +43,7 @@ interface HandleElement {
   readonly children: readonly HandleElement[];
 }
 
-/** What a drag acts on: the element, and the edits that write it (a UI document's markup, or a view's `.svelte` source). */
+/** What a drag acts on: the element, and the edits that write it (its view's `.svelte` source). */
 interface HandleSubject {
   readonly el: HandleElement;
   readonly label: string;
@@ -57,25 +51,8 @@ interface HandleSubject {
   readonly whyNot: string | null;
   begin(label: string): UndoStep | null;
   setAttributes(attributes: Record<string, string>, label: string): boolean;
-  /** Move it to be the `index`th element written in its parent (as `moveUIElement` counts). */
+  /** Move it to be the `index`th element written in its parent (as `moveUIViewElement` counts). */
   reorder(index: number): boolean;
-}
-
-function documentElement(el: UIDocumentElement): HandleElement {
-  const src = elementSource(el);
-  return {
-    component: el.component,
-    get active() {
-      return el.node.activeInHierarchy;
-    },
-    get parent() {
-      return el.parent ? documentElement(el.parent) : null;
-    },
-    index: src && !src.label ? src.index : -1,
-    get children() {
-      return el.children.map(documentElement);
-    },
-  };
 }
 
 function viewElement(el: UIHostElement): HandleElement {
@@ -98,47 +75,32 @@ function viewElement(el: UIHostElement): HandleElement {
   };
 }
 
-/** The subject of a drag on the element `ref` names (a UI document's, or a view's), or null when it's gone. */
-function subjectOf(ref: UIElementRef | UIViewRef): HandleSubject | null {
+/** The subject of a drag on the element `ref` names, or null when it's gone. */
+function subjectOf(ref: UIViewRef): HandleSubject | null {
   const scene = openScene.peek();
   if (!scene) return null;
-  if ("file" in ref) {
-    const el = resolveUIViewElement(scene.sync, ref);
-    if (!el) return null;
-    const parentRef = el.parent?.source ? refOfViewElement(scene.sync, el.parent) : null;
-    const why = whyNotEditViewElement(scene, ref) ?? (el.parent ? null : "the root fills its canvas");
-    return {
-      el: viewElement(el),
-      label: viewElementLabel(el),
-      whyNot: why,
-      begin: (label) => beginUIViewEdit(label),
-      setAttributes: (attributes, label) => setUIViewElementAttributes(ref, attributes, label),
-      reorder: (index) => moveUIViewElement(ref, parentRef ?? { host: ref.host, index: ref.index }, index),
-    };
-  }
-  const el = resolveUIElement(scene.sync, ref);
+  const el = resolveUIViewElement(scene.sync, ref);
   if (!el) return null;
-  const src = elementSource(el);
-  const why = whyNotEdit({ kind: "ui-documents" }) ?? (!src ? "it's made by a script (a list row)" : src.label ? "a button's label is its text content" : !el.parent || el.tag === "Canvas" ? "the root fills its canvas" : null);
-  const parentRef: UIElementRef = { host: ref.host, index: ref.index, path: (el.parent && elementSource(el.parent)?.path) ?? "" };
+  const parentRef = el.parent?.source ? refOfViewElement(scene.sync, el.parent) : null;
+  const why = whyNotEditViewElement(scene, ref) ?? (el.parent ? null : "the root fills its canvas");
   return {
-    el: documentElement(el),
-    label: elementLabel(el),
+    el: viewElement(el),
+    label: viewElementLabel(el),
     whyNot: why,
-    begin: (label) => beginUIEdit(label),
-    setAttributes: (attributes, label) => setUIElementAttributes(ref, attributes, label),
-    reorder: (index) => moveUIElement(ref, parentRef, index),
+    begin: (label) => beginUIViewEdit(label),
+    setAttributes: (attributes, label) => setUIViewElementAttributes(ref, attributes, label),
+    reorder: (index) => moveUIViewElement(ref, parentRef ?? { host: ref.host, index: ref.index }, index),
   };
 }
 
 /** Why the scene view shows no handles on the element `ref` names (outline only), or null when it does. */
-export function whyNoHandles(ref: UIElementRef | UIViewRef): string | null {
+export function whyNoHandles(ref: UIViewRef): string | null {
   const s = subjectOf(ref);
   return s ? s.whyNot : "it's gone";
 }
 
 /** The element a ref names, for the handles' overlay: its component and whether it's shown, or null. */
-export function handleElement(ref: UIElementRef | UIViewRef): { readonly component: UIComponentType; readonly active: boolean } | null {
+export function handleElement(ref: UIViewRef): { readonly component: UIComponentType; readonly active: boolean } | null {
   return subjectOf(ref)?.el ?? null;
 }
 
@@ -200,7 +162,7 @@ function attributeDrag(kind: "resize" | "move", subject: HandleSubject, label: s
 }
 
 /** Start dragging resize handle `id` of the element at `ref`, pressed at `pointer` (canvas CSS pixels). Null if it can't be resized. */
-export function beginResize(ref: UIElementRef | UIViewRef, id: HandleId, pointer: Point, boxOf: BoxOf): HandleDrag | null {
+export function beginResize(ref: UIViewRef, id: HandleId, pointer: Point, boxOf: BoxOf): HandleDrag | null {
   const subject = subjectOf(ref);
   if (!subject || subject.whyNot) return null;
   const el = subject.el;
@@ -229,7 +191,7 @@ export function beginResize(ref: UIElementRef | UIViewRef, id: HandleId, pointer
  * absolutely positioned element moves; one in flex flow reorders among its siblings. Null if it
  * can't move.
  */
-export function beginMove(ref: UIElementRef | UIViewRef, pointer: Point, boxOf: BoxOf): HandleDrag | null {
+export function beginMove(ref: UIViewRef, pointer: Point, boxOf: BoxOf): HandleDrag | null {
   const subject = subjectOf(ref);
   const el = subject?.el;
   const parent = el?.parent;

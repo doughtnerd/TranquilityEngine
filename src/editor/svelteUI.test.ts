@@ -55,8 +55,6 @@ const files = (version = "v1", extra: Record<string, string> = {}) =>
       "ui/theme.css": ".title { color: #ff8800; }\n:root { --unused: 1px; }\n",
       // Not imported by any component: never loaded, so its rules don't apply.
       "ui/other.css": ".title { color: #000000; }\n",
-      // A UI document's stylesheet: not UI code.
-      "ui/menu.ui.css": "Text { color: #123456; }\n",
       ...extra,
     }),
   );

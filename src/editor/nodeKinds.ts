@@ -1,5 +1,5 @@
 // The node kinds the Create menus offer (ADR 0022, 0146): an empty node, a sprite, a camera, a 3D shape
-// (with a matching collider, as in Unity), a light (ADR 0043), a UI Document (ADR 0077, 0417) or a kind a plugin adds
+// (with a matching collider, as in Unity), a light (ADR 0043), a UI View (ADR 0419) or a kind a plugin adds
 // (Particle System, Tilemap), each as a node template. The node insertion (ADR 0246, `nodeInsertion.ts`) puts them
 // in the scene.
 import { createAsset } from "./assetKindHost";
@@ -9,7 +9,7 @@ import { WATER_PRESET } from "../engine/render/water/gerstner";
 import { OTHER_CATEGORY } from "./menuCategories";
 
 /** The editor's own node kinds. */
-export type NewNodeKind = "empty" | "sprite" | "camera" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "water" | "ui-document";
+export type NewNodeKind = "empty" | "sprite" | "camera" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "water" | "ui-view";
 /** A built-in node kind, or the id of a plugin's Hierarchy create entry (ADR 0146). */
 export type NodeKind = NewNodeKind | (string & {});
 type Shape3D = "cube" | "sphere" | "capsule" | "cylinder" | "plane";
@@ -45,7 +45,7 @@ const NEW_NODE_KINDS: readonly (CreatableKind & { kind: NewNodeKind })[] = [
   { kind: "fog", label: "Fog", name: "Fog", category: "Effects" },
   { kind: "reflection-probe", label: "Reflection Probe", name: "Reflection Probe", category: "Light" },
   { kind: "water", label: "Water", name: "Water", category: "Effects" },
-  { kind: "ui-document", label: "UI Document", name: "UI Document", category: "UI" },
+  { kind: "ui-view", label: "UI View", name: "UI View", category: "UI" },
 ];
 
 /**
@@ -81,7 +81,7 @@ const SHAPE_COLLIDERS: Record<Shape3D, { type: string; data: Record<string, unkn
 /**
  * The template for a new node of `kind` at `position` in its parent's space (ADR 0246): its base name and
  * components; the node insertion mints the id and makes the name unique. `topLevel` puts a camera in front of the
- * sprite plane and raises a sun. `asset` is the `asset:<path>` the node uses (a UI Document's markup, a plugin
+ * sprite plane and raises a sun. `asset` is the `asset:<path>` the node uses (a UI View's component, a plugin
  * kind's effect or tileset), or "". Null for a kind nothing registers (its plugin is off).
  */
 export function kindTemplate(kind: NodeKind, position: Vec3, topLevel: boolean, asset = ""): NodeTemplate | null {
@@ -122,9 +122,9 @@ export function kindTemplate(kind: NodeKind, position: Vec3, topLevel: boolean, 
     case "water":
       // A WaterSurface with the four-wave preset written out, so the inspector's wave list shows it (ADR 0072).
       return { name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.WaterSurface", data: { waves: WATER_PRESET.map((w) => ({ ...w })) } }] };
-    case "ui-document":
-      // A markup document (ADR 0077): `asset` is the new `.ui.xml` written first (`kindAssetCreator`), or empty.
-      return { name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.UIDocument", data: asset ? { document: asset } : {} }] };
+    case "ui-view":
+      // A Svelte component's view (ADR 0419): `asset` is the new `.svelte` written first (`kindAssetCreator`), or empty.
+      return { name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.UIView", data: asset ? { component: asset } : {} }] };
     default: {
       // A light: directional and spot lights point down and away, like a sun in the afternoon
       // (a -30-degree yaw, then pitched 50 degrees down about the world X axis; a quaternion, ADR 0163, 0164).
@@ -144,13 +144,13 @@ export function kindTemplate(kind: NodeKind, position: Vec3, topLevel: boolean, 
 
 /**
  * The asset a new node of `kind` needs written first, if any (ADR 0146, 0246): a contributed kind's `createAsset`
- * (a Particle System's effect), or for UI Document a new document from the `uidocument` asset kind's `create`
- * (ADR 0077, 0149) when the UI plugin registers one. Resolves to the new file's path, or null when it couldn't
+ * (a Particle System's effect), or for UI View a new component from the `svelte` asset kind's `create`
+ * (ADR 0149, 0419) when the UI plugin registers one. Resolves to the new file's path, or null when it couldn't
  * write one (it said why in the status).
  */
 export function kindAssetCreator(kind: NodeKind): (() => Promise<string | null>) | undefined {
   const contributed = contributedKind(kind);
   if (contributed) return contributed.createAsset && (() => contributed.createAsset!());
-  if (kind === "ui-document" && registeredKind("uidocument")?.create) return () => createAsset("uidocument");
+  if (kind === "ui-view" && registeredKind("svelte")?.create) return () => createAsset("svelte");
   return undefined;
 }

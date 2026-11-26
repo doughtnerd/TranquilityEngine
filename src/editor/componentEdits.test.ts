@@ -37,13 +37,14 @@ describe("the Add Component list", () => {
     expect(groups.indexOf("Scripts")).toBeGreaterThan(groups.lastIndexOf("Engine")); // grouped, Engine first
   });
 
-  it("leaves out the UI element types, which only UI documents build (ADR 0417)", () => {
+  it("leaves out the UI element types, which only UI views render (ADR 0417, 0419)", () => {
     const ui = ["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField"];
     const ids = componentCatalog().map((t) => t.id);
-    expect(ids).toContain("engine.UIDocument");
+    expect(ids).toContain("engine.UIView");
+    expect(ids).not.toContain("engine.UIDocument"); // retired (ADR 0419)
     for (const id of ui) {
       expect(ids).not.toContain(id);
-      expect(whyNotAddable(target("ceiling").node, id)).toMatch(/UI documents/);
+      expect(whyNotAddable(target("ceiling").node, id)).toMatch(/comes from a UIView/);
     }
     expect(addComponentTo(scene(), [target("ceiling")], "engine.UIPanel")).toBe(0);
   });

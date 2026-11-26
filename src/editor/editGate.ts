@@ -1,5 +1,5 @@
 // The edit gate (ADR 0247): the one answer to "can this be edited now, and what does the status bar say if not?"
-// for a scene document, the open scene's UI documents and the project's files. `whyNotEdit` gives one worded reason
+// for a scene document, the open scene's Svelte UI and the project's files. `whyNotEdit` gives one worded reason
 // (no scene, no project, a read-only project through `readOnly.ts`, play mode); `editableNow` also reports it to the status bar;
 // `editStep` / `beginEditStep` open the undo step once the gate passes (ADR 0231). Menus, tooltips, operations and
 // the editor SDK's `editor.scene.edit` all go through it, so they agree.
@@ -13,13 +13,13 @@ import { beginUndoStep, undoStep, type UndoStep } from "./undoStep";
 export type EditTarget =
   /** A scene document: `scene`, or the open one when absent. */
   | { readonly kind: "scene"; readonly scene?: OpenScene | null }
-  /** The open scene's UI documents (ADR 0077): markup files in the project, written through the scene's undo stack. */
-  | { readonly kind: "ui-documents" }
+  /** The open scene's UI (ADR 0419 wave C): the views' `.svelte` files in the project, written through the scene's undo stack. */
+  | { readonly kind: "ui" }
   /** The project's files (`project`, or the current one). `removes`: the edit deletes or moves files, which the running game may be reading. */
   | { readonly kind: "project-files"; readonly project?: EditorProject | null; readonly removes?: boolean };
 
 /** What each target's edit is called when the caller doesn't say. */
-const DEFAULT_TO_DO: Record<EditTarget["kind"], string> = { scene: "edit the scene", "ui-documents": "edit UI documents", "project-files": "change its files" };
+const DEFAULT_TO_DO: Record<EditTarget["kind"], string> = { scene: "edit the scene", ui: "edit the UI", "project-files": "change its files" };
 
 const sceneOf = (target: EditTarget): OpenScene | null => (target.kind === "scene" && target.scene !== undefined ? target.scene : openScene.value);
 const projectOf = (target: EditTarget): EditorProject | null => (target.kind === "project-files" && target.project !== undefined ? target.project : currentProject.value);
@@ -35,7 +35,7 @@ export function whyNotEdit(target: EditTarget, toDo: string = DEFAULT_TO_DO[targ
     case "scene":
       if (!sceneOf(target)) return "open a scene first";
       return playing() ? `stop playing to ${toDo}` : null;
-    case "ui-documents": {
+    case "ui": {
       const project = currentProject.value;
       if (!openScene.value || !project) return "open a scene first";
       if (!project.canSave) return readOnlyMessage(project, toDo);
@@ -54,7 +54,7 @@ export function whyNotEdit(target: EditTarget, toDo: string = DEFAULT_TO_DO[targ
 export const statusSentence = (reason: string): string => `${reason.charAt(0).toUpperCase()}${reason.slice(1)}${reason.endsWith(".") ? "" : "."}`;
 
 /**
- * The scene (UI documents: the open scene) `target` names if it can be edited now; otherwise null, with the reason
+ * The scene (UI: the open scene) `target` names if it can be edited now; otherwise null, with the reason
  * in the status bar.
  */
 export function editableNow(target: Exclude<EditTarget, { kind: "project-files" }>, toDo?: string): OpenScene | null;

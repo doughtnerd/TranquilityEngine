@@ -33,10 +33,11 @@ describe("asset browser: folders and search", () => {
     expect(assetKind("fx/a.particles.json")).toBe("particles");
     expect(assetKind("images/bird.PNG")).toBe("image");
     expect(assetKind("music/town.mp3")).toBe("audio");
-    expect(assetKind("ui/menu.ui.xml")).toBe("uidocument");
-    expect(assetKind("ui/menu.ui.css")).toBe("stylesheet");
-    expect(opensInCodePanel(assetKind("ui/menu.ui.xml"))).toBe(true);
-    expect(opensInCodePanel(assetKind("ui/menu.ui.css"))).toBe(true);
+    expect(assetKind("ui/Menu.svelte")).toBe("svelte");
+    expect(assetKind("ui/theme.css")).toBe("stylesheet");
+    expect(assetKind("ui/menu.ui.xml")).toBe("xml"); // a retired UI document (ADR 0419): plain XML
+    expect(opensInCodePanel(assetKind("ui/Menu.svelte"))).toBe(true);
+    expect(opensInCodePanel(assetKind("ui/theme.css"))).toBe(true);
     expect(assetKind("project.json")).toBe("json");
   });
 

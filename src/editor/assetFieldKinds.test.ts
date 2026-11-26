@@ -45,7 +45,7 @@ const FILES = [
   "env/box.cubemap.json",
   "tiles/grass.tileset.json",
   "fonts/Pirata.ttf",
-  "ui/menu.ui.xml",
+  "ui/Menu.svelte",
   "main.nav.bin",
   "main.scene.json",
   "enemy.prefab.json",
@@ -72,7 +72,7 @@ describe("assetsForKinds", () => {
     expect(offered("envmap")).toEqual(["env/probe.env"]);
     expect(offered("tileset")).toEqual(["tiles/grass.tileset.json"]);
     expect(offered("font")).toEqual(["fonts/Pirata.ttf"]);
-    expect(offered("uidocument")).toEqual(["ui/menu.ui.xml"]);
+    expect(offered("svelte")).toEqual(["ui/Menu.svelte"]);
     expect(offered("navbake")).toEqual(["main.nav.bin"]);
     expect(offered("scene")).toEqual(["main.scene.json"]);
     expect(offered("prefab")).toEqual(["enemy.prefab.json"]);

@@ -1,5 +1,5 @@
 // The Localisation panel (ADR 0356 §9, T7): Strings, Report and Exchange tabs over the open project's string tables.
-// It connects the pure models (`stringsModel.ts`, `reportModel.ts`, `fitCheck.ts`, `exchangeModel.ts`) to the project:
+// It connects the pure models (`stringsModel.ts`, `reportModel.ts`, `exchangeModel.ts`) to the project:
 // every write goes through the files' asset documents (the `strings` kind), so each edit is one undo step in that
 // file's history and Ctrl+Z in the panel undoes the chosen table's last edit. Tables audio data names are the Studio's
 // (0357 §1): while the Studio holds the project they show read-only with "Edit in the Studio".
@@ -12,19 +12,15 @@ import { languageOf } from "../../../engine/localisation/languages";
 import { languagesOf, stringsFiles } from "./projectStrings";
 import { stringsPathKind, translationPath, type StringTable } from "../../../engine/localisation/strings/format";
 import type { TranslationFile } from "../../../engine/localisation/strings/translation";
-import { estimateText } from "../../../engine/ui/layout";
 import { openAssetDocument, readAsset } from "../../assetDocuments";
 import { openAsset, openIn } from "../../assetKindHost";
-import { errorStatus } from "../../messages";
 import { otherAppHolds } from "../../projectLocks";
-import { joinPath } from "../../projectPaths";
 import type { EditorProject } from "../../projects";
 import { currentProject, docVersion, status } from "../../state";
 import { Panel, usePanelState } from "../panel/Panel";
 import type { EditResult } from "../../sdk/editResult";
 import { exportFiles, importPreviewOf, importWrites } from "./exchangeModel";
 import { ExchangeView, type ExportChoice } from "./ExchangeView";
-import { fitCheck, type FitMeasure, type FitResult } from "./fitCheck";
 import { exchangeProjectOf, studioOwnedTables, tableAccess, type LockState } from "./localisationData";
 import { localisationReport } from "./reportModel";
 import { ReportView } from "./ReportView";
@@ -45,9 +41,6 @@ const TABS: readonly { id: Tab; label: string }[] = [
 
 /** The Studio's lock on the open project, as last read (0341). */
 const studioLock = signal<LockState>("unknown");
-/** Dismissed unkeyed text (`.myco/localisation-ignore.json`), as last read. */
-const ignored = signal<readonly string[]>([]);
-const IGNORE_FILE = ".myco/localisation-ignore.json";
 
 async function refreshStudioLock(project: EditorProject): Promise<void> {
   if (!project.fileSystem || !project.root) return void (studioLock.value = "none");
@@ -55,31 +48,6 @@ async function refreshStudioLock(project: EditorProject): Promise<void> {
     studioLock.value = (await otherAppHolds(project.fileSystem, project.root, "editor")) ? "held" : "none";
   } catch {
     studioLock.value = "unknown";
-  }
-}
-
-async function readIgnored(project: EditorProject): Promise<void> {
-  const fs = project.fileSystem, root = project.root;
-  if (!fs || !root) return;
-  try {
-    const path = joinPath(root, IGNORE_FILE);
-    const raw: unknown = (await fs.exists(path)) ? JSON.parse(await fs.readText(path)) : [];
-    ignored.value = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    ignored.value = [];
-  }
-}
-
-async function dismiss(project: EditorProject, id: string): Promise<void> {
-  const next = [...new Set([...ignored.peek(), id])];
-  ignored.value = next;
-  const fs = project.fileSystem, root = project.root;
-  if (!fs || !root || !project.canSave) return;
-  try {
-    await fs.mkdir(joinPath(root, ".myco"));
-    await fs.writeText(joinPath(root, IGNORE_FILE), `${JSON.stringify(next, null, 2)}\n`);
-  } catch (err) {
-    status.value = errorStatus("Couldn't save the dismissed text", err);
   }
 }
 
@@ -100,29 +68,16 @@ function writeTranslation(project: EditorProject, tablePath: string, translation
   openAssetDocument<StringsFile>(project, translationPath(tablePath, translation.language), STRINGS_KIND).edit({ kind: "translation", translation }, { label });
 }
 
-/** The fit check's measurer: the engine's canvas text measuring where there's a canvas, else the UI core's estimate. */
-async function engineMeasure(): Promise<FitMeasure> {
-  try {
-    const m = await import("../../../engine/render/babylon/ui");
-    return m.measureText;
-  } catch {
-    return estimateText;
-  }
-}
-
 export function LocalisationPanel() {
   docVersion.value;
   const project = currentProject.value;
   const tab = usePanelState<Tab>("tab", "strings");
   const query = usePanelState<StringsQuery>("query", ALL_STRINGS);
-  const fit = usePanelState<FitResult | null>("fit", null);
-  const fitting = usePanelState("fitting", false);
   const choice = usePanelState<ExportChoice>("export", { format: "xliff", tables: [], languages: [], onlyNeedsWork: false });
   const pending = usePanelState<{ preview: ImportPreview; names: string[] } | null>("import", null);
   useEffect(() => {
     if (!project) return;
     void refreshStudioLock(project);
-    void readIgnored(project);
     const timer = setInterval(() => void refreshStudioLock(project), 5000);
     return () => clearInterval(timer);
   }, [project]);
@@ -166,19 +121,6 @@ export function LocalisationPanel() {
     writeTranslation(project, table, r.next, verb.charAt(0).toUpperCase() + verb.slice(1));
   };
 
-  const runFit = async () => {
-    fitting.value = true;
-    try {
-      const measure = await engineMeasure();
-      const documents = project.files.filter((f) => f.endsWith(".ui.xml")).map((f) => [f, String(project.assets.get(f) ?? "")] as const);
-      fit.value = fitCheck({ project: data, documents, read: (p) => (typeof project.assets.get(p) === "string" ? (project.assets.get(p) as string) : null), measure });
-    } catch (err) {
-      status.value = errorStatus("Couldn't check the text fit", err);
-    } finally {
-      fitting.value = false;
-    }
-  };
-
   const doExport = () => {
     const c = choice.value;
     const files = exportFiles(data, c.format, { tables: c.tables, languages: c.languages, onlyNeedsWork: c.onlyNeedsWork }, (project.name || "strings").replace(/[^\w-]+/g, "-"));
@@ -204,7 +146,7 @@ export function LocalisationPanel() {
 
   const selectedTable = query.value.table;
   const rows = stringRows(data);
-  const gathered = tab.value === "report" ? gatherKeys({ files: gatherFiles(project), languages, ignore: ignored.value }) : null;
+  const gathered = tab.value === "report" ? gatherKeys({ files: gatherFiles(project), languages }) : null;
 
   return (
     <Panel class="localisation">
@@ -256,7 +198,7 @@ export function LocalisationPanel() {
             />
           )}
           {tab.value === "report" && gathered && (
-            <ReportView report={localisationReport(gathered, fit.value)} fitting={fitting.value} fitted={fit.value !== null} onRunFit={() => void runFit()} onOpen={(p) => openAsset(p)} onDismiss={(id) => void dismiss(project, id)} />
+            <ReportView report={localisationReport(gathered)} onOpen={(p) => openAsset(p)} />
           )}
           {tab.value === "exchange" && (
             <ExchangeView

@@ -52,7 +52,7 @@ export async function applyProjectChanges(project: EditorProject, changes: Pick<
   if (result.removed.length > 0) await assetDocumentsDeleted(result.removed);
   if (result.changed.length + result.added.length + result.removed.length > 0) docVersion.value++;
   // UI code (ADR 0419) compiles with the scripts: an outside edit to it reloads them, as the Code panel's save does.
-  if ([...result.changed, ...result.added, ...result.removed].some((p) => isUISourcePath(p) || (p.endsWith(".css") && !p.endsWith(".ui.css")))) await reloadScripts();
+  if ([...result.changed, ...result.added, ...result.removed].some((p) => isUISourcePath(p) || p.endsWith(".css"))) await reloadScripts();
   return result;
 
 }

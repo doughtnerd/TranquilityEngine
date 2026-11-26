@@ -12,8 +12,6 @@ import { insertNodes, whyNotInsert, type InsertPlace } from "./nodeInsertion";
 import { openScene, sceneCamera, selectedKeys, selection, status, viewMode } from "./state";
 import { editableNow } from "./editGate";
 import { select } from "./inspectorTarget";
-import { duplicateUIElement } from "./uiDocumentEdits";
-import { selectedUIRef } from "./uiDocuments";
 import { selectedUIViewRef } from "./uiViews";
 import { duplicateUIViewElement } from "./uiViewEdits";
 
@@ -119,8 +117,6 @@ export function pasteClipboardAt(key: string | null, asChild = false): boolean {
 
 /** Duplicate the selected nodes, each right after itself, and select the copies. */
 export function duplicateSelection(): boolean {
-  const ui = selectedUIRef();
-  if (ui) return duplicateUIElement(ui); // a UI document's element (ADR 0077): in its markup file
   const viewEl = selectedUIViewRef();
   if (viewEl) return duplicateUIViewElement(viewEl); // an element a UIView rendered (ADR 0419 wave C): in its .svelte source
   const scene = editableNow({ kind: "scene" }, "duplicate nodes");
@@ -150,7 +146,7 @@ function focusPosition(): [number, number, number] {
 
 /**
  * Create a node of `kind` at `place` (at the scene view's focus point when it lands at the top level) and select
- * it. A kind whose node uses a new asset (a Particle System's effect, a UI Document's markup; `kindAssetCreator`)
+ * it. A kind whose node uses a new asset (a Particle System's effect, a UI View's component; `kindAssetCreator`)
  * writes it first, then adds the node using it; a read-only project gets the node with none (the creator says why
  * in the status). `asset` given: the node uses it and nothing is written.
  */
