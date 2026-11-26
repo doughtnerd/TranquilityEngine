@@ -16,7 +16,7 @@ import { loadBundledFont } from "../../ui/fonts";
 import { UICore } from "../../ui/UICore";
 import type { Camera } from "../components";
 import { PICK_ORDER, type BabylonFeature, type DrawnDescription, type DrawnNode, type FeatureSyncContext } from "./feature";
-import { BabylonUI, CANVAS_PREFIX, measureText, worldCanvasWarm } from "./ui";
+import { BabylonUI, CANVAS_PREFIX, measureRunWidth, measureText, worldCanvasWarm } from "./ui";
 import type { WarmItem } from "./warmUp";
 
 /** What the UI feature takes from the renderer (ADR 0130). */
@@ -72,7 +72,7 @@ export class BabylonUIFeature implements BabylonFeature {
     this.draw = new BabylonUI(host.scene, { texture: (ref) => host.texture(ref) });
     this.mainCore = new UICore({
       interactive: host.interactive(),
-      host: { viewCamera: () => host.viewCamera(), measureText },
+      host: { viewCamera: () => host.viewCamera(), measureText, measureRunWidth },
     });
     host.setFrameUI(frameHook(this.draw));
   }
@@ -112,7 +112,7 @@ export class BabylonUIFeature implements BabylonFeature {
     if (!this.preview) {
       const host = this.host;
       this.preview = {
-        core: new UICore({ interactive: false, passive: true, host: { measureText } }),
+        core: new UICore({ interactive: false, passive: true, host: { measureText, measureRunWidth } }),
         draw: new BabylonUI(host.scene, { texture: (ref) => host.texture(ref), screenOnly: true }),
       };
       host.setFramePreviewUI(frameHook(this.preview.draw));
