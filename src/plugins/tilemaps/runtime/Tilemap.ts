@@ -633,19 +633,6 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
     };
   }
 
-  // --- editor view (ADR 0425) ----------------------------------------------------------------
-
-  private viewOpacity = new Map<number, number>();
-
-  /**
-   * @internal The editor's view-only opacity factor for a layer (Dim inactive layers, ADR 0425), multiplied with the
-   * layer's own opacity in the edit view; null puts it back. Never changes the `layers` field.
-   */
-  _setViewOpacity(layerIndex: number, factor: number | null): void {
-    if (factor === null) this.viewOpacity.delete(layerIndex);
-    else this.viewOpacity.set(layerIndex, factor);
-  }
-
   // --- coordinates ---------------------------------------------------------------------------
 
   /**
