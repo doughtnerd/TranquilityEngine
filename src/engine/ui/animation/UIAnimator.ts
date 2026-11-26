@@ -309,6 +309,14 @@ export function uiAnimating(world: World, comp: UIComponentType): boolean {
 }
 
 /**
+ * @internal Editor (the Inspector's value sources): what is animating `field` of `comp` right now, a transition (named
+ * by its property) or a keyframe animation (by its name; a held `fill: forwards` value too), or null.
+ */
+export function uiAnimatedField(world: World, comp: UIComponentType, field: string): { readonly kind: "transition" | "animation"; readonly name: string } | null {
+  return animators.get(world)?.animatedBy(comp, field) ?? null;
+}
+
+/**
  * Resolves once `world`'s UI animations can run on the tween backend (the backend opened, or it can't open here and
  * values are eased without it). Documents whose stylesheets animate wait for this in `ready`.
  */
@@ -355,6 +363,18 @@ export class UIAnimator {
   has(comp: UIComponentType): boolean {
     const s = this.elements.get(comp);
     return !!s && (s.transitions.size > 0 || s.animations.length > 0);
+  }
+
+  animatedBy(comp: UIComponentType, field: string): { kind: "transition" | "animation"; name: string } | null {
+    const s = this.elements.get(comp);
+    if (!s) return null;
+    const tr = s.transitions.get(field);
+    if (tr && !tr.tracks[0].overridden) return { kind: "transition", name: tr.name };
+    for (let i = s.animations.length - 1; i >= 0; i--) {
+      const r = s.animations[i];
+      if (r.tracks.some((t) => t.field === field && !t.overridden)) return { kind: "animation", name: r.name };
+    }
+    return null;
   }
 
   take(owner: object): { element: object; event: UIAnimationEvent }[] {

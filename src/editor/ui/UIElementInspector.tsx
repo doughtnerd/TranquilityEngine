@@ -14,7 +14,7 @@ import "./ui-element-inspector.css";
 
 /** The file an origin points into, to open in the Code panel. */
 function fileOf(origin: FieldOrigin): string | null {
-  if (origin.kind === "inherited") return fileOf(origin.origin);
+  if (origin.kind === "inherited" || origin.kind === "animated") return fileOf(origin.origin);
   return origin.kind === "default" ? null : origin.file;
 }
 
@@ -252,5 +252,7 @@ function shortOrigin(origin: FieldOrigin): string {
       return `${origin.file.split("/").pop()}:${origin.line}`;
     case "default":
       return "";
+    case "animated":
+      return origin.via === "transition" ? origin.name : `@keyframes ${origin.name}`;
   }
 }

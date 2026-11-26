@@ -18,6 +18,7 @@ import { projectFileKind } from "../engine/scene/projectFiles";
 import type { UIComponentType } from "../engine/ui/components";
 import type { MarkupAttribute, ResolvedValue, SourceSpan, StyleTarget, ValueSource } from "../engine/ui/document/types";
 import { documentFile, elementAtPath, elementSource } from "../engine/ui/documentSource";
+import { uiAnimatedField } from "../engine/ui/animation/UIAnimator";
 import { pathKey, type NodePath } from "./document";
 import { selectedUIElement } from "./state";
 
@@ -238,7 +239,12 @@ export type FieldOrigin =
   /** An attribute with a `{name}` binding: the document's `data` (or a list item) sets it. */
   | { readonly kind: "binding"; readonly file: string; readonly attribute: MarkupAttribute; readonly line: number }
   /** Nothing sets it: the component's default. */
-  | { readonly kind: "default" };
+  | { readonly kind: "default" }
+  /**
+   * A stylesheet transition (named by its property) or keyframe animation (by its name) is animating it right now
+   * (ADR 0418 wave 4); `origin` is where the value it animates to, or falls back to when it stops, comes from.
+   */
+  | { readonly kind: "animated"; readonly via: "transition" | "animation"; readonly name: string; readonly origin: FieldOrigin };
 
 /** One field of a selected element: its current value, shown as text, and where it comes from. */
 export interface FieldSourceRow {
@@ -333,6 +339,8 @@ export function fieldSources(el: UIDocumentElement): FieldSourceRow[] {
       if (rv) origin = originOf(el, rv.source);
       else if ((field === "hoverColor" || field === "pressedColor") && el.tag === "Button") origin = stateColorOrigin(el, field === "hoverColor" ? "hover" : "pressed") ?? origin;
     }
+    const animated = uiAnimatedField(el.node.world, el.component, field);
+    if (animated) origin = { kind: "animated", via: animated.kind, name: animated.name, origin };
     const value = comp[field];
     rows.push({ field, property: kebab(field), info, value, display: formatValue(value), origin });
   }
@@ -363,10 +371,13 @@ export function describeOrigin(origin: FieldOrigin): string {
       return `Bound: ${origin.attribute.name}="${origin.attribute.value}" (set from the document's data at runtime) · ${origin.file}:${origin.line}`;
     case "default":
       return "Default";
+    case "animated":
+      return `${origin.via === "transition" ? `Transition of ${origin.name}` : `Animation "${origin.name}" (@keyframes)`}, over ${describeOrigin(origin.origin)}`;
   }
 }
 
 /** A short badge for an origin: Attribute, Rule, Inherited, Content, Bound or Default. */
 export function originBadge(origin: FieldOrigin): string {
+  if (origin.kind === "animated") return origin.via === "transition" ? "Transition" : "Animation";
   return { attribute: "Attribute", rule: "Rule", inherited: "Inherited", content: "Content", binding: "Bound", default: "Default" }[origin.kind];
 }

@@ -18,6 +18,7 @@
 .ui-element-fields .ui-origin.origin-rule { background: var(--accent-faint); color: var(--accent); }
 .ui-element-fields .ui-origin.origin-inherited { background: var(--accent2-soft); color: var(--accent2); }
 .ui-element-fields .ui-origin.origin-binding, .ui-element-fields .ui-origin.origin-content { background: var(--warning-soft); color: var(--warning); }
+.ui-element-fields .ui-origin.origin-animated { background: var(--success-soft); color: var(--success); }
 .ui-element-fields .label-cell.origin-default > label { color: var(--faint); }
 .ui-element-fields .label-cell.origin-attribute, .ui-element-fields .label-cell.origin-rule, .ui-element-fields .label-cell.origin-inherited,
 .ui-element-fields .label-cell.origin-content, .ui-element-fields .label-cell.origin-binding { border-left-color: var(--accent); }
