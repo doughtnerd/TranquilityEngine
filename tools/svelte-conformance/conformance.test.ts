@@ -56,6 +56,7 @@ interface Config {
   skip?: boolean;
   mode?: string[];
   skip_mode?: string[];
+  skip_async?: boolean;
   html?: string;
   props?: Record<string, unknown>;
   compileOptions?: Record<string, unknown>;
@@ -193,6 +194,8 @@ async function runSample(name: string): Promise<Result> {
   const dir = join(SAMPLES, name);
   const config = ((await import(join(dir, "_config.js"))) as { default: Config }).default;
   if (config.skip) return { status: "skip", category: "skipped by Svelte" };
+  // Svelte runs runtime-runes in async mode by default (`SVELTE_NO_ASYNC` unset), skipping these; the harness compiles in async mode too.
+  if (config.skip_async) return { status: "skip", category: "skipped in Svelte's async mode" };
   if (config.skip_mode?.includes("client") || (config.mode && !config.mode.includes("client"))) return { status: "skip", category: "not a client test" };
 
   try {
@@ -217,7 +220,22 @@ async function runSample(name: string): Promise<Result> {
       warnings.push(message);
     } else warnings.push(...args);
   };
-  console.error = (...args: unknown[]) => void errors.push(...args);
+  let rejection: unknown = null;
+  const onRejection = (err: unknown) => (rejection ??= err);
+  console.error = (...args: unknown[]) => {
+    // An event listener that threw: the engine reports it (`[myco] a UI "click" handler on <button> threw:`, error), as
+    // the DOM reports a listener's exception rather than throwing it at the dispatcher. jsdom's report is an `error`
+    // event on the window and a console error; unless a window listener stops it, Svelte's harness counts it as uncaught.
+    if (typeof args[0] === "string" && args[0].startsWith("[myco]") && / (threw|failed):?$/.test(args[0]) && args.length > 1) {
+      const err = args[1] as { message?: unknown };
+      errors.push(String(err?.message ?? err));
+      const report = new FakeEvent("error", { error: err, message: String(err?.message ?? err) });
+      (testWindow as { dispatchEvent(e: unknown): unknown }).dispatchEvent(report);
+      if (!report._stopped && !report.defaultPrevented) onRejection(err);
+      return;
+    }
+    errors.push(...args);
+  };
   // `$inspect` and `$inspect.trace` group their output: the group labels are logs too, as in Svelte's harness.
   console.group = console.groupCollapsed = (...args: unknown[]) => void logs.push(...args);
   console.groupEnd = () => {};
@@ -227,8 +245,6 @@ async function runSample(name: string): Promise<Result> {
   const tree = new UIHostTree(world, node, `samples/${name}`);
   let mounted: ReturnType<Renderer["mountView"]> | null = null;
   let unintended = false;
-  let rejection: unknown = null;
-  const onRejection = (err: unknown) => (rejection ??= err);
   process.on("unhandledRejection", onRejection);
   process.on("uncaughtException", onRejection);
   try {
@@ -341,6 +357,8 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
     // gets as an argument is the renderer's `<svelte:window>` target.
     setPage({ window: testWindow, document: (renderer.default as unknown as { globalTarget(kind: string): object }).globalTarget("document"), target: () => currentTarget, tick: (ms) => raf.tick(ms) });
     for (const [k, v] of Object.entries(fakeWindow)) if (!(k in globalThis)) (globalThis as Record<string, unknown>)[k] = v;
+    // The page's `name` (`window.name`, "" on a fresh page), a global in jsdom and browsers that a component can name by accident (`{name}`).
+    if (!("name" in globalThis)) (globalThis as Record<string, unknown>).name = "";
     // Svelte's `raf` test helper, with its animation stand-in moved from `element.animate` to the renderer's `animate`
     // hook (animationStandIn.ts): keyframes go to the node's inline style on the test's clock, as in Svelte's DOM runs.
     // The renderer's own `measure` stays (a fixture's stubbed `getBoundingClientRect` on a node is what it reads).
