@@ -18,8 +18,10 @@ const REBUILD = "run `npm run build:audio`";
 export const SKIPPED_DIRS = ["target", "vectors", "tests"] as const;
 /** File names hashed besides `*.rs`. */
 export const HASHED_NAMES = ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml"] as const;
+/** The crates under `../common/` the audio core links, so hashes (`SHARED_CRATES` in source_hash.rs). */
+export const SHARED_CRATES = ["curve"] as const;
 /** The digest of the fixture both this test and audio-wasm's tests/source_hash.rs check. */
-export const FIXTURE_HASH = "3f9c4b95c720a04252ca88a1664af88e";
+export const FIXTURE_HASH = "f4f9ef03a71eeb91422df242049a55bb";
 
 /** The hashed files under `root` as `[key, absolutePath]`, sorted by key in ascending byte order. */
 export function hashedFiles(root: string): [string, string][] {
@@ -39,9 +41,11 @@ export function hashedFiles(root: string): [string, string][] {
     }
   };
   walk(root, "");
-  // The shared crates (ADR 0370): `../common/`, keyed under it, with the same skips.
-  const common = join(root, "..", "common");
-  if (existsSync(common)) walk(common, "../common");
+  // The shared crates the core links (ADR 0370, 0420): `../common/<crate>/`, keyed under it, with the same skips.
+  for (const krate of SHARED_CRATES) {
+    const dir = join(root, "..", "common", krate);
+    if (existsSync(dir)) walk(dir, `../common/${krate}`);
+  }
   return out.sort((a, b) => Buffer.compare(Buffer.from(a[0], "utf8"), Buffer.from(b[0], "utf8")));
 }
 
@@ -101,11 +105,13 @@ function withFixture(body: (root: string) => void, options: { lf?: boolean } = {
       ["vectors/wire.rs", "fn w() {}\n"],
       ["crates/a/README.md", "# a\n"],
       ["build.mjs", "export {};\n"],
-      // The shared crates beside the root (ADR 0370): hashed under `../common/`, with the same skips.
-      ["../common/c/Cargo.toml", '[package]\nname = "c"\n'],
-      ["../common/c/src/lib.rs", fix("pub fn c() {}\r\n")],
-      ["../common/c/target/debug/y.rs", "fn y() {}\n"],
-      ["../common/c/tests/t.rs", "fn t() {}\n"],
+      // The shared crates the core links (ADR 0370): hashed under `../common/`, with the same skips; another shared
+      // crate beside them (ADR 0420) is left out.
+      ["../common/curve/Cargo.toml", '[package]\nname = "c"\n'],
+      ["../common/curve/src/lib.rs", fix("pub fn c() {}\r\n")],
+      ["../common/curve/target/debug/y.rs", "fn y() {}\n"],
+      ["../common/curve/tests/t.rs", "fn t() {}\n"],
+      ["../common/other/src/lib.rs", "pub fn o() {}\n"],
     ];
     for (const [rel, contents] of files) {
       const path = join(root, rel);
@@ -119,8 +125,8 @@ function withFixture(body: (root: string) => void, options: { lf?: boolean } = {
 }
 
 const FIXTURE_KEYS = [
-  "../common/c/Cargo.toml",
-  "../common/c/src/lib.rs",
+  "../common/curve/Cargo.toml",
+  "../common/curve/src/lib.rs",
   "Cargo.lock",
   "Cargo.toml",
   "crates/a/Cargo.toml",

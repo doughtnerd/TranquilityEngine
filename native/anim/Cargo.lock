@@ -185,7 +185,6 @@ dependencies = [
  "anim-offline",
  "anim-pose",
  "myco-curve",
- "myco-tween",
 ]
 
 [[package]]

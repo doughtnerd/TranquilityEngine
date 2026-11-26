@@ -9,7 +9,7 @@
 //! | [`spec`] | [`Spec`], one tween's value function, and the [`Curves`] host interface | `anim-wasm/src/tweens.rs` |
 //! | [`table`] | [`Tweens`], the tween table | `anim-wasm/src/tweens.rs` |
 //! | [`seq`] | sequence and parallel programs (members, evaluation, completion order) | `anim-wasm/src/timeline.rs` |
-//! | [`curves`] | the curve key parser and [`curves::CurveStore`] | `anim-sample/src/curve.rs` (parser) |
+//! | [`curves`] | [`curves::CurveStore`], curve eases for a host with no asset arena | — (the key parser it uses is `myco_curve::parse_keys`) |
 //! | [`host`] | statuses, passes, the handle layout (`anim-wire` core's values) | — |
 //!
 //! # Host interfaces

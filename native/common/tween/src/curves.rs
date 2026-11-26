@@ -1,67 +1,14 @@
-//! Engine curves for curve easing (T70): the key parser (moved from `anim-sample`'s `curve`, which
-//! re-exports it, ADR 0420 spike) and [`CurveStore`], the small handle table a host without an asset
-//! arena (the standalone tween module) keeps its curves in.
-//!
-//! # Keys
-//!
-//! [`KEY_FLOATS`] f32 per key, sorted by x: `x, y, interp, inDx, inDy, outDx, outDy`. `interp`
-//! is `curve.ts`'s code (0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut, 5 Bézier); any other
-//! value reads as linear, as `curve.ts`'s default. The handles are a Bézier key's offsets (`in`,
-//! `out`), ignored for other keys. At most [`MAX_KEYS`] keys (`TRACK_LIMITS.keys`).
+//! [`CurveStore`], the small handle table of baked engine curves (T70) that a host without an asset
+//! arena (the standalone tween module) keeps its curve eases in. The keys are `myco-curve`'s
+//! ([`myco_curve::parse_keys`], feature `alloc`: [`myco_curve::KEY_FLOATS`] floats per key).
 
-use alloc::vec;
 use alloc::vec::Vec;
-use myco_curve::{bake, Key, SourceKey, INTERP_BEZIER};
+use myco_curve::{parse_keys, CurveError, Key};
 
 use crate::host::{
     handle, split, STATUS_BAD_ASSET, STATUS_FULL, STATUS_OK, STATUS_STALE_HANDLE, STATUS_TOO_LARGE,
 };
 use crate::spec::Curves;
-
-/// Floats per key.
-pub const KEY_FLOATS: usize = 7;
-
-/// The most keys a curve holds (`src/engine/animation/tracks.ts` `TRACK_LIMITS.keys`).
-pub const MAX_KEYS: usize = 65_536;
-
-/// Why keys were refused.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CurveError {
-    /// Not a whole number of keys, a number that isn't finite, or keys out of x order.
-    Malformed,
-    /// More than [`MAX_KEYS`] keys.
-    TooLarge,
-}
-
-/// Reads and bakes keys ([`KEY_FLOATS`] floats each) for `myco_curve::eval`.
-pub fn parse_keys(floats: &[f32]) -> Result<Vec<Key<f32>>, CurveError> {
-    if !floats.len().is_multiple_of(KEY_FLOATS) {
-        return Err(CurveError::Malformed);
-    }
-    let n = floats.len() / KEY_FLOATS;
-    if n > MAX_KEYS {
-        return Err(CurveError::TooLarge);
-    }
-    let mut src: Vec<SourceKey<f32>> = Vec::with_capacity(n);
-    for k in floats.as_chunks::<KEY_FLOATS>().0 {
-        if !k.iter().all(|v| v.is_finite()) {
-            return Err(CurveError::Malformed);
-        }
-        if src.last().is_some_and(|p| p.0 > k[0]) {
-            return Err(CurveError::Malformed);
-        }
-        let code = k[2];
-        let interp = if code >= 0.0 && code <= INTERP_BEZIER as f32 && code == (code as u8) as f32 {
-            code as u8
-        } else {
-            0
-        };
-        src.push((k[0], k[1], interp, [k[3], k[4], k[5], k[6]]));
-    }
-    let mut keys = vec![Key::default(); n];
-    bake(&src, &mut keys);
-    Ok(keys)
-}
 
 /// The most curves a [`CurveStore`] holds (handle indices are 16 bits).
 pub const MAX_CURVES: usize = 0xFFFF;
@@ -82,7 +29,7 @@ pub struct CurveStore {
 }
 
 impl CurveStore {
-    /// Loads keys ([`KEY_FLOATS`] floats each); the handle, or a `STATUS_*` (`STATUS_BAD_ASSET`,
+    /// Loads keys ([`myco_curve::KEY_FLOATS`] floats each); the handle, or a `STATUS_*` (`STATUS_BAD_ASSET`,
     /// `STATUS_TOO_LARGE`, `STATUS_FULL`).
     pub fn load(&mut self, floats: &[f32]) -> Result<u32, u32> {
         let keys = parse_keys(floats).map_err(|e| match e {

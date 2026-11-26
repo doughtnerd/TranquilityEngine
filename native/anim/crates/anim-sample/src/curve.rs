@@ -13,10 +13,9 @@
 //! value reads as linear, as `curve.ts`'s default. The handles are a Bézier key's offsets (`in`,
 //! `out`), ignored for other keys. At most [`MAX_KEYS`] keys (`TRACK_LIMITS.keys`).
 
-pub use myco_curve::{eval, Key};
-// The key parser moved to `myco-tween` (ADR 0420 spike: the standalone tween module's curve store
-// needs it, and that module doesn't link this crate); re-exported unchanged.
-pub use myco_tween::curves::{parse_keys, CurveError, KEY_FLOATS, MAX_KEYS};
+// The key parser is `myco-curve`'s (feature `alloc`, ADR 0420: the standalone tween module's curve
+// store needs it, and that module doesn't link this crate); re-exported unchanged.
+pub use myco_curve::{eval, parse_keys, CurveError, Key, KEY_FLOATS, MAX_KEYS};
 
 /// Samples a curve at `out.len()` frames of `rate` Hz from 0, clamped to `end` seconds: frame `i`
 /// reads x = `min(i / rate, end)` (worked out in f64, then read in f32), as the compile step and
