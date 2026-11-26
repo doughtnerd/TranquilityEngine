@@ -152,7 +152,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     const ui: Pick<UICoreLike, "pickAll" | "pickCanvases" | "cornersOf"> = {
       pickAll: vi.fn(() => [element]),
       pickCanvases: vi.fn(() => []),
-      cornersOf: () => ({ space: "world", points: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], size: [100, 100] }) as never,
+      cornersOf: () => ({ space: "world", points: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], size: [100, 100], clip: null, layoutPoints: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]] }) as never,
     };
     hooks.ui.mockReturnValue(ui);
     expect(viewport.pickUI(400, 300)).toEqual([element]);
