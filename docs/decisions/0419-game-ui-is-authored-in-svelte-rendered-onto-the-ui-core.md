@@ -125,6 +125,13 @@ The UI core needs to grow anyway (0418), whatever authors it.
 2. UI documents keep working during migration and are removed in wave D, not in one cut-over.
 3. 0418 waves 1–2 (format-neutral) run first or in parallel with wave A. 0418 wave 5's `:where`/`:is`/tag-case items are pulled forward into wave A.
 
+**As built (conformance engine round, 2026-11-26; coordinator decision under the full-compatibility goal):** `UIView`
+gains two public members for what Svelte's `mount` gives and takes. `view.exports` (read-only) is what `mount`
+returns, the root component's exports (`export const`, `export function`, accessors); null while unmounted, a new
+object on each mount (re-enabling, hot reload). `view.transformError` is a function scripts set (null: errors pass
+unchanged), passed as `mount`'s `transformError` and read when a `<svelte:boundary>` catches an error, so setting it
+takes effect at once. A compiled module's `$mount(host, props, options)` takes the mount options.
+
 ## Alternatives considered
 
 - **Svelte as a layer beside `.ui.xml`** (the spike's recommendation). Keeps full visual editing of markup, but leaves two formats. The owner prefers one.

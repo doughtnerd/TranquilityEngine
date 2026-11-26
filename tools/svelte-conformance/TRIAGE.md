@@ -11,16 +11,22 @@ rewrites `baseline.json`, keeping `outOfScope`.
 
 ## Counts (2026-11-26)
 
-| | Before the triage | After the triage | After the patch round (class c) |
-|---|---|---|---|
-| Pass | 1130 | 1210 | 1241 |
-| Fail | 181 | 99 | 68 |
-| Skip | 53 | 55 (two `skip_async` fixtures, which Svelte's async-mode run skips too) | 55 |
-| Pass rate over every sample run | 86.2% of 1311 | 92.4% of 1309 | 94.8% of 1309 |
-| Out of scope (run, listed) | not listed | 28 | 29 |
-| **Pass rate in scope** | not measured | **94.5% (1210 of 1281)** | **97.0% (1241 of 1280)** |
+| | Before the triage | After the triage | After the patch round (class c) | After the engine round (class a) |
+|---|---|---|---|---|
+| Pass | 1130 | 1210 | 1241 | 1274 |
+| Fail | 181 | 99 | 68 | 35 |
+| Skip | 53 | 55 (two `skip_async` fixtures, which Svelte's async-mode run skips too) | 55 | 55 |
+| Pass rate over every sample run | 86.2% of 1311 | 92.4% of 1309 | 94.8% of 1309 | 97.3% of 1309 |
+| Out of scope (run, listed) | not listed | 28 | 29 | 31 |
+| **Pass rate in scope** | not measured | **94.5% (1210 of 1281)** | **97.0% (1241 of 1280)** | **99.7% (1274 of 1278)** |
 
-The 68 failures by class: **a** 39 engine or renderer gaps (open), **b** 12 harness or jsdom-only expectations,
+**After the engine round:** the 35 failures are **c2** 4 needing a second patch change (written up below, each
+verified by applying the change at load time in a private run: all four pass with it), **b** 14 harness or jsdom-only
+expectations, **d** 17 out of scope per 0419. Class **a** is done: 35 of its 39 samples pass, 2 were jsdom-only
+expectations (`dynamic-component-transition`, `dynamic-if-component-transition`, now class b, traced) and 4 need the
+patch (class c2).
+
+The patch round's 68 failures by class: **a** 39 engine or renderer gaps (open), **b** 12 harness or jsdom-only expectations,
 **d** 17 out of scope per 0419. Class **c** (patch changes) is done: 29 of its 30 samples pass, and `if-transition-inert`
 turned out to be a jsdom-only expectation (now class b). The patch round also fixed `svelte-meta-component` and
 `svelte-meta-component-async` (class a). The 39 in scope (class a) still fail; the gate before wave D needs them fixed
@@ -52,26 +58,43 @@ What the triage changed:
 
 ## Every sample that doesn't pass
 
-### a: engine or renderer gap (in scope, open): 39
+### a: engine or renderer gap: done (engine round, 2026-11-26)
 
-| Samples | Reason / status |
+Traced against Svelte's own DOM runtime in jsdom (the same fixtures, compiled without the custom renderer, run as Svelte's
+harness runs them, with traces injected into Svelte's batch module at load time) where the cause wasn't plain.
+
+| Samples | Root cause and fix |
 |---|---|
-| `accessors-props`, `bind-this-component-in-state`, `bind-this-component-in-state-dev` | engine: `UIView` doesn't expose the root component's exports (`mount`'s return); needs an API decision (a `UIView.exports`-style member is a public API change) |
-| `async-abort-signal-fork-global-run-unheld`, `async-branch-reintro`, `async-derived-assign-fork-write-after`, `async-eager-real-world-keeps-record`, `async-fork-discard-settled-result`, `async-fork-each-item-adopted-variants`, `async-fork-no-rerun`, `async-merge-discard-after-error`, `async-resume-script-first-value-skipped`, `async-slot`, `derived-unowned-10`, `inspect-trace-reassignment` | open: Svelte's async/fork batching gives extra or missing effect runs under the engine's renderer; not yet traced (Svelte runtime under `custom_renderers_flag`, or the host's flush order) |
-| `async-binding-update-while-focused-2` | engine: a focused field's bound value isn't rewritten while focused the way Svelte's DOM binding does (it skips only while the input's own value matches); not yet traced |
-| `async-binding-update-while-focused-3`, `async-select-dynamic-options-while-focused` | engine: a focused `<select>` whose options or bound value change doesn't choose as the DOM does; not yet traced |
-| `async-error-boundary`, `async-error-boundary-2`, `async-error-boundary-3`, `error-boundary-26`, `error-boundary-27`, `error-boundary-reset-destroyed` | engine: `mount`'s `transformError` option can't be given through `UIView` (a framework hook, SvelteKit's handleError); needs an API decision |
-| `bind-current-time-remove-listener` | engine: `bind:currentTime`'s listener keeps firing after its `<audio>` is removed; not yet traced |
-| `bindings-form-reset` | engine: `form.reset()` from a script doesn't bring the bound values back (Svelte's bindings re-read after reset) |
-| `bound-store-sub` | engine: writing `value` on a `type=number` field then dispatching `input` binds null instead of 10; not yet traced |
-| `deferred-events-consistency` | engine: a button disabled by a handler in a microtask still runs `click()`'s listeners; not yet traced (likely the disabled state reaching the UI element a flush later) |
-| `dynamic-component-transition`, `dynamic-if-component-transition` | harness or Svelte timing: the fade's first frame reads `opacity: 0.01` where Svelte's DOM run reads 0 (the animation stand-in's sampling, or Svelte's `raf` under Z3's timing hook); not yet traced |
-| `dynamic-spread-and-attribute-directive` | engine: `class:` with a class attribute and a spread loses the directive's class; not yet traced |
-| `event-spread-timing` | engine: `focus()` from an action during mount sends its `focus` event with the frame's events, not at once as the DOM does |
-| `form-default-value`, `form-default-value-select`, `form-default-value-spread`, `select-default-value-preserve-selection` | engine: `defaultValue`/`defaultChecked`/`defaultSelected` (as attributes from Svelte) aren't the controls' reset defaults |
-| `muted-without-bind-works` | engine: changing the `muted` attribute on `<audio>` sends no `volumechange` (the media element doesn't report attribute-driven changes) |
-| `option-rich-content` | engine: an option holding elements (`<option><span>…</span> A</option>`) reads its label as the select's value instead of its `value`; not yet traced |
-| `select-option-added` | engine: `select.value = …` then a `change`, then options added: `selectedOptions` is empty; not yet traced |
+| `async-abort-signal-fork-global-run-unheld`, `async-derived-assign-fork-write-after`, `async-eager-real-world-keeps-record`, `async-fork-each-item-adopted-variants`, `async-fork-no-rerun`, `async-merge-discard-after-error`, `async-slot`, `derived-unowned-10`, `inspect-trace-reassignment` | harness: they passed alone and failed after other samples. Svelte's harness calls its batch module's `clear()` after every sample ("to prevent cross-talk between tests"); ours didn't, so a fork left uncommitted by `async-derived-assign-fork-marked-previous` (found by bisecting) made later batches re-run deriveds; and Svelte's harness empties `logs`/`warnings` after importing the sample (a module-level `$effect.root` logged at import). Both added. |
+| `async-fork-discard-settled-result` | harness: the conformance config resolved a fixture's import of Svelte's sources by the worktree's symlinked path, a second module instance (`first_batch` read from another runtime); now by real path. Then `querySelectorAll('output')` (next row). |
+| `async-branch-reintro` (and `async-fork-discard-settled-result`) | renderer: its own selector parser read `button:last-child` as a tag (`last-child`) and refused tags no UI element has. `querySelector`/`matches`/`closest` now use the cascade's grammar and matcher (`matchesUISelector`; `parseSelectorQuery`'s `anyTag`). |
+| `async-resume-script-first-value-skipped` | renderer: a branch committed after its block left the tree inserts before a detached anchor; Svelte's `insert_before` passes its null parent, the DOM's `anchor.before(node)` does nothing, the renderer threw, which aborted the batch's commit callbacks (traced to `#run_callbacks`). `insert(null, …)` does nothing now. |
+| `accessors-props`, `bind-this-component-in-state`, `bind-this-component-in-state-dev` | engine API (coordinator decision): `UIView.exports`, what `mount` returns; the harness passes it as `instance`. |
+| `async-error-boundary`, `-2`, `-3`, `error-boundary-26`, `-27`, `error-boundary-reset-destroyed` | engine API (coordinator decision): `UIView.transformError`, passed as `mount`'s `transformError`; the harness passes the sample's. |
+| `form-default-value`, `form-default-value-select`, `bindings-form-reset` | renderer and UI core: `defaultValue`/`defaultChecked`/`defaultSelected` (attributes from Svelte, in any case) are HTML's defaults with dirty flags; a text area's content is its default; Svelte's select `defaultValue` (applied again when options come or go); every control hands its defaults to its UI element (`setUIDefaults`), so a reset restores HTML's; `<input type="reset|submit|button">` is a button (it was a text field); a reset `bind:group` is null/[]; `resetForm` kept only a `multiple` select's first default. |
+| `option-rich-content`, `select-option-added`, `async-select-dynamic-options-while-focused` | renderer: `select.value = x` chose nothing until the next frame (the UI select's value field only); now the option is chosen at once (none for no match), a select's `value` is its chosen option's, an option's is its `value` attribute or text; HTML's selectedness algorithm when options come or go; a select's `value={x}` chooses as `select_option`. |
+| `bound-store-sub` | renderer: an `<input>` inside a `<p>` became a text run (no control, so no value) and was then overwritten as a text holder; form controls inside text stay controls. |
+| `deferred-events-consistency` | renderer: a disabled control's `click()` does nothing as soon as the attribute says so (the UI element hears of it when it restyles). |
+| `event-spread-timing`, `dynamic-spread-and-attribute-directive` | UI host: the Element subset's `focus()`/`blur()` dispatch `blur`/`focusout`/`focus`/`focusin` at once, as the DOM's (they were never sent for a script's focus). |
+| `muted-without-bind-works` | renderer and media: `muted={x}` reaches the media at once and sends `volumechange` (a source is made for it). |
+| `bind-current-time-remove-listener` | media: an engine audio source sent `seeked`/`timeupdate` synchronously from the `currentTime` setter; now after the setting code, as a media element's seek. |
+| `svelte-meta-component`, `svelte-meta-component-async` | fixed by the patch round. |
+| `dynamic-component-transition`, `dynamic-if-component-transition` | jsdom-only (class b): traced, same `animate()` calls at the same times as Svelte's DOM run; only the keyframes differ, because `fade` reads `+getComputedStyle(node).opacity`, which jsdom answers "" (0) and a browser (and the renderer's `measure`) 1. |
+
+The harness also counts `mountView`'s own flush as the first of Svelte's harness flushes before a test (Svelte's harness
+mounts without flushing).
+
+### c2: needs a second patch change (in scope, open): 4
+
+Verified: each change below, applied to Svelte's sources at load time in a private run (never `node_modules`), makes its
+samples pass with the engine round's renderer, which already takes the extra arguments (they're optional). Paths are in
+`node_modules/svelte/src/internal/client/`.
+
+| Samples | Patch change |
+|---|---|
+| `async-binding-update-while-focused-2`, `async-binding-update-while-focused-3` | `custom-renderer/bind.js` `bind_renderer`: Svelte's DOM bindings never rewrite a focused control with a value from a batch the control's own change started (`batches.has(view_batch)`); a renderer can't see batches. Record them and pass a fifth argument: `var batches = new WeakSet(); var report = (v) => { set(v); if (current_batch !== null) batches.add(current_batch); }; var own_change = () => view_batch !== null && batches.has(view_batch); render_effect(() => renderer.bind(node, name, get, report, own_change));` (import `current_batch`, `view_batch` from `../reactivity/batch.js`; type `bind`'s optional `ownChange?: () => boolean`). The renderer skips writing a focused field's or select's value while `ownChange()` is true. |
+| `form-default-value-spread` | `dom/elements/attributes.js` `set_attributes`: a spread's first nullish `checked`/`value` keeps the default on the DOM (`use_default = prev === undefined`), but under a renderer it's `remove_attribute`, which the renderer must read as `checked={false}`. Before the `(name === 'value' \|\| name === 'checked') && current_renderer == null` branch, add: `if ((name === 'value' \|\| name === 'checked') && current_renderer != null && prev === undefined) { /* the default stays */ } else …`. |
+| `select-default-value-preserve-selection` | `dom/elements/attributes.js` `set_value`: the DOM output for `<select value={null}>` sets `select.value`/`__value` and calls `select_option`; under a renderer `set_value` returns early for a first nullish value, so the renderer never hears it. For a select under a renderer (`is_select && current_renderer != null && value == null && !('value' in attributes)`) set `attributes.value = undefined` and call `current_renderer.setAttribute(element, 'value', value)`; the renderer chooses no option and treats the select as having a value (Svelte's `'__value' in select`) for `defaultValue`. |
 
 ### c: needs a patch change: done (2026-11-26)
 
@@ -80,12 +103,13 @@ All 14 changes below are in `patches/svelte+5.59.2.patch` (`docs/architecture/sv
 its remaining difference is jsdom's computed `opacity`). The `svelte/motion` item needed no patch change: the harness
 now resolves `svelte/motion`'s `svelte/reactivity` import to the engine's, as the engine's builds do (Z3).
 
-### b: harness or jsdom-only expectation (out of scope: listed in baseline.json): 12
+### b: harness or jsdom-only expectation (out of scope: listed in baseline.json): 14
 
 | Samples | Reason / status |
 |---|---|
 | `inspect`, `inspect-console-trace`, `inspect-derived-2`, `inspect-fork-discarded`, `inspect-multiple`, `inspect-nested-state`, `inspect-new-property`, `inspect-recursive` | jsdom-only expectation: the logged stack frame names the DOM's class (`at HTMLButtonElement.click`); the values and the call site match |
 | `if-transition-inert` | jsdom-only expectation: `fade` multiplies by `getComputedStyle(node).opacity`, which jsdom reports as "" (0), hence the expected `opacity: 0`; a browser, and the renderer's `measure`, report 1. (`inert`, the triage's reason, is now set through the renderer and compared as below.) |
+| `dynamic-component-transition`, `dynamic-if-component-transition` | jsdom-only expectation, as `if-transition-inert`: `fade` reads `getComputedStyle(node).opacity` ("" in jsdom, so every keyframe is 0); the engine round traced both runs: the same `animate()` calls at the same times, only these keyframes differ |
 | `select-default-value-single-observer` | tests Svelte's DOM implementation (counts `MutationObserver`s, which the DOM path uses for selects); a renderer has no observers |
 | `style-update` | serialisation only: CSSOM drops the unknown declaration `other-key: 0`; the renderer keeps the style as written (no behaviour either way) |
 | `svelte-meta-component-2` | reads the DOM's global `Element.prototype` |
