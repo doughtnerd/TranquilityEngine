@@ -267,6 +267,42 @@ pause.root!.on("cancel", () => closePauseMenu());
 pause.query("#resume")!.on("click", () => closePauseMenu());
 ```
 
+## Svelte components and `UIView` (ADR 0419, in progress)
+
+Game UI is moving to Svelte 5 components. UI documents keep working until the migration finishes. The runtime is built; compiling `.svelte` files in the editor and at export comes next, so for now components are compiled by the test setup only.
+
+Add a `UIView` to a node and set its `component` to a `.svelte` asset. The view makes the canvas itself (its fields are the canvas settings: `mode`, `referenceResolution`, `matchHeight`, `sortOrder`, `pixelSize`, `modal`, `autoFocus`, `player`), so a component never writes a canvas tag:
+
+```svelte
+<script lang="ts">
+  let { title, coins = 0 }: { title: string; coins?: number } = $props();
+  let name = $state("");
+</script>
+
+<section class="panel" flex-direction="column" gap="4">
+  <h1>{title} ({coins})</h1>
+  <input bind:value={name} placeholder="Your name" onsubmit={() => console.log(name)} />
+  <button onclick={() => coins++}>Add</button>
+</section>
+
+<style>
+  .panel { background-color: #112233; padding: 8px; }
+  h1 { color: var(--accent); }
+  :global(:root) { --accent: #ffcc00; }
+</style>
+```
+
+- **Tags are HTML names.** `div`, `section`, `nav`, `ul`, `li`… are panels; `span`, `p`, `h1`–`h6`, `label`, `b`, `em`… are text; `img` is an image; `button` a button; `input` and `textarea` input fields. Other tags warn once and are panels.
+- **Attributes are fields** in kebab-case, as in UI documents (`flex-direction="column"`, `font-size={24}`). `class`, `id`, `style`, `class:` and `style:` feed the cascade. HTML-only attributes (`type`, `alt`, `aria-*`, `data-*`…) stay on the node.
+- **Text** inside a text tag is its text, nested tags included (`<p>Hi <b>you</b></p>`). Text anywhere else becomes its own text element (a button's label).
+- **Events:** `onclick`, `oninput`, `onchange`, `onsubmit`, `onfocus`, `onblur`, `onpointerenter`, `onpointerleave`. They come from the UI core, so the mouse, touch, keyboard and gamepad all reach them, and their changes show in the same frame. `e.currentTarget.value` reads an input field. Events don't bubble yet.
+- **Bindings:** `bind:value` on `input`, and `bind:this`, which gives a node with an Element subset (`setAttribute`, `classList`, `style`, `addEventListener`, `focus`/`blur`, `getBoundingClientRect`, `value`, `textContent`…) for actions and attachments.
+- **Styles** are Svelte's: a component's `<style>` is scoped to it; `:global(...)` rules apply to every `UIView` in the World (one theme for the HUD and the pause menu). Selectors match the tag as written (`button`, `div`), in any case, and `:is()`/`:where()` work (`:where()` adds no specificity).
+- **Scripts** pass data through `view.props`, which is reactive (`view.props.coins = 10` shows that frame), wait for `await view.ready`, and find elements with `view.query("#play")`/`view.queryAll(".row")`. Disabling or removing the view unmounts the component; enabling it mounts it again with fresh state and the same props.
+- `addComponent(UIPanel)` and the other UI components stay refused: a view's render (or a document's build) makes them.
+
+Not yet: `on:`, transitions and `animate:`, `{@html}`, `<svelte:window>`/`<svelte:document>`/`<svelte:body>`/`<svelte:head>`, bubbling and capture, and the editor's view of components. How much of Svelte works is measured by `npm run test:svelte-conformance`, which runs Svelte's own runtime tests against the engine's renderer (see the 0419 row of the implementation status).
+
 ## Headless Worlds and tests
 
 A document builds its elements in any World. Only a World with a render backend lays them out and draws them, so a server or a test can build UI without WebGL; there the pointer and typing do nothing and navigation has no layout to move focus through (a script's focus still takes `submit` and `cancel`). Tests click, hover, type and navigate through a UI core and `Input`, as a player does (`engine/tests/uiPointer.ts`, `engine/tests/uiNavigation.test.ts`).

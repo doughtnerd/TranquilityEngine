@@ -17,6 +17,7 @@ How to use the engine. The user docs (guides, FAQ, news) are written in [wiki/](
 | [Known security limitations](architecture/security.md) | What the editor and its desktop shell trust today (the debug link's loopback connections, `opener` on any path, no CSP), the risk and the likely mitigations |
 | [Worlds and netcode plan](architecture/worlds-and-netcode-plan.md) | Task breakdown, waves and agent roles for 0032 and 0033 |
 | [Tilemap research](architecture/tilemap-research.md) | Tiled, LDtk, Unity and Godot tilemaps compared; what Myco borrows (0103) |
+| [Our Svelte patch](architecture/svelte-patch.md) | `patches/svelte+5.59.2.patch`: the custom renderer `bind` hook for element bindings (0419), written up for upstream |
 | [Legacy codebase](architecture/legacy-codebase.md) | The 2021 prototype (removed 2026-10-31), its known problems, and what replaced each part |
 | [Decision records](decisions/) | Short-form RFC/ADR records, one decision per file |
 
