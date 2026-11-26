@@ -126,6 +126,28 @@ index ea70f8c..65f50a2 100644
  		if (node.name in binding_properties) {
  			const property = binding_properties[node.name];
  			if (property.valid_elements && !property.valid_elements.includes(parent.name)) {
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/HtmlTag.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/HtmlTag.js
+index 55b0384..7b0e501 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/HtmlTag.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/HtmlTag.js
+@@ -2,17 +2,12 @@
+ /** @import { Context } from '../types' */
+ import { mark_subtree_dynamic } from './shared/fragment.js';
+ import { validate_opening_tag } from './shared/utils.js';
+-import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ 
+ /**
+  * @param {AST.HtmlTag} node
+  * @param {Context} context
+  */
+ export function HtmlTag(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`@html`');
+-	}
+ 	if (context.state.analysis.runes) {
+ 		validate_opening_tag(node, context.state, '@');
+ 	}
 diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/OnDirective.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/OnDirective.js
 index f3f9c10..b8a0d95 100644
 --- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/OnDirective.js
@@ -519,6 +541,60 @@ index 0000000..db8e440
 +export function is_global_target(node) {
 +	return node !== null && typeof node === 'object' && global_targets.has(node);
 +}
+diff --git a/node_modules/svelte/src/internal/client/custom-renderer/html.js b/node_modules/svelte/src/internal/client/custom-renderer/html.js
+new file mode 100644
+index 0000000..89cf523
+--- /dev/null
++++ b/node_modules/svelte/src/internal/client/custom-renderer/html.js
+@@ -0,0 +1,48 @@
++/** @import { Effect, TemplateNode } from '#client' */
++/** @import { Renderer } from './types.js' */
++import * as e from '../errors.js';
++import { remove_effect_dom } from '../reactivity/effects.js';
++import { assign_nodes } from '../dom/template.js';
++import { clear_text_content } from '../dom/operations.js';
++
++/**
++ * `{@html value}` under a custom renderer: the renderer's `html(anchor, value)` hook turns the string into new nodes
++ * (returned in a fragment, not yet inserted), which replace the ones the tag showed before. `anchor` is the comment
++ * they go before, or (`is_controlled`: the tag is its element's only content) that element, whose content they become.
++ *
++ * The compiler can't see the renderer object, so a renderer without `html` fails here, when the tag first renders,
++ * rather than at compile time.
++ * @param {Renderer<any>} renderer
++ * @param {Effect} effect
++ * @param {any} anchor
++ * @param {string} value
++ * @param {boolean} is_controlled
++ */
++export function renderer_html(renderer, effect, anchor, value, is_controlled) {
++	if (typeof renderer.html !== 'function') {
++		e.renderer_html_unsupported();
++	}
++
++	if (is_controlled) {
++		// As `innerHTML`: whatever the element holds goes (contenteditable may have changed it).
++		effect.nodes = null;
++		clear_text_content(anchor);
++	} else if (effect.nodes !== null) {
++		remove_effect_dom(effect.nodes.start, /** @type {TemplateNode} */ (effect.nodes.end));
++		effect.nodes = null;
++	}
++
++	if (value === '') return;
++
++	var fragment = renderer.html(anchor, value);
++	var first = renderer.getFirstChild(fragment);
++	if (first === null) return;
++
++	assign_nodes(first, renderer.getLastChild(fragment));
++
++	if (is_controlled) {
++		renderer.insert(anchor, fragment, null);
++	} else {
++		renderer.insert(renderer.getParent(anchor), fragment, anchor);
++	}
++}
 diff --git a/node_modules/svelte/src/internal/client/custom-renderer/measure.js b/node_modules/svelte/src/internal/client/custom-renderer/measure.js
 new file mode 100644
 index 0000000..8140d8a
@@ -584,6 +660,32 @@ index 0000000..8140d8a
 +	var m = measure_node(node);
 +	return { width: m.clientWidth, height: m.clientHeight };
 +}
+diff --git a/node_modules/svelte/src/internal/client/dom/blocks/html.js b/node_modules/svelte/src/internal/client/dom/blocks/html.js
+index 51f2057..07daf24 100644
+--- a/node_modules/svelte/src/internal/client/dom/blocks/html.js
++++ b/node_modules/svelte/src/internal/client/dom/blocks/html.js
+@@ -27,6 +27,8 @@ import {
+ import { active_effect } from '../../runtime.js';
+ import { COMMENT_NODE, ELEMENT_NODE } from '#client/constants';
+ import { set_dev_metadata } from '../../dev/elements.js';
++import { current_renderer } from '../../custom-renderer/state.js';
++import { renderer_html } from '../../custom-renderer/html.js';
+ 
+ /**
+  * @param {string | null} server_hash
+@@ -115,6 +117,12 @@ export function html(
+ 			return;
+ 		}
+ 
++		if (current_renderer) {
++			// A custom renderer turns the string into its own nodes (its `html` hook).
++			renderer_html(current_renderer, effect, anchor, String(value), is_controlled);
++			return;
++		}
++
+ 		if (is_controlled && !hydrating) {
+ 			// When @html is the only child, use innerHTML directly.
+ 			// This also handles contenteditable, where the user may delete the anchor comment.
 diff --git a/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js b/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
 index 55d169b..21e6f9f 100644
 --- a/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
@@ -994,10 +1096,10 @@ index 721888b..31b275d 100644
  				// which can happen in some rare cases
  				// see https://github.com/sveltejs/svelte/issues/13681
 diff --git a/node_modules/svelte/src/internal/client/errors.js b/node_modules/svelte/src/internal/client/errors.js
-index 559c9b3..9bce193 100644
+index 559c9b3..987e82a 100644
 --- a/node_modules/svelte/src/internal/client/errors.js
 +++ b/node_modules/svelte/src/internal/client/errors.js
-@@ -479,6 +479,90 @@ export function renderer_cannot_cross(guest, host) {
+@@ -479,6 +479,106 @@ export function renderer_cannot_cross(guest, host) {
  	}
  }
  
@@ -1082,6 +1184,22 @@ index 559c9b3..9bce193 100644
 +		throw error;
 +	} else {
 +		throw new Error(`https://svelte.dev/e/renderer_measure_unsupported`);
++	}
++}
++
++/**
++ * `{@html ...}` needs the custom renderer to define `html`
++ * @returns {never}
++ */
++export function renderer_html_unsupported() {
++	if (DEV) {
++		const error = new Error(`renderer_html_unsupported\n\`{@html ...}\` needs the custom renderer to define \`html\`\nhttps://svelte.dev/e/renderer_html_unsupported`);
++
++		error.name = 'Svelte error';
++
++		throw error;
++	} else {
++		throw new Error(`https://svelte.dev/e/renderer_html_unsupported`);
 +	}
 +}
 +
@@ -1184,7 +1302,7 @@ index 31e8fbd..cb27c2d 100644
  		const opacity = +style.opacity;
  		return {
 diff --git a/node_modules/svelte/types/index.d.ts b/node_modules/svelte/types/index.d.ts
-index 27cb293..2f65660 100644
+index 27cb293..1546d4a 100644
 --- a/node_modules/svelte/types/index.d.ts
 +++ b/node_modules/svelte/types/index.d.ts
 @@ -2737,6 +2737,34 @@ declare module 'svelte/reactivity/window' {
@@ -1222,7 +1340,7 @@ index 27cb293..2f65660 100644
  	/**
  	 * A custom renderer. `N` describes the types of the renderer's nodes, for example:
  	 *
-@@ -2812,6 +2840,65 @@ declare module 'svelte/renderer' {
+@@ -2812,6 +2840,74 @@ declare module 'svelte/renderer' {
  		/** Remove an event listener of the given type and handler from the target node. */
  		removeEventListener(target: N['element'], type: string, handler: any, options?: any): void;
  
@@ -1284,6 +1402,15 @@ index 27cb293..2f65660 100644
 +		 * functions throw when they run.
 +		 */
 +		measure?(node: N['element']): RendererMeasurement;
++
++		/**
++		 * Turns `{@html value}`'s string into new nodes, returned in a fragment that Svelte then inserts (in the DOM, the
++		 * string is parsed as HTML through a `<template>`). `anchor` is where they go: the comment they're inserted
++		 * before, or the element whose only content they are (`{@html}` as an element's only child, such as a
++		 * `contenteditable` element's). A renderer decides what the string means (an HTML subset, markdown...). Without
++		 * `html`, `{@html}` throws when it first renders.
++		 */
++		html?(anchor: N['element'] | N['comment'], value: string): N['fragment'];
 +
  		/**
  		 * Called when a component (or snippet) that uses this renderer is rendered inside

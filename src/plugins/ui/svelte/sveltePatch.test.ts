@@ -230,3 +230,89 @@ describe("the custom renderer bind hook (svelte patch)", () => {
     expect(crossCss).toBe("opacity: 0; transform-origin: top left; transform: translate(50px,40px) scale(1, 1);");
   });
 });
+
+// ADR 0425: the `html(anchor, value)` hook: `{@html}` compiles under a custom renderer, the renderer turns the string into
+// nodes (a fragment) that replace the tag's previous ones before its anchor (or become its element's only content), and a
+// renderer without the hook fails clearly.
+describe("the custom renderer html hook (svelte patch)", () => {
+  interface Html {
+    html(node: unknown, get: () => string, controlled?: boolean): void;
+  }
+  const h = internal as unknown as Html;
+  type N = { name: string; parent: N | null; children: N[] };
+  const node = (name: string): N => ({ name, parent: null, children: [] });
+  /** A tree renderer whose `html` makes a text node per word. */
+  const treeRenderer = () => {
+    const insert = (parent: N, n: N, anchor: N | null): void => {
+      if (n.name === "#fragment") {
+        for (const c of [...n.children]) insert(parent, c, anchor);
+        return;
+      }
+      if (n.parent) n.parent.children.splice(n.parent.children.indexOf(n), 1);
+      n.parent = parent;
+      const at = anchor ? parent.children.indexOf(anchor) : -1;
+      if (at < 0) parent.children.push(n);
+      else parent.children.splice(at, 0, n);
+    };
+    const r = {
+      calls: [] as string[],
+      html(anchor: N, value: string): N {
+        r.calls.push(`html ${anchor.name} ${value}`);
+        const fragment = node("#fragment");
+        for (const w of value.split(" ")) insert(fragment, node(w), null);
+        return fragment;
+      },
+      insert,
+      remove: (n: N) => n.parent && n.parent.children.splice(n.parent.children.indexOf(n), 1) && ((n.parent = null), undefined),
+      getParent: (n: N) => n.parent,
+      getFirstChild: (n: N) => n.children[0] ?? null,
+      getLastChild: (n: N) => n.children.at(-1) ?? null,
+      getNextSibling: (n: N) => (n.parent ? (n.parent.children[n.parent.children.indexOf(n) + 1] ?? null) : null),
+      getNodeType: (n: N) => (n.name === "<!>" ? "comment" : n.name === "#fragment" ? "fragment" : "element"),
+    };
+    return r;
+  };
+  const names = (n: N) => n.children.map((c) => c.name);
+
+  it("compiles {@html} under a custom renderer, as for the DOM", () => {
+    const code = compile(`<script>let v = $state("<b>x</b>");</script><p>a {@html v}</p><div>{@html v}</div>`, OPTIONS).js.code;
+    expect(code).toContain("$.html(");
+  });
+
+  it("inserts the renderer's nodes before the anchor, replacing them when the value changes, or as an element's content", () => {
+    const r = treeRenderer();
+    const parent = node("p");
+    const anchor = node("<!>");
+    r.insert(parent, node("before"), null);
+    r.insert(parent, anchor, null);
+    const v = $.state("a b");
+    const stop = withRenderer(r, () => h.html(anchor, () => $.get(v)));
+    flushSync();
+    expect(names(parent)).toEqual(["before", "a", "b", "<!>"]);
+    $.set(v, "c");
+    flushSync();
+    expect(names(parent)).toEqual(["before", "c", "<!>"]);
+    expect(r.calls).toEqual(["html <!> a b", "html <!> c"]);
+    stop();
+
+    // The tag as its element's only content (contenteditable's case): whatever the element holds goes.
+    const div = node("div");
+    r.insert(div, node("typed"), null);
+    const w = $.state("x y");
+    const stop2 = withRenderer(r, () => h.html(div, () => $.get(w), true));
+    flushSync();
+    expect(names(div)).toEqual(["x", "y"]);
+    $.set(w, "");
+    flushSync();
+    expect(names(div)).toEqual([]);
+    stop2();
+  });
+
+  it("fails clearly when the renderer has no html", () => {
+    const r = { ...treeRenderer(), html: undefined };
+    const parent = node("p");
+    const anchor = node("<!>");
+    r.insert(parent, anchor, null);
+    expect(() => withRenderer(r, () => h.html(anchor, () => "x"))).toThrow(/needs the custom renderer to define `html`|renderer_html_unsupported/);
+  });
+});
