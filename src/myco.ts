@@ -153,7 +153,7 @@ export {
   RopeJoint2D,
   SliderJoint2D,
   SpringJoint2D,
-  TilemapCollider2D,
+  ShapeCollider2D,
   CollisionEvents2D,
   TriggerEvents2D,
   type BodyType,
@@ -201,6 +201,12 @@ export {
   type PhysicsEvent,
   type BuoyancyMode,
 } from "./plugins/physics/runtime";
+// ADR 0423 renamed TilemapCollider2D; scripts naming the old class keep working.
+import { ShapeCollider2D as _ShapeCollider2D } from "./plugins/physics/runtime";
+/** @deprecated Renamed `ShapeCollider2D` (ADR 0423): the same class, so `getComponent(TilemapCollider2D)` still finds it. */
+export const TilemapCollider2D = _ShapeCollider2D;
+/** @deprecated Renamed `ShapeCollider2D` (ADR 0423). */
+export type TilemapCollider2D = _ShapeCollider2D;
 
 // The Audio plugin (ADR 0157). Its settings types (`AudioSettings`…) stay in the core.
 export { Audio, AudioSource, AudioListener, AudioOccluder, AudioReverbZone, AudioZone, type AudioZoneHeard, DEFAULT_SEND_CURVE, type AudioHandle, type AudioPlaylistHandle, type AudioMarkerEvent, type AudioMarkerType, type AudioEventHandle, type EventOptions, type AudioStatus, type AudioReason, type AudioPanner, type SendCurve, type AudioDebugInfo, type AudioBedDebug, type AudioZoneDebug, type AudioOcclusionDebug, type AudioMemoryDebug, type AudioVoiceM3Debug, type AudioM3Counters, type OneShotOptions, type Rolloff, type Bus } from "./plugins/audio/runtime";

@@ -53,8 +53,8 @@ export interface JointState<D extends DimensionTypes, RB> {
   measure: { rb: RB; local: D["vec"]; v0: D["vec"]; w0: D["ang"] } | null;
 }
 
-/** @internal What the core keeps for a TilemapCollider2D. */
-export interface TilemapColliderState<D extends DimensionTypes, RB> {
+/** @internal What the core keeps for a ShapeCollider2D. */
+export interface ShapeColliderState<D extends DimensionTypes, RB> {
   colliders: BackendCollider<D>[];
   /** The shape source's signature and the settings the colliders were built from. */
   signature: string;

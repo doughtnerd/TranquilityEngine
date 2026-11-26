@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Assets, BoxCollider2D, Engine, FLIP_DIAGONAL, FLIP_X, GameObject, RigidBody2D, SceneManager, Tilemap, TilemapChanges, TilemapCollider2D, getComponentClass } from "../../../myco";
+import { Assets, BoxCollider2D, CharacterController2D, Engine, FLIP_DIAGONAL, FLIP_X, GameObject, RigidBody2D, SceneManager, Tilemap, TilemapChanges, ShapeCollider2D, getComponentClass } from "../../../myco";
 import { missingBlobMasks, paintTerrain } from "./autotile";
 import { floodCells, lineCells, rectCells } from "./brushes";
 import { greedyRectangles, rowRuns, traceOutlines } from "./cellRegions";
@@ -214,7 +214,7 @@ const steps = (engine: Engine, n: number) => {
 describe("Tilemap component (ADR 0103)", () => {
   it("is registered and loads cells from scene data", async () => {
     expect(getComponentClass("engine.Tilemap")).toBe(Tilemap);
-    expect(getComponentClass("engine.TilemapCollider2D")).toBe(TilemapCollider2D);
+    expect(getComponentClass("engine.ShapeCollider2D")).toBe(ShapeCollider2D);
     await setup([{ id: "m", name: "map", components: [{ type: "engine.Transform", data: { position: [10, 0, 0] } }, { type: "engine.Tilemap", data: { tileset: "asset:tiles.tileset.json", cellSize: [0.5, 0.5], layers: [{ name: "G", chunks: { "0,0": "1*3", "-1,0": "0*15,4" } }] } }] }]);
     const map = GameObject.findObjectOfType(Tilemap)!;
     expect(map.getTile(0, 0)).toBe(1);
@@ -258,12 +258,12 @@ describe("Tilemap component (ADR 0103)", () => {
   });
 });
 
-describe("TilemapCollider2D on Rapier (ADR 0105)", () => {
+describe("ShapeCollider2D on Rapier (ADR 0105)", () => {
   function level(engine: Engine, mode: "rectangles" | "outline" = "rectangles") {
     const node = GameObject.create("map");
     const map = node.addBehavior(Tilemap, { tileset: "tiles.tileset.json" });
     map.fillRect(-10, -1, 20, 1, 1); // floor at y = -1..0
-    node.addBehavior(TilemapCollider2D, { mode });
+    node.addBehavior(ShapeCollider2D, { mode });
     void engine;
     return map;
   }
@@ -314,7 +314,7 @@ describe("TilemapCollider2D on Rapier (ADR 0105)", () => {
     const node = GameObject.create("map");
     const map = node.addBehavior(Tilemap, { tileset: "tiles.tileset.json" });
     map.fillRect(-3, 2, 6, 1, 2); // a one-way platform at y = 2..3
-    node.addBehavior(TilemapCollider2D);
+    node.addBehavior(ShapeCollider2D);
     const { b, rb } = box(0, 0);
     steps(engine, 2);
     rb.velocity = { x: 0, y: 12 }; // jump up through it
@@ -325,6 +325,52 @@ describe("TilemapCollider2D on Rapier (ADR 0105)", () => {
     }
     expect(maxY).toBeGreaterThan(3.4);
     expect(b.transform!.worldPosition.y).toBeCloseTo(3.4, 1); // landed on top
+  });
+
+  it("a CharacterController2D jumps up through one-way tiles and stands on them (ADR 0423)", async () => {
+    const engine = await setup();
+    const map = level(engine); // floor top at y = 0
+    map.fillRect(-3, 3, 6, 1, 2); // a one-way platform at y = 3..4
+    const player = GameObject.create("player");
+    player.transform!.position = [0, 1.05, 0]; // capsule 2 tall: feet at y − 1
+    const cc = player.addBehavior(CharacterController2D);
+    let vy = 0, maxY = -Infinity;
+    const frame = () => {
+      vy -= 10 / 60;
+      cc.move({ x: 0, y: vy / 60 });
+      if (cc.isGrounded && vy < 0) vy = 0;
+      engine.step(1 / 60);
+      maxY = Math.max(maxY, player.transform!.worldPosition.y);
+    };
+    for (let i = 0; i < 30; i++) frame();
+    expect(cc.isGrounded).toBe(true);
+    vy = 12;
+    for (let i = 0; i < 240; i++) frame();
+    expect(maxY).toBeGreaterThan(5.5);
+    expect(cc.isGrounded).toBe(true);
+    expect(player.transform!.worldPosition.y).toBeCloseTo(5, 1); // feet on the tiles' top at 4
+  });
+
+  it("oneWay on the collider makes every tile one-way (ADR 0423)", async () => {
+    const engine = await setup();
+    const node = GameObject.create("map");
+    const map = node.addBehavior(Tilemap, { tileset: "tiles.tileset.json" });
+    map.fillRect(-3, 2, 6, 1, 1); // "full" tiles at y = 2..3, solid by themselves
+    map.fillRect(-10, -3, 20, 1, 1); // and a floor at y = -3..-2
+    node.addBehavior(ShapeCollider2D, { oneWay: true });
+    const { b, rb } = box(0, 0);
+    steps(engine, 2);
+    rb.velocity = { x: 0, y: 12 };
+    let maxY = -Infinity;
+    for (let i = 0; i < 180; i++) {
+      engine.step(1 / 60);
+      maxY = Math.max(maxY, b.transform!.worldPosition.y);
+    }
+    expect(maxY).toBeGreaterThan(3.4);
+    expect(b.transform!.worldPosition.y).toBeCloseTo(3.4, 1); // up through the full tiles, landed on top
+    rb.dropThrough();
+    steps(engine, 120);
+    expect(b.transform!.worldPosition.y).toBeCloseTo(-1.6, 1); // dropped through onto the floor, one-way too
   });
 });
 

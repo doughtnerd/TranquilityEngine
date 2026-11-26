@@ -1,7 +1,7 @@
 // The shared physics sync core (ADR 0137) against a fake backend: no Rapier. Each test's World chooses
 // the fake through `physics.backend2d`, beside the Rapier backend the test setup registers.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, BoxCollider2D, Engine, GameBehavior, GameObject, HingeJoint2D, RigidBody2D, type Collision2D, type Joint2D } from "../../myco";
+import { Assets, BoxCollider2D, CharacterController2D, Engine, GameBehavior, GameObject, HingeJoint2D, RigidBody2D, type Collision2D, type Joint2D } from "../../myco";
 import { applyTestPlugins } from "../testPlugins";
 import type { BackendBody, BackendCollider, BodySettings, ColliderDesc, Dim2, JointDesc, PhysicsBackend2D, PhysicsWorld2DBackend, Pose } from "./runtime";
 import { registerPhysicsBackend } from "./runtime";
@@ -143,6 +143,10 @@ class FakeWorld implements PhysicsWorld2DBackend {
   }
   overlapPoint() {
     return [];
+  }
+  readonly drops: BackendBody<Dim2>[] = [];
+  dropThrough(body: BackendBody<Dim2>): void {
+    this.drops.push(body);
   }
 }
 
@@ -334,6 +338,97 @@ describe("with no physics backend enabled (ADR 0137)", () => {
     } finally {
       warn.mockRestore();
       applyTestPlugins();
+    }
+  });
+});
+
+describe("one-way colliders and drop-through in the core (ADR 0423)", () => {
+  /** A World on a fake backend with or without one-way platforms. */
+  async function oneWaySetup(oneWayPlatforms: boolean) {
+    const id = oneWayPlatforms ? "fake-oneway" : "fake";
+    const backend: PhysicsBackend2D = { capabilities: { ...fakeBackend.capabilities, oneWayPlatforms }, createWorld: () => (fake = new FakeWorld()) };
+    unregister.push(registerPhysicsBackend({ id, dimension: "2d", load: async () => backend }));
+    Assets.clearSources();
+    return Engine.create({ headless: true, project: { physics: { gravity: [0, 0], layers: ["Default"], backend2d: id } } });
+  }
+  const descs = () => [...fake!.colliders.values()];
+
+  it("describes a one-way collider by its node's +Y, its top and its base, turned and mirrored with the node", async () => {
+    const engine = await oneWaySetup(true);
+    const plank = GameObject.create("plank");
+    plank.transform!.position = [1, 2, 0];
+    plank.addBehavior(BoxCollider2D, { size: { x: 4, y: 1 } as never, oneWay: true });
+    const turned = GameObject.create("turned");
+    turned.transform!.position = [0, 10, 0];
+    turned.transform!.eulerAngles = [0, 0, Math.PI / 2]; // +Y points along -x
+    turned.addBehavior(BoxCollider2D, { size: { x: 4, y: 1 } as never, oneWay: true });
+    const mirrored = GameObject.create("mirrored");
+    mirrored.transform!.position = [0, -5, 0];
+    mirrored.transform!.scale = [1, -1, 1]; // +Y points down
+    mirrored.addBehavior(BoxCollider2D, { size: { x: 4, y: 1 } as never, center: { x: 0, y: 1 } as never, oneWay: true });
+    GameObject.create("solid").addBehavior(BoxCollider2D);
+    await vi.waitFor(() => expect(physics2DOf(engine.world)).not.toBeNull());
+    step(engine);
+    const [a, b, c, d] = descs();
+    expect(a.oneWay!.up.x).toBeCloseTo(0);
+    expect(a.oneWay!.up.y).toBeCloseTo(1);
+    expect(a.oneWay!.top).toBeCloseTo(2.5);
+    expect(a.oneWay!.base).toBeCloseTo(2);
+    expect(b.oneWay!.up.x).toBeCloseTo(-1);
+    expect(b.oneWay!.up.y).toBeCloseTo(0);
+    expect(b.oneWay!.top).toBeCloseTo(0.5); // its half height along -x, from x = 0
+    expect(b.oneWay!.base).toBeCloseTo(0);
+    expect(c.oneWay!.up.y).toBeCloseTo(-1);
+    expect(c.oneWay!.base).toBeCloseTo(6); // its centre, mirrored to y = -6, measured along -y
+    expect(c.oneWay!.top).toBeCloseTo(6.5);
+    expect(d.oneWay ?? null).toBeNull();
+    engine.dispose();
+  });
+
+  it("never makes triggers or character controllers one-way, and rebuilds a body-less one-way collider when its node moves", async () => {
+    const engine = await oneWaySetup(true);
+    GameObject.create("trigger").addBehavior(BoxCollider2D, { isTrigger: true, oneWay: true });
+    const cc = GameObject.create("player").addBehavior(CharacterController2D);
+    cc.oneWay = true;
+    const plank = GameObject.create("plank");
+    plank.addBehavior(BoxCollider2D, { oneWay: true });
+    await vi.waitFor(() => expect(physics2DOf(engine.world)).not.toBeNull());
+    step(engine);
+    expect(descs().filter((d) => d.oneWay)).toHaveLength(1);
+    plank.transform!.position = [0, 3, 0];
+    step(engine);
+    const tops = descs().filter((d) => d.oneWay).map((d) => d.oneWay!.top);
+    expect(tops).toHaveLength(1);
+    expect(tops[0]).toBeCloseTo(3.5);
+    engine.dispose();
+  });
+
+  it("forwards dropThrough with the body: a rigid body's, a character controller's own", async () => {
+    const engine = await oneWaySetup(true);
+    const { rb } = await body(engine, "crate");
+    const cc = GameObject.create("player").addBehavior(CharacterController2D);
+    step(engine);
+    rb.dropThrough();
+    cc.dropThrough();
+    expect(fake!.drops).toEqual([fakeOf("dynamic"), fakeOf("kinematic")]);
+    engine.dispose();
+  });
+
+  it("without one-way platforms: solid, a warning once, and dropThrough does nothing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const engine = await oneWaySetup(false);
+      const { rb } = await body(engine, "crate");
+      GameObject.create("a").addBehavior(BoxCollider2D, { oneWay: true });
+      GameObject.create("b").addBehavior(BoxCollider2D, { oneWay: true });
+      step(engine);
+      expect(descs().every((d) => !d.oneWay)).toBe(true);
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes("no one-way platforms"))).toHaveLength(1);
+      rb.dropThrough();
+      expect(fake!.drops).toHaveLength(0);
+      engine.dispose();
+    } finally {
+      warn.mockRestore();
     }
   });
 });

@@ -49,7 +49,7 @@ export const tilemapsEditorPlugin: EditorPlugin = {
       components: (position, tileset) => [
         { type: "engine.Transform", data: { position } },
         { type: "engine.Tilemap", data: tileset ? { tileset } : {} },
-        { type: "engine.TilemapCollider2D", data: {} },
+        { type: "engine.ShapeCollider2D", data: {} },
       ],
     });
     // Slices of an image (or an image with slices) become a tileset beside the image, named after it.

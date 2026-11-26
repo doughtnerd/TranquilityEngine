@@ -12,17 +12,18 @@ import { scaledCenter2D, shapeSignature, shapeSize2D } from "../../../../engine/
 import { frame2DOf, frameDirection } from "../../../../engine/scene/frame2d";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { Transform } from "../../../../engine/scene/Transform";
-import type { CharacterSettings, Dim2, JointDesc, JointSettings, PhysicsBackend2D, Pose, ShapeDesc2D, Vec2 } from "../backend";
+import type { CharacterSettings, Dim2, JointDesc, JointSettings, PhysicsBackend2D, PhysicsWorld2DBackend, Pose, ShapeDesc2D, Vec2 } from "../backend";
 import { CharacterController2D, type ControllerColliderHit2D } from "../CharacterController2D";
 import { Collider2D } from "../Collider2D";
 import { AxisJoint2D, Joint2D, type JointFields2D } from "../Joint2D";
 import { RigidBody2D } from "../RigidBody2D";
 import { CollisionEvents2D, TriggerEvents2D } from "../systems2d";
-import { TilemapCollider2D } from "../TilemapCollider2D";
+import { ShapeCollider2D } from "../ShapeCollider2D";
 import { bodyInertia, bodyMass } from "../bodyCommands";
 import { PhysicsCore } from "./PhysicsCore";
 import type { JointState } from "./state";
-import { TilemapColliders2D } from "./tilemap2d";
+import { oneWayOf, oneWayUp, type OneWay2D } from "./oneWay2d";
+import { ShapeColliders2D } from "./shapeColliders2d";
 
 interface Types2D {
   body: RigidBody2D;
@@ -53,13 +54,14 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
   protected readonly bodyName = "RigidBody2D";
   protected readonly down = { x: 0, y: -1 };
   protected readonly identity = 0;
-  /** Tilemap colliders and one-way platforms (ADR 0105). */
-  private readonly tilemaps: TilemapColliders2D;
+  declare readonly backend: PhysicsWorld2DBackend;
+  /** Shape colliders (ADR 0105, 0136, 0423). */
+  private readonly shapes: ShapeColliders2D;
 
   constructor(world: World, backend: PhysicsBackend2D) {
     const [gx, gy] = world.settings.physics.gravity;
     super(world, backend, { x: gx, y: gy });
-    this.tilemaps = new TilemapColliders2D({
+    this.shapes = new ShapeColliders2D({
       backend: this.backend,
       world,
       oneWay: this.capabilities.oneWayPlatforms,
@@ -124,29 +126,56 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
   // --- colliders -----------------------------------------------------------------------------------
 
   protected pushSpecialCollider(c: Collider2D): boolean {
-    if (!(c instanceof TilemapCollider2D)) return false;
-    this.tilemaps.push(c);
+    if (!(c instanceof ShapeCollider2D)) return false;
+    this.shapes.push(c);
     return true;
   }
 
   protected releaseSpecialCollider(c: Collider2D): boolean {
-    if (!(c instanceof TilemapCollider2D)) return false;
-    this.tilemaps.release(c);
+    if (!(c instanceof ShapeCollider2D)) return false;
+    this.shapes.release(c);
     return true;
   }
 
   protected releaseSpecialFor(rb: RigidBody2D): void {
-    this.tilemaps.releaseFor(rb, this.world._componentsOfType(TilemapCollider2D));
+    this.shapes.releaseFor(rb, this.world._componentsOfType(ShapeCollider2D));
   }
 
   protected colliderBody(c: Collider2D): RigidBody2D | null {
-    return c._state?.body ?? (c instanceof TilemapCollider2D ? (c._tileState?.body ?? null) : null);
+    return c._state?.body ?? (c instanceof ShapeCollider2D ? (c._shapeState?.body ?? null) : null);
   }
 
-  protected colliderSource(c: Collider2D) {
-    const ws = frame2DOf(c.node).scale; // signed: a mirrored node's points and centre flip
-    const signature = [shapeSignature(c._shapeFields()), c.isTrigger, c.layer, c.material?.friction, c.material?.bounciness, ws[0].toFixed(4), ws[1].toFixed(4), c.center.x, c.center.y].join("|");
-    return { signature, scale: ws };
+  protected colliderSource(c: Collider2D, active: boolean) {
+    const frame = frame2DOf(c.node);
+    const ws = frame.scale; // signed: a mirrored node's points and centre flip
+    const parts: unknown[] = [shapeSignature(c._shapeFields()), c.isTrigger, c.layer, c.material?.friction, c.material?.bounciness, ws[0].toFixed(4), ws[1].toFixed(4), c.center.x, c.center.y];
+    if (this.isOneWay(c)) {
+      // A one-way collider's top is fixed when built; without a body to carry it, moving or turning the node rebuilds it.
+      parts.push("oneWay");
+      if (!(active && c.attachedRigidbody)) parts.push(frame.position[0].toFixed(5), frame.position[1].toFixed(5), frame.angle.toFixed(6));
+    }
+    return { signature: parts.join("|"), scale: ws };
+  }
+
+  /** Whether `c` is built one-way (ADR 0423): its `oneWay` is on and it isn't a trigger or a character controller. */
+  private isOneWay(c: Collider2D): boolean {
+    return c.oneWay && !c.isTrigger && !(c instanceof CharacterController2D);
+  }
+
+  protected colliderOneWay(c: Collider2D, shape: ShapeDesc2D): OneWay2D | null {
+    if (!this.isOneWay(c)) return null;
+    if (!this.capabilities.oneWayPlatforms) {
+      this.warnOnce("oneway", "this physics backend has no one-way platforms; one-way colliders are solid.");
+      return null;
+    }
+    return oneWayOf(shape, this.colliderWorldPose(c), oneWayUp(frame2DOf(c.node)));
+  }
+
+  /** @internal `RigidBody2D.dropThrough` and `CharacterController2D.dropThrough` (ADR 0423). */
+  dropThrough(target: RigidBody2D | CharacterController2D): void {
+    if (!this.capabilities.oneWayPlatforms) return;
+    const body = target instanceof RigidBody2D ? target._state?.body : target._state?.ownBody;
+    if (body && !body.removed) this.backend.dropThrough(body);
   }
 
   protected colliderShape(c: Collider2D, scale: readonly number[]): ShapeDesc2D {
@@ -156,7 +185,7 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
       case "edge":
         return this.pointsShape(c, fields.kind === "polygon", fields.points, scale[0], scale[1]);
       case "source":
-        throw new Error(`${c.constructor.name}'s shapes are built by the tilemap colliders.`);
+        throw new Error(`${c.constructor.name}'s shapes are built by the shape colliders.`);
       default: {
         const size = shapeSize2D(fields, scale);
         return size.kind === "box" ? { kind: "box", halfExtents: { x: size.halfExtents[0], y: size.halfExtents[1] } } : size;

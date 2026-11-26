@@ -18,7 +18,7 @@ export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCol
 export { Physics2D, type RaycastHit2D, type ShapeCastHit2D } from "./Physics2D";
 export { CharacterController2D, type ControllerColliderHit2D } from "./CharacterController2D";
 export { AxisJoint2D, FixedJoint2D, HingeJoint2D, Joint2D, RopeJoint2D, SliderJoint2D, SpringJoint2D } from "./Joint2D";
-export { TilemapCollider2D } from "./TilemapCollider2D";
+export { ShapeCollider2D } from "./ShapeCollider2D";
 export { CollisionEvents2D, TriggerEvents2D, PHYSICS_2D, physics2DOf, type PhysicsEvent2D } from "./systems2d";
 // 3D
 export { RigidBody, type RigidBodyConstraints } from "./RigidBody";
