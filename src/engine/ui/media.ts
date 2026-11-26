@@ -155,8 +155,11 @@ export class AudioSourceMedia extends Listeners implements UIMediaSource {
     this.time = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
     this.emit("seeking");
     if (this.started) this.audio?.seek(this.time);
-    this.emit("seeked");
-    this.emit("timeupdate");
+    // As a media element: `seeked` and `timeupdate` come once the seek is done, after the code that set the time.
+    queueMicrotask(() => {
+      this.emit("seeked");
+      this.emit("timeupdate");
+    });
   }
 
   get volume(): number {
@@ -351,9 +354,14 @@ export class UIMediaPlayer {
     this.source?.pause();
   }
 
-  /** The fields onto the source now (a renderer's property write), rather than at the next frame. */
+  /**
+   * The fields onto the source now (a renderer's property or attribute write), rather than at the next frame; a source
+   * is made for it if there's none yet, so a change of `muted`, `volume` or `playbackRate` sends its event as the
+   * DOM's media element does, playing or not.
+   */
   refresh(): void {
-    if (this.source) this.sync(this.source);
+    const m = this.media;
+    if (m) this.sync(m);
   }
 
   /** Each frame: fields onto the source, autoplay once, the engine's own sources ticked. */

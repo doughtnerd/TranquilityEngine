@@ -41,7 +41,7 @@ import { filterStepsOf, filterText, type UIFilterFields } from "../filters";
 import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudo, UIPseudoState, UIStylesheet, UITag } from "../document/types";
 import type { UIAnimationSpec, UITransitionSpec } from "../document/animationValues";
 import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimator, type UIAnimationEvent, type UIAnimationStop, type UIPlayback, type UIPlayHooks, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "../animation/UIAnimator";
-import { addUIEventFrontEnd, addUIListener, propagate, removeUIListener, runUIListeners, uiEventBubbles, uiEventCancelable, UIEventBase, uiListenerOptions, type UIEventRecord, type UIListener } from "../events";
+import { addUIEventFrontEnd, addUIListener, dispatchUIEventNow, propagate, removeUIListener, runUIListeners, uiEventBubbles, uiEventCancelable, UIEventBase, uiEventRecord, uiListenerOptions, type UIEventRecord, type UIListener } from "../events";
 import { uiScrollIntoViewArg, uiScrollSizes, uiScrollToArgs, isScrollable, type UIScrollIntoViewOptions, type UIScrollToArgs } from "../scrolling";
 
 type Cascade = typeof import("./hostSupport");
@@ -396,16 +396,27 @@ export class UIHostElement {
     clickUI(this.tree.world, this._comp);
   }
 
-  /** Give it focus (buttons, input fields and ADR 0424's controls; an input field starts typing, as a click does). */
+  /**
+   * Give it focus (buttons, input fields and ADR 0424's controls; an input field starts typing, as a click does). As the
+   * DOM's `focus()`, the element that had focus gets `blur` and `focusout`, then this one `focus` and `focusin`, at once.
+   */
   focus(): void {
     const c = this._comp;
-    if (isFocusableUI(c)) c.focused = true;
+    if (!isFocusableUI(c) || c.focused) return;
+    const world = this.tree.world;
+    const previous = uiInteractions(world).focused;
+    c.focused = true;
+    if (!c.focused) return; // it can't take focus (inert, inactive)
+    if (previous && previous !== c) dispatchUIEventNow(world, uiEventRecord("blur", previous, { related: c }));
+    dispatchUIEventNow(world, uiEventRecord("focus", c, { related: previous }));
   }
 
-  /** Take its focus away. */
+  /** Take its focus away (`blur` and `focusout` at once, as the DOM's `blur()`). */
   blur(): void {
     const c = this._comp;
-    if (isFocusableUI(c) && c.focused) c.focused = false;
+    if (!isFocusableUI(c) || !c.focused) return;
+    c.focused = false;
+    dispatchUIEventNow(this.tree.world, uiEventRecord("blur", c, { related: null }));
   }
 
   /** Its box in its canvas's UI pixels from the UI core's last layout, or null when it isn't laid out (a headless World). */

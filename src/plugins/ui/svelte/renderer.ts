@@ -765,6 +765,8 @@ export class UIRenderElement extends UINodeBase {
    * only the `click` is dispatched.
    */
   click(): void {
+    // A disabled control's `click()` does nothing, as the attribute says now (its UI element hears of it when it restyles).
+    if (this.disabled && FOCUSABLE_TAGS.has(this._uiTag)) return;
     if (this._hosted) this._hosted.click();
     else this.dispatchEvent({ type: "click", defaultPrevented: false, bubbles: true });
   }
@@ -1518,7 +1520,7 @@ const OWN_KIND_IN_TEXT: ReadonlySet<UITag> = new Set(["Svg", "Video", "Audio", "
 
 /** ADR 0425: an element whose content is text and runs: a text element, or a run that isn't an image. */
 function holdsText(n: UINode | UIParent | null): n is UIRenderElement {
-  return n instanceof UIRenderElement && !n._tree && (n._uiTag === "Text" || (isRun(n) && n._uiTag !== "Image"));
+  return n instanceof UIRenderElement && !n._tree && (n._uiTag === "Text" || (isRun(n) && n._uiTag !== "Image" && !OWN_KIND_IN_TEXT.has(n._uiTag)));
 }
 
 /** ADR 0425: the UI element a node makes: a run is a Text (an image stays an Image), others their own. */
@@ -2337,6 +2339,8 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
       }
     }
     const optionDefault = key === "selected" && el._uiTag === "Option" && !el._attrs.has("selected");
+    // `muted={x}` on <audio>/<video>: Svelte's DOM output sets the property, which sends `volumechange` at once.
+    if (key === "muted" && el._parent && isMediaNode(el)) setMediaField(el, "muted", true);
     el._attrs.set(key, value);
     if (key === "type") retag(el); // ADR 0424
     if (key === "contenteditable") refreshTexts(el); // ADR 0425: whitespace kept, or collapsed again
@@ -2347,6 +2351,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
   removeAttribute(el, name) {
     const asDefault = DEFAULT_KEYS[name.toLowerCase()];
     if (asDefault) return setDefault(el, asDefault, null);
+    if (name === "muted" && el._parent && isMediaNode(el)) setMediaField(el, "muted", false);
     if (name === "checked" && el._parent && (el._uiTag === "Toggle" || el._uiTag === "Radio")) {
       // Svelte's `checked={false}`: the current state, as the DOM property (whether or not the attribute was there).
       el._dirty.checked = true;

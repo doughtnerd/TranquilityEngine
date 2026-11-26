@@ -305,12 +305,20 @@ async function runSample(name: string): Promise<Result> {
       unintended = true;
       assert.fail("Expected a runtime error");
     }
+    // Svelte's harness mounts without flushing, then flushes before the `html` check and again before the test; a view's
+    // mount (`mountView`) flushes once itself, as the first of those (a second drain at mount would start what Svelte's
+    // run starts in the test's first `raf.tick`, such as a transition's main animation).
+    let flushes = 1;
+    const flushOnce = () => {
+      if (flushes > 0) flushes--;
+      else flushSync();
+    };
     if (config.html) {
-      flushSync();
+      flushOnce();
       assertHtmlEqualWithOptions(target.innerHTML, config.html, { preserveComments: config.withoutNormalizeHtml === "only-strip-comments" ? false : undefined, withoutNormalizeHtml: !!config.withoutNormalizeHtml });
     }
     if (config.test) {
-      if (!config.skip_initial_flushSync) flushSync();
+      if (!config.skip_initial_flushSync) flushOnce();
       const run = config.test({
         assert: { ...assert, htmlEqual: assertHtmlEqual, htmlEqualWithOptions: assertHtmlEqualWithOptions },
         variant: "dom",
