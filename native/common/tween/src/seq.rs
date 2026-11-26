@@ -61,20 +61,21 @@ pub fn eval<C, F>(
     F: FnMut(usize, Option<&[f32; 4]>),
 {
     order.clear();
-    for (i, m) in members.iter_mut().enumerate() {
+    for i in 0..members.len() {
+        let m = &mut members[i];
         let mut v = [0.0f32; 4];
         let ev = m.spec.eval(t as f64 - m.offset as f64, curves, &mut v);
         write(i, if ev.started { Some(&v) } else { None });
-        if emit && ev.done && !m.done {
-            order.push(i as u32);
-        }
+        let completed = emit && ev.done && !m.done;
         m.done = ev.done;
+        if completed {
+            // Inserted in order (members come in index order, so after every earlier member that
+            // ends no later): no general sort, which would link far more code than this needs.
+            let end = members[i].end();
+            let at = order.partition_point(|&j| {
+                members[j as usize].end().partial_cmp(&end) != Some(core::cmp::Ordering::Greater)
+            });
+            order.insert(at, i as u32);
+        }
     }
-    let end = |i: u32| members[i as usize].end();
-    order.sort_unstable_by(|a, b| {
-        end(*a)
-            .partial_cmp(&end(*b))
-            .unwrap_or(core::cmp::Ordering::Equal)
-            .then(a.cmp(b))
-    });
 }

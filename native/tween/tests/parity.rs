@@ -54,7 +54,9 @@ fn rows_of(t: &myco_tween::Tweens) -> Vec<(u32, [u32; 4])> {
 
 fn blocks_of(bytes: &[u8]) -> Vec<TimelineBlock> {
     bytes
-        .chunks_exact(TimelineBlock::STRIDE as usize)
+        .as_chunks::<{ TimelineBlock::STRIDE as usize }>()
+        .0
+        .iter()
         .map(|b| TimelineBlock::decode(b).unwrap())
         .collect()
 }

@@ -22,8 +22,14 @@ anim-wire = { path = "../anim/crates/anim-wire" }
 # The pin native/anim uses (build.mjs checks wasm-bindgen-cli against it).
 wasm-bindgen = "=0.2.130"
 
+# build.rs only: the embedded source hash (source_hash.rs), the animation core's pin.
+[build-dependencies]
+sha2 = { version = "0.10", default-features = false }
+
 [dev-dependencies]
 myco-wire = { path = "../common/wire" }
+# tests/source_hash.rs includes source_hash.rs, as build.rs does.
+sha2 = { version = "0.10", default-features = false }
 # tests/parity.rs runs the animation core natively on the same records (never linked into the module).
 anim-wasm = { path = "../anim/crates/anim-wasm" }
 

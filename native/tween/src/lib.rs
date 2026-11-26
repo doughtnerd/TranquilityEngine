@@ -147,6 +147,22 @@ impl Module {
     }
 }
 
+/// The source hash `build.rs` embeds (`source_hash.rs`): the committed wasm's check against its
+/// sources (`src/engine/tween/wasm/sourceHash.test.ts`).
+static SOURCE_HASH: [u8; 16] = *include_bytes!(concat!(env!("OUT_DIR"), "/source_hash.bin"));
+
+/// The source hash of the crates this module was built from, as 32 lowercase hex digits.
+#[wasm_bindgen]
+pub fn source_hash() -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(32);
+    for b in SOURCE_HASH {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 15) as usize] as char);
+    }
+    out
+}
+
 thread_local! {
     static MODULE: RefCell<Module> = RefCell::new(Module::default());
 }

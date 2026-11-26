@@ -46,6 +46,20 @@ fn finite_or(x: f32, default: f32) -> f32 {
     }
 }
 
+/// `x.clamp(lo, hi)`'s result, without its assertion (whose message would link float formatting,
+/// a third of the module; the bounds here are never NaN or crossed).
+#[inline]
+fn clamp(x: f32, lo: f32, hi: f32) -> f32 {
+    let mut x = x;
+    if x < lo {
+        x = lo;
+    }
+    if x > hi {
+        x = hi;
+    }
+    x
+}
+
 // ------------------------------------------------------------------------------------------------
 // The playhead (`anim-sample` timeline's `Wrap`, `Playhead` and `advance`, for sequences)
 
@@ -94,7 +108,7 @@ struct Advance {
 
 /// `time` folded into a looping timeline of `d` seconds (`anim-pose`'s `SyncClip::wrap_time`).
 fn wrap_time(d: f32, time: f32) -> f32 {
-    if !(d > 0.0) || time.is_nan() || time.abs() == f32::INFINITY {
+    if d.is_nan() || d <= 0.0 || time.is_nan() || time.abs() == f32::INFINITY {
         return 0.0;
     }
     let t = time - (time / d).floor() * d;
@@ -122,7 +136,7 @@ fn advance(wrap: Wrap, duration: f32, head: &mut Playhead, delta: f32) -> Advanc
     };
     match wrap {
         Wrap::Loop if d > 0.0 && d.is_finite() => {
-            let capped = delta.clamp(-MAX_WRAPS * d, MAX_WRAPS * d);
+            let capped = clamp(delta, -MAX_WRAPS * d, MAX_WRAPS * d);
             let a = t0 - (t0 / d).floor() * d;
             let b = a + capped;
             out.wraps = (b / d).floor().abs() as u32;
@@ -156,7 +170,7 @@ fn advance(wrap: Wrap, duration: f32, head: &mut Playhead, delta: f32) -> Advanc
                     let to = t + dir * r;
                     out.legs[out.count] = to - t;
                     out.count += 1;
-                    t = to.clamp(0.0, d);
+                    t = clamp(to, 0.0, d);
                     break;
                 }
             }
@@ -170,7 +184,7 @@ fn advance(wrap: Wrap, duration: f32, head: &mut Playhead, delta: f32) -> Advanc
         _ => {
             out.legs[0] = delta;
             out.count = 1;
-            head.time = (t0 + delta).clamp(0.0, d);
+            head.time = clamp(t0 + delta, 0.0, d);
             out.finished = (delta > 0.0 && head.time >= d) || (delta < 0.0 && head.time <= 0.0);
             if matches!(wrap, Wrap::Loop | Wrap::PingPong) {
                 // A zero-length timeline can't wrap or turn and never finishes.
@@ -191,7 +205,7 @@ fn wrap_seek(wrap: Wrap, duration: f32, t: f32) -> f32 {
             0.0
         }
     } else {
-        t.clamp(0.0, duration)
+        clamp(t, 0.0, duration)
     }
 }
 
@@ -311,8 +325,9 @@ impl Regions {
         if n == 0 || self.free.len() == self.free.capacity() {
             return; // a leak beats an allocation inside update; the capacity is sized to never fill
         }
-        self.free.push((off, n));
-        self.free.sort_unstable();
+        // Kept sorted by insertion (a general sort would link far more code than this list needs).
+        let at = self.free.partition_point(|&r| r < (off, n));
+        self.free.insert(at, (off, n));
         let mut w = 0;
         for r in 0..self.free.len() {
             let cur = self.free[r];
