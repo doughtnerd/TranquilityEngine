@@ -134,6 +134,37 @@ function element(tag: UITag, attributes: Record<string, string> = {}): MarkupEle
   return { tag, attributes: Object.entries(attributes).map(([name, value]) => ({ name, value, span, valueSpan: span })), file: "ui/t.svelte" };
 }
 
+describe("linear() and transition-behavior (ADR 0428)", () => {
+  const points = (v: string) => {
+    const r = parseTimingFunction(v);
+    if (!r.ok) return r.problem;
+    return r.value.kind === "points" ? r.value.points.map(([x, y]) => [Math.round(x * 1e9) / 1e9, y]) : r.value;
+  };
+
+  it("reads linear() stops and normalises their inputs as CSS Easing 2 does", () => {
+    expect(points("linear(0, 0.25 75%, 1)")).toEqual([[0, 0], [0.75, 0.25], [1, 1]]);
+    expect(points("linear(0, 0.5, 0.25, 1)")).toEqual([[0, 0], [0.333333333, 0.5], [0.666666667, 0.25], [1, 1]]); // spread evenly
+    expect(points("linear(0 20%, 0.5 10%, 1)")).toEqual([[0.2, 0], [0.2, 0.5], [1, 1]]); // an input below an earlier one rises to it
+    expect(points("linear(0, 0.5 25% 75%, 1)")).toEqual([[0, 0], [0.25, 0.5], [0.75, 0.5], [1, 1]]); // two inputs: a flat stretch
+    expect(points("linear(1)")).toMatch(/at least two stops/);
+    expect(points("linear(0, fast)")).toMatch(/isn't a linear\(\) stop/);
+    expect(parseTransition("opacity 1s linear(0, 0.5 50%, 1)").ok).toBe(true);
+  });
+
+  it("reads transition-behavior in the shorthand and as a longhand, ordered like the other longhands", () => {
+    expect(parseTransition("display 1s allow-discrete, opacity 1s")).toMatchObject({ ok: true, value: { property: ["display", "opacity"], behavior: ["allow-discrete", "normal"] } });
+    expect(parseTransition("opacity 1s")).toEqual({ ok: true, value: { property: ["opacity"], duration: [1], delay: [0], timing: [{ kind: "bezier", x1: 0.25, y1: 0.1, x2: 0.25, y2: 1 }] } });
+    const sheet = parseStylesheet(`.a { transition: display 1s, opacity 2s; transition-behavior: allow-discrete, normal } .b { transition-behavior: allow-discrete; transition: display 1s }`, "t.css");
+    expect(sheet.problems).toEqual([]);
+    const specs = (cls: string) => resolveStyle(target("Panel", [cls]), element("Panel"), UIPanel, [sheet], null, () => {}).get(TRANSITION_KEY)!.value;
+    expect(specs("a")).toEqual([
+      { property: "display", duration: 1, delay: 0, timing: expect.anything(), allowDiscrete: true },
+      { property: "opacity", duration: 2, delay: 0, timing: expect.anything() },
+    ]);
+    expect(specs("b")).toEqual([{ property: "display", duration: 1, delay: 0, timing: expect.anything() }]); // the shorthand reset it
+  });
+});
+
 describe("@keyframes and the cascade (ADR 0418 wave 4)", () => {
   it("parses @keyframes blocks: from, to, percentages and lists, and reports what it can't read", () => {
     const sheet = parseStylesheet(`@keyframes pulse { from { opacity: 0 } 50%, 75% { opacity: .5; animation-timing-function: ease-in } to { opacity: 1 } }
@@ -204,6 +235,31 @@ describe("timing functions as engine curves (ADR 0418 wave 4)", () => {
       expect(evalCurve(forward, x)).toBeCloseTo(cssBezier(x1, y1, x2, y2, x), 6);
       expect(evalCurve(reversed, x)).toBeCloseTo(1 - cssBezier(x1, y1, x2, y2, 1 - x), 6);
     }
+  });
+
+  it("linear() is CSS's linear easing function over its points, forwards and reversed (ADR 0428)", () => {
+    /** CSS Easing 2's linear easing function at `x`: the segment of the last point at or before it, extended at the ends. */
+    const cssLinear = (pts: readonly (readonly [number, number])[], x: number) => {
+      let a = 0;
+      for (let i = 0; i < pts.length; i++) if (pts[i][0] <= x) a = i;
+      if (a === pts.length - 1) a--;
+      const [p, q] = [pts[a], pts[a + 1]];
+      if (p[0] === q[0]) return q[1];
+      return p[1] + ((x - p[0]) / (q[0] - p[0])) * (q[1] - p[1]);
+    };
+    for (const css of ["linear(0, 0.25 75%, 1)", "linear(0, 1.2 60%, 0.9 80%, 1)", "linear(0.1 20%, 0.6 40%, 0.8 70%)", "linear(0, 0.5 50%, 0.5 50%, 1)"]) {
+      const tf = parseTimingFunction(css);
+      if (!tf.ok || tf.value.kind !== "points") throw new Error(css);
+      const pts = tf.value.points;
+      const forward = timingCurve(tf.value)!;
+      const reversed = timingCurve(tf.value, true)!;
+      for (const x of xs) {
+        if (pts.some(([px]) => px === x || px === 1 - x)) continue; // a jump's own input: either side is CSS's
+        expect(evalCurve(forward, x)).toBeCloseTo(cssLinear(pts, x), 9);
+        expect(evalCurve(reversed, x)).toBeCloseTo(1 - cssLinear(pts, 1 - x), 9);
+      }
+    }
+    expect(timingCurve({ kind: "points", points: [[0, 0], [1, 1]] })).toBeNull(); // linear(0, 1) is linear
   });
 
   it("matches CSS's published reference points for ease", () => {
@@ -307,7 +363,8 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
       expect([a.opacity, b.opacity]).toEqual([0.75, 0]);
     });
 
-    it("turn back from the value shown when the change is undone mid-way", async () => {
+    it("turn back from the value shown when the change is undone mid-way, over the share of the duration covered (ADR 0428)", async () => {
+      // CSS's reversing shortening: half way through, the way back takes half the duration.
       const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear } .on { opacity: 0 }`);
       const p = byId(doc, "p", UIPanel);
       const el = doc.query("#p")!;
@@ -317,8 +374,10 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
       classList(el).remove("on");
       step();
       expect(p.opacity).toBe(0.5);
-      step(32);
+      step(16);
       expect(p.opacity).toBe(0.75);
+      step(16);
+      expect(p.opacity).toBe(1);
     });
 
     it("stop when their property is no longer covered: at their end, or at the value the change wrote", async () => {
@@ -371,6 +430,86 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
       step(32);
       expect(p.backgroundColor).toEqual(new Color(1, 1, 1, 1));
       expect([p.width, p.paddingTop, p.translateX, p.rotate, p.boxShadowOffsetY, p.borderTopLeftRadius]).toEqual(["200", 12, "10", 90, 4, 8]);
+    });
+
+    it("shorten again when reversed again, carrying the share covered (ADR 0428)", async () => {
+      const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear } .on { opacity: 0 }`);
+      const p = byId(doc, "p", UIPanel);
+      const el = doc.query("#p")!;
+      classList(el).add("on");
+      step(33);
+      expect(p.opacity).toBe(0.5);
+      classList(el).remove("on"); // back over 0.5 s
+      step(17);
+      expect(p.opacity).toBe(0.75);
+      // Half way back: the factor is 0.5 × 0.5 + (1 − 0.5) = 0.75 of the duration, from 0.75 to 0.
+      classList(el).add("on");
+      step(25);
+      expect(p.opacity).toBe(0.375);
+      step(24);
+      expect(p.opacity).toBe(0);
+    });
+
+    it("ease through linear() as engine curve keys (ADR 0428)", async () => {
+      const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear(0, 0.25 75%, 1) } .on { opacity: 0 }`);
+      const p = byId(doc, "p", UIPanel);
+      classList(doc.query("#p")!).add("on");
+      step(33);
+      expect(p.opacity).toBeCloseTo(1 - 0.5 / 0.75 * 0.25, 5);
+      step(16);
+      expect(p.opacity).toBeCloseTo(0.75, 5);
+      step(16);
+      expect(p.opacity).toBe(0);
+    });
+
+    it("transition discrete values only with allow-discrete: half way, and display keeps the value that isn't none (ADR 0428)", async () => {
+      const doc = await animatedUI(
+        `<Canvas><div id="d" class="d"/><div id="f" class="f"/><div id="n" class="n"/></Canvas>`,
+        `.d { transition: display 1s allow-discrete } .d.on { display: none }
+         .f { transition: flex-direction 1s linear allow-discrete } .f.on { flex-direction: column }
+         .n { transition: flex-direction 1s linear } .n.on { flex-direction: column }`,
+      );
+      const d = byId(doc, "d", UIPanel), f = byId(doc, "f", UIPanel), n = byId(doc, "n", UIPanel);
+      for (const id of ["#d", "#f", "#n"]) classList(doc.query(id)!).add("on");
+      step();
+      expect([d.display, f.flexDirection, n.flexDirection]).toEqual(["flex", "row", "column"]); // normal: at once
+      step(31);
+      expect([d.display, f.flexDirection]).toEqual(["flex", "row"]);
+      step(2);
+      expect([d.display, f.flexDirection]).toEqual(["flex", "column"]);
+      step(30);
+      expect(d.display).toBe("flex"); // drawn until its end
+      step(2);
+      expect(d.display).toBe("none");
+      // Back: `none` to `flex` shows `flex` from the start.
+      classList(doc.query("#d")!).remove("on");
+      step();
+      expect(d.display).toBe("flex");
+    });
+
+    it("pass a parent's transitioning inherited values to its children frame by frame (ADR 0428)", async () => {
+      const doc = await animatedUI(
+        `<Canvas><div id="box" class="box"><p id="t">a</p><p id="own" class="own">b</p><div><p id="deep">c</p></div></div><p id="lone" class="lone">d</p></Canvas>`,
+        `.box { color: #000000; font-size: 10px; transition: color 1s linear, font-size 1s linear } .box.on { color: #ffffff; font-size: 20px }
+         .own { color: #00ff00 }
+         .lone { color: #000000; transition: color 1s linear } .lone.on { color: #ffffff }`,
+      );
+      const t = byId(doc, "t", UIText), own = byId(doc, "own", UIText), deep = byId(doc, "deep", UIText), lone = byId(doc, "lone", UIText);
+      step();
+      expect([t.color, deep.color, t.fontSize]).toEqual([new Color(0, 0, 0, 1), new Color(0, 0, 0, 1), 10]);
+      classList(doc.query("#box")!).add("on");
+      classList(doc.query("#lone")!).add("on");
+      step();
+      expect([t.color, deep.color, t.fontSize]).toEqual([new Color(0, 0, 0, 1), new Color(0, 0, 0, 1), 10]); // the change's frame shows the start
+      step(32);
+      // Half way, as the panel (which has no colour of its own) passes it on, and as a text element's own transition is.
+      expect(t.color!.r).toBeCloseTo(0.7353569, 5);
+      expect(deep.color).toEqual(t.color);
+      expect(t.color).toEqual(lone.color);
+      expect(t.fontSize).toBeCloseTo(15, 5);
+      expect(own.color).toEqual(Color.from("#00ff00")); // its own value, not inherited
+      step(32);
+      expect([t.color, deep.color, t.fontSize]).toEqual([new Color(1, 1, 1, 1), new Color(1, 1, 1, 1), 20]);
     });
 
     it("run on unscaled time: UI still animates while the game is paused", async () => {

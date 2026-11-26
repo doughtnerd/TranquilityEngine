@@ -1,7 +1,7 @@
 // Selector lists for queries (`UIView.query("#play")`, ADR 0419), read without a CSS parser: the
 // cascade's selector grammar (tags, `*`, `#id`, `.class`, `:hover`/`:pressed`/`:focus`/`:disabled`,
 // `:lang()`, `:is()`/`:where()`/`:not()`, the structural pseudo-classes, `:empty`, `:root`, attribute
-// selectors, and the descendant, child and sibling combinators, ADR 0418 wave 5) as the same `Selector`
+// selectors, and the descendant, child and sibling combinators, ADR 0418 wave 5; `:has()` with relative selectors, ADR 0428) as the same `Selector`
 // data the stylesheet parser makes, so games using only Svelte UI can query without loading css-tree.
 // The stylesheet parser reads attribute selectors and the wave 5 pseudo-classes with it too
 // (`parseCompoundText`), so rule data and queries read them alike.
@@ -20,12 +20,13 @@ type Compound = {
   attributes?: UIAttributeSelector[];
   empty?: boolean;
   root?: boolean;
+  has?: Selector[][];
 };
 
 const IDENT = /^-?(?:[A-Za-z_]|[^\x00-\x7f]|\\.)(?:[\w-]|[^\x00-\x7f]|\\.)*/;
 
 /** The pseudo-classes of the cascade, for messages. */
-const SUPPORTED = ":hover, :pressed, :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), :first-of-type, :last-of-type, :only-of-type, :nth-of-type(), :nth-last-of-type(), :empty and :root";
+const SUPPORTED = ":hover, :pressed, :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), :first-of-type, :last-of-type, :only-of-type, :nth-of-type(), :nth-last-of-type(), :empty, :root and :has()";
 
 /**
  * Parse a selector list (`#shop .row > span, button:hover`) into selectors to match. Throws an Error
@@ -56,6 +57,8 @@ interface Reader {
   /** Element names needn't be known UI tags. */
   readonly anyTag?: boolean;
   i: number;
+  /** Inside `:has()`, where another `:has()` isn't supported (ADR 0428). */
+  inHas?: boolean;
 }
 
 function fail(r: Reader, why: string): never {
@@ -87,7 +90,8 @@ function readList(r: Reader): Selector[] {
   }
 }
 
-function readComplex(r: Reader): Selector {
+/** A complex selector; `leading` (ADR 0428): a relative selector's combinator, which its first part carries. */
+function readComplex(r: Reader, leading: Combinator | null = null): Selector {
   skipSpace(r);
   const parts: { selector: SimpleSelector; combinator: Combinator | null }[] = [];
   let combinator: Combinator | null = null;
@@ -97,7 +101,7 @@ function readComplex(r: Reader): Selector {
       if (parts.length === 0 || (combinator !== null && combinator !== " ")) fail(r, "expected a selector");
       break;
     }
-    parts.push({ selector: compound, combinator: parts.length === 0 ? null : (combinator ?? " ") });
+    parts.push({ selector: compound, combinator: parts.length === 0 ? leading : (combinator ?? " ") });
     const spaced = skipSpace(r);
     const c = r.text[r.i];
     if (c === ">" || c === "+" || c === "~") {
@@ -108,8 +112,26 @@ function readComplex(r: Reader): Selector {
     else break;
   }
   const only = parts.length === 1 ? parts[0].selector : null;
-  const root = !!only?.root && !only.tag && !only.id && !only.classes.length && !only.pseudo.length && !only.lang.length && !only.is && !only.not && !only.nth && !only.attributes && !only.empty;
+  const root = !leading && !!only?.root && !only.tag && !only.id && !only.classes.length && !only.pseudo.length && !only.lang.length && !only.is && !only.not && !only.nth && !only.attributes && !only.empty && !only.has;
   return { parts, specificity: selectorSpecificity(parts), root };
+}
+
+/** `:has()`'s argument (ADR 0428): relative selectors, each with an optional leading `>`, `+` or `~` (descendants without). */
+function readRelativeList(r: Reader): Selector[] {
+  const out: Selector[] = [];
+  for (;;) {
+    skipSpace(r);
+    let leading: Combinator = " ";
+    const c = r.text[r.i];
+    if (c === ">" || c === "+" || c === "~") {
+      r.i++;
+      leading = c;
+    }
+    out.push(readComplex(r, leading));
+    skipSpace(r);
+    if (r.text[r.i] !== ",") return out;
+    r.i++;
+  }
 }
 
 /** A compound selector, or null when none starts here. */
@@ -170,6 +192,19 @@ function readPseudo(r: Reader, out: Compound): void {
     const selectors = readList(r);
     close(r, name);
     (out.not ??= []).push(selectors);
+  } else if (name === "has") {
+    if (r.inHas) {
+      r.i = at;
+      fail(r, ":has() inside :has() isn't supported");
+    }
+    open(r, name);
+    r.inHas = true;
+    try {
+      (out.has ??= []).push(readRelativeList(r));
+    } finally {
+      r.inHas = false;
+    }
+    close(r, name);
   } else if (name === "lang") {
     open(r, name);
     skipSpace(r);
