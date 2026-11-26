@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" tiledversion="1.11.0" class="Level" orientation="orthogonal" renderorder="right-down" width="4" height="3" tilewidth="16" tileheight="16" infinite="0" parallaxoriginx="8" parallaxoriginy="4" backgroundcolor="#80112233" nextlayerid="6" nextobjectid="19">
+ <properties>
+  <property name="dark" type="bool" value="true"/>
+  <property name="lives" type="int" value="3"/>
+  <property name="gravity" type="float" value="9.5"/>
+  <property name="sky" type="color" value="#ff336699"/>
+  <property name="music" type="file" value="../audio/theme.ogg"/>
+  <property name="boss" type="object" value="12"/>
+  <property name="spawn" type="class" propertytype="SpawnInfo">
+   <properties>
+    <property name="count" type="int" value="2"/>
+    <property name="kind" value="slime"/>
+   </properties>
+  </property>
+  <property name="note">line one
+line two</property>
+ </properties>
+ <tileset firstgid="1" source="terrain.tsx"/>
+ <tileset firstgid="13" name="props" tilewidth="16" tileheight="32" tilecount="2" columns="0">
+  <grid orientation="orthogonal" width="1" height="1"/>
+  <tile id="0">
+   <image source="../images/barrel.png" width="16" height="32"/>
+  </tile>
+  <tile id="3">
+   <image source="../images/crate.png" width="16" height="16"/>
+  </tile>
+ </tileset>
+ <layer id="1" name="Ground" width="4" height="3" tintcolor="#ff8080">
+  <data encoding="csv">
+1,2,3,4,
+2147483653,1073741830,536870919,0,
+13,0,16,3221225473
+</data>
+ </layer>
+ <group id="2" name="Deco" opacity="0.5" offsetx="4" offsety="-2" parallaxx="0.5" locked="1" tintcolor="#808080">
+  <layer id="3" name="Vines" width="4" height="3" opacity="0.5" visible="0" offsetx="1" parallaxx="0.5" parallaxy="2" tintcolor="#ff0000">
+   <data encoding="csv">
+0,0,0,0,
+0,9,0,0,
+0,0,0,0
+</data>
+  </layer>
+ </group>
+ <objectgroup id="4" name="Things" class="Spawns">
+  <object id="10" name="door" type="Door" x="16" y="8" width="16" height="24" rotation="90"/>
+  <object id="11" name="zone" x="0" y="0" width="32" height="16">
+   <ellipse/>
+  </object>
+  <object id="12" name="boss" class="Enemy" x="40" y="20">
+   <point/>
+  </object>
+  <object id="13" x="2" y="3">
+   <polygon points="0,0 10,0 10,10"/>
+  </object>
+  <object id="14" x="2" y="3" visible="0">
+   <polyline points="0,0 5,5"/>
+  </object>
+  <object id="15" x="1" y="1" width="50" height="10">
+   <text wrap="1">Hello</text>
+  </object>
+  <object id="16" gid="2147483661" x="48" y="48" width="16" height="32"/>
+  <object id="17" template="objects/chest.tx" x="32" y="48">
+   <properties>
+    <property name="loot" value="silver"/>
+   </properties>
+  </object>
+  <object id="18" template="objects/chest.tx" name="Big chest" x="0" y="48"/>
+ </objectgroup>
+ <imagelayer id="5" name="Sky" repeatx="1" parallaxx="0.1" parallaxy="0.1">
+  <image source="../images/sky.png" width="320" height="180"/>
+ </imagelayer>
+</map>

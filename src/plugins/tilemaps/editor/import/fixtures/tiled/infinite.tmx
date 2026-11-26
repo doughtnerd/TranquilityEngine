@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" tiledversion="1.11.0" orientation="orthogonal" renderorder="right-down" width="4" height="4" tilewidth="8" tileheight="8" infinite="1" nextlayerid="2" nextobjectid="1">
+ <tileset firstgid="1" name="mini" tilewidth="8" tileheight="8" tilecount="4" columns="2">
+  <image source="mini.png" width="16" height="16"/>
+ </tileset>
+ <layer id="1" name="Endless" width="4" height="4" startx="-2" starty="-2">
+  <data encoding="csv">
+   <chunk x="-2" y="0" width="2" height="2">
+1,0,
+0,2
+</chunk>
+   <chunk x="0" y="-2" width="2" height="2">
+0,3,
+4,0
+</chunk>
+  </data>
+ </layer>
+</map>
