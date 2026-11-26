@@ -25,7 +25,8 @@ import type { TriggerSpec } from "../input/contextTypes";
 import { addContextSource, defineInputContext } from "../input/contexts";
 import { takesLocalInput } from "../input/deviceEntities";
 import { playerNodes, InputPlayer } from "../input/players";
-import { UIButton, UICanvas, UIInputField, type UIFocusableElement } from "./components";
+import { UIButton, UICanvas, UIInputField, UIOption, UIPanel, UIRadio, UISelect, UISlider, isFocusableUI, type UIFocusableElement } from "./components";
+import { activateControl, checkRadio, controlChanged, optionsOf, radioGroup, reconcileSelect, selectOf, setSelectOpen, sliderValue } from "./formControls";
 import { uiInteractions, type UIInteractions, type UILayoutSource } from "./interactions";
 import type { UILaidOutElement } from "./uiCoreTypes";
 import type { UIRect } from "./layout";
@@ -97,10 +98,10 @@ defineInputContext({
 /** True for a button or input field that can take focus now (layout aside): focusable, active, enabled, shown, and (buttons) interactable. */
 function canFocus(c: UIFocusableElement): boolean {
   if (!c.node.isValid || !c.focusable || !c.isActiveAndEnabled || c.display === "none") return false;
-  return !(c instanceof UIButton) || c.interactable;
+  return c.interactable;
 }
 
-const isFocusableComp = (c: unknown): c is UIFocusableElement => c instanceof UIButton || c instanceof UIInputField;
+const isFocusableComp = isFocusableUI;
 
 /** The UICanvas above an element's node. */
 function canvasAbove(node: GameObject): UICanvas | null {
@@ -114,7 +115,8 @@ function canvasAbove(node: GameObject): UICanvas | null {
 /** The focusable component on a node, or null. */
 function focusableOn(node: GameObject | null): UIFocusableElement | null {
   if (!node?.isValid) return null;
-  return node.getComponent(UIButton) ?? node.getComponent(UIInputField);
+  const c = node.getComponent(UIPanel);
+  return isFocusableUI(c) ? c : null;
 }
 
 /** The last layout, indexed: what navigation searches. */
@@ -309,16 +311,30 @@ function run(world: World): void {
     if (r === "cancel") log.setTyping(false);
     else step(log, layout, canvas, r === "next" ? 1 : -1);
   }
-  if (act.navigate) move(log, layout, canvas, direction(act.navigate));
-  if (act.next) step(log, layout, canvas, 1);
-  if (act.previous) step(log, layout, canvas, -1);
+  // ADR 0424: a focused control takes the arrows it uses (a slider's and a radio group's left and right, an open select's
+  // list); Tab and Shift+Tab stay within an open select's list.
+  if (act.navigate && !controlTakes(world, log, direction(act.navigate))) move(log, layout, canvas, direction(act.navigate));
+  if (act.next && !listStep(log, 1)) step(log, layout, canvas, 1);
+  if (act.previous && !listStep(log, -1)) step(log, layout, canvas, -1);
   const target = log.focused;
   if (act.submit && target) {
-    if (target instanceof UIButton) log.publishNow("click", target);
-    else if (!log.isTyping(target)) log.setTyping(true);
+    // ADR 0424: `submit` clicks any control but a field (a field starts typing); the click's default action activates it.
+    if (!(target instanceof UIInputField)) {
+      log.publishNow("click", target, (prevented) => {
+        if (prevented) return;
+        activateControl(world, target);
+        // A select opened from the keyboard puts focus on its chosen option, for the arrows.
+        if (target instanceof UISelect && target.open) {
+          const first = reconcileSelect(target)[0] ?? optionsOf(target).find((o) => o.interactable);
+          if (first) log.focus(first, "script");
+        }
+      });
+    } else if (!log.isTyping(target)) log.setTyping(true);
   }
   if (act.cancel && target) {
     if (target instanceof UIInputField && log.isTyping(target)) log.setTyping(false);
+    else if (target instanceof UIOption && selectOf(target)?.open) setSelectOpen(selectOf(target)!, false);
+    else if (target instanceof UISelect && target.open) setSelectOpen(target, false);
     else {
       const on = layout.canvasOf(target);
       if (on) log.publishNow("cancel", on);
@@ -326,6 +342,54 @@ function run(world: World): void {
   }
   // ADR 0423: what navigation focused shows: its scrolling ancestors scroll it into view.
   if (target && target !== before) uiScrollIntoView(world, target, { block: "nearest", inline: "nearest" });
+}
+
+/**
+ * ADR 0424: `navigate` on a focused control that uses the arrows: an option in an open select's list moves up and down
+ * the list (left and right do nothing there); a slider steps left and right; a named radio checks the previous or next
+ * of its group left and right. Up and down leave a slider or radio, so a gamepad never gets stuck. Returns whether the
+ * control took it.
+ */
+function controlTakes(world: World, log: UIInteractions, dir: Direction): boolean {
+  const c = log.focused;
+  if (c instanceof UIOption && selectOf(c)?.open) {
+    if (dir === "up" || dir === "down") listStep(log, dir === "down" ? 1 : -1);
+    return true;
+  }
+  if (dir !== "left" && dir !== "right") return false;
+  const sign = dir === "right" ? 1 : -1;
+  if (c instanceof UISlider) {
+    if (!c.interactable) return true;
+    const step = Number.isFinite(c.step) && c.step > 0 ? c.step : (c.max - c.min) / 100;
+    const v = sliderValue(c, c.value + sign * step);
+    if (v !== c.value) {
+      c.value = v;
+      controlChanged(world, c);
+    }
+    return true;
+  }
+  if (c instanceof UIRadio && c.name) {
+    const group = radioGroup(c).filter((r) => r.interactable && r.focusable && r.isActiveAndEnabled && r.display !== "none");
+    const i = group.indexOf(c);
+    if (group.length < 2 || i < 0) return true;
+    const next = group[(i + sign + group.length) % group.length];
+    log.focus(next, "navigation");
+    if (checkRadio(next)) controlChanged(world, next);
+    return true;
+  }
+  return false;
+}
+
+/** ADR 0424: with focus on an option in an open select's list, move it to the next or previous enabled option (not past the ends). Returns whether it was there. */
+function listStep(log: UIInteractions, delta: 1 | -1): boolean {
+  const c = log.focused;
+  const select = c instanceof UIOption ? selectOf(c) : null;
+  if (!select?.open) return false;
+  const options = optionsOf(select).filter((o) => o.interactable && o.isActiveAndEnabled);
+  const i = options.indexOf(c as UIOption);
+  const next = options[Math.min(options.length - 1, Math.max(0, i + delta))];
+  if (next && next !== c) log.focus(next, "navigation");
+  return true;
 }
 
 /** A `navigate` value's direction: its larger axis (+Y up). */

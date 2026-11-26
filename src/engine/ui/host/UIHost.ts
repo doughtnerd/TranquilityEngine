@@ -32,10 +32,10 @@ import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import { Locale } from "../../localisation/Locale";
 import { UIButton, UICanvas, UIInputField, UIText, type UIComponentType } from "../components";
-import { uiPseudoState, uiTypeOfTag } from "../elementKinds";
+import { samePseudoState, uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
-import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudo, UIStylesheet, UITag } from "../document/types";
+import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudo, UIPseudoState, UIStylesheet, UITag } from "../document/types";
 import type { UIAnimationSpec, UITransitionSpec } from "../document/animationValues";
 import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimator, type UIAnimationEvent, type UIAnimationStop, type UIPlayback, type UIPlayHooks, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "../animation/UIAnimator";
 import { addUIEventFrontEnd, addUIListener, propagate, removeUIListener, runUIListeners, uiEventBubbles, uiEventCancelable, UIEventBase, uiListenerOptions, type UIEventRecord, type UIListener } from "../events";
@@ -147,7 +147,9 @@ export type UIHostEventType =
   // ADR 0422: the DOM's pointer, keyboard, focus and drag events; ADR 0423: scrolling.
   | "dblclick" | "contextmenu" | "pointerdown" | "pointerup" | "pointermove" | "pointerover" | "pointerout" | "pointercancel"
   | "wheel" | "keydown" | "keyup" | "focusin" | "focusout" | "scroll" | "scrollend"
-  | "dragstart" | "drag" | "dragenter" | "dragover" | "dragleave" | "drop" | "dragend";
+  | "dragstart" | "drag" | "dragenter" | "dragover" | "dragleave" | "drop" | "dragend"
+  // ADR 0424: a form's reset.
+  | "reset";
 
 /**
  * A UI event on a hosted element (ADR 0419): what an `onclick`, `oninput`… handler gets. ADR 0422: the DOM's
@@ -214,7 +216,7 @@ export interface UIHostSource {
 interface MutableTarget extends StyleTarget {
   id: string | null;
   classes: string[];
-  state: Record<UIPseudo, boolean>;
+  state: UIPseudoState;
   parent: MutableTarget | null;
   lang: string;
   media: UIMediaEnvironment | null;
@@ -939,11 +941,20 @@ export class UIHostTree {
       case "cancel":
         return;
       case "change":
+        // A field's typing is `input`, and `change` once committed; another control's change (ADR 0424) is itself.
+        if (!field) {
+          types.push("change");
+          break;
+        }
         el._edited = true;
         types.push("input");
         break;
       case "submit":
-        if (!field || !uiInteractions(this.world).happened(field, "submit")) return; // its Enter was prevented
+        if (!field) {
+          types.push("submit"); // ADR 0424: a form's
+          break;
+        }
+        if (!uiInteractions(this.world).happened(field, "submit")) return; // its Enter was prevented
         // As on the web, `change` fires when an edit is committed: Enter, or focus leaving the field.
         if (el._edited) types.push("change");
         el._edited = false;
@@ -1018,7 +1029,7 @@ export class UIHostTree {
     walk(this.root, (el) => {
       const state = uiPseudoState(el._comp);
       const s = el._target.state;
-      if (state.hover !== s.hover || state.pressed !== s.pressed || state.focus !== s.focus || state.disabled !== s.disabled) {
+      if (!samePseudoState(state, s)) {
         el._target.state = state;
         if (sheetsUsePseudo) this.dirty.add(el);
       }

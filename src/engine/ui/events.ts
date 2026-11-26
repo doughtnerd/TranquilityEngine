@@ -45,6 +45,7 @@ const RULES: Readonly<Record<string, readonly [bubbles: boolean, cancelable: boo
   input: [true, false],
   change: [true, false],
   submit: [true, true],
+  reset: [true, true],
   focus: [false, false],
   blur: [false, false],
   focusin: [true, false],
@@ -373,22 +374,45 @@ export function addUIEventFrontEnd(frontEnd: UIEventFrontEnd): () => void {
 /** Dispatch `world`'s UI events of this frame not yet dispatched, in order, each followed by its default action. */
 export function dispatchUIEvents(world: World): void {
   const log = uiInteractions(world);
-  for (let r = log.nextRecord(); r; r = log.nextRecord()) {
-    if (r.target) {
-      for (const fe of frontEnds) {
-        try {
-          if (fe(r)) break;
-        } catch (err) {
-          console.error(`[myco] dispatching a UI "${r.type}" event failed:`, err);
-        }
+  dispatching.add(world);
+  try {
+    for (let r = log.nextRecord(); r; r = log.nextRecord()) dispatchRecord(r);
+  } finally {
+    dispatching.delete(world);
+    dispatchedFrame.set(world, world.time.frameCount);
+  }
+}
+
+/** Worlds dispatching their frame's events now, and the frame each last dispatched. */
+const dispatching = new Set<World>();
+const dispatchedFrame = new WeakMap<World, number>();
+
+/** One record to its front end, then its default action. */
+function dispatchRecord(r: UIEventRecord): void {
+  if (r.target) {
+    for (const fe of frontEnds) {
+      try {
+        if (fe(r)) break;
+      } catch (err) {
+        console.error(`[myco] dispatching a UI "${r.type}" event failed:`, err);
       }
     }
-    try {
-      r.after?.(r.prevented);
-    } catch (err) {
-      console.error(`[myco] the default action of a UI "${r.type}" event failed:`, err);
-    }
   }
+  try {
+    r.after?.(r.prevented);
+  } catch (err) {
+    console.error(`[myco] the default action of a UI "${r.type}" event failed:`, err);
+  }
+}
+
+/**
+ * ADR 0424: send an event a default action or a script makes (a checkbox's `change`, a form's `submit`): at once while
+ * the frame's events are being dispatched or once they were this frame (a script in `update`, or outside a frame), as
+ * the DOM dispatches them; before that (navigation, in the input phase) with the frame's events.
+ */
+export function fireUIEvent(world: World, record: UIEventRecord): void {
+  if (dispatching.has(world) || dispatchedFrame.get(world) === world.time.frameCount) dispatchRecord(record);
+  else uiInteractions(world).emit(record);
 }
 
 // --- Keys ----------------------------------------------------------------------------------------

@@ -47,7 +47,7 @@ import { linearLength, resolveMath } from "./cssMath";
 
 export const UI_TAGS: ReadonlySet<string> = UI_KIND_TAGS;
 /** The pseudo-classes UI elements have. */
-export const PSEUDO: ReadonlySet<string> = new Set<UIPseudo>(["hover", "pressed", "focus", "disabled"]);
+export const PSEUDO: ReadonlySet<string> = new Set<UIPseudo>(["hover", "pressed", "focus", "disabled", "checked", "indeterminate", "placeholder-shown"]);
 /** Text fields children inherit, as on the web (camelCase field names). */
 export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign", "textOutlineColor", "textOutlineWidth", "textShadowColor", "textShadowOffsetX", "textShadowOffsetY", "textShadowBlur"]);
 /** String fields that hold a `UILength`. */

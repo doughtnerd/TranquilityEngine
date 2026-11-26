@@ -15,8 +15,9 @@
  * Renderer-neutral and nothing here is public API (ADR 0010).
  */
 import { Locale } from "../localisation/Locale";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType, type UIOverflow, type UITextAlign, type UIWordBreak } from "./components";
-import type { UIPseudo, UITag } from "./document/types";
+import { UIButton, UICanvas, UIForm, UIImage, UIInputField, UILabel, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UIText, UITextArea, UIToggle, type UIComponentType, type UIOverflow, type UITextAlign, type UIWordBreak } from "./components";
+import { selectLabel } from "./formControls";
+import type { UIPseudo, UIPseudoState, UITag } from "./document/types";
 import { fontFamilyOf } from "./fonts";
 import { uiBorderEdges } from "./layout";
 import type { UIKind, UITextRun, UITextWrap } from "./uiCoreTypes";
@@ -55,8 +56,20 @@ const panelIsGraphic = (c: UIPanel): boolean => c.backgroundColor !== null || ha
 const always = () => true;
 
 /** The kinds, subclasses before the classes they extend (the first whose type matches wins). */
+const fieldPseudo = (c: UIInputField) => ({ focus: c.focused, disabled: !c.interactable, "placeholder-shown": c.placeholder !== "" && c.value === "" });
+/** ADR 0424: a form control's own look (a checkbox's mark, a slider's thumb, a bar's fill) is always drawn. */
+const control = <C extends UIComponentType>(kind: UIKind, type: abstract new () => C, tag: UITag, pseudo: (c: C) => Partial<Record<UIPseudo, boolean>>, leaf = true, interactive = true): KindSpec =>
+  ({ kind, type, tag, leaf, interactive, flexShrink: 0, pseudo, paints: always, graphic: always }) as KindSpec<C> as KindSpec;
+
 const KINDS: readonly KindSpec[] = [
   { kind: "canvas", type: UICanvas, tag: "Canvas", leaf: false, interactive: false, flexShrink: 0, paints: () => false, graphic: () => false },
+  // ADR 0424: an option is a button in its select's list; it's checked while chosen.
+  {
+    kind: "option", type: UIOption, tag: "Option", leaf: false, interactive: true, flexShrink: 0,
+    pseudo: (c: UIOption) => ({ hover: c.hovered, pressed: c.pressed, focus: c.focused, disabled: !c.interactable, checked: c.selected }),
+    paints: panelPaints,
+    graphic: always,
+  } as KindSpec<UIOption> as KindSpec,
   {
     kind: "button", type: UIButton, tag: "Button", leaf: false, interactive: true, flexShrink: 0,
     pseudo: (c: UIButton) => ({ hover: c.hovered, pressed: c.pressed, disabled: !c.interactable }),
@@ -64,11 +77,27 @@ const KINDS: readonly KindSpec[] = [
     graphic: always,
   } as KindSpec<UIButton> as KindSpec,
   {
+    kind: "textarea", type: UITextArea, tag: "TextArea", leaf: true, interactive: true, flexShrink: 0,
+    pseudo: fieldPseudo,
+    paints: (c: UITextArea) => panelPaints(c) || textRunOf(c)!.text !== "",
+    graphic: always,
+  } as KindSpec<UITextArea> as KindSpec,
+  {
     kind: "input", type: UIInputField, tag: "InputField", leaf: true, interactive: true, flexShrink: 0,
-    pseudo: (c: UIInputField) => ({ focus: c.focused }),
+    pseudo: fieldPseudo,
     paints: (c: UIInputField) => panelPaints(c) || textRunOf(c)!.text !== "",
     graphic: always,
   } as KindSpec<UIInputField> as KindSpec,
+  // ADR 0424: form elements. A select isn't a leaf: its options are its children (laid out in its list, not in it).
+  control("toggle", UIToggle, "Toggle", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked, indeterminate: c.indeterminate })),
+  control("radio", UIRadio, "Radio", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked })),
+  control("slider", UISlider, "Slider", (c) => ({ focus: c.focused, disabled: !c.interactable })),
+  control("select", UISelect, "Select", (c) => ({ focus: c.focused, disabled: !c.interactable }), false),
+  control("progress", UIProgress, "Progress", (c) => ({ indeterminate: c.value === null || !Number.isFinite(c.value) }), true, false),
+  control("meter", UIMeter, "Meter", () => ({}), true, false),
+  // A label's whole box takes a click (which goes to its control); a form is a panel.
+  { kind: "label", type: UILabel, tag: "Label", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: always } as KindSpec<UILabel> as KindSpec,
+  { kind: "form", type: UIForm, tag: "Form", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIForm> as KindSpec,
   { kind: "text", type: UIText, tag: "Text", leaf: true, interactive: false, flexShrink: 1, paints: (c: UIText) => textRunOf(c)!.text.trim() !== "", graphic: always } as KindSpec<UIText> as KindSpec,
   { kind: "image", type: UIImage, tag: "Image", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIImage) => c.image !== "", graphic: always } as KindSpec<UIImage> as KindSpec,
   { kind: "panel", type: UIPanel, tag: "Panel", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIPanel> as KindSpec,
@@ -116,7 +145,21 @@ export function flexShrinkOf(kind: UIKind): number {
 /** The pseudo-classes (`:hover`, `:pressed`, `:focus`, `:disabled`) an element is in now. */
 export function uiPseudoState(c: UIComponentType): Record<UIPseudo, boolean> {
   const own = specOf(c).pseudo?.(c) ?? {};
-  return { hover: own.hover ?? false, pressed: own.pressed ?? false, focus: own.focus ?? false, disabled: !c.enabled || (own.disabled ?? false) };
+  return {
+    hover: own.hover ?? false,
+    pressed: own.pressed ?? false,
+    focus: own.focus ?? false,
+    disabled: !c.enabled || (own.disabled ?? false),
+    // ADR 0424.
+    checked: own.checked ?? false,
+    indeterminate: own.indeterminate ?? false,
+    "placeholder-shown": own["placeholder-shown"] ?? false,
+  };
+}
+
+/** True when two pseudo-class states are the same. */
+export function samePseudoState(a: Readonly<UIPseudoState>, b: Readonly<UIPseudoState>): boolean {
+  return a.hover === b.hover && a.pressed === b.pressed && a.focus === b.focus && a.disabled === b.disabled && !!a.checked === !!b.checked && !!a.indeterminate === !!b.indeterminate && !!a["placeholder-shown"] === !!b["placeholder-shown"];
 }
 
 /** True when the element draws something of its own: a fill, border, text or image (nothing at zero opacity; a canvas never). */
@@ -167,9 +210,21 @@ function textAlignEdge(align: UITextAlign, direction: "ltr" | "rtl"): UITextRun[
  * while empty) on one line. Null for kinds without text. A fresh object each call.
  */
 export function textRunOf(c: UIComponentType): UITextRun | null {
+  if (c instanceof UITextArea) {
+    // ADR 0424: lines as typed, wrapped at its width unless `wrap` is `off`; a password-like mask doesn't apply.
+    const direction = Locale.direction;
+    return { text: c.value || c.placeholder, fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: c.wrap === "off" ? "none" : "word", direction, align: textAlignEdge("start", direction) };
+  }
+  if (c instanceof UISelect) {
+    // ADR 0424: the chosen option's label, on one line.
+    const direction = Locale.direction;
+    return { text: selectLabel(c).replace(/[\r\n]/g, " "), fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: "none", direction, align: textAlignEdge("start", direction) };
+  }
   if (c instanceof UIInputField) {
     // One line: a line break a script put in the value shows as a space (one for one, so caret indices still match).
-    const text = (c.value || c.placeholder).replace(/[\r\n]/g, " ");
+    // ADR 0424: a password's characters show as dots (one each, so caret indices still match).
+    const shown = c.value && c.type === "password" ? "•".repeat(c.value.length) : c.value;
+    const text = (shown || c.placeholder).replace(/[\r\n]/g, " ");
     // Drawn from the language's start edge (ADR 0356 §5).
     const direction = Locale.direction;
     return { text, fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: "none", direction, align: textAlignEdge("start", direction) };

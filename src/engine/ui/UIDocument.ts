@@ -28,11 +28,11 @@ import type { World } from "../core/World";
 import { Assets, normalizeAssetPath } from "../scene/Assets";
 import { projectFileKind } from "../scene/projectFiles";
 import type { GameObject } from "../scene/GameObject";
-import { UIButton, UICanvas, UIInputField, UIText, type UIComponentType } from "./components";
-import { uiPseudoState, uiTypeOfTag } from "./elementKinds";
+import { UIButton, UICanvas, UIForm, UIInputField, UIText, isFocusableUI, type UIComponentType, type UIFocusableElement } from "./components";
+import { samePseudoState, uiPseudoState, uiTypeOfTag } from "./elementKinds";
 import { uiInteractions, type UIInteractionType } from "./interactions";
 import { childPaths, labelPath } from "./documentSource";
-import type { BindingPart, MarkupAttribute, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIMediaEnvironment, UIPseudo, UIStylesheet, UITag } from "./document/types";
+import type { BindingPart, MarkupAttribute, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIMediaEnvironment, UIPseudo, UIPseudoState, UIStylesheet, UITag } from "./document/types";
 import { Locale, localeMessageNames, type MessageArg } from "../localisation/Locale";
 import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimationReady, uiAnimator, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "./animation/UIAnimator";
 import { addUIEventFrontEnd, addUIListener, dispatchUIEvents, propagate, removeUIListener, runUIListeners, uiEventBubbles, uiEventCancelable, UIEventBase, uiListenerOptions, type UIDataTransfer, type UIEventRecord, type UIListener } from "./events";
@@ -72,7 +72,9 @@ export type UIEventType =
   // ADR 0422: the DOM's pointer, keyboard, focus and drag events; ADR 0423: scrolling.
   | "dblclick" | "contextmenu" | "pointerdown" | "pointerup" | "pointermove" | "pointerover" | "pointerout" | "pointerenter" | "pointerleave" | "pointercancel"
   | "wheel" | "keydown" | "keyup" | "focusin" | "focusout" | "scroll" | "scrollend"
-  | "dragstart" | "drag" | "dragenter" | "dragover" | "dragleave" | "drop" | "dragend";
+  | "dragstart" | "drag" | "dragenter" | "dragover" | "dragleave" | "drop" | "dragend"
+  // ADR 0424: form controls' value changes (`input` as they change, `change` once done) and a form's `reset`.
+  | "input" | "reset";
 
 /**
  * One UI event of the frame. ADR 0422: it travels through the target's ancestors in the document as a DOM event does
@@ -263,7 +265,7 @@ interface Binding {
 interface MutableTarget extends StyleTarget {
   readonly tag: UITag;
   classes: string[];
-  state: Record<UIPseudo, boolean>;
+  state: UIPseudoState;
   parent: MutableTarget | null;
   lang: string;
   media: UIMediaEnvironment | null;
@@ -958,7 +960,7 @@ export class UIDocument extends Component {
     for (const a of markup.attributes) {
       const keyField = P.keyAttributeField(a);
       if (keyField !== null) {
-        if (markup.tag === "Button" && keyField === "text") {
+        if (LABELLED_TAGS.has(markup.tag) && keyField === "text") {
           labelKey = a;
           continue;
         }
@@ -973,7 +975,7 @@ export class UIDocument extends Component {
       if (info) el._bindings.push({ field: name, info, parts: P.parseBindings(a.value), last: undefined, written: false });
       else warn(`${markup.file}: <${markup.tag}> has no field "${a.name}".`);
     }
-    const textField = markup.tag === "Text" ? "text" : markup.tag === "InputField" ? "value" : null;
+    const textField = markup.tag === "Text" ? "text" : markup.tag === "InputField" || markup.tag === "TextArea" ? "value" : null;
     if (textField && markup.text !== null) {
       // With a key attribute on the same field, the content shows only while the key resolves nowhere.
       const keyed = el._bindings.find((b) => b.key && b.field === textField);
@@ -983,8 +985,8 @@ export class UIDocument extends Component {
 
     this.restyle(el);
 
-    // A button's text content (or its `t:text`) is its label: a Text child.
-    if (markup.tag === "Button" && (markup.text !== null || labelKey)) {
+    // A button's text content (or its `t:text`) is its label: a Text child (ADR 0424: an option's and a label's too).
+    if (LABELLED_TAGS.has(markup.tag) && (markup.text !== null || labelKey)) {
       const label: MarkupElement = { kind: "element", tag: "Text", attributes: labelKey ? [labelKey] : [], children: [], text: markup.text, template: null, span: markup.span, openTagSpan: markup.openTagSpan, file: markup.file };
       const child = this.build(label, el, null, reuse, labelPath(path));
       child._synthetic = true;
@@ -1240,9 +1242,10 @@ export class UIDocument extends Component {
     walk(root, (el) => {
       if (!el._alive) return;
       const c = el._comp;
-      const types: readonly UIInteractionType[] = c instanceof UIButton ? BUTTON_EVENTS : c instanceof UIInputField ? FIELD_EVENTS : [];
+      // ADR 0424: other controls report focus and changes, forms their submits.
+      const types: readonly UIInteractionType[] = c instanceof UIButton ? BUTTON_EVENTS : c instanceof UIInputField ? FIELD_EVENTS : isFocusableUI(c) ? CONTROL_EVENTS : c instanceof UIForm ? FORM_EVENTS : [];
       for (const type of types) {
-        if (type === "click" ? (c as UIButton).clicked : log.happened(c as UIButton | UIInputField, type)) events.push(new UIDocumentEvent(type as UIEventType, el, this, null));
+        if (type === "click" ? (c as UIButton).clicked : log.happened(c as UIFocusableElement | UIForm, type)) events.push(new UIDocumentEvent(type as UIEventType, el, this, null));
       }
     });
     if (events.length) world._buffer(UIEvents).push(...events);
@@ -1327,7 +1330,7 @@ export class UIDocument extends Component {
     walk(root, (el) => {
       const state = uiPseudoState(el._comp);
       const s = el._target.state;
-      if (state.hover !== s.hover || state.pressed !== s.pressed || state.focus !== s.focus || state.disabled !== s.disabled) {
+      if (!samePseudoState(state, s)) {
         el._target.state = state;
         if (this.pseudo) this._styleDirty.add(el);
       }
@@ -1369,10 +1372,14 @@ export class UIDocument extends Component {
 
 /** The events each kind can have, in the order a frame's are reported. */
 const BUTTON_EVENTS: readonly UIInteractionType[] = ["blur", "focus", "click", "hover"];
+/** Elements whose text content is a label made for them, a Text child: buttons, and (ADR 0424) options and labels. */
+const LABELLED_TAGS: ReadonlySet<string> = new Set(["Button", "Option", "Label"]);
 const FIELD_EVENTS: readonly UIInteractionType[] = ["blur", "focus", "change", "submit"];
+const CONTROL_EVENTS: readonly UIInteractionType[] = ["blur", "focus", "change"];
+const FORM_EVENTS: readonly UIInteractionType[] = ["submit"];
 
 /** Run `fn` with the target in another pseudo-class state for a moment: the target itself, which its siblings know it by. */
-function withState<T>(target: MutableTarget, state: Record<UIPseudo, boolean>, fn: () => T): T {
+function withState<T>(target: MutableTarget, state: UIPseudoState, fn: () => T): T {
   const saved = target.state;
   target.state = state;
   try {

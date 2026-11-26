@@ -22,7 +22,9 @@ export interface SourceProblem {
 // --- Markup (`*.ui.xml`) ------------------------------------------------------------------------
 
 /** Element names and the UI components they make (ADR 0069 components). */
-export type UITag = "Canvas" | "Panel" | "Text" | "Image" | "Button" | "InputField";
+export type UITag = "Canvas" | "Panel" | "Text" | "Image" | "Button" | "InputField"
+  // ADR 0424: form elements.
+  | "TextArea" | "Toggle" | "Radio" | "Slider" | "Select" | "Option" | "Progress" | "Meter" | "Label" | "Form";
 
 export interface MarkupAttribute {
   /** As written: a field (`fontSize`), `id`, `class`, `translate`, or a key binding `t:<field>` (ADR 0356 §4). */
@@ -132,7 +134,9 @@ export interface UIAttributeSelector {
   readonly insensitive?: boolean;
 }
 
-export type UIPseudo = "hover" | "pressed" | "focus" | "disabled";
+export type UIPseudo = "hover" | "pressed" | "focus" | "disabled" | "checked" | "indeterminate" | "placeholder-shown";
+/** An element's pseudo-class state: the first four always, ADR 0424's form states where the element has them (absent: false). */
+export type UIPseudoState = Record<"hover" | "pressed" | "focus" | "disabled", boolean> & Partial<Record<"checked" | "indeterminate" | "placeholder-shown", boolean>>;
 
 /** How a compound joins the one on its left: descendant, child, next sibling or any later sibling (ADR 0418 wave 5). */
 export type Combinator = " " | ">" | "+" | "~";
@@ -224,7 +228,7 @@ export interface StyleTarget {
   readonly tag: string;
   readonly id: string | null;
   readonly classes: readonly string[];
-  readonly state: Readonly<Record<UIPseudo, boolean>>;
+  readonly state: Readonly<UIPseudoState>;
   readonly parent: StyleTarget | null;
   /** The current text language (ADR 0356 §4), for `:lang()`; absent: no `:lang()` rule matches. */
   readonly lang?: string;

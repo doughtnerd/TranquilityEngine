@@ -41,7 +41,11 @@ function createTree(scene: OpenScene, place: InsertPlace): MenuItem[] {
   return nodeCreateTree((k, label) => ({ label, disabled: whyNotInsert(scene, { kind: "new", node: k.kind }, place), run: () => void createNodeAt(k.kind, place) }));
 }
 
-const ELEMENT_LABELS: Readonly<Record<keyof typeof NEW_ELEMENTS, string>> = { Panel: "Panel", Text: "Text", Image: "Image", Button: "Button", InputField: "Input Field" };
+const ELEMENT_LABELS: Readonly<Record<keyof typeof NEW_ELEMENTS, string>> = {
+  Panel: "Panel", Text: "Text", Image: "Image", Button: "Button", InputField: "Input Field",
+  // ADR 0424: form elements.
+  TextArea: "Text Area", Toggle: "Checkbox", Radio: "Radio Button", Slider: "Slider", Select: "Drop-down", Option: "Option", Progress: "Progress Bar", Meter: "Meter", Label: "Label", Form: "Form",
+};
 
 /** A submenu `label` of UI document elements (ADR 0077) to add into `at` (an element, or a document's root), sorted. */
 function uiElementSubmenu(label: string, at: UIElementRef | { host: string; index: number }): MenuItem {

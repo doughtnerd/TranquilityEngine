@@ -16,13 +16,13 @@
  * moved by a press). `dispatchUIEvents` takes them with `nextRecord`.
  */
 import type { World } from "../core/World";
-import type { UIButton, UICanvas, UIFocusableElement, UIInputField } from "./components";
+import type { UIButton, UICanvas, UIFocusableElement, UIForm, UIInputField } from "./components";
 import type { UILaidOutCanvas, UILaidOutElement } from "./uiCoreTypes";
 import type { UIEventRecord } from "./events";
 
 export type UIInteractionType = "click" | "change" | "submit" | "hover" | "focus" | "blur" | "cancel";
 
-type Target = UIFocusableElement | UICanvas;
+type Target = UIFocusableElement | UICanvas | UIForm;
 
 /**
  * Who moved focus: a script (no events, ADR 0309), the pointer (events next frame), navigation (events this frame), or
@@ -77,7 +77,7 @@ export class UIInteractions {
   // --- Recording: the UI core -------------------------------------------------------------------
 
   /** The player changed a field's value or pressed Enter in it, between frames. */
-  record(type: "change" | "submit", field: UIInputField): void {
+  record(type: "change" | "submit", field: UIFocusableElement): void {
     this.pending.push({ type, target: field });
   }
 
@@ -137,9 +137,9 @@ export class UIInteractions {
   }
 
   /** Navigation: an event of the World's current frame (its input phase, before any script). */
-  publishNow(type: UIInteractionType, target: Target): void {
+  publishNow(type: UIInteractionType, target: Target, after?: (prevented: boolean) => void): void {
     this.stamp(this.world.time.frameCount);
-    this.add(type, target);
+    this.add(type, target, true, null, after);
   }
 
   private stamp(frame: number): void {
@@ -151,12 +151,20 @@ export class UIInteractions {
   }
 
   /** Publish a polled event; with `record`, its event record too (ADR 0422), the type's DOM rules decided by the front ends. */
-  private add(type: UIInteractionType, target: Target, record = true, related: Target | null = null): void {
+  private add(type: UIInteractionType, target: Target, record = true, related: Target | null = null, after?: (prevented: boolean) => void): void {
     const types = this.published.get(target);
     if (types) types.add(type);
     else this.published.set(target, new Set([type]));
     if (!record) return;
-    this.records.push({ type, target, bubbles: false, cancelable: false, data: related ? { related } : {}, prevented: false });
+    // ADR 0424: a click navigation sends can be cancelled (its default action activates the control).
+    const cancelable = type === "click" && !!after;
+    this.records.push({ type, target, bubbles: false, cancelable, data: related ? { related } : {}, prevented: false, after });
+  }
+
+  /** ADR 0424: a polled event of the World's current frame without a record (a control's `change`, a form's `submit`: their records are sent apart). */
+  publishPolled(type: UIInteractionType, target: Target): void {
+    this.stamp(this.world.time.frameCount);
+    this.add(type, target, false);
   }
 
   /** The World doesn't take the pointer now (not interactive, or no local input): nothing hovered or pressed, nothing recorded. */

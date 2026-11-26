@@ -517,10 +517,21 @@ export const NEW_ELEMENTS: Readonly<Record<Exclude<UITag, "Canvas">, string>> = 
   Image: `<Image width="100" height="100"/>`,
   Button: `<Button width="160" height="40">Button</Button>`,
   InputField: `<InputField placeholder="Enter text…"/>`,
+  // ADR 0424: form elements.
+  TextArea: `<TextArea placeholder="Enter text…"/>`,
+  Toggle: `<Toggle/>`,
+  Radio: `<Radio name="choice"/>`,
+  Slider: `<Slider/>`,
+  Select: `<Select><Option>One</Option><Option>Two</Option></Select>`,
+  Option: `<Option>Option</Option>`,
+  Progress: `<Progress value="0.5"/>`,
+  Meter: `<Meter value="0.5"/>`,
+  Label: `<Label>Label</Label>`,
+  Form: `<Form/>`,
 };
 
 /** Elements that hold other elements when you create into them; into anything else, new elements go after it. */
-const CONTAINERS: ReadonlySet<string> = new Set(["Canvas", "Panel"]);
+const CONTAINERS: ReadonlySet<string> = new Set(["Canvas", "Panel", "Select", "Label", "Form"]);
 
 /**
  * Add a new element into a document, as one undo step, and select it: into the element `at` names

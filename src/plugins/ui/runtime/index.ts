@@ -4,14 +4,14 @@
 // overlays and input routing use the core. `myco` (`src/myco.ts`) exports the public parts from here.
 // Runtime code: never imports from `src/editor/` or Babylon (the feature's code loads on demand).
 import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
-import { isUIComponent, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../../../engine/ui/components";
+import { isUIComponent, UIButton, UICanvas, UIForm, UIImage, UIInputField, UILabel, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UIText, UITextArea, UIToggle } from "../../../engine/ui/components";
 import { UIDocument } from "../../../engine/ui/UIDocument";
 import { UIControlMapper } from "../../../engine/ui/controlMapper";
 import { UIView } from "./UIView";
 import type { RuntimePlugin } from "../../runtimeContext";
 import { uiManifest } from "../manifest";
 
-export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UINavigationMode, type UIPositionType, type UITextAlign, type UIWordBreak } from "../../../engine/ui/components";
+export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm, type UIButtonType, type UIInputType, type UITextAreaWrap, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UINavigationMode, type UIPositionType, type UITextAlign, type UIWordBreak } from "../../../engine/ui/components";
 export { UIActions, UI_CONTEXT_PRIORITY } from "../../../engine/ui/navigation";
 export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperSetting, type UIControlMapperSettingKind, type UIControlMapperText } from "../../../engine/ui/controlMapper";
 export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "../../../engine/ui/UIDocument";
@@ -37,7 +37,7 @@ const UI_SPEC: RenderFeatureSpec = {
 export const uiRuntimePlugin: RuntimePlugin = {
   manifest: uiManifest,
   activate(context) {
-    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UIDocument, UIControlMapper, UIView]);
+    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm, UIDocument, UIControlMapper, UIView]);
     context.registerRenderFeature({
       spec: UI_SPEC,
       load: () => import("./uiFeature").then((m) => m.loadUIFeature()),

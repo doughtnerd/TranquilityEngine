@@ -18,7 +18,9 @@ import type { UICanvas, UIComponentType } from "./components";
 import type { UIRect } from "./layout";
 import type { UIAffine } from "./transform2d";
 
-export type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input";
+export type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input"
+  // ADR 0424: form elements.
+  | "textarea" | "toggle" | "radio" | "slider" | "select" | "option" | "progress" | "meter" | "label" | "form";
 
 /** How a text run wraps: at spaces (`UIText.wordBreak` `break-word`), at any character (`break-all`), or never (`keep-all`, input fields). */
 export type UITextWrap = "word" | "anywhere" | "none";
@@ -163,6 +165,26 @@ export interface UILaidOutElement {
   readonly reach: UIRect;
   /** ADR 0423: with `overflow` other than `visible`: its scroll state; else null. */
   readonly scroll: UIScrollInfo | null;
+  /**
+   * ADR 0424: what a form element draws over its own box (a checkbox's fill and mark, a slider's track, fill and thumb,
+   * a progress bar's fill, a select's arrow), in its box's frame; null for other elements and when there's nothing.
+   */
+  readonly parts: readonly UIPart[] | null;
+}
+
+/**
+ * ADR 0424: one part of a form element, a filled rectangle in its border box's frame (origin its top-left corner, UI
+ * pixels): `rotate` (degrees, clockwise about its centre) turns it, so strokes such as a check mark are thin rectangles.
+ * `color` is RGBA in 0..1.
+ */
+export interface UIPart {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly color: readonly [number, number, number, number];
+  readonly radius: number;
+  readonly rotate: number;
 }
 
 /** A ray in world space, for picking world canvases. */

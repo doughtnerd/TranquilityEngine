@@ -26,7 +26,7 @@ describe("UI element kinds", () => {
   });
 
   it("maps every markup tag to its component type", () => {
-    expect([...UI_TAGS].sort()).toEqual(["Button", "Canvas", "Image", "InputField", "Panel", "Text"]);
+    expect([...UI_TAGS].sort()).toEqual(["Button", "Canvas", "Form", "Image", "InputField", "Label", "Meter", "Option", "Panel", "Progress", "Radio", "Select", "Slider", "Text", "TextArea", "Toggle"]);
     expect(uiTypeOfTag("InputField")).toBe(UIInputField);
     expect(uiTypeOfTag("Button")).toBe(UIButton);
   });
@@ -38,15 +38,16 @@ describe("UI element kinds", () => {
 
   it("gives each kind's pseudo-classes", () => {
     const button = make(UIButton);
-    expect(uiPseudoState(button)).toEqual({ hover: false, pressed: false, focus: false, disabled: false });
+    const none = { checked: false, indeterminate: false, "placeholder-shown": false };
+    expect(uiPseudoState(button)).toEqual({ hover: false, pressed: false, focus: false, disabled: false, ...none });
     button.interactable = false;
     expect(uiPseudoState(button)).toMatchObject({ disabled: true });
     const field = make(UIInputField);
     field.focused = true;
-    expect(uiPseudoState(field)).toEqual({ hover: false, pressed: false, focus: true, disabled: false });
+    expect(uiPseudoState(field)).toEqual({ hover: false, pressed: false, focus: true, disabled: false, ...none });
     const text = make(UIText);
     text.enabled = false;
-    expect(uiPseudoState(text)).toEqual({ hover: false, pressed: false, focus: false, disabled: true });
+    expect(uiPseudoState(text)).toEqual({ hover: false, pressed: false, focus: false, disabled: true, ...none });
   });
 
   it("paints by each kind's rule (the editor's UI picking reads it): nothing for a canvas or a transparent panel, a fill or a border", () => {

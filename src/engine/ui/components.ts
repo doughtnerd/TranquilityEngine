@@ -18,6 +18,7 @@ import { Color, Vector2 } from "../core/math";
 import { AssetRef, component, field } from "../core/registry";
 import { GameObject } from "../scene/GameObject";
 import { uiInteractions } from "./interactions";
+import { resetFormEvent, submitForm } from "./formControls";
 // Keyboard and gamepad navigation (ADR 0340) comes with the components: `engine.UIActions`, the `ui` context and `engine.UINavigation`.
 import "./navigation";
 
@@ -356,6 +357,11 @@ export class UIImage extends UIElement {
 abstract class UIFocusable extends UIPanel {
   /** False takes it out of focus: navigation skips it and a click doesn't focus it. */
   @field(Boolean) focusable = true;
+  /**
+   * False: it ignores the pointer (it still blocks it from the game), can't take focus, and matches `:disabled` (HTML's
+   * `disabled` attribute sets it false). ADR 0424: every control has it (buttons, fields, checkboxes, sliders, selects…).
+   */
+  @field(Boolean) interactable = true;
   /** Drawn while it has focus and the last UI input was navigation, not the pointer. */
   @field(Color) focusColor = new Color(0.29, 0.45, 0.75, 1);
   /** `auto`: explicit neighbours, else the nearest element that way; `explicit`: neighbours only; `none`: `navigate` doesn't leave it. */
@@ -367,8 +373,17 @@ abstract class UIFocusable extends UIPanel {
   @field(GameObject) navRight: GameObject | null = null;
 
   /** True while it has focus. */
-  abstract get focused(): boolean;
-  abstract set focused(value: boolean);
+  /** True while it has focus (a click, a script or navigation gave it). Set it to focus or unfocus it. */
+  get focused(): boolean {
+    return uiInteractions(this._world).isFocused(this as unknown as UIFocusableElement) && this.isActiveAndEnabled;
+  }
+
+  set focused(value: boolean) {
+    const log = uiInteractions(this._world);
+    const self = this as unknown as UIFocusableElement;
+    if (value) log.focus(self, "script");
+    else log.blur(self, "script");
+  }
 
   /** True for the one frame the player (the pointer or navigation) gave it focus or took it away, in every phase of that frame. */
   get focusedChanged(): boolean {
@@ -376,7 +391,19 @@ abstract class UIFocusable extends UIPanel {
     const self = this as unknown as UIFocusableElement;
     return log.happened(self, "focus") || log.happened(self, "blur");
   }
+
+  /** ADR 0424: true for the one frame the player changed it (typed, toggled, dragged, chose), in every phase of that frame; a script's write never counts. */
+  get changed(): boolean {
+    return uiInteractions(this._world).happened(this as unknown as UIFocusableElement, "change");
+  }
 }
+
+/** ADR 0424: a `UIButton`'s `type`, as HTML's: what a click does inside a form. */
+export type UIButtonType = "submit" | "reset" | "button";
+/** ADR 0424: an input field's `type`: plain text, `password` (drawn as dots) or `number` (arrow keys step it between `min` and `max`). */
+export type UIInputType = "text" | "password" | "number";
+/** ADR 0424: whether a text area's lines wrap at its width (`soft`, the default) or only at line breaks (`off`). */
+export type UITextAreaWrap = "soft" | "off";
 
 /**
  * A panel that takes the pointer. Its children (usually a `UIText`, which has the font) are its label. Read its state
@@ -388,8 +415,11 @@ abstract class UIFocusable extends UIPanel {
 export class UIButton extends UIFocusable {
   @field(Color) hoverColor = new Color(0.33, 0.36, 0.43, 1);
   @field(Color) pressedColor = new Color(0.17, 0.19, 0.23, 1);
-  /** False: the button ignores the pointer (it still blocks it from the game) and stays unhovered. */
-  @field(Boolean) interactable = true;
+  /**
+   * ADR 0424: what a click does inside a `UIForm`: `submit` (the default, as in HTML) sends the form's `submit` event,
+   * `reset` puts its controls back as they were built, `button` nothing.
+   */
+  @field(String, { choices: ["submit", "reset", "button"] }) type: UIButtonType = "submit";
 
   constructor() {
     super();
@@ -414,17 +444,6 @@ export class UIButton extends UIFocusable {
   get clicked(): boolean {
     return uiInteractions(this._world).happened(this, "click") && this.interactable;
   }
-
-  /** True while it has focus (a click, a script or navigation gave it). Set it to focus or unfocus the button. */
-  get focused(): boolean {
-    return uiInteractions(this._world).isFocused(this) && this.isActiveAndEnabled;
-  }
-
-  set focused(value: boolean) {
-    const log = uiInteractions(this._world);
-    if (value) log.focus(this, "script");
-    else log.blur(this, "script");
-  }
 }
 
 /**
@@ -447,6 +466,15 @@ export class UIInputField extends UIFocusable {
   @field(Number) fontSize = 16;
   @field(Color) color = Color.white;
   @field(Color) placeholderColor = new Color(1, 1, 1, 0.45);
+  /**
+   * ADR 0424: `text`; `password`, drawn as dots; or `number`, whose arrow keys (while typing) step `value` by `step`
+   * between `min` and `max`. The value stays text, as on the web.
+   */
+  @field(String, { choices: ["text", "password", "number"] }) type: UIInputType = "text";
+  /** ADR 0424, `number` fields: the lowest and highest values the arrow keys step to (null: no limit), and the step. */
+  @field(Number) min: number | null = null;
+  @field(Number) max: number | null = null;
+  @field(Number) step = 1;
 
   constructor() {
     super();
@@ -478,25 +506,269 @@ export class UIInputField extends UIFocusable {
     return uiInteractions(this._world).isTyping(this) && this.isActiveAndEnabled;
   }
 
-  /** True for the one frame the player changed the value (typed, pasted, deleted). */
-  get changed(): boolean {
-    return uiInteractions(this._world).happened(this, "change");
-  }
-
-  /** True for the one frame Enter was pressed in the field while typing. */
+  /** True for the one frame Enter was pressed in the field while typing (never in a `UITextArea`, where Enter starts a line). */
   get submitted(): boolean {
     return uiInteractions(this._world).happened(this, "submit");
   }
 }
 
-/** Every UI component type, for the render backend and the routing. */
-export const UI_TYPES = [UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField] as const;
+// --- ADR 0424: form elements ------------------------------------------------------------------------
 
-/** An element that takes focus (ADR 0340). */
-export type UIFocusableElement = UIButton | UIInputField;
+/** The accent colour form controls draw their checked box, slider fill and bars in without `accent-color` (a clear blue). */
+export const UI_DEFAULT_ACCENT = new Color(0.27, 0.53, 1, 1);
+
+/**
+ * ADR 0424: a multi-line text field (HTML's `<textarea>`): an input field whose Enter starts a new line, whose text
+ * wraps at its width (`wrap` `soft`) and which scrolls (ADR 0423) when its text is taller than its `rows`.
+ */
+@component("engine.UITextArea")
+export class UITextArea extends UIInputField {
+  /** Its height in lines when `height` is `auto`. */
+  @field(Number) rows = 2;
+  /** `soft`: lines wrap at its width; `off`: only at line breaks. */
+  @field(String, { choices: ["soft", "off"] }) wrap: UITextAreaWrap = "soft";
+
+  constructor() {
+    super();
+    this.overflow = "auto";
+  }
+}
+
+/**
+ * ADR 0424: a checkbox (HTML's `<input type="checkbox">`). A click, `submit` (Space, Enter, the south button) or its
+ * label toggles `checked` (clearing `indeterminate`) and sends `input` then `change`; `changed` is true that frame.
+ * Its box is the element (styled as a panel); the check mark and the fill are drawn in `accentColor`.
+ */
+@component("engine.UIToggle")
+export class UIToggle extends UIFocusable {
+  @field(Boolean) checked = false;
+  /** Shown as a dash, and matching `:indeterminate`, until the player toggles it (a script sets it). */
+  @field(Boolean) indeterminate = false;
+  /** The control's name in its form (Svelte's `bind:group` matches by `value`). */
+  @field(String) name = "";
+  @field(String) value = "on";
+  /** The fill and mark colour (`accent-color`); null: the default blue. */
+  @field(Color) accentColor: Color | null = null;
+
+  constructor() {
+    super();
+    this.width = "16";
+    this.height = "16";
+    this.backgroundColor = new Color(0.1, 0.11, 0.13, 1);
+    this.borderColor = new Color(0.5, 0.53, 0.6, 1);
+    this.borderWidth = 1;
+    this.borderRadius = 3;
+    this.focusColor = new Color(0.36, 0.62, 1, 1);
+  }
+}
+
+/**
+ * ADR 0424: a radio button (HTML's `<input type="radio">`). Checking one unchecks the others with the same `name` in
+ * its form (else its canvas). A click, `submit` or its label checks it; the arrow keys left and right check the
+ * previous or next one of its group.
+ */
+@component("engine.UIRadio")
+export class UIRadio extends UIFocusable {
+  @field(Boolean) checked = false;
+  @field(String) name = "";
+  @field(String) value = "on";
+  @field(Color) accentColor: Color | null = null;
+
+  constructor() {
+    super();
+    this.width = "16";
+    this.height = "16";
+    this.backgroundColor = new Color(0.1, 0.11, 0.13, 1);
+    this.borderColor = new Color(0.5, 0.53, 0.6, 1);
+    this.borderWidth = 1;
+    this.borderRadius = 8;
+    this.focusColor = new Color(0.36, 0.62, 1, 1);
+  }
+}
+
+/**
+ * ADR 0424: a slider (HTML's `<input type="range">`): `value` between `min` and `max` in steps of `step`. A press on it
+ * jumps the thumb there and drags it (`input` as it moves, `change` on release); with focus, the arrow keys left and
+ * right step it, Page Up/Down step a tenth, Home/End go to the ends. Drawn as a track, a fill and a thumb.
+ */
+@component("engine.UISlider")
+export class UISlider extends UIFocusable {
+  @field(Number) min = 0;
+  @field(Number) max = 100;
+  /** 0: any value. */
+  @field(Number) step = 1;
+  @field(Number) value = 50;
+  @field(Color) accentColor: Color | null = null;
+
+  constructor() {
+    super();
+    this.width = "160";
+    this.height = "16";
+    this.borderRadius = 8;
+    this.focusColor = new Color(0.36, 0.62, 1, 1);
+  }
+}
+
+/**
+ * ADR 0424: a drop-down list (HTML's `<select>`), its `UIOption` children the choices. It shows the chosen option's
+ * text and an arrow; a click, `submit` or its label (focus) opens the list, a popup drawn above everything else in its
+ * canvas and outside its ancestors' clips, below it (above it where it wouldn't fit). Choosing sends `input` then
+ * `change`. `value` is the chosen option's `value` (its text without one); with `multiple`, options toggle and `value`
+ * is the first chosen one.
+ */
+@component("engine.UISelect")
+export class UISelect extends UIFocusable {
+  @field(String) value = "";
+  @field(Boolean) multiple = false;
+  /** True while its list shows; scripts may open and close it. */
+  @field(Boolean) open = false;
+  @field(AssetRef, { kind: "font" }) font = "";
+  @field(Number) fontSize = 16;
+  @field(Color) color = Color.white;
+  /** The arrow's and a chosen option's highlight colour; null: the default blue. */
+  @field(Color) accentColor: Color | null = null;
+
+  constructor() {
+    super();
+    this.backgroundColor = new Color(0.1, 0.11, 0.13, 1);
+    this.borderColor = new Color(0.35, 0.38, 0.45, 1);
+    this.borderWidth = 1;
+    this.borderRadius = 4;
+    this.padding = 6;
+    this.paddingLeft = 8;
+    this.paddingRight = 28;
+    this.focusColor = new Color(0.36, 0.62, 1, 1);
+  }
+}
+
+/**
+ * ADR 0424: one choice of a `UISelect` (HTML's `<option>`): its text children are its label (or `label`, when set).
+ * Shown in its select's list; a click on it chooses it. `interactable` false is HTML's `disabled`.
+ */
+@component("engine.UIOption")
+export class UIOption extends UIButton {
+  /** What its select's `value` becomes when it's chosen; empty: its text. */
+  @field(String) value = "";
+  @field(Boolean) selected = false;
+  /** Its label in place of its text (HTML's `label` attribute); empty: its text. */
+  @field(String) label = "";
+
+  constructor() {
+    super();
+    this.type = "button";
+    this.focusable = true;
+    this.backgroundColor = new Color(0.13, 0.14, 0.17, 1);
+    this.hoverColor = new Color(0.22, 0.25, 0.31, 1);
+    this.pressedColor = new Color(0.17, 0.19, 0.23, 1);
+    this.focusColor = new Color(0.22, 0.25, 0.31, 1);
+    this.borderRadius = 0;
+    this.padding = 6;
+    this.paddingLeft = 8;
+    this.paddingRight = 8;
+    this.justifyContent = "flex-start";
+  }
+}
+
+/**
+ * ADR 0424: a progress bar (HTML's `<progress>`): `value` out of `max`, drawn as a fill in `accentColor` over its own
+ * background; with `value` null it's indeterminate (a moving segment, `:indeterminate`).
+ */
+@component("engine.UIProgress")
+export class UIProgress extends UIPanel {
+  @field(Number) value: number | null = null;
+  @field(Number) max = 1;
+  @field(Color) accentColor: Color | null = null;
+
+  constructor() {
+    super();
+    this.width = "160";
+    this.height = "8";
+    this.borderRadius = 4;
+    this.backgroundColor = new Color(0.25, 0.27, 0.32, 1);
+  }
+}
+
+/**
+ * ADR 0424: a gauge (HTML's `<meter>`): `value` between `min` and `max`, its fill green where `value` is in the
+ * optimum region `low`/`high`/`optimum` mark out, yellow one region away and red two away (HTML's rules).
+ */
+@component("engine.UIMeter")
+export class UIMeter extends UIPanel {
+  @field(Number) value = 0;
+  @field(Number) min = 0;
+  @field(Number) max = 1;
+  /** Null: `min` (`low`), `max` (`high`), their middle (`optimum`). */
+  @field(Number) low: number | null = null;
+  @field(Number) high: number | null = null;
+  @field(Number) optimum: number | null = null;
+
+  constructor() {
+    super();
+    this.width = "160";
+    this.height = "8";
+    this.borderRadius = 4;
+    this.backgroundColor = new Color(0.25, 0.27, 0.32, 1);
+  }
+}
+
+/**
+ * ADR 0424: a label (HTML's `<label>`): a panel whose text children label a control. A click on it focuses or
+ * activates the control `for` names (the id of an element in its canvas: its node's name), else the first control
+ * inside it: a checkbox toggles, a radio checks, a button clicks, others take focus (a field starts typing).
+ */
+@component("engine.UILabel")
+export class UILabel extends UIPanel {
+  /** The id of the control it labels; empty: the first control inside it. */
+  @field(String) for = "";
+
+  constructor() {
+    super();
+    this.alignItems = "center";
+    this.gap = 6;
+  }
+}
+
+/**
+ * ADR 0424: a form (HTML's `<form>`): a panel that groups controls. Enter in one of its fields, or a click on a
+ * `submit` button in it, sends its `submit` event (cancelable; nothing else happens, a game has no page to send it
+ * to); a `reset` button sends `reset`, after which its controls go back to how they were built.
+ */
+@component("engine.UIForm")
+export class UIForm extends UIPanel {
+  constructor() {
+    super();
+    this.flexDirection = "column";
+  }
+
+  /** True for the one frame it was submitted (Enter in one of its fields, a submit button, `requestSubmit`), in every phase of that frame. */
+  get submitted(): boolean {
+    return uiInteractions(this._world).happened(this, "submit");
+  }
+
+  /** Submit it as a submit button would: its `submit` event (at once, as the DOM's `requestSubmit`). */
+  requestSubmit(): void {
+    submitForm(this._world, this);
+  }
+
+  /** Reset it as a reset button would: its `reset` event, then (unless prevented) its controls back as they were built. */
+  reset(): void {
+    resetFormEvent(this._world, this);
+  }
+}
+
+/** Every UI component type, for the render backend and the routing. */
+export const UI_TYPES = [UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm] as const;
+
+/** An element that takes focus (ADR 0340, 0424). */
+export type UIFocusableElement = UIButton | UIInputField | UIToggle | UIRadio | UISlider | UISelect;
+
+/** True for an element that takes focus (ADR 0340, 0424): buttons, fields and the other form controls. */
+export function isFocusableUI(c: unknown): c is UIFocusableElement {
+  return c instanceof UIFocusable;
+}
 
 /** Any UI component. */
-export type UIComponentType = UICanvas | UIPanel | UIText | UIImage | UIButton | UIInputField;
+export type UIComponentType = UICanvas | UIPanel | UIText | UIImage | UIButton | UIInputField | UIToggle | UIRadio | UISlider | UISelect | UIProgress | UIMeter | UILabel | UIForm;
 
 /** @internal True for a UI component (the render backend releases those through its UI runtime). */
 export function isUIComponent(c: Component): c is UIComponentType {

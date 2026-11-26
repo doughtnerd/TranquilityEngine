@@ -14,14 +14,16 @@ import { Mat4, Vector2 } from "../core/math";
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { devices, type InputClaim, type PointerFrame } from "../input/devices";
-import { UIButton, UICanvas, UIInputField, type UIComponentType, type UIFocusableElement } from "./components";
+import { UIButton, UICanvas, UIInputField, UIOption, UISelect, UISlider, UITextArea, isFocusableUI, type UIComponentType, type UIFocusableElement } from "./components";
+import { clickDefault, controlChanged, formOf, optionsOf, rememberDefaults, selectLabels, setSelectOpen, sliderValue, stepNumberField, submitForm } from "./formControls";
+import { formPartsOf, partsKey } from "./formParts";
 import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInteractiveKind, isLeafKind, isRaycastTarget, isUserScroller, overflowAxes, sameTextRun, textRunOf, uiKindOf, userScrollsAxis } from "./elementKinds";
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
 import { canvasScale, estimateText, inRect, intersectRect, isMixedLength, loadYogaOnce, loadedYoga, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
-import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay, UIScrollbar, UIScrollInfo } from "./uiCoreTypes";
-import { uiDomCode, uiDomKey, uiEventRecord, UIDataTransfer, type UIEventData, type UIEventRecord } from "./events";
+import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPart, UIPickRay, UIScrollbar, UIScrollInfo } from "./uiCoreTypes";
+import { fireUIEvent, uiDomCode, uiDomKey, uiEventRecord, UIDataTransfer, type UIEventData, type UIEventRecord } from "./events";
 import { advanceUIScrolling, canMove, uiScrollBy, uiScrollMoving, uiScrollTo, uiStartMomentum, uiStopScrolling, type UIScrollable } from "./scrolling";
 import { applyAffine, boundsOf, compose, invert, localTransform, multiply, transformRect, type UIAffine, type UITransformFields } from "./transform2d";
 
@@ -108,6 +110,16 @@ interface Entry {
    * absent when it has none. Layout runs again once when the parent's size turns out different.
    */
   calcBasis?: { width: number; height: number };
+  /**
+   * ADR 0424: a select's list: a Yoga root of its own that its options lay out in (the select's node is measured, for
+   * its label, and has no children), placed below the select when it's read.
+   */
+  popup?: YogaNode;
+  /** ADR 0424: a form element's parts at the last layout, and their key (`formParts.ts`). */
+  parts?: UIPart[] | null;
+  partsKey?: string;
+  /** ADR 0424: what else a measured element's size depends on (a select's option labels, a text area's rows). */
+  measureKey?: string;
 }
 
 interface CanvasEntry extends Entry {
@@ -207,7 +219,7 @@ interface Hit {
 
 /** ADR 0422/0423: what a held press is doing: maybe a drag, scrolling by touch, a UI drag, or dragging a scrollbar. */
 interface Gesture {
-  kind: "pending" | "scroll" | "drag" | "thumb" | "none";
+  kind: "pending" | "scroll" | "drag" | "thumb" | "slider" | "none";
   readonly pointerType: "mouse" | "touch" | "pen";
   readonly startX: number;
   readonly startY: number;
@@ -221,7 +233,7 @@ interface Gesture {
   readonly source: Entry | null;
   /** The scrollers at or above it, innermost first. */
   readonly chain: Entry[];
-  /** A touch drag: the scroller it moves; a thumb drag: the scroller and axis. */
+  /** A touch drag: the scroller it moves; a thumb drag: the scroller and axis; ADR 0424, a slider drag: the slider (and `startScroll` its value at the press). */
   scroller: Entry | null;
   axis: "x" | "y" | null;
   startScroll: number;
@@ -231,6 +243,17 @@ interface Gesture {
   data: UIDataTransfer | null;
   dropTarget: Entry | null;
   accepts: boolean;
+}
+
+/** The Yoga node an entry's children are in: its own, or (ADR 0424) a select's list. */
+function holder(e: Entry): YogaNode {
+  return e.popup ?? e.node;
+}
+
+/** ADR 0424: the open select whose list `e` is in (at or below one of its options), or null. */
+function openSelectAbove(e: Entry): Entry | null {
+  for (let at = e.parent; at && at.kind !== "canvas"; at = at.parent) if (at.kind === "select") return (at.comp as UISelect).open ? at : null;
+  return null;
 }
 
 /** ADR 0422: an element and its ancestors below its canvas, the element first. */
@@ -247,9 +270,9 @@ function commonAncestor(a: Entry, b: Entry): Entry | null {
   return null;
 }
 
-/** ADR 0422: a press in a button that isn't interactable doesn't click (the DOM's disabled controls). */
+/** ADR 0422: a press in a button (ADR 0424: any control) that isn't interactable doesn't click (the DOM's disabled controls). */
 function disabledPath(e: Entry): boolean {
-  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = at.parent) if (at.kind === "button" && !(at.comp as UIButton).interactable) return true;
+  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = at.parent) if (isFocusableUI(at.comp) && !at.comp.interactable) return true;
   return false;
 }
 
@@ -316,6 +339,8 @@ export class UICore implements UICoreLike {
 
   // Typing: one hidden DOM <input>, shared by whichever field is focused.
   private dom: HTMLInputElement | null = null;
+  /** ADR 0424: the hidden elements made so far: a one-line `<input>` and a `<textarea>`. */
+  private readonly doms: { line?: HTMLInputElement; area?: HTMLInputElement } = {};
   private active: UIInputField | null = null;
   private programmatic = false;
   private detachDom: (() => void) | null = null;
@@ -522,18 +547,19 @@ export class UICore implements UICoreLike {
     this.lastScroll.delete(entry);
     if (this.active === c) this.unfocusDom();
     if (entry.parent) {
-      entry.parent.node.removeChild(entry.node);
+      holder(entry.parent).removeChild(entry.node);
       entry.parent.children = entry.parent.children.filter((e) => e !== entry);
       entry.parent = null;
     }
     for (const child of entry.children) {
       if (child.parent === entry) {
-        entry.node.removeChild(child.node);
+        holder(entry).removeChild(child.node);
         child.parent = null;
       }
     }
     entry.children = [];
     entry.node.free();
+    entry.popup?.free();
   }
 
   dispose(): void {
@@ -544,7 +570,7 @@ export class UICore implements UICoreLike {
     this.unfocusDom();
     this.detachDom?.();
     this.detachDom = null;
-    this.dom?.remove();
+    this.doms.line = this.doms.area = undefined;
     this.dom = null;
     this.config?.free();
     this.config = null;
@@ -575,6 +601,12 @@ export class UICore implements UICoreLike {
     } else if (run) {
       node.setMeasureFunc((w, wm) => this.measure(entry, wm === yoga.MEASURE_MODE_UNDEFINED ? Infinity : w));
     }
+    // ADR 0424: a select's options lay out in a list of their own; a control's state as built is what a form resets to.
+    if (kind === "select") {
+      entry.popup = yoga.Node.create(this.config ?? undefined);
+      entry.popup.setFlexDirection(yoga.FLEX_DIRECTION_COLUMN);
+    }
+    if (!this.passive) rememberDefaults(c);
     this.entries.set(c, entry);
     return entry;
   }
@@ -620,7 +652,7 @@ export class UICore implements UICoreLike {
       const want = wanted(entry);
       for (const c of entry.children) {
         if (c.parent === entry && !want.includes(c)) {
-          entry.node.removeChild(c.node);
+          holder(entry).removeChild(c.node);
           c.parent = null;
         }
       }
@@ -631,11 +663,11 @@ export class UICore implements UICoreLike {
       const same = entry.children.length === want.length && entry.children.every((c, i) => c === want[i]);
       if (same) continue;
       for (const c of entry.children) {
-        entry.node.removeChild(c.node);
+        holder(entry).removeChild(c.node);
         c.parent = null;
       }
       want.forEach((c, i) => {
-        entry.node.insertChild(c.node, i);
+        holder(entry).insertChild(c.node, i);
         c.parent = entry;
       });
       entry.children = [...want];
@@ -725,9 +757,12 @@ export class UICore implements UICoreLike {
     if (entry.run) {
       const run = textRunOf(c)!;
       const epoch = fontEpoch();
-      if (!sameTextRun(run, entry.run) || epoch !== entry.measuredEpoch) {
+      // ADR 0424: a select's size follows every option's label, a text area's its rows.
+      const key = entry.kind === "select" ? selectLabels(c as UISelect).join("\u0000") : entry.kind === "textarea" ? String((c as UITextArea).rows) : undefined;
+      if (!sameTextRun(run, entry.run) || epoch !== entry.measuredEpoch || key !== entry.measureKey) {
         entry.run = run;
         entry.measuredEpoch = epoch;
+        entry.measureKey = key;
         n.markDirty();
       }
     }
@@ -750,8 +785,20 @@ export class UICore implements UICoreLike {
   private measure(entry: Entry, maxWidth: number): { width: number; height: number } {
     const run = entry.run;
     if (!run) return { width: 0, height: 0 };
+    const measure = (r: TextMeasureRequest) => this.host.measureText?.(r) ?? estimateText(r);
+    const lineHeight = run.fontSize * run.lineHeight;
+    // ADR 0424: a select fits its widest option's label; a text area is `rows` lines tall whatever its text (which scrolls).
+    if (entry.kind === "select") {
+      let width = 0;
+      for (const text of selectLabels(entry.comp as UISelect)) width = Math.max(width, measure({ ...run, text, maxWidth: Infinity }).width);
+      return { width, height: lineHeight };
+    }
+    if (entry.kind === "textarea") {
+      const rows = Math.max(1, Math.round((entry.comp as UITextArea).rows) || 1);
+      return { width: Number.isFinite(maxWidth) ? maxWidth : 20 * run.fontSize * 0.55, height: rows * lineHeight };
+    }
     const request: TextMeasureRequest = { ...run, maxWidth: run.wrap === "none" ? Infinity : maxWidth };
-    return this.host.measureText?.(request) ?? estimateText(request);
+    return measure(request);
   }
 
   /**
@@ -785,6 +832,18 @@ export class UICore implements UICoreLike {
         const inverse = transform ? invert(transform) : null;
         e.place = { clip, clipper, childClip, order: 0, clips, transform, inverse, bounds: drawnBounds(e.box, transform, clips), reachClips, reach: drawnBounds(e.box, transform, reachClips), scroll };
         canvas.elements.push(e);
+        if (e.popup) {
+          // ADR 0424: a select's list lays out at least as wide as the select, below it (above it where it wouldn't fit),
+          // outside every clip; shown only while the select is open.
+          const list = e.popup;
+          list.setMinWidth(width);
+          list.calculateLayout(undefined, undefined, yoga.DIRECTION_LTR);
+          const lh = list.getComputedHeight();
+          const below = y + height;
+          const top = below + lh > canvas.height && y - lh >= 0 ? y - lh : below;
+          walk(e, x - list.getComputedLeft(), top - list.getComputedTop(), v && (c as UISelect).open, o, null, null, [], [], transform);
+          continue;
+        }
         // ADR 0423: its children are drawn moved by its scroll; only a clip that doesn't scroll keeps navigation out.
         const sx = scroll?.x ?? 0, sy = scroll?.y ?? 0;
         const nextClips = childClip ? withClip(clips, childClip, transform, inverse) : clips;
@@ -794,6 +853,9 @@ export class UICore implements UICoreLike {
     };
     walk(canvas, 0, 0, cv, 1, null, null, [], [], null);
     canvas.painted = paintOrder(canvas);
+    // ADR 0424: open selects' lists draw (and take the pointer) above everything else in their canvas.
+    const lists = canvas.painted.filter((e) => openSelectAbove(e));
+    if (lists.length) canvas.painted = [...canvas.painted.filter((e) => !lists.includes(e)), ...lists];
     canvas.painted.forEach((e, i) => (e.place.order = i));
     canvas.hitOrder = hitOrderOf(canvas.painted);
   }
@@ -809,7 +871,15 @@ export class UICore implements UICoreLike {
     const c = e.comp as UIScrollable;
     const n = e.node;
     let right = 0, bottom = 0;
-    for (const ch of e.children) {
+    if (e.kind === "textarea" && e.run) {
+      // ADR 0424: a text area's content is its text, wrapped at its content width (inside its padding).
+      const pl = n.getComputedPadding(yoga.EDGE_LEFT), pt = n.getComputedPadding(yoga.EDGE_TOP);
+      const inner = Math.max(0, client.width - pl - n.getComputedPadding(yoga.EDGE_RIGHT));
+      const text = this.host.measureText?.({ ...e.run, maxWidth: e.run.wrap === "none" ? Infinity : inner }) ?? estimateText({ ...e.run, maxWidth: e.run.wrap === "none" ? Infinity : inner });
+      right = pl + text.width;
+      bottom = pt + text.height;
+    }
+    for (const ch of e.popup ? [] : e.children) {
       const cc = ch.comp as UIScrollable;
       if (!cc.isActiveAndEnabled || cc.display === "none") continue;
       const cn = ch.node;
@@ -858,7 +928,14 @@ export class UICore implements UICoreLike {
       canvasList.push({ comp: c, mode: c.mode, sortOrder: c.sortOrder, width: canvas.width, height: canvas.height, scale: canvas.scale, pixelSize: c.mode === "world" ? c.pixelSize : 1, worldMatrix, visible: c.isActiveAndEnabled });
       for (const e of canvas.elements) {
         const b = e.box, p = e.place;
-        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll });
+        // ADR 0424: a form element's parts, the same array while they don't change (the drawing layer compares by identity).
+        const parts = b.visible ? formPartsOf(e.comp, b.width, b.height, world.time.realtimeSinceStartup) : null;
+        const key = partsKey(parts);
+        if (key !== e.partsKey) {
+          e.partsKey = key;
+          e.parts = parts;
+        }
+        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll, parts: e.parts ?? null });
       }
     }
     const changed = !sameCanvases(this.canvasList, canvasList) || !sameElements(this.elementList, elementList);
@@ -874,18 +951,20 @@ export class UICore implements UICoreLike {
   /** The input field that should have the keyboard now: typing, laid out and visible. */
   private wantedField(): Entry | null {
     for (const e of this.entries.values()) {
-      if (e.kind !== "input" || !e.canvas) continue;
+      if ((e.kind !== "input" && e.kind !== "textarea") || !e.canvas) continue;
       const c = e.comp as UIInputField;
       if (c.typing && e.box.visible) return e;
     }
     return null;
   }
 
-  private ensureDom(): HTMLInputElement | null {
-    if (this.dom) return this.dom;
+  /** The hidden element a field types in: an `<input>`, or (ADR 0424) a `<textarea>` for a text area, where Enter starts a line. */
+  private ensureDom(multiline = false): HTMLInputElement | null {
+    const have = multiline ? this.doms.area : this.doms.line;
+    if (have) return have;
     if (typeof document === "undefined" || !document.body) return null;
-    const el = document.createElement("input");
-    el.type = "text";
+    const el = document.createElement(multiline ? "textarea" : "input") as HTMLInputElement;
+    if (!multiline) el.type = "text";
     el.autocomplete = "off";
     el.setAttribute("aria-hidden", "true");
     el.tabIndex = -1;
@@ -911,8 +990,9 @@ export class UICore implements UICoreLike {
       // While an IME composes (CJK, ADR 0356), Enter picks its candidate and Escape drops the composition.
       if (e.isComposing || e.keyCode === 229) return;
       const log = uiInteractions(c._world);
-      if (e.key === "Enter") log.record("submit", c);
-      else if (e.key === "Escape") {
+      if (e.key === "Enter") {
+        if (!multiline) log.record("submit", c);
+      } else if (e.key === "Escape") {
         this.swallowed.push("escape");
         log.request("cancel");
       } else if (e.key === "Tab") {
@@ -931,13 +1011,17 @@ export class UICore implements UICoreLike {
     el.addEventListener("input", onInput);
     el.addEventListener("keydown", onKey);
     el.addEventListener("blur", onBlur);
+    const before = this.detachDom;
     this.detachDom = () => {
+      before?.();
       el.removeEventListener("input", onInput);
       el.removeEventListener("keydown", onKey);
       el.removeEventListener("blur", onBlur);
+      el.remove();
     };
     document.body.appendChild(el);
-    this.dom = el;
+    if (multiline) this.doms.area = el;
+    else this.doms.line = el;
     return el;
   }
 
@@ -950,8 +1034,12 @@ export class UICore implements UICoreLike {
       if (this.active) this.unfocusDom();
       return;
     }
-    const el = this.ensureDom();
+    const el = this.ensureDom(want!.kind === "textarea");
     if (!el) return;
+    if (this.dom !== el) {
+      this.dom = el;
+      this.active = null; // the other hidden element: take the value and focus over
+    }
     if (this.active !== wantComp) {
       this.active = wantComp;
       el.value = wantComp.value;
@@ -1014,7 +1102,7 @@ export class UICore implements UICoreLike {
     // A raycast target claims the pointer (ADR 0385); the button or input field it's in, if any, takes it.
     const blocked = this.hit(raw.x, raw.y);
     const hit = blocked?.handler ?? null;
-    const usable = (e: Entry | null): e is Entry => !!e && e.kind === "button" && (e.comp as UIButton).interactable && e.comp.isActiveAndEnabled;
+    const usable = (e: Entry | null): e is Entry => !!e && e.comp instanceof UIButton && e.comp.interactable && e.comp.isActiveAndEnabled;
     // The pointer moving or pressing makes it the last UI input: focus colours hide.
     const last = this.lastPointer;
     const moved = !last || last.x !== raw.x || last.y !== raw.y;
@@ -1051,9 +1139,10 @@ export class UICore implements UICoreLike {
       this.pressed = usable(hit) ? hit : null;
       // A press focuses what it hit (an input field starts typing); elsewhere it unfocuses, unless a modal canvas keeps focus.
       // ADR 0422: that's the pointerdown's default action, after its dispatch.
-      const target = hit && (hit.kind === "button" || hit.kind === "input") ? (hit.comp as UIFocusableElement) : null;
+      // ADR 0424: every control takes focus this way, but an option (in a select's list) leaves it on its select.
+      const target = hit && isFocusableUI(hit.comp) && hit.kind !== "option" ? (hit.comp as UIFocusableElement) : null;
       const press = pointerFocus(this, target);
-      const typing = hit?.kind === "input";
+      const typing = hit?.kind === "input" || hit?.kind === "textarea";
       this.pressTarget = over;
       const chain = over ? scrollChain(over) : [];
       for (const s of chain) uiStopScrolling(world, s.comp as UIScrollable); // a press stops a fling
@@ -1063,16 +1152,29 @@ export class UICore implements UICoreLike {
       const gesture: Gesture = { kind: "pending", pointerType: raw.pointerType, startX: raw.x, startY: raw.y, lastX: raw.x, lastY: raw.y, armed: true, target: over, source, chain, scroller: null, axis: null, startScroll: 0, samples: [{ t: now, x: raw.x, y: raw.y }], data: null, dropTarget: null, accepts: false };
       let barAction: (() => void) | null = null;
       if (blocked?.bar && over) barAction = this.pressBar(world, gesture, over, blocked.bar, blocked.ux, blocked.uy);
+      // ADR 0424: a press on a slider drags its thumb (not a scroll or a UI drag).
+      const slider = !blocked?.bar && hit?.kind === "slider" && (hit.comp as UISlider).interactable ? hit : null;
+      if (slider) {
+        gesture.kind = "slider";
+        gesture.scroller = slider;
+        gesture.startScroll = (slider.comp as UISlider).value;
+      }
       this.gesture = gesture;
+      const ux = blocked?.ux ?? 0, uy = blocked?.uy ?? 0;
       records.push(
         uiEventRecord("pointerdown", over?.comp ?? null, pdata(over, { button: 0, buttons: buttons | 1 }), (prevented) => {
           if (prevented) {
             if (gesture.kind === "pending") gesture.armed = false;
+            if (gesture.kind === "slider") gesture.kind = "none";
             return;
           }
           barAction?.();
           if (press.focus) log.focus(target, "press", typing);
           else if (!press.trapped) log.focus(null, "press");
+          // ADR 0424: a press outside an open select's list closes it; on a slider, the thumb jumps there.
+          const path = over ? pathOf(over) : [];
+          for (const e of this.entries.values()) if (e.kind === "select" && (e.comp as UISelect).open && !path.includes(e)) setSelectOpen(e.comp as UISelect, false);
+          if (slider && gesture.kind === "slider") this.slideTo(world, slider, ux, uy, null);
         }),
       );
     }
@@ -1103,6 +1205,9 @@ export class UICore implements UICoreLike {
     let clicked: UIButton | null = null;
     if (raw.up(0)) {
       const done = this.gesture;
+      // ADR 0424: a slider let go after its value moved: `change` (its `input`s were sent as it moved).
+      const slid = done?.kind === "slider" ? live(done.scroller) : null;
+      if (slid && (slid.comp as UISlider).value !== done!.startScroll) log.record("change", slid.comp as UISlider);
       if (done?.kind === "scroll" && done.scroller) this.fling(world, done);
       else if (done?.kind === "drag") {
         const target = live(done.dropTarget);
@@ -1120,7 +1225,12 @@ export class UICore implements UICoreLike {
           const again = prev && prev.comp === target.comp && now - prev.time <= DBLCLICK_SECONDS && Math.hypot(raw.x - prev.x, raw.y - prev.y) <= DBLCLICK_DISTANCE;
           const count = again ? prev.count + 1 : 1;
           this.lastClick = { comp: target.comp, time: now, x: raw.x, y: raw.y, count };
-          records.push(uiEventRecord("click", target.comp, pdata(target, { button: 0, detail: count })));
+          // ADR 0424: its default action activates the control it's on (a checkbox toggles, an option is chosen…).
+          const clickData = pdata(target, { button: 0, detail: count });
+          const on = target.comp;
+          records.push(uiEventRecord("click", on, clickData, (prevented) => {
+            if (!prevented) clickDefault(world, on, clickData);
+          }));
           if (count === 2) records.push(uiEventRecord("dblclick", target.comp, pdata(target, { button: 0, detail: 2 })));
         }
       }
@@ -1165,6 +1275,18 @@ export class UICore implements UICoreLike {
             if (prevented) {
               if (k.key === "enter" && field) log.retract("submit", field); // Enter's default: the submit
               return;
+            }
+            // ADR 0424: Page Up/Down and Home/End move a focused slider; a typing number field's arrows step it; Enter in a
+            // one-line field submits its form.
+            const c = keyTarget.comp;
+            if (focusedEntry && c instanceof UISlider && this.keySlider(world, c, k.key)) return;
+            if (field?.typing && field.type === "number" && (k.key === "arrowup" || k.key === "arrowdown")) {
+              if (stepNumberField(field, k.key === "arrowup" ? 1 : -1)) controlChanged(world, field);
+              return;
+            }
+            if (k.key === "enter" && field?.typing && !(field instanceof UITextArea)) {
+              const form = formOf(field);
+              if (form) submitForm(world, form, true);
             }
             this.keyScroll(world, keyTarget, k.key, !focusedEntry, !!field?.typing);
           }),
@@ -1254,6 +1376,10 @@ export class UICore implements UICoreLike {
           }),
         );
       }
+    } else if (g.kind === "slider" && g.scroller && this.entries.has(g.scroller.comp)) {
+      // ADR 0424: the thumb follows the pointer; each new value sends `input`.
+      const at = this.canvasPoint(g.scroller, raw.x, raw.y);
+      if (at) this.slideTo(world, g.scroller, at.x, at.y, records);
     } else if (g.kind === "scroll" && g.scroller) {
       const scale = scaleOf(g.scroller);
       uiScrollBy(world, g.scroller.comp as UIScrollable, -(raw.x - g.lastX) / scale, -(raw.y - g.lastY) / scale, "instant");
@@ -1270,6 +1396,48 @@ export class UICore implements UICoreLike {
     }
     g.lastX = raw.x;
     g.lastY = raw.y;
+  }
+
+  /** A canvas CSS point in `e`'s canvas's UI pixels (a world canvas through the view's ray); null when it misses the canvas. */
+  private canvasPoint(e: Entry, x: number, y: number): { x: number; y: number } | null {
+    const canvas = e.canvas;
+    if (!canvas) return null;
+    if (canvas.comp.mode === "screen") return { x: x / canvas.scale, y: y / canvas.scale };
+    const laid = this.canvasList.find((l) => l.comp === canvas.comp);
+    const ray = this.viewRay(x, y);
+    const at = laid && ray ? this.onWorldCanvas(laid, ray) : null;
+    return at ? { x: at.ux, y: at.uy } : null;
+  }
+
+  /**
+   * ADR 0424: move a slider's thumb to a point (its canvas's UI pixels): the value there, snapped to its steps. A new
+   * value sends `input`: into `records` from the routing, else now (a press's default action).
+   */
+  private slideTo(world: World, e: Entry, ux: number, uy: number, records: UIEventRecord[] | null): void {
+    const s = e.comp as UISlider;
+    const [lx] = e.place.inverse ? applyAffine(e.place.inverse, ux, uy) : [ux, uy];
+    const thumb = e.box.height;
+    const room = e.box.width - thumb;
+    const f = room > 0 ? (lx - e.box.x - thumb / 2) / room : 0;
+    const v = sliderValue(s, s.min + Math.min(1, Math.max(0, f)) * (s.max - s.min));
+    if (v === s.value) return;
+    s.value = v;
+    if (records) records.push(uiEventRecord("input", s));
+    else fireUIEvent(world, uiEventRecord("input", s));
+  }
+
+  /** ADR 0424: a key's default action on a focused slider (Page Up/Down a tenth of its range, Home/End its ends). Returns whether it was one. */
+  private keySlider(world: World, s: UISlider, key: string): boolean {
+    if (key !== "pageup" && key !== "pagedown" && key !== "home" && key !== "end") return false;
+    if (!s.interactable) return true;
+    const tenth = (s.max - s.min) / 10;
+    const to = key === "home" ? s.min : key === "end" ? s.max : s.value + (key === "pageup" ? tenth : -tenth);
+    const v = sliderValue(s, to);
+    if (v !== s.value) {
+      s.value = v;
+      controlChanged(world, s);
+    }
+    return true;
   }
 
   /** ADR 0423: a touch or pen drag scroll let go: it keeps moving at the speed of its last tenth of a second. */
@@ -1526,7 +1694,7 @@ function sameElements(a: readonly UILaidOutElement[], b: readonly UILaidOutEleme
   if (a.length !== b.length) return false;
   return a.every((x, i) => {
     const y = b[i];
-    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip) && sameAffine(x.transform, y.transform) && sameRect(x.bounds, y.bounds) && sameRect(x.reach, y.reach) && sameScroll(x.scroll, y.scroll);
+    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip) && sameAffine(x.transform, y.transform) && sameRect(x.bounds, y.bounds) && sameRect(x.reach, y.reach) && sameScroll(x.scroll, y.scroll) && x.parts === y.parts;
   });
 }
 

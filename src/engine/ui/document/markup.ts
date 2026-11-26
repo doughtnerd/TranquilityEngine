@@ -11,8 +11,8 @@ import type { MarkupAttribute, MarkupElement, ParseMarkup, SourceProblem, Source
 export { hasBinding, parseBindings, problemAt, resolvePath };
 
 const UI_TAGS: ReadonlySet<string> = UI_KIND_TAGS;
-/** Elements whose text content is a field (`Text`'s text, a `Button`'s label, an `InputField`'s value). */
-const TEXT_TAGS: ReadonlySet<string> = new Set(["Text", "Button", "InputField"]);
+/** Elements whose text content is a field (`Text`'s text, a `Button`'s label, an `InputField`'s value; ADR 0424: a `TextArea`'s value, an `Option`'s and a `Label`'s label). */
+const TEXT_TAGS: ReadonlySet<string> = new Set(["Text", "Button", "InputField", "TextArea", "Option", "Label"]);
 /** `<Use>` nesting deeper than this is taken for a cycle the path check missed. */
 const MAX_USE_DEPTH = 16;
 
@@ -142,7 +142,7 @@ function parseFile(source: string, file: string, read: (path: string) => string 
           return;
         }
         if (TEXT_TAGS.has(top.tag)) top.text += text;
-        else if (text.trim()) report({ start: parser.startIndex, end: parser.endIndex + 1 }, `Text inside <${top.tag}> is ignored (only Text, Button and InputField take text).`);
+        else if (text.trim()) report({ start: parser.startIndex, end: parser.endIndex + 1 }, `Text inside <${top.tag}> is ignored (only Text, Button, InputField, TextArea, Option and Label take text).`);
       },
       onclosetag(name, implied) {
         const b = stack.pop();
