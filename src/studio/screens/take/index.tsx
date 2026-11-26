@@ -30,7 +30,7 @@ import { runMoveFolders, runTreeFolders } from "../profiler/captureTree";
 import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "../profiler/runFileActions";
 import { durationsVersion, fileDuration } from "../profiler/runFileDurations";
 import { findInstance, parameterText, pathTitle, playlistsInTake, takeTimeline, type TakeInstance, type TakeTimeline } from "./takeTimeline";
-import { liveTake, type LiveTake } from "../../runtime/liveTake";
+import { buildSession, takeOnShow, type LiveTake } from "../../runtime/buildSession";
 import { openMixer } from "../../shell/openMixer";
 import { drivesText, playlistSummary, playsText, propertyCards, typeName, type PropertyCard } from "./takePlaylists";
 import type { Take } from "../../../engine/audio/take/reader";
@@ -39,9 +39,8 @@ import { EFFECT_CATALOGUE, isBuiltinEffectType } from "../../../engine/audio/eff
 import { openMixDocument } from "../mixer/mixerDocument";
 import { TakeTimelineView } from "./TakeTimelineView";
 import { whyNotImportable } from "../../../editor/assetImportFiles";
-import { studioBuild } from "../../debugLink/studioLink";
 import { BuildTakeControls } from "./BuildTakeControls";
-import { asksWhereToSaveTakes, buildTake } from "./buildTakes";
+import { asksWhereToSaveTakes } from "./buildTakes";
 import { mountedBuildAudio } from "../../runtime/buildAudioSets";
 import { isTakesFolder } from "../../../editor/projects";
 import { changeTakesFolder } from "../../shell/liveConnect";
@@ -63,8 +62,10 @@ function DocScope(props: { children: ComponentChildren }) {
 const ASK_WHERE = "a file you choose on Save";
 
 function BuildTakeSection() {
-  const rec = buildTake.value;
-  if (!rec) return null;
+  const session = buildSession.value;
+  const rec = session?.recorder ?? null;
+  // While the build is connected; after it left, only to show why its take failed (until dismissed).
+  if (!session || !rec || (session.show.value.kind !== "live" && rec.state.value.kind !== "failed")) return null;
   const project = currentProject.value;
   const takesOnly = isTakesFolder(project);
   const asks = asksWhereToSaveTakes();
@@ -75,14 +76,11 @@ function BuildTakeSection() {
       whyNotSave={asks ? null : whyNotImportable(project)}
       into={asks ? ASK_WHERE : takesOnly && project?.root ? project.root : undefined}
       onChangeFolder={takesOnly && !asks && project?.fileSystem ? () => void changeTakesFolder(project.fileSystem!) : undefined}
-      onStart={() => void rec.start()}
-      onMark={(text) => void rec.mark(text)}
-      onStop={() => void rec.stop()}
+      onStart={() => void session.start()}
+      onMark={(text) => void session.mark(text)}
+      onStop={() => void session.stop()}
       onSave={() => void rec.save()}
-      onDismiss={() => {
-        rec.dismiss();
-        if (!studioBuild.peek()) buildTake.value = null;
-      }}
+      onDismiss={() => rec.dismiss()}
     />
   );
 }
@@ -223,7 +221,7 @@ function useScreen(): void {
         void docVersion.value;
         const asset = studioRouter().route.value.asset;
         // While a build is connected the timeline is live (ADR 0408): the routed take waits, and opens once it leaves.
-        if (studioBuild.value) return;
+        if (takeOnShow.value.kind === "live") return;
         store.follow(asset, !!asset && isTakePath(asset) && !!currentProject.value?.files.includes(asset));
       }),
       effect(() => {
@@ -299,9 +297,10 @@ function TimelinePanel() {
   let body;
   // ADR 0408: while a game build is connected the Take screen is live: the take recording on the build grows here, and
   // between recordings the last one shows; saved recordings open once it disconnects.
-  const build = studioBuild.value;
-  const live = build ? liveTake.value : null;
-  if (build) {
+  const show = takeOnShow.value;
+  if (show.kind === "live") {
+    const build = { name: show.build };
+    const live = show.take;
     body = live ? (
       <LiveTakeView live={live} />
     ) : (
@@ -407,7 +406,7 @@ const NO_NOTES = emptyTakeNotes();
 const NONE: ReadonlySet<string> = new Set();
 
 /**
- * ADR 0408: the take recording on the connected build, as it grows (`liveTake`): the timeline with its playhead at the
+ * ADR 0408: the take recording on the connected build, as it grows (the build session's live take): the timeline with its playhead at the
  * newest moment, read-only (no replay, no notes). Instances can still be selected for the Inspector.
  */
 function LiveTakeView(props: { readonly live: LiveTake }) {
@@ -465,7 +464,8 @@ function trackCards(path: string, valueOf: (name: string) => number | null): { k
 
 function InspectorPanel() {
   // ADR 0411: while a build is connected the Take screen is live; the Inspector shows its take at the newest moment.
-  if (studioBuild.value) return <LiveInspector live={liveTake.value} />;
+  const show = takeOnShow.value;
+  if (show.kind === "live") return <LiveInspector live={show.take} />;
   return <ReplayInspector />;
 }
 
