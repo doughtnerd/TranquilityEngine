@@ -269,9 +269,10 @@ pause.query("#resume")!.on("click", () => closePauseMenu());
 
 ## Svelte components and `UIView` (ADR 0419, in progress)
 
-Game UI is moving to Svelte 5 components. UI documents keep working until the migration finishes. The runtime is built; compiling `.svelte` files in the editor and at export comes next, so for now components are compiled by the test setup only.
+Game UI is moving to Svelte 5 components. UI documents keep working until the migration finishes.
 
-Add a `UIView` to a node and set its `component` to a `.svelte` asset. The view makes the canvas itself (its fields are the canvas settings: `mode`, `referenceResolution`, `matchHeight`, `sortOrder`, `pixelSize`, `modal`, `autoFocus`, `player`), so a component never writes a canvas tag:
+Make a component with the Assets panel's **Create > UI > New Svelte Component** (it goes in `ui/`), add a `UIView` to a node and set its `component` to the `.svelte` asset.
+ The view makes the canvas itself (its fields are the canvas settings: `mode`, `referenceResolution`, `matchHeight`, `sortOrder`, `pixelSize`, `modal`, `autoFocus`, `player`), so a component never writes a canvas tag:
 
 ```svelte
 <script lang="ts">
@@ -299,9 +300,19 @@ Add a `UIView` to a node and set its `component` to a `.svelte` asset. The view 
 - **Bindings:** `bind:value` on `input`, and `bind:this`, which gives a node with an Element subset (`setAttribute`, `classList`, `style`, `addEventListener`, `focus`/`blur`, `getBoundingClientRect`, `value`, `textContent`…) for actions and attachments.
 - **Styles** are Svelte's: a component's `<style>` is scoped to it; `:global(...)` rules apply to every `UIView` in the World (one theme for the HUD and the pause menu). Selectors match the tag as written (`button`, `div`), in any case, and `:is()`/`:where()` work (`:where()` adds no specificity).
 - **Scripts** pass data through `view.props`, which is reactive (`view.props.coins = 10` shows that frame), wait for `await view.ready`, and find elements with `view.query("#play")`/`view.queryAll(".row")`. Disabling or removing the view unmounts the component; enabling it mounts it again with fresh state and the same props.
+- **Shared state** goes in rune modules (`ui/score.svelte.ts`: `export const score = $state({ value: 0 })`), which components and scripts both import (`import { score } from "../ui/score.svelte"`).
+- **Plain `.css` files** a component imports (`import "./theme.css"`) apply to every `UIView` in the World, like `:global` rules. A `.css` file nothing imports isn't loaded.
 - `addComponent(UIPanel)` and the other UI components stay refused: a view's render (or a document's build) makes them.
 
-Not yet: `on:`, transitions and `animate:`, `{@html}`, `<svelte:window>`/`<svelte:document>`/`<svelte:body>`/`<svelte:head>`, bubbling and capture, and the editor's view of components. How much of Svelte works is measured by `npm run test:svelte-conformance`, which runs Svelte's own runtime tests against the engine's renderer (see the 0419 row of the implementation status).
+**Compiling.** Components (`.svelte`), rune modules (`.svelte.ts`, anywhere in the project) and the `.css` files they import compile with the project's scripts, in the editor and when you export:
+
+- In the editor they compile when the project opens and again whenever you save one (in the Code panel or outside the editor), or create one. A mounted `UIView` shows the new version in its next frame and keeps its `props` (hot reload); its own state starts over. A compile error is reported like a script's (the status line, with the file and line), and the view keeps showing the last version that compiled.
+- Play's type check covers rune modules (Svelte's runes and modules are known to the Code panel's TypeScript service). Inside `.svelte` files, the Svelte compiler's errors are reported, but types aren't checked yet (no svelte-check).
+- A game build compiles them without the editor's debugging information. The `.svelte` and `.svelte.ts` files don't ship: their compiled code does, with Svelte's runtime and the engine's renderer from the player, never the compiler. Styles are parsed when they compile, so a game that uses only Svelte UI doesn't load the CSS parser.
+
+
+Not yet: `on:`, transitions and `animate:`, `{@html}`, `<svelte:window>`/`<svelte:document>`/`<svelte:body>`/`<svelte:head>`, bubbling and capture, npm packages that import Svelte, type checking inside `.svelte` files, and the editor's view of components (picking, Inspector edits).
+ How much of Svelte works is measured by `npm run test:svelte-conformance`, which runs Svelte's own runtime tests against the engine's renderer (see the 0419 row of the implementation status).
 
 ## Headless Worlds and tests
 
