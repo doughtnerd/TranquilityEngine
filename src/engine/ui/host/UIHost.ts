@@ -29,10 +29,9 @@ import { Locale } from "../../localisation/Locale";
 import { UIButton, UICanvas, UIInputField, UIText, type UIComponentType } from "../components";
 import { uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
-import { parseSelectorQuery } from "../document/selectorQuery";
 import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIPseudo, UIStylesheet, UITag } from "../document/types";
 
-type Cascade = typeof import("../document/cascade");
+type Cascade = typeof import("./hostSupport");
 type ComponentClass = new () => UIComponentType;
 
 let cascade: Cascade | null = null;
@@ -44,7 +43,7 @@ let loading: Promise<Cascade> | null = null;
  */
 export function loadUIHostSupport(): Promise<void> {
   if (cascade) return Promise.resolve();
-  loading ??= import("../document/cascade").then(
+  loading ??= import("./hostSupport").then(
     (m) => (cascade = m),
     (err: unknown) => {
       loading = null;
@@ -676,7 +675,7 @@ export class UIHostTree {
     let cached = this.selectorCache.get(selector);
     if (!cached) {
       try {
-        cached = parseSelectorQuery(selector);
+        cached = requireCascade().parseSelectorQuery(selector);
       } catch (err) {
         throw new Error(`Bad selector "${selector}": ${(err as Error).message}.`);
       }
