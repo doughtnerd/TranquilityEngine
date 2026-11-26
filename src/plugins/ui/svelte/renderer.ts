@@ -68,7 +68,7 @@ import { onLocaleEpoch } from "../../../engine/localisation/Locale";
 import { setLocaleTracker } from "../../../engine/localisation/t";
 import { SVG_CONTENT_TAGS, uiTagOfHtml, uiTagOfInput } from "../../../engine/ui/host/htmlTags";
 import { UIAudio, UIForm, UIOption, UIRadio, UISvg, UIText, UIVideo } from "../../../engine/ui/components";
-import { checkRadio, chooseOption, selectOf } from "../../../engine/ui/formControls";
+import { checkRadio, chooseOption, selectOf, setUIDefaults } from "../../../engine/ui/formControls";
 import { applyAffine, invert, multiply } from "../../../engine/ui/transform2d";
 import { distanceToOutline, flattenPath, insideFill, parseSvgTransform, pathLength, pointAtLength, shapePath, SVG_GEOMETRY_TAGS, viewBoxMap } from "../../../engine/ui/svg/svgGeometry";
 import { UI_MEDIA_EVENTS, type UIMediaEvent, type UIMediaEventType } from "../../../engine/ui/media";
@@ -375,6 +375,17 @@ export class UIRenderElement extends UINodeBase {
   /** @internal Set on the container a view mounts into: the tree it hosts. */ _tree: UIHostTree | null = null;
   /** @internal An input's value set before its element was made (a binding, a script). */ _pendingValue: string | null = null;
   /** @internal ADR 0424: `checked`, `indeterminate` and `selected` set before its element was made. */ _pendingState: Partial<Record<"checked" | "indeterminate" | "selected", boolean>> = {};
+  /**
+   * @internal HTML's defaults, what a form reset puts back: a field's `defaultValue` (its template `value` or
+   * `defaultValue`), a checkbox's `defaultChecked`. An option's is its `selected` attribute.
+   */ _defaults: { value?: string; checked?: boolean } = {};
+  /**
+   * @internal The template gave it a `value` or `checked` attribute: Svelte then sets `defaultValue`/`defaultChecked`
+   * with `set_default_value`/`set_default_checked`, which keep the current value (it compiles them so, the DOM can't tell).
+   */ _templateDefault = { value: false, checked: false };
+  /** @internal HTML's dirty flags: the value or checked state was set (by a script, a binding or the player), so a new default leaves it. */ _dirty = { value: false, checked: false, selected: false };
+  /** @internal A select's `defaultValue` (Svelte's, not the DOM's): the options a reset restores, chosen at first unless a value is bound. */ _selectDefault: { value: unknown } | null = null;
+  /** @internal A select's bound value (`bind:value`), which options added later are chosen by; absent: none bound. */ _bound: { value: unknown } | null = null;
   /** @internal ADR 0426: inside an <svg>, the CSS a Svelte transition is writing now (`draw`'s stroke dashes), by kebab-case property. */ _svgAnim: Readonly<Record<string, string>> | null = null;
   /** @internal ADR 0426: a media element's media-event relays from its hosted element, by type. */ _mediaRelays = new Map<string, (e: UIMediaEvent) => void>();
   /** @internal ADR 0426: media properties a script set before the element was made (`volume`, `muted`, `playbackRate`, `currentTime`). */ _pendingMedia = new Map<string, number | boolean>();
@@ -968,13 +979,29 @@ export class UIRenderElement extends UINodeBase {
    * or radio's `value` ("on" without one), an option's (its text without one). Setting it isn't a player change.
    */
   get value(): string {
-    if (this._uiTag === "Option" && !this._hosted) return this.getAttribute("value") ?? collapse(this.textContent);
+    // An option's `value` attribute, else its text (HTML's); a select's chosen option's value ("" with none chosen).
+    if (this._uiTag === "Option") return this.getAttribute("value") ?? collapse(this.textContent);
+    if (this._uiTag === "Select") return this.options.find((o) => o.selected)?.value ?? "";
     if ((this._uiTag === "Toggle" || this._uiTag === "Radio") && !this._hosted) return this.getAttribute("value") ?? "on";
     return this._hosted?.value ?? this._pendingValue ?? this.getAttribute("value") ?? "";
   }
 
   set value(value: string) {
+    this._dirty.value = true;
+    this._writeValue(value);
+  }
+
+  /** @internal Write the current value without marking it dirty (a default reaching a field nobody changed). */
+  _writeValue(value: unknown): void {
     const v = value === null || value === undefined ? "" : String(value);
+    if (this._uiTag === "Select") {
+      // The DOM's select: the first option with that value is chosen at once and every other one isn't (none: none is).
+      const options = this.options;
+      const match = options.find((o) => o.value === v);
+      for (const o of options) if (o !== match && o.selected) o.selected = false;
+      if (match) match.selected = true;
+      return;
+    }
     if (this._hosted) this._hosted.value = v;
     else this._pendingValue = v;
   }
@@ -1027,7 +1054,36 @@ export class UIRenderElement extends UINodeBase {
   }
 
   set checked(on: boolean) {
+    this._dirty.checked = true;
     this.setState("checked", !!on);
+  }
+
+  /** HTML's `defaultValue`: a field's value its form's reset puts back (its template `value`); setting it moves the value while nobody has changed it. */
+  get defaultValue(): string {
+    return this._defaults.value ?? (this._parent ? "" : String(this.getAttribute("value") ?? ""));
+  }
+
+  set defaultValue(value: string) {
+    setDefault(this, "defaultValue", value);
+  }
+
+  /** HTML's `defaultChecked`: a checkbox's or radio's checked state its form's reset puts back. */
+  get defaultChecked(): boolean {
+    return this._defaults.checked ?? false;
+  }
+
+  set defaultChecked(on: boolean) {
+    setDefault(this, "defaultChecked", !!on);
+  }
+
+  /** HTML's `defaultSelected`: an option's `selected` attribute, chosen by its form's reset. */
+  get defaultSelected(): boolean {
+    return this.hasAttribute("selected");
+  }
+
+  set defaultSelected(on: boolean) {
+    if (on) renderer.setAttribute(this, "selected", "");
+    else renderer.removeAttribute(this, "selected");
   }
 
   /** ADR 0424: a checkbox shown as neither (a dash) until the player toggles it. */
@@ -1045,7 +1101,13 @@ export class UIRenderElement extends UINodeBase {
   }
 
   set selected(on: boolean) {
+    this._dirty.selected = true;
     this.setState("selected", !!on);
+  }
+
+  /** @internal Set the checked or selected state without marking it dirty (an attribute reaching a control nobody changed). */
+  _writeState(name: "checked" | "indeterminate" | "selected", on: boolean): void {
+    this.setState(name, on);
   }
 
   /** ADR 0424: a select's options (as nodes), and the index of its chosen one (-1: none). */
@@ -1075,7 +1137,8 @@ export class UIRenderElement extends UINodeBase {
 
   set selectedIndex(i: number) {
     const options = this.options;
-    if (options[i]) this.value = options[i].value;
+    if (options[i]) options[i].selected = true;
+    else for (const o of options) if (o.selected) o.selected = false;
   }
 
   /** ADR 0424: the form a control is in (null outside forms). */
@@ -1443,8 +1506,12 @@ function isRun(node: UINode): boolean {
   return p instanceof UIRenderElement && !p._tree && !OWN_KIND_IN_TEXT.has(p._uiTag) && (isTextKind(p) || isRun(p));
 }
 
-/** ADR 0425: elements that stay what they are inside a text element (not drawn there yet: an <svg>'s shapes are its document). */
-const OWN_KIND_IN_TEXT: ReadonlySet<UITag> = new Set(["Svg", "Video", "Audio"]);
+/**
+ * ADR 0425: elements that stay what they are inside a text element (not drawn there yet: an <svg>'s shapes are its
+ * document). Form controls too: an `<input>` in a `<p>` keeps its value, checked state and focus as a control, which a
+ * text run would drop.
+ */
+const OWN_KIND_IN_TEXT: ReadonlySet<UITag> = new Set(["Svg", "Video", "Audio", "InputField", "TextArea", "Toggle", "Radio", "Slider", "Select", "Progress", "Meter"]);
 
 /** ADR 0425: an element whose content is text and runs: a text element, or a run that isn't an image. */
 function holdsText(n: UINode | UIParent | null): n is UIRenderElement {
@@ -1550,6 +1617,7 @@ function hostAttributes(el: UIRenderElement): Map<string, string> {
     else if (k === "wrap" && tag === "TextArea") out.set("wrap", s === "off" ? "off" : "soft");
     else if (k === "maxlength" && (tag === "InputField" || tag === "TextArea")) out.set("max-length", s);
     else if (k === "value" && tag === "Progress" && s === "") continue;
+    else if (k === "value" && tag === "Button") continue; // an <input type="submit">'s label (`inputButtonLabel`)
     else if (HTML_ONLY.has(k)) continue;
     else if (k === "src" && tag === "Image") out.set("image", s);
     else if (k === "disabled") {
@@ -1672,6 +1740,7 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
     made.value = node._pendingValue;
     node._pendingValue = null;
   }
+  if (node.localName === "input" && node._uiTag === "Button") inputButtonLabel(node);
   if (node._uiTag === "Svg") {
     refreshSvg(node);
     // Listeners on its shapes are heard through it (`svgShapeAt` retargets).
@@ -1702,7 +1771,8 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   // ADR 0424: state a binding or script set before the element was made.
   const pending = node._pendingState;
   node._pendingState = {};
-  for (const k of ["checked", "indeterminate", "selected"] as const) if (pending[k] !== undefined) node[k] = pending[k]!;
+  for (const k of ["checked", "indeterminate", "selected"] as const) if (pending[k] !== undefined) node._writeState(k, pending[k]!);
+  if (DEFAULTED_TAGS.has(node._uiTag)) pushDefaults(node);
   return made;
 }
 
@@ -1809,6 +1879,7 @@ function reconcileEdit(el: UIRenderElement): void {
 /** ADR 0426: an attribute changed: an <svg>'s document, or a media element's <source>. */
 function attributeChanged(el: UIRenderElement): void {
   svgChanged(el);
+  if (el.localName === "input" && el._uiTag === "Button") inputButtonLabel(el);
   const p = el._parent;
   if (isMediaNode(p) && p._hosted && el.localName.toLowerCase() === "source") p._hosted.tree.setAttributes(p._hosted, hostAttributes(p), writtenAttributes(p));
 }
@@ -1873,7 +1944,7 @@ function bindContent(node: UIRenderElement, name: "textContent" | "innerText" | 
 // --- Bindings ------------------------------------------------------------------------------------
 
 /** Listen for `type` on `node` while a binding lasts: the binding's cleanup. */
-function listen(node: UIRenderElement, type: string, fn: () => void): () => void {
+function listen(node: UIRenderElement, type: string, fn: () => void, onFormReset: () => void = fn): () => void {
   // A capture listener runs first at its target: the bound state is set before the element's own handlers read it (as a
   // DOM binding's listener runs before Svelte's delegated handlers).
   node.addEventListener(type, fn, true);
@@ -1881,7 +1952,7 @@ function listen(node: UIRenderElement, type: string, fn: () => void): () => void
   // Svelte's DOM bindings do, a microtask later).
   const form = node.form;
   const onReset = () => queueMicrotask(() => {
-    if (node.isConnected) fn();
+    if (node.isConnected) onFormReset();
   });
   form?.addEventListener("reset", onReset);
   return () => {
@@ -1890,11 +1961,162 @@ function listen(node: UIRenderElement, type: string, fn: () => void): () => void
   };
 }
 
+// --- HTML's defaults (what a form reset puts back) --------------------------------------------------
+
+/** The default properties Svelte hands a renderer as attributes, by lower-case name. */
+const DEFAULT_KEYS: Readonly<Record<string, "defaultValue" | "defaultChecked" | "defaultSelected" | undefined>> = { defaultvalue: "defaultValue", defaultchecked: "defaultChecked", defaultselected: "defaultSelected" };
+
+/** Controls with HTML defaults. */
+const DEFAULTED_TAGS: ReadonlySet<UITag> = new Set(["InputField", "TextArea", "Slider", "Toggle", "Radio", "Option"]);
+
+/**
+ * A control's defaults, handed to its UI element (`setUIDefaults`) for its form's reset: a field without a default
+ * value resets to "", a checkbox without one unchecked, an option without `selected` unchosen (HTML's). A slider without
+ * one keeps the UI core's (its value as built: HTML's default is the middle of its range).
+ */
+function pushDefaults(el: UIRenderElement): void {
+  const c = el._hosted?.component;
+  if (!c) return;
+  if (el._uiTag === "Option") setUIDefaults(c, { selected: el.hasAttribute("selected") });
+  else setUIDefaults(c, { value: el._defaults.value ?? (el._uiTag === "Slider" ? undefined : ""), checked: el._defaults.checked ?? false });
+}
+
+/**
+ * `defaultValue`, `defaultChecked` or `defaultSelected` (as Svelte hands them to a renderer, attributes): the default
+ * changes, and so does the current value or state while nothing has changed it (HTML's dirty flags). A select's
+ * `defaultValue` is Svelte's (`selectDefault`).
+ */
+function setDefault(el: UIRenderElement, key: "defaultValue" | "defaultChecked" | "defaultSelected", value: unknown): void {
+  if (key === "defaultSelected") return void (el.defaultSelected = value === "" || !!value);
+  if (key === "defaultValue" && el._uiTag === "Select") return selectDefault(el, value);
+  if (key === "defaultValue") {
+    const text = value === null || value === undefined ? "" : String(value);
+    // A field the player typed in is dirty too (its value isn't its last default any more).
+    const textAreaContent = el._uiTag === "TextArea" && el._children.some((c) => c instanceof UIRenderText && c.data !== "");
+    const changed = el._templateDefault.value || textAreaContent || el._dirty.value || (el._defaults.value !== undefined && el.value !== el._defaults.value);
+    el._defaults.value = text;
+    if (!changed) el._writeValue(text);
+  } else {
+    const on = value === "" || (!!value && value !== "false");
+    const changed = el._templateDefault.checked || el._dirty.checked || (el._defaults.checked !== undefined && el.checked !== el._defaults.checked);
+    el._defaults.checked = on;
+    if (!changed) el._writeState("checked", on);
+  }
+  pushDefaults(el);
+}
+
+/** A text area's text content is its default value (HTML's), and its value while nothing has changed it. */
+function textAreaContentChanged(el: UIRenderElement): void {
+  const text = el._children.map((c) => (c instanceof UIRenderText ? c.data : "")).join("");
+  const changed = el._dirty.value || (el._defaults.value !== undefined && el.value !== el._defaults.value);
+  el._defaults.value = text;
+  if (!changed) el._writeValue(text);
+  pushDefaults(el);
+}
+
+/** An option's `selected` attribute came or went: its default, and its state while nothing has chosen it (HTML's). */
+function optionDefaultChanged(option: UIRenderElement): void {
+  const on = option.hasAttribute("selected");
+  if (!option._dirty.selected && option.selected !== on) {
+    if (on) option._writeState("selected", true);
+    else if (option.selected) option._writeState("selected", false);
+  }
+  askForReset(selectAround(option));
+  pushDefaults(option);
+}
+
+/** The select an option (or optgroup) is in, or null. */
+function selectAround(node: UINode): UIRenderElement | null {
+  for (let n = node._parent; n instanceof UIRenderElement && !n._tree; n = n._parent) if (n._uiTag === "Select") return n;
+  return null;
+}
+
+/**
+ * Svelte's `defaultValue` on a select: its options with that value (with `multiple`, in that array) get the `selected`
+ * attribute, so a reset restores them; the first time it also chooses them unless a value is bound, later it leaves the
+ * choice alone (Svelte's `set_default_select_value`).
+ */
+function selectDefault(select: UIRenderElement, value: unknown): void {
+  const mounting = select._selectDefault === null;
+  if (!mounting && Object.is(select._selectDefault!.value, value)) return;
+  select._selectDefault = { value };
+  applySelectDefault(select, !mounting || select._bound !== null);
+}
+
+function applySelectDefault(select: UIRenderElement, preserve: boolean): void {
+  const value = select._selectDefault?.value;
+  const multiple = select.hasAttribute("multiple");
+  const values = multiple ? (value ?? []) : null;
+  if (multiple && !Array.isArray(values)) return;
+  const options = select.options;
+  const index = select.selectedIndex;
+  const was = preserve && multiple ? new Set(select.selectedOptions) : null;
+  for (const o of options) {
+    const v = rawOptionValue(o);
+    const on = multiple ? (values as unknown[]).includes(v) : Object.is(v, value);
+    if (on && !o.hasAttribute("selected")) renderer.setAttribute(o, "selected", "");
+    else if (!on) renderer.removeAttribute(o, "selected");
+  }
+  if (!preserve) return;
+  if (was) {
+    for (const o of options) if (o.selected !== was.has(o)) o._writeState("selected", was.has(o));
+  } else if (select.selectedIndex !== index) {
+    const keep = options[index];
+    if (keep) keep._writeState("selected", true);
+    else for (const o of options) if (o.selected) o._writeState("selected", false);
+  }
+}
+
+/**
+ * HTML's selectedness setting algorithm, run when a single select's options come or go or an option's `selected`
+ * attribute changes: none chosen chooses the first that isn't disabled, several keep the last.
+ */
+function askForReset(select: UIRenderElement | null): void {
+  if (!select || select.hasAttribute("multiple")) return;
+  const options = select.options;
+  const chosen = options.filter((o) => o.selected);
+  if (chosen.length > 1) for (const o of chosen.slice(0, -1)) o._writeState("selected", false);
+  else if (chosen.length === 0) options.find((o) => !o.hasAttribute("disabled"))?._writeState("selected", true);
+}
+
+/**
+ * An option came into or left `select`: its default applies again and a bound value chooses again (Svelte's DOM path
+ * does it from a `MutationObserver`; here at once, so a default given before the options arrived chooses them).
+ */
+function selectOptionsChanged(select: UIRenderElement | null): void {
+  if (!select) return;
+  askForReset(select);
+  if (select._selectDefault) applySelectDefault(select, false);
+  if (select._bound) chooseBound(select, select._bound.value);
+}
+
+/** Choose a select's options by a bound value, as Svelte's `select_option` (none matching: none chosen, past mounting). */
+function chooseBound(select: UIRenderElement, value: unknown, mounting = false): void {
+  const options = select.options;
+  if (select.hasAttribute("multiple")) {
+    if (value === undefined || value === null || !Array.isArray(value)) return;
+    for (const o of options) {
+      const on = value.includes(rawOptionValue(o));
+      if (o.selected !== on) o.selected = on;
+    }
+    return;
+  }
+  const match = options.find((o) => Object.is(rawOptionValue(o), value));
+  if (match) {
+    match.selected = true;
+  } else if (!mounting || value !== undefined) {
+    for (const o of options) if (o.selected) o.selected = false;
+  }
+}
+
 /** Whether `node` has its World's UI focus. */
 function isFocused(node: UIRenderElement): boolean {
   const hosted = node._hosted;
   return !!hosted && uiHostFocused(hosted.tree.world) === hosted;
 }
+
+/** Nodes bound once already (Svelte re-binds on each change of the bound value; what happens at first happens once). */
+const bound = new WeakSet<UIRenderElement>();
 
 /** Svelte's number coercion for `bind:value` on number and range inputs: "" is null, anything else a number. */
 const toNumber = (text: string): number | null => (text === "" ? null : +text);
@@ -1905,9 +2127,15 @@ const toNumber = (text: string): number | null => (text === "" ? null : +text);
  */
 function bindValue(node: UIRenderElement, get: () => unknown, set: (value: unknown) => void, ownChange?: () => boolean): () => void {
   if (node._uiTag === "Select") return bindSelect(node, get, set, ownChange);
-  const value = get();
-  const text = value === null || value === undefined ? "" : String(value);
   const numeric = () => node._uiTag === "Slider" || (node._uiTag === "InputField" && String(node.getAttribute("type")).toLowerCase() === "number");
+  let value = get();
+  // Bound to nothing at first while the field shows a value (its `defaultValue`): the state takes it (Svelte's DOM binding).
+  if (!bound.has(node) && (value === null || value === undefined) && node.value !== "") {
+    value = numeric() ? toNumber(node.value) : node.value;
+    set(value);
+  }
+  bound.add(node);
+  const text = value === null || value === undefined ? "" : String(value);
   // As Svelte's DOM binding: a focused field isn't rewritten with a value from its own change's batch (an update
   // deferred by async work that depends on it), and a number field keeps its text while it means the value ("1.0").
   const keep = (isFocused(node) && !!ownChange?.()) || (numeric() && value === toNumber(node.value));
@@ -1926,28 +2154,30 @@ function bindSelect(node: UIRenderElement, get: () => unknown, set: (value: unkn
   const multiple = node.hasAttribute("multiple");
   const value = get();
   const options = node.options;
+  const mounting = !bound.has(node);
+  bound.add(node);
+  node._bound = { value };
   if (isFocused(node) && ownChange?.()) {
     // Focused, and the value is from its own change's batch: left as chosen (Svelte's DOM binding).
-  } else if (value === undefined) {
-    // Nothing bound yet: the bound state takes what's chosen, as Svelte's DOM binding does.
+  } else if (value === undefined && mounting) {
+    // Nothing bound yet: the bound state takes what's chosen (a single select shows its first option), as Svelte's DOM binding does.
     const chosen = options.filter((o) => o.selected);
     if (multiple) set(chosen.map(rawOptionValue));
     else if (chosen[0] ?? options[0]) set(rawOptionValue(chosen[0] ?? options[0]));
-  } else if (multiple) {
-    const list = Array.isArray(value) ? value : [];
-    for (const o of options) o.selected = list.includes(rawOptionValue(o));
-  } else {
-    const match = options.find((o) => rawOptionValue(o) === value);
-    if (match) match.selected = true;
-  }
+  } else chooseBound(node, value, mounting);
   return listen(node, "change", () => {
     const chosen = node.options.filter((o) => o.selected).map(rawOptionValue);
-    set(multiple ? chosen : chosen[0]);
+    const now = multiple ? chosen : chosen[0];
+    node._bound = { value: now };
+    set(now);
   });
 }
 
 /** ADR 0424: `bind:checked` and `bind:indeterminate` on a checkbox (and `checked` on a radio). */
 function bindState(node: UIRenderElement, name: "checked" | "indeterminate", get: () => unknown, set: (value: unknown) => void): () => void {
+  // Bound to nothing at first: the state takes the checkbox's (its `defaultChecked`), as Svelte's DOM binding does.
+  if (name === "checked" && !bound.has(node) && (get() === null || get() === undefined)) set(node.checked);
+  bound.add(node);
   const on = !!get();
   if (node[name] !== on) node[name] = on;
   return listen(node, "change", () => set(node[name]));
@@ -1968,9 +2198,14 @@ function bindGroup(node: UIRenderElement, get: () => unknown, set: (value: unkno
   if (node._uiTag === "Radio") {
     const on = value === mine;
     if (node.checked !== on) node.checked = on;
-    return listen(node, "change", () => {
-      if (node.checked) set(rawControlValue(node));
-    });
+    return listen(
+      node,
+      "change",
+      () => {
+        if (node.checked) set(rawControlValue(node));
+      },
+      () => set(null), // Svelte's DOM binding: a reset group is bound to nothing (null; [] for checkboxes)
+    );
   }
   const list = Array.isArray(value) ? value : [];
   const on = list.includes(mine);
@@ -1980,7 +2215,22 @@ function bindGroup(node: UIRenderElement, get: () => unknown, set: (value: unkno
     const v = rawControlValue(node);
     const without = now.filter((x) => x !== v);
     set(node.checked ? [...without, v] : without);
-  });
+  }, () => set([]));
+}
+
+/** HTML's label of an `<input type="submit|reset|button">`: its `value`, else "Submit" or "Reset" (a button input has none). */
+function inputButtonLabel(el: UIRenderElement): void {
+  const made = el._hosted;
+  if (!made) return;
+  const type = String(el.getAttribute("type")).toLowerCase();
+  const text = el.getAttribute("value") ?? (type === "submit" ? "Submit" : type === "reset" ? "Reset" : "");
+  let label = made.children.find((c) => c.synthetic) ?? null;
+  if (!text) {
+    if (label) made.tree.remove(label);
+    return;
+  }
+  label ??= made.tree.create("#text", "Text", made, null, new Map(), { synthetic: true });
+  made.tree.setText(label, text);
 }
 
 /** ADR 0424: an `<input>`'s `type` changed what it is (a checkbox made a text field…): it's made again as that, in place. */
@@ -2015,6 +2265,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
   setText(node, text) {
     node.data = text;
     if (svgRootOf(node)) return svgChanged(node);
+    if (node._parent instanceof UIRenderElement && node._parent._uiTag === "TextArea") return textAreaContentChanged(node._parent);
     // ADR 0425: text in a text element (or a run) is its content.
     const p = node._parent;
     if (holdsText(p)) return refreshText(p);
@@ -2030,6 +2281,17 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
   },
   getAttribute: (el, name) => el.getAttribute(name),
   setAttribute(el, key, value) {
+    // A select's `value={…}` (Svelte's `set_value`) chooses its options by that value, as the DOM's `select_option`
+    // (none matching: none chosen); options added later are chosen by it too. It's a property, never an attribute.
+    if (key === "value" && el._uiTag === "Select" && el._parent) {
+      el._bound = { value };
+      chooseBound(el, value);
+      return;
+    }
+    // HTML's defaults are properties a renderer gets as attributes (`defaultValue={…}`, `set_default_value`; in any case,
+    // as Svelte's DOM output reads `defaultvalue="b"` in a template).
+    const asDefault = DEFAULT_KEYS[key.toLowerCase()];
+    if (asDefault) return setDefault(el, asDefault, value);
     // Enumerated attributes whose DOM property is a boolean (`translate={false}`): Svelte sets the property on a DOM element,
     // which writes the keyword; under a renderer it hands over the boolean, so the keyword is written here.
     if (typeof value === "boolean" && key in BOOLEAN_KEYWORDS) value = BOOLEAN_KEYWORDS[key][value ? 1 : 0];
@@ -2044,14 +2306,45 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     // `<option value={undefined}>`: Svelte's DOM writes an empty value, so the option's value isn't its label.
     if ((value === undefined || value === null) && key === "value" && el.localName === "option") value = "";
     if (value === undefined || value === null || value === false) return renderer.removeAttribute(el, key);
+    // A field's `value` or a checkbox's `checked` in its template (before it's in a parent) is its default too, as an HTML
+    // attribute is; written later (`value={x}`, Svelte's `set_value`), it's the current value, as the DOM property is.
+    if (key === "value" && (el._uiTag === "InputField" || el._uiTag === "TextArea" || el._uiTag === "Slider")) {
+      if (!el._parent) {
+        el._defaults.value ??= String(value);
+        el._templateDefault.value = true;
+      } else {
+        el._dirty.value = true;
+        if (!el._hosted) el._pendingValue = null; // the attribute is the value now, over one a default wrote
+      }
+    }
+    if (key === "checked" && (el._uiTag === "Toggle" || el._uiTag === "Radio")) {
+      if (!el._parent) {
+        el._defaults.checked ??= true;
+        el._templateDefault.checked = true;
+      } else {
+        el._dirty.checked = true;
+        if (!el._hosted) delete el._pendingState.checked;
+      }
+    }
+    const optionDefault = key === "selected" && el._uiTag === "Option" && !el._attrs.has("selected");
     el._attrs.set(key, value);
     if (key === "type") retag(el); // ADR 0424
     if (key === "contenteditable") refreshTexts(el); // ADR 0425: whitespace kept, or collapsed again
     if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));
+    if (optionDefault) optionDefaultChanged(el);
     attributeChanged(el);
   },
   removeAttribute(el, name) {
+    const asDefault = DEFAULT_KEYS[name.toLowerCase()];
+    if (asDefault) return setDefault(el, asDefault, null);
+    if (name === "checked" && el._parent && (el._uiTag === "Toggle" || el._uiTag === "Radio")) {
+      // Svelte's `checked={false}`: the current state, as the DOM property (whether or not the attribute was there).
+      el._dirty.checked = true;
+      if (el._hosted) el._writeState("checked", false);
+      else el._pendingState.checked = false;
+    }
     if (!el._attrs.delete(name)) return;
+    if (name === "selected" && el._uiTag === "Option") optionDefaultChanged(el);
     if (name === "type") retag(el);
     if (name === "contenteditable") refreshTexts(el);
     if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));
@@ -2105,9 +2398,12 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     // ADR 0425: the text element may have inline children now (its text becomes text pieces beside them).
     refreshTextOf(parent);
     if (oldSvg && oldSvg !== svgRootOf(node)) refreshSvg(oldSvg);
+    if (node instanceof UIRenderElement && (node._uiTag === "Option" || node.localName.toLowerCase() === "optgroup")) selectOptionsChanged(selectAround(node));
+    else if (parent instanceof UIRenderElement && parent._uiTag === "TextArea") textAreaContentChanged(parent);
   },
   remove(node) {
     const parent = node._parent;
+    const optionsOf = node instanceof UIRenderElement && (node._uiTag === "Option" || node.localName.toLowerCase() === "optgroup") ? selectAround(node) : null;
     const tree = treeOf(node);
     const svg = svgRootOf(node);
     detach(node);
@@ -2116,6 +2412,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     dropMediaListeners(node);
     dematerialize(node, tree);
     refreshTextOf(parent);
+    selectOptionsChanged(optionsOf);
   },
   addEventListener(el, type, handler, options) {
     // `<svelte:window>`, `<svelte:document>` and `<svelte:body>` (the patch's `globalTarget`)

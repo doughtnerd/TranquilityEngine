@@ -271,6 +271,21 @@ export function rememberDefaults(c: UIComponentType): void {
   else if (c instanceof UIOption) defaults.set(c, { selected: c.selected });
 }
 
+/**
+ * Change what a control's form reset puts back (ADR 0424; HTML's `defaultValue`, `defaultChecked` and an option's
+ * `selected` attribute, which can change after the control is built): only the fields the control has a default for.
+ */
+export function setUIDefaults(c: UIComponentType, values: { value?: string; checked?: boolean; selected?: boolean }): void {
+  rememberDefaults(c);
+  const d = defaults.get(c);
+  if (!d) return;
+  const next: Record<string, unknown> = { ...d };
+  if (values.value !== undefined && "value" in d) next.value = c instanceof UISlider ? sliderValue(c, Number(values.value)) : values.value;
+  if (values.checked !== undefined && "checked" in d) next.checked = values.checked;
+  if (values.selected !== undefined && "selected" in d) next.selected = values.selected;
+  defaults.set(c, next);
+}
+
 /** Put every control in `form` back as it was built (HTML's reset algorithm), without events. */
 export function resetForm(form: UIForm): void {
   const selects = new Set<UISelect>();
@@ -287,7 +302,9 @@ export function resetForm(form: UIForm): void {
   for (const s of selects) {
     const chosen = optionsOf(s).filter((o) => o.selected);
     s.value = chosen.length ? optionValue(chosen[0]) : "";
-    selectStates.delete(s);
+    // The options' defaults are the choice now (not a written value, which would choose only the options with the
+    // first one's value: a `multiple` select's other defaults lost); reconciling still chooses a single select's first.
+    selectStates.set(s, { value: s.value, chosen });
     reconcileSelect(s);
   }
 }

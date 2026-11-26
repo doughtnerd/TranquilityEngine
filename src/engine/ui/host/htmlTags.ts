@@ -55,14 +55,16 @@ const FIELD_TYPES: ReadonlyMap<string, "text" | "password" | "number"> = new Map
 ]);
 
 /**
- * ADR 0424: the UI element an `<input>` of `type` makes: a Toggle (`checkbox`), a Radio (`radio`), a Slider (`range`),
- * else an InputField; `known` is false for a type the UI has no control for (`date`, `color`, `file`…), drawn as a text field.
+ * ADR 0424: the UI element an `<input>` of `type` makes: a Toggle (`checkbox`), a Radio (`radio`), a Slider (`range`), a
+ * Button (`submit`, `reset`, `button`: its `value` is its label), else an InputField; `known` is false for a type the UI
+ * has no control for (`date`, `color`, `file`…), drawn as a text field.
  */
 export function uiTagOfInput(type: string | null | undefined): { readonly tag: UITag; readonly fieldType: "text" | "password" | "number"; readonly known: boolean } {
   const t = (type ?? "text").toLowerCase();
   if (t === "checkbox") return { tag: "Toggle", fieldType: "text", known: true };
   if (t === "radio") return { tag: "Radio", fieldType: "text", known: true };
   if (t === "range") return { tag: "Slider", fieldType: "text", known: true };
+  if (t === "submit" || t === "reset" || t === "button") return { tag: "Button", fieldType: "text", known: true };
   const fieldType = FIELD_TYPES.get(t);
   return { tag: "InputField", fieldType: fieldType ?? "text", known: fieldType !== undefined };
 }

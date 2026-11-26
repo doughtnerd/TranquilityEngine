@@ -223,7 +223,8 @@ function checkHostTree(target: InstanceType<Renderer["UIRenderElement"]>, host: 
       }
     } else if (c.nodeType === 3 && (c as { data: string }).data.trim()) expected.push("#text");
   }
-  const actual = host.children.map(label);
+  // An `<input type="submit|reset|button">` shows its value as a label the engine makes (no rendered node is it).
+  const actual = host.children.filter((h) => !(target.localName === "input" && h.synthetic)).map(label);
   if (actual.join(",") !== expected.join(",")) throw new Error(`host tree: <${host.tag}> has [${actual.join(", ")}], the rendered tree [${expected.join(", ")}]`);
 }
 
