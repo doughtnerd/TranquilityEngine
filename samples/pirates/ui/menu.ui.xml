@@ -1,12 +1,9 @@
 <!--
-  The main menu and the room view as a UI document (ADR 0077): the same screens as the hand-built
-  menu in scenes/menu.scene.json, here as markup. The look is in menu.ui.css; the behaviour is
-  scripts/behaviors/MenuDocument.ts, which fills the {bindings}, makes the rows from the
-  <Template>s with list(), and shows and hides the screens by toggling the "hidden" class
-  (display: none). What starts hidden is marked here, so the scene view shows the home screen.
-
-  The game boots the original. To play this one instead, point the Menu World at
-  scenes/menu-document.scene.json (Project Settings > Worlds, in a copy of the sample).
+  The main menu and the room view as a UI document (ADR 0077, 0417), shown by the Menu node in
+  scenes/menu.scene.json. The look is in menu.ui.css; the behaviour is scripts/behaviors/Menu.ts,
+  which fills the {bindings}, makes the rows from the <Template>s with list(), and shows and hides
+  the screens by toggling the "hidden" class (display: none). What starts hidden is marked here, so
+  the scene view shows the home screen.
 -->
 <Canvas>
   <Style src="menu.ui.css"/>

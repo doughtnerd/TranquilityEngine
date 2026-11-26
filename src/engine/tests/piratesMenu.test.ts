@@ -19,20 +19,16 @@ import "../../../samples/pirates/scripts/behaviors/Actors";
 import "../../../samples/pirates/scripts/behaviors/Splash";
 import "../../../samples/pirates/scripts/behaviors/FollowCamera";
 import "../../../samples/pirates/scripts/behaviors/Hud";
-import "../../../samples/pirates/scripts/behaviors/Menu";
+import { Menu } from "../../../samples/pirates/scripts/behaviors/Menu";
 import "../../../samples/pirates/scripts/behaviors/MenuBackdrop";
-import { MenuDocument } from "../../../samples/pirates/scripts/behaviors/MenuDocument";
 import "../../../samples/pirates/scripts/lobby";
 
-// The pirates menu rebuilt as a UI document (ADR 0077): scenes/menu-document.scene.json is
-// menu.scene.json with its 131 hand-built UI nodes replaced by one node with a UIDocument
-// (ui/menu.ui.xml, ui/menu.ui.css) and the MenuDocument script. Played headless with the Menu
-// World loading the duplicate instead of the original, it builds with no problems, fills its
-// bindings from the lobby, makes the crew and settings rows with list(), and its buttons do what
-// the original's do.
+// The pirates menu is a UI document (ADR 0077, 0417): scenes/menu.scene.json has one UI node, with a
+// UIDocument (ui/menu.ui.xml, ui/menu.ui.css) and the Menu script. Played headless from the sample's
+// own bootstrap, it builds with no problems, fills its bindings from the lobby, makes the crew and
+// settings rows with list(), and its buttons create rooms, step settings and start a practice match.
 
 const SAMPLE = fileURLToPath(new URL("../../../samples/pirates", import.meta.url));
-const SCENE = "scenes/menu-document.scene.json";
 const STEP = 1 / 60;
 
 const engines: Engine[] = [];
@@ -56,14 +52,12 @@ async function stepUntil(engine: Engine, done: () => boolean, what: string, maxF
   if (!done()) throw new Error(`Timed out waiting for ${what}`);
 }
 
-/** The sample with its Menu World on the document version of the menu. */
+/** The sample, from its own bootstrap: the Menu World on scenes/menu.scene.json. */
 async function openMenu(warnings: string[]): Promise<{ engine: Engine; menu: World; ui: UIDocument; click(el: UIDocumentElement): void }> {
   vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => void warnings.push(args.map(String).join(" ")));
   const project = await readProject(SAMPLE);
   Assets.addSource(project.assets);
-  const bootstrap = project.settings.bootstrap as { worlds: { name: string; scenes?: string[] }[] };
-  const worlds = bootstrap.worlds.map((w) => (w.name === "Menu" ? { ...w, scenes: [SCENE] } : w));
-  const engine = await Engine.create({ headless: true, project: { ...project.settings, bootstrap: { ...bootstrap, worlds } } as typeof project.settings });
+  const engine = await Engine.create({ headless: true, project: project.settings });
   engines.push(engine);
   const menu = engine._world("Menu")!;
   await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
@@ -83,11 +77,11 @@ const shown = (el: UIDocumentElement | null): boolean => {
 };
 const textOf = (el: UIDocumentElement | null) => el!.as(UIText).text;
 
-describe("the pirates menu as a UI document", () => {
+describe("the pirates menu (a UI document)", () => {
   it("builds from the markup and stylesheet with no problems, bound to the lobby", { timeout: 60_000 }, async () => {
     const warnings: string[] = [];
     const { menu, ui } = await openMenu(warnings);
-    expect(menu._componentsOfType(MenuDocument)).toHaveLength(1);
+    expect(menu._componentsOfType(Menu)).toHaveLength(1);
     expect(ui.problems).toEqual([]);
     expect(warnings.filter((w) => /ui\/menu\.ui\.(xml|css)/.test(w))).toEqual([]);
 
@@ -173,7 +167,7 @@ describe("the pirates menu as a UI document", () => {
     expect(shown(ui.query("#home"))).toBe(true);
   });
 
-  it("starts a practice match from its button, as the original menu does", { timeout: 120_000 }, async () => {
+  it("starts a practice match from its button", { timeout: 120_000 }, async () => {
     const { engine, ui, click } = await openMenu([]);
     click(ui.query("#practice")!);
     await stepUntil(engine, () => Lobby.state === "match", "the practice match");
