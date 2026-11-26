@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Color, Engine, GameObject } from "../engine";
 import { UIText } from "../engine/ui/components";
 import { UIView } from "../plugins/ui/runtime/UIView";
@@ -62,6 +62,9 @@ const files = (version = "v1", extra: Record<string, string> = {}) =>
   );
 
 let engine: Engine;
+
+// The first link loads svelte/compiler and TypeScript: seconds when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 60_000 });
 
 beforeEach(async () => {
   engine = await Engine.create({ headless: true, kind: "editor" });

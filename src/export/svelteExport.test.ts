@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Assets, Color, Engine, GameObject } from "../engine";
 import { UIText } from "../engine/ui/components";
 import { UIView } from "../plugins/ui/runtime/UIView";
@@ -16,6 +16,7 @@ import { planWebBuild, type BuildSource } from "./webBuild";
 // (`svelte/internal/client.js`…), never `svelte/compiler`; the player serves each component as its file's asset.
 
 beforeAll(() => typescript().then(() => undefined), 60_000);
+vi.setConfig({ testTimeout: 60_000 }); // the first build loads svelte/compiler
 
 const UI: Record<string, string> = {
   "ui/Hud.svelte": `<script lang="ts">
