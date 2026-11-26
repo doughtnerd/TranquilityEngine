@@ -12,6 +12,8 @@ import type { FoundPlugin } from "../plugins/thirdParty";
 import type { ScriptProblem } from "../projectCode/compile";
 import { link, type Linked } from "../projectCode/linker";
 import { MemoryTarget } from "../projectCode/memoryTarget";
+import { isSvelteComponentPath } from "../projectCode/uiModules";
+
 
 export { isScriptPath };
 export type { PackageSource, ScriptProblem };
@@ -29,6 +31,9 @@ export interface LoadResult {
 
 /** The package specifiers the last load bundled. */
 let lastSpecifiers: readonly string[] = [];
+/** The Svelte components the last load served as their files' asset values (ADR 0419), by path. */
+let lastComponents = new Map<string, unknown>();
+
 
 /**
  * Compile and load `scripts` (project path → source), registering their components, data
@@ -36,15 +41,33 @@ let lastSpecifiers: readonly string[] = [];
  * packages from `packages`; `extraPackages` are npm plugin entries to bundle with them (ADR 0139).
  * Registrations replace any with the same id or name (from the editor build or an earlier load). A
  * script that fails to compile or throws while loading is reported, as is anything importing it and a
- * plugin entry that can't be bundled; the others still load.
+ * plugin entry that can't be bundled; the others still load. `ui` is the project's UI code (ADR 0419:
+ * Svelte components, rune modules and `.css` files), compiled and loaded with the scripts; each component
+ * that loads becomes its `.svelte` file's asset value (what `UIView` mounts), so a `UIView` showing one
+ * mounts the new version in its next frame (hot reload).
  */
-export async function loadScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map(), packages?: PackageSource, extraPackages: readonly string[] = []): Promise<LoadResult> {
+export async function loadScripts(
+  scripts: ReadonlyMap<string, string>,
+  json: ReadonlyMap<string, string> = new Map(),
+  packages?: PackageSource,
+  extraPackages: readonly string[] = [],
+  ui: ReadonlyMap<string, string> = new Map(),
+): Promise<LoadResult> {
   let linked: Linked<void> | undefined;
   const registered = await withScriptRegistrations(async () => {
-    linked = await link({ code: scripts, json, packages, extraEntries: extraPackages, isAsset: (p) => engine.Assets.has(p) || engine.Assets.has(`asset:${p}`) }, target);
+    linked = await link({ code: scripts, json, ui, packages, extraEntries: extraPackages, isAsset: (p) => engine.Assets.has(p) || engine.Assets.has(`asset:${p}`) }, target);
   });
   const { loaded, problems, assetRefs, specifiers } = linked!;
+  // A component that doesn't compile now keeps its last version, so a view showing it stays up while it's fixed.
+  const components = new Map<string, unknown>();
+  const failed = new Set(problems.map((p) => p.path));
+  for (const [path, module] of lastComponents) if (failed.has(path) && ui.has(path)) components.set(path, module);
+  for (const path of loaded) if (isSvelteComponentPath(path)) components.set(path, await target.scriptModule(path));
+  lastComponents = components;
+  engine.Assets.setCompiledModules(components);
+
   setScriptAssetRefs(assetRefs);
+
   lastSpecifiers = specifiers;
   return { loaded, problems, registered };
 }
@@ -78,8 +101,15 @@ export const loadedRegistrations = (): ScriptRegistrations => current;
  * deleted script, a renamed id, one that failed to load) are unregistered, so scenes show them as
  * missing. Pass an empty map to unload everything.
  */
-export async function replaceScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map(), packages?: PackageSource, extraPackages: readonly string[] = []): Promise<LoadResult> {
-  const result = await loadScripts(scripts, json, packages, extraPackages);
+export async function replaceScripts(
+  scripts: ReadonlyMap<string, string>,
+  json: ReadonlyMap<string, string> = new Map(),
+  packages?: PackageSource,
+  extraPackages: readonly string[] = [],
+  ui: ReadonlyMap<string, string> = new Map(),
+): Promise<LoadResult> {
+  const result = await loadScripts(scripts, json, packages, extraPackages, ui);
+
   const gone = (old: string[], now: string[]) => old.filter((id) => !now.includes(id));
   unregisterScripts({
     components: gone(current.components, result.registered.components),

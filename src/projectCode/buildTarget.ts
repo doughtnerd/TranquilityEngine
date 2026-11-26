@@ -7,6 +7,8 @@ import { ENGINE_FILE, modulePath, relativeSpecifier } from "../export/format";
 import { rewriteImports } from "../editor/moduleImports";
 import { EDITOR_MODULE, isEngineModule } from "./compile";
 import type { LinkTarget, TargetLink } from "./linker";
+import { uiRuntimeFile } from "./uiModules";
+
 
 /** Where the bundled npm packages go in a build (ADR 0125): `code/deps/<chunk>.js`. */
 export const DEPS_DIR = "code/deps";
@@ -14,6 +16,8 @@ export const DEPS_DIR = "code/deps";
 /** Links code into build files (ADR 0329): the output is every file by build path. */
 export const buildTarget: LinkTarget<ReadonlyMap<string, string>> = {
   sourceMap: false,
+  dev: false,
+
   open(): TargetLink<ReadonlyMap<string, string>> {
     const files = new Map<string, string>();
     return {
@@ -30,7 +34,10 @@ export const buildTarget: LinkTarget<ReadonlyMap<string, string>> = {
         return modulePath(path);
       },
       // The editor SDK never ships (only editor halves import it, and builds select none): left as written.
-      specifier: (from, to) => ("engine" in to ? relativeSpecifier(modulePath(from), ENGINE_FILE) : "editorSdk" in to ? EDITOR_MODULE : relativeSpecifier(modulePath(from), to.address)),
+      // UI runtime modules (ADR 0419) are entries of the prebuilt player beside myco.js, sharing its engine.
+      specifier: (from, to) =>
+        "engine" in to ? relativeSpecifier(modulePath(from), ENGINE_FILE) : "editorSdk" in to ? EDITOR_MODULE : "ui" in to ? relativeSpecifier(modulePath(from), uiRuntimeFile(to.ui)) : relativeSpecifier(modulePath(from), to.address),
+
       script: async (path, code) => {
         files.set(modulePath(path), code);
         return modulePath(path);

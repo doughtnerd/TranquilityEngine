@@ -97,6 +97,10 @@ function localisedPath(p: string): string {
 /** Listeners of `Assets.onChanged`. */
 const changeListeners = new Set<(path: string) => void>();
 
+/** Compiled modules served as their source files' values (ADR 0419: a `.svelte` component's module), by path. */
+let compiledModules: ReadonlyMap<string, unknown> = new Map();
+
+
 export const Assets = {
   /**
    * @internal The editor saved or replaced the project file at `path` (its source already serves the new content):
@@ -137,10 +141,19 @@ export const Assets = {
     if (!builtinSources.includes(source)) builtinSources.push(source);
   },
 
+  /**
+   * @internal A host linked the project's code: serve each compiled module (a Svelte component's, ADR 0419) as
+   * the asset value of its source file, in place of the file's text, replacing what the last link set.
+   */
+  setCompiledModules(modules: ReadonlyMap<string, unknown>): void {
+    compiledModules = new Map([...modules].map(([p, m]) => [normalizeAssetPath(p), m]));
+  },
+
   has(path: string): boolean {
     const p = normalizeAssetPath(path);
-    return sources.some((s) => s.has(p)) || builtinSources.some((s) => s.has(p));
+    return compiledModules.has(p) || sources.some((s) => s.has(p)) || builtinSources.some((s) => s.has(p));
   },
+
 
   /** @internal Every path the registered sources list (`AssetSource.paths`), each once, in source order. */
   paths(): string[] {
@@ -155,7 +168,9 @@ export const Assets = {
    */
   get(path: string): unknown {
     const p = normalizeAssetPath(path);
+    if (compiledModules.has(p)) return compiledModules.get(p);
     for (const s of sources) if (s.has(p)) return s.get(p);
+
     for (const s of builtinSources) if (s.has(p)) return s.get(p);
     throw new Error(`Asset not found: "${p}". Is it inside the asset root registered with Assets.addSource?`);
   },

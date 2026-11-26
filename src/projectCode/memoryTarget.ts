@@ -28,6 +28,26 @@ const shimUrl = (key: string, value: object) => {
   return dataUrl(`const e = globalThis.${key};\nexport const { ${names.join(", ")} } = e;\n`);
 };
 
+/** Where the UI runtime modules the last links loaded are published (ADR 0419), by specifier, for their shims. */
+const UI_RUNTIME_KEY = "__mycoUIRuntime";
+
+/**
+ * A shim module re-exporting UI runtime module `specifier` (already loaded): its named exports and its default.
+ * Exports go through local names, since some are reserved words (Svelte's runtime exports `await`).
+ */
+const uiShimUrl = (specifier: string, value: object) => {
+  const names = Object.keys(value).filter((n) => n !== "default" && /^[A-Za-z_$][\w$]*$/.test(n));
+  const read = `globalThis.${UI_RUNTIME_KEY}[${JSON.stringify(specifier)}]`;
+  const locals = names.map((n, i) => `${JSON.stringify(n)}: $${i}`).join(", ");
+  const exports = names.map((n, i) => `$${i} as ${n}`).join(", ");
+  return dataUrl(`const e = ${read};\n${names.length ? `const { ${locals} } = e;\nexport { ${exports} };\n` : ""}${"default" in value ? "export default e.default;\n" : ""}`);
+};
+
+
+/** The host's own copy of a UI runtime module: Svelte's runtime and the engine's renderer, one instance with `UIView`'s. */
+const loadUIRuntime = async (specifier: string): Promise<object> => (await import("../plugins/ui/svelte/runtimeModules")).loadUIRuntimeModule(specifier);
+
+
 /**
  * The module for `import … from "myco/editor"` in plugins' editor halves (ADR 0139). The editor sets
  * `globalThis.__mycoEditor` (`plugins/thirdPartyEditor.ts`); elsewhere the import fails with a message.
@@ -47,6 +67,10 @@ interface PackageCache extends EmittedPackages {
 /** Links code into module URLs and imports them (ADR 0329); keeps the last link's modules. */
 export class MemoryTarget implements LinkTarget<void> {
   readonly sourceMap = true;
+  readonly dev = true;
+  /** UI runtime modules loaded so far, by specifier, and their shims (a module loads once per realm, so they're kept). */
+  private uiModules = new Map<string, { value: object; shim: string }>();
+
   private generation = 0;
   /** The last link's script and JSON module URLs, revoked once the next link has run. */
   private lastUrls: string[] = [];
@@ -98,7 +122,26 @@ export class MemoryTarget implements LinkTarget<void> {
         jsonUrls.push(url);
         return url;
       },
-      specifier: (_from, to) => ("engine" in to ? engine() : "editorSdk" in to ? editor() : to.address),
+      uiRuntime: async (specifiers) => {
+        const published = ((globalThis as Record<string, unknown>)[UI_RUNTIME_KEY] ??= {}) as Record<string, object>;
+        for (const s of specifiers) {
+          if (this.uiModules.has(s)) continue;
+          const value = await loadUIRuntime(s);
+          published[s] = value;
+          this.uiModules.set(s, { value, shim: uiShimUrl(s, value) });
+        }
+      },
+      specifier: (_from, to) => {
+        if ("engine" in to) return engine();
+        if ("editorSdk" in to) return editor();
+        if ("ui" in to) {
+          const loaded = this.uiModules.get(to.ui);
+          if (!loaded) throw new Error(`The UI runtime module "${to.ui}" isn't loaded.`);
+          return loaded.shim;
+        }
+        return to.address;
+      },
+
       script: async (path, code) => {
         // No `//# sourceURL`: WebKit runs modules sharing one in a single scope, so a reload would
         // redeclare their classes. The inline source map names the file for the debugger.

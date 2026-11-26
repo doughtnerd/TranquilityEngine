@@ -11,3 +11,7 @@ declare module "*.svelte" {
 declare module "svelte/internal/client" {
   export function proxy<T>(value: T): T;
 }
+
+// Side-effect modules compiled components import (they set a runtime flag); loaded on demand by `runtimeModules.ts`.
+declare module "svelte/internal/flags/custom-renderer" {}
+declare module "svelte/internal/flags/tracing" {}

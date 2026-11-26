@@ -13,6 +13,9 @@
  *   on the dedicated server).
  *
  * TypeScript sources (`.ts`, `.tsx`) aren't project files: scripts are read and compiled apart (ADR 0030).
+ * Svelte UI sources (ADR 0419: `.svelte` components and `.svelte.ts` rune modules) are text files, which
+ * the project code linker compiles; a host serves the compiled module as the asset value once it has.
+
  * No imports, so the desktop editor's Projects window (ADR 0059) can use it without the engine.
  */
 
@@ -23,7 +26,8 @@ export type ProjectFileKind = "json" | "text" | "url";
 const SKIPPED_FOLDERS: ReadonlySet<string> = new Set(["node_modules", "dist", "target", "test-results", "playwright-report"]);
 
 /** Extensions (lower case) of the files that load as text. */
-const TEXT_EXTENSIONS: ReadonlySet<string> = new Set(["js", "mjs", "cjs", "mts", "cts", "md", "txt", "xml", "css", "wgsl", "glsl"]);
+const TEXT_EXTENSIONS: ReadonlySet<string> = new Set(["js", "mjs", "cjs", "mts", "cts", "md", "txt", "xml", "css", "wgsl", "glsl", "svelte"]);
+
 
 /** A path's extension, lower case, without the dot ("" if none; a leading dot, as in `.env`, isn't one). */
 export function extensionOf(path: string): string {
@@ -34,7 +38,9 @@ export function extensionOf(path: string): string {
 
 /** How the file at `path` loads: parsed JSON, its text, or a URL. */
 export function projectFileKind(path: string): ProjectFileKind {
+  if (/\.svelte\.ts$/i.test(path)) return "text"; // a rune module (ADR 0419), wherever it is: the linker compiles it from its text
   const ext = extensionOf(path);
+
   return ext === "json" ? "json" : TEXT_EXTENSIONS.has(ext) ? "text" : "url";
 }
 
@@ -45,13 +51,15 @@ export function skipsFolder(name: string): boolean {
 
 /**
  * True if the project-relative ("/"-separated) `path` is a project file: no part of it hidden or a
- * skipped folder, and not TypeScript source (scripts are read apart).
+ * skipped folder, and not TypeScript source (scripts are read apart) other than a Svelte rune module
+ * (`*.svelte.ts`, ADR 0419), which is UI code beside its components.
  */
 export function isProjectFile(path: string): boolean {
   const parts = path.split("/");
   if (parts.some((p, i) => p === "" || p.startsWith(".") || (i < parts.length - 1 && SKIPPED_FOLDERS.has(p)))) return false;
-  return !/\.tsx?$/i.test(path);
+  return /\.svelte\.ts$/i.test(path) || !/\.tsx?$/i.test(path);
 }
+
 
 /** A host's I/O for `loadProjectFiles`. */
 export interface ProjectFileReader {

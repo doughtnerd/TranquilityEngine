@@ -12,6 +12,8 @@ import type * as Esbuild from "esbuild-wasm";
 import { resolve as resolveExports } from "resolve.exports";
 import { importSites, typescript, type ImportSite } from "./moduleImports";
 import { PackageResolver, dirname, isNodeBuiltin, join, packageName, type PackageFiles, type PackageJson } from "./packageResolver";
+import { isUIRuntimeSpecifier } from "../projectCode/uiModules";
+
 
 export type { PackageFiles } from "./packageResolver";
 
@@ -31,9 +33,10 @@ export interface PackageSource {
 // "myco/editor" (ADR 0139): the editor SDK, which npm plugins' editor halves import; external like "myco".
 const ENGINE_SPECIFIERS = new Set(["myco", "tranquility", "myco/editor"]);
 
-/** True for an import of an npm package: a bare specifier other than the engine's. */
+/** True for an import of an npm package: a bare specifier other than the engine's and the UI runtime's (Svelte, ADR 0419). */
 export const isPackageSpecifier = (specifier: string) =>
-  !ENGINE_SPECIFIERS.has(specifier) && !specifier.startsWith(".") && !specifier.startsWith("/") && !/^[a-z][a-z0-9+.-]*:/i.test(specifier);
+  !ENGINE_SPECIFIERS.has(specifier) && !isUIRuntimeSpecifier(specifier) &&
+ !specifier.startsWith(".") && !specifier.startsWith("/") && !/^[a-z][a-z0-9+.-]*:/i.test(specifier);
 
 
 /** One output module of a package bundle, its imports found (other chunks, and the engine). */

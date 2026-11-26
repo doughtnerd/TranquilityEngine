@@ -19,6 +19,9 @@ describe("project files", () => {
     ["tools/a.js", "text"],
     ["tools/a.cjs", "text"],
     ["tools/a.mts", "text"],
+    ["ui/Hud.svelte", "text"], // Svelte UI sources (ADR 0419): compiled from their text
+    ["ui/store.svelte.ts", "text"],
+
     ["images/bird.png", "url"],
     ["audio/flap.wav", "url"],
     ["grade/warm.cube", "url"],
@@ -32,7 +35,7 @@ describe("project files", () => {
   });
 
   it("leaves out hidden files and folders, dependency and build folders, and TypeScript", () => {
-    for (const path of ["project.json", "images/a.png", "tools/gen.mjs", "data/dist.json", "levels/target"]) expect(isProjectFile(path), path).toBe(true);
+    for (const path of ["project.json", "images/a.png", "tools/gen.mjs", "data/dist.json", "levels/target", "ui/Hud.svelte", "ui/store.svelte.ts"]) expect(isProjectFile(path), path).toBe(true);
     for (const path of [".env", ".myco/state.json", "node_modules/x/index.js", "dist/web/index.html", "a/target/b.png", "scripts/Bird.ts", "src/x.tsx", "scripts/types.d.ts"]) expect(isProjectFile(path), path).toBe(false);
     for (const name of [".git", ".myco", "node_modules", "dist", "target", "test-results", "playwright-report"]) expect(skipsFolder(name), name).toBe(true);
     expect(skipsFolder("scenes")).toBe(false);
