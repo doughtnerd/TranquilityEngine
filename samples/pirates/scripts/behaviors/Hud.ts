@@ -160,7 +160,10 @@ export class Hud extends GameBehavior {
     const json = JSON.stringify(hud);
     if (json === this.shown) return;
     this.shown = json;
-    this.view.props.hud = hud;
+    // Changed values only, into the view's reactive state: Svelte redraws just what they show (the dots move every frame).
+    const shown = this.view.props.hud as Record<string, unknown> | undefined;
+    if (shown) patch(shown, hud as unknown as Record<string, unknown>);
+    else this.view.props.hud = hud;
   }
 
   /** What the HUD shows now. */
@@ -339,6 +342,33 @@ export class Hud extends GameBehavior {
   private battery(label: string, chosen: boolean, reload: number): BatteryView {
     return { label: reload > 0 ? `${label}  ${reload.toFixed(1)}s` : `${label}  ready`, chosen, reload: `${Math.round((1 - reload / RELOAD) * 100)}%` };
   }
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Write `source`'s values into `target` where they differ, object by object and array item by item (arrays take its length). */
+function patch(target: Record<string, unknown>, source: Record<string, unknown>): void {
+  for (const k of Object.keys(source)) {
+    const m = merged(target[k], source[k]);
+    if (target[k] !== m) target[k] = m;
+  }
+  for (const k of Object.keys(target)) if (!(k in source)) delete target[k];
+}
+
+function merged(current: unknown, next: unknown): unknown {
+  if (Array.isArray(current) && Array.isArray(next)) {
+    next.forEach((v, i) => {
+      const m = merged(current[i], v);
+      if (current[i] !== m) current[i] = m;
+    });
+    if (current.length > next.length) current.length = next.length;
+    return current;
+  }
+  if (isRecord(current) && isRecord(next)) {
+    patch(current, next);
+    return current;
+  }
+  return next;
 }
 
 /** A minimap dot at (x, z), `size` UI pixels across, in a CSS colour with `alpha`. */

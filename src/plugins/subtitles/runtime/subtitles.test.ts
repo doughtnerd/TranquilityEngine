@@ -8,7 +8,7 @@ import { parseLanguages } from "../../../engine/localisation/languages";
 import { setAudioBackend } from "../../audio/runtime/backend";
 import { endAudioSession, makeFakeBackend, type FakeVoice } from "../../audio/runtime/testing";
 // The built-in UI components, as the editor provides them (ADR 0419 wave B).
-import "../../builtinUIModules";
+import "../builtinUI";
 import * as MySubtitles from "./testComponents/MySubtitles.svelte";
 import { SUBTITLE_LOOK } from "./look";
 

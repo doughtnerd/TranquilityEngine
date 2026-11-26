@@ -79,7 +79,7 @@ const UI_CSS_PREFIX = "\0myco-ui-css:";
  * through the project code linker (`projectCode/compileUI.ts`), which parses the CSS while compiling. Here,
  * in Node, the parser (TypeScript with decorators behind it) can't load while compiling, so the compiled
  * module calls it when it loads. The editor (dev server and build) uses it too, for the engine's built-in UI components
- * (ADR 0419 wave B, `plugins/builtinUIModules.ts`), which it compiles with its shared runtime.
+ * (ADR 0419 wave B, each plugin's `builtinUI.ts`), which it compiles with its shared runtime.
  */
 export function svelteUI(options: { dev?: boolean } = {}): Plugin {
   const root = fileURLToPath(new URL(".", import.meta.url));

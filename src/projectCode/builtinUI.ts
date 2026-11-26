@@ -1,7 +1,7 @@
 // The engine's built-in UI components (ADR 0419 wave B): Svelte components the engine's own components mount with a
 // `UIView` (`UIControlMapper`, `SubtitleDisplay`), served as assets at `@myco/ui/` paths. The player carries no Svelte
 // (ADR 0421), so each host provides them as it provides a project's components:
-//   - the editor and Vitest compile them with the engine's build (Vite's `svelteUI()`, `plugins/builtinUIModules.ts`),
+//   - the editor and Vitest compile them with the engine's build (Vite's `svelteUI()`, each plugin's `builtinUI.ts`),
 //     with the shared runtime;
 //   - a game build compiles the ones the project uses into the game's own code, bundled with the runtime it uses
 //     (`export/webBuild.ts`), and the player serves each module at its path, as it serves a project's components.

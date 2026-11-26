@@ -7,7 +7,7 @@ import { UIPointer, stubDocument } from "./uiPointer";
 import { loadUIDocumentSupport } from "../ui/UIDocument";
 import { buildUI, byId } from "./uiMarkup";
 // The built-in UI components, as the editor provides them (ADR 0419 wave B).
-import "../../plugins/builtinUIModules";
+import "../../plugins/ui/builtinUI";
 
 // ADR 0337, 0339 and 0340: the engine's rebinding screen, driven as a player does: clicks through a UI
 // core, keys and pad buttons through Input (focus navigation moves between its buttons and `submit`

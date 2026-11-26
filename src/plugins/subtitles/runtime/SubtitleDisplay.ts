@@ -24,7 +24,7 @@ import { Locale } from "../../../engine/localisation/Locale";
 import { readingRule } from "../../../engine/localisation/subtitles";
 import { GameObject } from "../../../engine/scene/GameObject";
 import { Audio, type AudioCaptionEvent, type AudioLineEvent } from "../../audio/runtime";
-import { UIView } from "../../ui/runtime/UIView";
+import { UIView } from "../../ui/runtime";
 import { characterFit, fontSizeFor, showSpeakerNames, SubtitleBoard, type BoardRow, type SpeakerNameMode } from "./board";
 import { Subtitles } from "./Subtitles";
 

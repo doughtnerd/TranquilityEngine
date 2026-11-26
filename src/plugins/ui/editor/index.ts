@@ -20,6 +20,8 @@ const SVELTE_ICON = "M8 7l-5 5 5 5M16 7l5 5-5 5M14 5l-4 14";
 export const uiEditorPlugin: EditorPlugin = {
   manifest: uiManifest,
   activate(context) {
+    // The built-in UI component (UIControlMapper's screen, ADR 0419 wave B), compiled with the editor.
+    void import("../builtinUI");
     context.registerAssetKind({
       id: "uidocument",
       extensions: [".ui.xml"],
