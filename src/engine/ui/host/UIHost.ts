@@ -787,6 +787,15 @@ function walk(el: UIHostElement, fn: (el: UIHostElement) => void): void {
   for (const c of el._children) walk(c, fn);
 }
 
+/** Whether attributes name another element by id (`nav-up`, `first-selected`…, ADR 0340): a cheap name test first, as attributes change often. */
+function hasReferenceAttribute(attributes: ReadonlyMap<string, string>): boolean {
+  for (const name of attributes.keys()) {
+    const n = name.charCodeAt(0);
+    if ((n === 110 || n === 102) && requireCascade().referenceField({ name } as MarkupAttribute) !== null) return true; // "n…", "f…"
+  }
+  return false;
+}
+
 /**
  * A tree of hosted UI elements under a canvas, the root, made under `parent` (a `UIView`'s node). The
  * element operations are what a DOM-like renderer needs: create (under a parent, before a sibling), set
@@ -1243,8 +1252,7 @@ export class UIHostTree {
   private applyAttributes(el: UIHostElement, attributes: ReadonlyMap<string, string>, written?: ReadonlyMap<string, string>): void {
     el._attributes = attributes;
     el._written = written ?? attributes;
-    const P = requireCascade();
-    if (this.referencing.has(el) || [...attributes.keys()].some((name) => P.referenceField({ name } as MarkupAttribute) !== null)) {
+    if (this.referencing.has(el) || hasReferenceAttribute(attributes)) {
       if (!this.referencing.has(el)) this.referencing.set(el, new Set());
       this.refsDirty = true;
     } else if (this.referencing.size && (attributes.get("id") || null) !== el._target.id) this.refsDirty = true; // an id others name
