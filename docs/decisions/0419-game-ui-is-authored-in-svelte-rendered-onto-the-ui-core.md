@@ -1,6 +1,6 @@
 # 0419. Game UI is authored as Svelte components, rendered onto the UI core; UI documents are retired
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0421 (the Svelte runtime and renderer are bundled into each game's code at export)
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0077 (the `*.ui.xml` markup format, `{name}` bindings, `ui.data`/`ui.list()`, and markup-only scene-view editing; its CSS subset and its event core stay), 0077 §6 (Preact for dynamic parts)
