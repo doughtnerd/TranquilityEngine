@@ -1,5 +1,6 @@
-// Reading a source map (version 3) back: which original position a generated one came from. Used to map type errors
-// in a Svelte component's generated TypeScript back to the component (ADR 0432, `svelteCheck.ts`). Generic: one map,
+// Reading a source map (version 3) back: which original position a generated one came from, and the reverse. Used to map type errors
+// in a Svelte component's generated TypeScript back to the component, and the Code panel's caret into that TypeScript
+// for hover and completion (ADR 0432, `svelteCheck.ts`). Generic: one map,
 // one source, no names.
 
 /** A source map's `mappings` decoded: per generated line, its segments as [generated column, original line, original column], 0-based. */
@@ -72,4 +73,21 @@ export function originalPosition(mappings: DecodedMappings, line: number, column
     } else hi = mid - 1;
   }
   return found < 0 ? null : { line: segments[found][1], column: segments[found][2] };
+}
+
+/**
+ * The generated position of original `line`, `column` (0-based), the reverse of `originalPosition`: from the segment
+ * of that original line at or before the column (the closest), moved on by the columns between them, or null when the
+ * line has no segment there. Where several segments start at that original position, the first generated one.
+ */
+export function generatedPosition(mappings: DecodedMappings, line: number, column: number): { line: number; column: number } | null {
+  let best: { line: number; column: number; from: number } | null = null;
+  for (let generatedLine = 0; generatedLine < mappings.length; generatedLine++) {
+    for (const [generatedColumn, sourceLine, sourceColumn] of mappings[generatedLine]) {
+      if (sourceLine !== line || sourceColumn > column) continue;
+      if (best && sourceColumn <= best.from) continue;
+      best = { line: generatedLine, column: generatedColumn + (column - sourceColumn), from: sourceColumn };
+    }
+  }
+  return best && { line: best.line, column: best.column };
 }

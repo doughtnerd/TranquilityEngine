@@ -6,7 +6,7 @@ import ts from "typescript";
 import declarations from "virtual:myco-types";
 import { describe, expect, it } from "vitest";
 import { compilerOptions, SCRIPT_CHECK } from "../../scriptCompiler.mjs";
-import { componentTypeScript, generatedPathOf, SVELTE_CHECK_TYPES, type ComponentRange } from "./svelteCheck";
+import { componentTypeScript, generatedPathOf, inComponentCode, SVELTE_CHECK_TYPES, type ComponentRange } from "./svelteCheck";
 
 /** A type error in a project file, as the Code panel shows it: in the component for a generated file. */
 interface Found extends Partial<ComponentRange> {
@@ -130,6 +130,31 @@ export const props: import("svelte").ComponentProps<typeof Badge> = { title: 2 }
   it("puts a component's TypeScript where an import of it resolves, beside a rune module of that name", () => {
     expect(generatedPathOf("ui/Hud.svelte")).toBe("ui/Hud.svelte.ts");
     expect(generatedPathOf("ui/Hud.svelte", (p) => p === "ui/Hud.svelte.ts")).toBe("ui/Hud.svelte.tsx");
+  });
+
+  it("maps a place in the component's script or template expressions into its TypeScript, and none in its styles", async () => {
+    const source = '<script lang="ts">\n  let { score = "" }: { score?: string } = $props();\n  const shout = score.toUpperCase();\n</script>\n\n<span text={shout}></span>\n\n<style>\n  span { color: white; }\n</style>\n';
+    const component = await componentTypeScript("ui/Hud.svelte", source);
+    const at = (line: number, column: number, length: number) => {
+      const offset = component.generatedOffset(line, column);
+      return offset === null ? null : component.code.slice(offset, offset + length);
+    };
+    expect(at(3, 9, 5)).toBe("shout"); // a script declaration
+    expect(at(3, 23, 11)).toBe("toUpperCase"); // a member, where completion after "score." asks
+    expect(at(6, 13, 5)).toBe("shout"); // a template expression
+    expect(component.generatedOffset(9, 10)).toBeNull(); // a style rule
+  });
+
+  it("tells a component's code (script text, template expressions) from its markup and styles", () => {
+    const source = '<script lang="ts">\n  let a = 1;\n</script>\n<p class={a}>text {a + 1} more</p>\n<style>p { color: red; }</style>';
+    const at = (marker: string, delta = 0) => source.indexOf(marker) + delta;
+    expect(inComponentCode(source, at("let a"))).toBe(true);
+    expect(inComponentCode(source, at("script lang"))).toBe(false); // the tag
+    expect(inComponentCode(source, at("{a}", 1))).toBe(true); // an attribute's expression
+    expect(inComponentCode(source, at("text"))).toBe(false); // markup text
+    expect(inComponentCode(source, at("a + 1"))).toBe(true);
+    expect(inComponentCode(source, at(" more"))).toBe(false);
+    expect(inComponentCode(source, at("color"))).toBe(false); // a style block's braces aren't expressions
   });
 
   it("checks the samples' and the engine's built-in components without errors", async () => {

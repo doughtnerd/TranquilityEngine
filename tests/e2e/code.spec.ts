@@ -93,3 +93,31 @@ test("a script component's card opens its script", async ({ page }) => {
   await expect(tab(page, "Wheel.ts")).toHaveClass(/active/);
   await expect(page.getByRole("button", { name: "Open Transform script" })).toHaveCount(0);
 });
+
+const HUD = `<script lang="ts">
+  let { score = "" }: { score?: string } = $props();
+  const shout = score.toUpperCase();
+</script>
+
+<span text={shout}></span>
+`;
+
+test("a Svelte component's script is typed in the Code panel: errors, hover and completion", async ({ page }) => {
+  await openEditor(page, { files: { "ui/Hud.svelte": HUD } });
+  await page.locator(".asset-folder", { hasText: /^ui$/ }).click();
+  await page.locator(".asset-tile", { hasText: "Hud.svelte" }).dblclick();
+  await expect(editor(page).locator(".view-lines")).toContainText("$props", { timeout: 20_000 });
+  // Hovering a script's name shows its type, from the component's TypeScript (ADR 0432).
+  await page.waitForTimeout(1500);
+  await editor(page).locator(".view-line", { hasText: "const shout" }).locator("span span", { hasText: /^\s*shout\s*$/ }).hover();
+  await expect(page.locator(".monaco-hover:not(.hidden)").first()).toContainText("const shout: string", { timeout: 15_000 });
+  // Completion offers the members of a script's value; a mistake gets squiggled.
+  await page.locator(".view-line", { hasText: "const shout" }).click();
+  await page.keyboard.press("End");
+  await page.keyboard.insertText("\n  const n: number = score.");
+  await page.keyboard.press("Control+Space");
+  await expect(page.locator(".suggest-widget")).toContainText("charCodeAt", { timeout: 15_000 });
+  await page.keyboard.press("Escape");
+  await page.keyboard.insertText("length + score;");
+  await expect(editor(page).locator(".squiggly-error").first()).toBeVisible({ timeout: 15_000 });
+});
