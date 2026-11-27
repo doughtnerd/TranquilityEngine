@@ -2,7 +2,8 @@
 // property cards, authored value against live value with the game parameter driving each, its parameters at the playhead
 // as recorded beside the replaying instance's live values, its emitter), or the selected note (its text, colour and time,
 // editable; Delete), or with nothing selected the focused track's cards and the game's values at the playhead.
-// And the Mixer strip: each bus's authored and live level with its meter while the take replays. Views over props.
+// And the Mixer strip: each bus's authored and live level with its meter while the take replays, and the levels the take
+// recorded at the playhead while it is paused. Views over props.
 import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { TAKE_NOTE_COLOURS, type TakeNoteMarker, type TakeNoteRegion } from "../../../engine/audio/take/notes";
@@ -362,28 +363,32 @@ function MarkLink(props: { readonly mark: { readonly t: number; readonly text: s
 }
 
 export interface MixerStripProps {
-  readonly strips: readonly (BusStrip & { readonly fx?: string })[];
+  readonly strips: readonly (BusStrip & { readonly fx?: string; readonly recorded?: boolean })[];
   /** The snapshot in force, for the link's tooltip. */
   readonly snapshot?: string | null;
   /** The runtime is up (readings are live). */
   readonly running: boolean;
+  /** The playhead, seconds, when strips show the take's recorded levels there (null or absent: live readings only). */
+  readonly at?: number | null;
   onOpenMixer(): void;
 }
 
 export function MixerStrip(props: MixerStripProps) {
-  if (!props.running) return <EmptyState compact title="No live mix" body="The Studio's audio runtime isn't running, so there are no bus readings." />;
+  const at = props.at ?? null;
+  if (!props.running && at === null) return <EmptyState compact title="No live mix" body="The Studio's audio runtime isn't running, so there are no bus readings." />;
   if (props.strips.length === 0) return <EmptyState compact title="No buses" body="This project's mix has no buses yet." />;
   return (
     <div class="tk-mixer">
       <div class="tk-mixer-tools">
-        <InfoTip text="Each bus's authored level (the handle) and live level (the tick) while the take replays. Levels are edited on the Mixer." />
+        <InfoTip text="Each bus's authored level (the handle) and its level in the take (the tick): live while the take replays, as recorded at the playhead while it is paused. Levels are edited on the Mixer." />
+        {at !== null && <span class="tk-mixer-at">Recorded at {formatTime(at)}</span>}
         <span class="tk-toolbar-gap" />
         <button type="button" class="tk-btn" title={`Open the Mixer${props.snapshot ? ` (snapshot: ${props.snapshot})` : ""}`} onClick={props.onOpenMixer}>Open Mixer</button>
       </div>
       <div class="tk-strips" role="list" aria-label="Buses">
         {props.strips.map((s) => (
           <div class="tk-strip" role="listitem" key={s.name} title={s.fx ? `${s.name}: ${s.fx}` : s.name}>
-            <Fader orientation="vertical" label={`${s.name} level`} value={s.authoredDb} ghostDb={s.liveDb} ghostTitle={`Live: ${s.text}`} disabled title="Levels are edited on the Mixer" onValue={() => {}}>
+            <Fader orientation="vertical" label={`${s.name} level`} value={s.authoredDb} ghostDb={s.liveDb} ghostTitle={`${s.recorded ? "At the playhead" : "Live"}: ${s.text}`} disabled title="Levels are edited on the Mixer" onValue={() => {}}>
               <Meter orientation="vertical" label={`${s.name} meter`} peakDb={s.peakDb} />
             </Fader>
             <span class="tk-strip-name" title={s.name}>{s.name}</span>
