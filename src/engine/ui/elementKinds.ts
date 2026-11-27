@@ -4,9 +4,11 @@
  *
  * - **The kind table**: per kind, its component type, markup tag, whether it is a leaf (can't have
  *   children), whether it takes the pointer, which pseudo-classes it sets, and whether it paints
- *   anything. The UI core (`UICore.ts`), the UI host (`host/UIHost.ts`, the stylesheet
- *   parsers), the Babylon drawing layer and the editor's UI picking read it instead of switching on
- *   component classes themselves.
+ *   anything; and per tag, whether its markup children are dropped, whether it takes focus, its
+ *   content attributes, whether it generates `::before`/`::after`, its part pseudo-elements and
+ *   whether it has HTML defaults. The UI core (`UICore.ts`), the UI host (`host/UIHost.ts`, the
+ *   stylesheet parsers), the Svelte renderer, the Babylon drawing layer and the editor's UI picking
+ *   read it instead of switching on component classes or keeping per-tag tables themselves.
  * - **`textRunOf`**: an element's resolved text run (text, size, CSS weight, family, line height and
  *   wrapping). The UI core measures exactly this run, uses it as the measure's dirty signature, and
  *   reports it on each laid-out element; the drawing layer draws exactly that run. So measured text is
@@ -15,10 +17,10 @@
  * Renderer-neutral and nothing here is public API (ADR 0010).
  */
 import { Locale } from "../localisation/Locale";
-import { UIAudio, UIButton, UICanvas, UIForm, UIImage, UIInputField, UILabel, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UISvg, UIText, UITextArea, UIToggle, UIVideo, type UIComponentType, type UIOverflow, type UITextAlign, type UIVerticalAlign, type UIWhiteSpaceCollapse, type UIWordBreak } from "./components";
+import { UIAudio, UIButton, UICanvas, UIForm, UIImage, UIInputField, UILabel, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UISvg, UIText, UITextArea, UIToggle, UIVideo, isFocusableUI, type UIComponentType, type UIOverflow, type UITextAlign, type UIVerticalAlign, type UIWhiteSpaceCollapse, type UIWordBreak } from "./components";
 import { selectLabel } from "./formControls";
 import { uiInteractions } from "./interactions";
-import type { UIPseudo, UIPseudoState, UITag } from "./document/types";
+import type { UIPseudo, UIPseudoElement, UIPseudoState, UITag } from "./document/types";
 import { fontFamilyOf } from "./fonts";
 import { uiBorderEdges, uiEdges } from "./layout";
 import type { UIInlineAtomSize, UIInlineBox, UIInlineRun, UIKind, UITextRun, UITextWrap } from "./uiCoreTypes";
@@ -42,6 +44,20 @@ interface KindSpec<C extends UIComponentType = UIComponentType> {
   paints(c: C): boolean;
   /** Is a graphic in Unity's sense, which stops the pointer while its `raycastTarget` is on (ADR 0385). */
   graphic(c: C): boolean;
+  /**
+   * Its markup children never become UI elements (the Svelte renderer drops them): a form control's text is its
+   * fallback content, an `<svg>`'s shapes are its document. Defaults to `leaf`; a text is a leaf for layout whose
+   * inline children are its runs (ADR 0429).
+   */
+  readonly childless?: boolean;
+  /** Attributes that are content, written straight to their field, never converted as style (default: none; ADR 0428). */
+  readonly content?: readonly string[];
+  /** Generates `::before`/`::after` (as in CSS: not replaced elements, controls or media; ADR 0432). */
+  readonly generates?: boolean;
+  /** The part pseudo-elements that style its own look (ADR 0432; default: none). */
+  readonly parts?: readonly UIPseudoElement[];
+  /** Has HTML defaults (`defaultValue`, `defaultChecked`, an option's `selected`) that its form's reset puts back (ADR 0428). */
+  readonly defaults?: boolean;
 }
 
 const visible = (c: { a: number } | null | undefined): boolean => !!c && c.a > 0;
@@ -59,50 +75,52 @@ const always = () => true;
 /** The kinds, subclasses before the classes they extend (the first whose type matches wins). */
 const fieldPseudo = (c: UIInputField) => ({ focus: c.focused, disabled: !c.interactable, "placeholder-shown": c.placeholder !== "" && c.value === "" });
 /** ADR 0428: a form control's own look (a checkbox's mark, a slider's thumb, a bar's fill) is always drawn. */
-const control = <C extends UIComponentType>(kind: UIKind, type: abstract new () => C, tag: UITag, pseudo: (c: C) => Partial<Record<UIPseudo, boolean>>, leaf = true, interactive = true): KindSpec =>
-  ({ kind, type, tag, leaf, interactive, flexShrink: 0, pseudo, paints: always, graphic: always }) as KindSpec<C> as KindSpec;
+type ControlFacts = Pick<KindSpec, "content" | "parts" | "defaults"> & { readonly leaf?: boolean; readonly interactive?: boolean };
+const control = <C extends UIComponentType>(kind: UIKind, type: abstract new () => C, tag: UITag, pseudo: (c: C) => Partial<Record<UIPseudo, boolean>>, facts: ControlFacts = {}): KindSpec =>
+  ({ leaf: true, interactive: true, ...facts, kind, type, tag, flexShrink: 0, pseudo, paints: always, graphic: always }) as KindSpec<C> as KindSpec;
 
 const KINDS: readonly KindSpec[] = [
   { kind: "canvas", type: UICanvas, tag: "Canvas", leaf: false, interactive: false, flexShrink: 0, paints: () => false, graphic: () => false },
   // ADR 0428: an option is a button in its select's list; it's checked while chosen.
   {
-    kind: "option", type: UIOption, tag: "Option", leaf: false, interactive: true, flexShrink: 0,
+    kind: "option", type: UIOption, tag: "Option", leaf: false, interactive: true, flexShrink: 0, content: ["selected"], defaults: true,
     pseudo: (c: UIOption) => ({ hover: c.hovered, pressed: c.pressed, focus: c.focused, disabled: !c.interactable, checked: c.selected }),
     paints: panelPaints,
     graphic: always,
   } as KindSpec<UIOption> as KindSpec,
   {
-    kind: "button", type: UIButton, tag: "Button", leaf: false, interactive: true, flexShrink: 0,
+    kind: "button", type: UIButton, tag: "Button", leaf: false, interactive: true, flexShrink: 0, generates: true,
     pseudo: (c: UIButton) => ({ hover: c.hovered, pressed: c.pressed, focus: c.focused, disabled: !c.interactable }),
     paints: panelPaints,
     graphic: always,
   } as KindSpec<UIButton> as KindSpec,
   {
-    kind: "textarea", type: UITextArea, tag: "TextArea", leaf: true, interactive: true, flexShrink: 0,
+    kind: "textarea", type: UITextArea, tag: "TextArea", leaf: true, interactive: true, flexShrink: 0, content: ["value", "placeholder"], defaults: true,
     pseudo: fieldPseudo,
     paints: (c: UITextArea) => panelPaints(c) || textRunOf(c)!.text !== "",
     graphic: always,
   } as KindSpec<UITextArea> as KindSpec,
   {
-    kind: "input", type: UIInputField, tag: "InputField", leaf: true, interactive: true, flexShrink: 0,
+    kind: "input", type: UIInputField, tag: "InputField", leaf: true, interactive: true, flexShrink: 0, content: ["value", "placeholder"], defaults: true,
     pseudo: fieldPseudo,
     paints: (c: UIInputField) => panelPaints(c) || textRunOf(c)!.text !== "",
     graphic: always,
   } as KindSpec<UIInputField> as KindSpec,
   // ADR 0428: form elements. A select isn't a leaf: its options are its children (laid out in its list, not in it).
-  control("toggle", UIToggle, "Toggle", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked, indeterminate: c.indeterminate })),
-  control("radio", UIRadio, "Radio", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked })),
-  control("slider", UISlider, "Slider", (c) => ({ focus: c.focused, disabled: !c.interactable })),
-  control("select", UISelect, "Select", (c) => ({ focus: c.focused, disabled: !c.interactable }), false),
-  control("progress", UIProgress, "Progress", (c) => ({ indeterminate: c.value === null || !Number.isFinite(c.value) }), true, false),
-  control("meter", UIMeter, "Meter", () => ({}), true, false),
+  // Content attributes are what the player changes, written only when the attribute does (so a toggle or a drag stays until then).
+  control("toggle", UIToggle, "Toggle", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked, indeterminate: c.indeterminate }), { content: ["checked", "indeterminate"], parts: ["checkmark"], defaults: true }),
+  control("radio", UIRadio, "Radio", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked }), { content: ["checked"], parts: ["checkmark"], defaults: true }),
+  control("slider", UISlider, "Slider", (c) => ({ focus: c.focused, disabled: !c.interactable }), { content: ["value"], parts: ["-webkit-slider-thumb", "-webkit-slider-runnable-track"], defaults: true }),
+  control("select", UISelect, "Select", (c) => ({ focus: c.focused, disabled: !c.interactable }), { leaf: false, content: ["value"], parts: ["picker-icon"] }),
+  control("progress", UIProgress, "Progress", (c) => ({ indeterminate: c.value === null || !Number.isFinite(c.value) }), { interactive: false, parts: ["-webkit-progress-bar", "-webkit-progress-value"] }),
+  control("meter", UIMeter, "Meter", () => ({}), { interactive: false, parts: ["-webkit-meter-optimum-value", "-webkit-meter-suboptimum-value", "-webkit-meter-even-less-good-value"] }),
   // A label's whole box takes a click (which goes to its control); a form is a panel.
-  { kind: "label", type: UILabel, tag: "Label", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: always } as KindSpec<UILabel> as KindSpec,
-  { kind: "form", type: UIForm, tag: "Form", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIForm> as KindSpec,
+  { kind: "label", type: UILabel, tag: "Label", leaf: false, interactive: false, flexShrink: 0, generates: true, paints: panelPaints, graphic: always } as KindSpec<UILabel> as KindSpec,
+  { kind: "form", type: UIForm, tag: "Form", leaf: false, interactive: false, flexShrink: 0, generates: true, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIForm> as KindSpec,
   // ADR 0429: a text's inline children are its runs, not boxes (it stays a leaf for layout); its background paints its box.
   // ADR 0432: a text and its runs are `:hover` under the pointer and `:active` pressed (per run); a border paints too.
   {
-    kind: "text", type: UIText, tag: "Text", leaf: true, interactive: false, flexShrink: 1,
+    kind: "text", type: UIText, tag: "Text", leaf: true, interactive: false, flexShrink: 1, childless: false, content: ["text"], generates: true,
     pseudo: (c: UIText) => ({ hover: uiInteractions(c._world).isTextHovered(c), pressed: uiInteractions(c._world).isTextPressed(c) }),
     paints: (c: UIText) => visible(c.backgroundColor) || (uiBorderEdges(c).some((w) => w > 0) && visible(c.borderColor)) || textRunOf(c)!.text.trim() !== "",
     graphic: always,
@@ -112,7 +130,7 @@ const KINDS: readonly KindSpec[] = [
   { kind: "image", type: UIVideo, tag: "Video", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIVideo) => c.src !== "" || c._player.current !== null, graphic: always } as KindSpec<UIVideo> as KindSpec,
   { kind: "image", type: UIImage, tag: "Image", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIImage) => c.image !== "", graphic: always } as KindSpec<UIImage> as KindSpec,
   { kind: "panel", type: UIAudio, tag: "Audio", leaf: true, interactive: false, flexShrink: 0, paints: () => false, graphic: () => false } as KindSpec<UIAudio> as KindSpec,
-  { kind: "panel", type: UIPanel, tag: "Panel", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIPanel> as KindSpec,
+  { kind: "panel", type: UIPanel, tag: "Panel", leaf: false, interactive: false, flexShrink: 0, generates: true, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIPanel> as KindSpec,
 ];
 
 const BY_KIND = new Map(KINDS.map((k) => [k.kind, k]));
@@ -137,6 +155,43 @@ export function uiKindOf(c: UIComponentType): UIKind {
 /** The component type a markup tag builds. */
 export function uiTypeOfTag(tag: UITag): new () => UIComponentType {
   return BY_TAG.get(tag)!.type as new () => UIComponentType;
+}
+
+const NONE: readonly never[] = [];
+const tagSpec = (tag: UITag): KindSpec => BY_TAG.get(tag)!;
+
+/** True when a tag's markup children never become UI elements: a form control's or media's, an `<svg>`'s (a text's inline children are its runs). */
+export function isChildlessTag(tag: UITag): boolean {
+  const k = tagSpec(tag);
+  return k.childless ?? k.leaf;
+}
+
+/**
+ * True when a tag's element takes focus (ADR 0340, 0428): its component type is one `isFocusableUI` says is, so the
+ * renderer's `disabled` and `tabIndex` agree with the UI core's focus by construction.
+ */
+export function isFocusableTag(tag: UITag): boolean {
+  return isFocusableUI(tagSpec(tag).type.prototype);
+}
+
+/** A tag's content attributes: written straight to their field, never converted as style (so typed text stays as typed). */
+export function uiContentAttributes(tag: UITag): readonly string[] {
+  return tagSpec(tag).content ?? NONE;
+}
+
+/** True when a tag's element generates `::before`/`::after` (ADR 0432: as in CSS, not replaced elements, controls or media). */
+export function generatesPseudoElements(tag: UITag): boolean {
+  return tagSpec(tag).generates ?? false;
+}
+
+/** A form control's part pseudo-elements (ADR 0432: a slider's thumb and track, a checkbox's mark…); none for other tags. */
+export function uiPartElements(tag: UITag): readonly UIPseudoElement[] {
+  return tagSpec(tag).parts ?? NONE;
+}
+
+/** True for controls with HTML defaults that their form's reset puts back (ADR 0428). */
+export function hasFormDefaults(tag: UITag): boolean {
+  return tagSpec(tag).defaults ?? false;
 }
 
 /** True for kinds that can't have children. */

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Color, Engine } from "../index";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../ui/components";
-import { UI_TAGS, cssFontWeight, isInteractiveKind, isLeafKind, isPaintedUI, textRunOf, uiKindOf, uiPseudoState, uiTypeOfTag } from "../ui/elementKinds";
+import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, isFocusableUI, type UIComponentType } from "../ui/components";
+import { UI_TAGS, cssFontWeight, generatesPseudoElements, hasFormDefaults, isChildlessTag, isFocusableTag, isInteractiveKind, isLeafKind, isPaintedUI, textRunOf, uiContentAttributes, uiKindOf, uiPartElements, uiPseudoState, uiTypeOfTag } from "../ui/elementKinds";
+import { HTML_TAGS, uiTagOfInput } from "../ui/host/htmlTags";
 import { UI_FONT_FAMILY } from "../ui/fonts";
 import { loadUITestSupport, uiElement } from "./uiMarkup";
 
@@ -73,6 +74,45 @@ describe("UI element kinds", () => {
     expect(isPaintedUI(make(UIInputField))).toBe(true);
     expect(isPaintedUI(make(UIInputField, { backgroundColor: null, placeholder: "Name" }))).toBe(true);
     expect(isPaintedUI(make(UIInputField, { backgroundColor: null, borderWidth: 0 }))).toBe(false);
+  });
+});
+
+describe("the kind table, by tag", () => {
+  const tags = [...UI_TAGS].sort();
+
+  it("has a kind for every tag the HTML front end makes", () => {
+    const made = new Set([...HTML_TAGS.values(), ...["checkbox", "radio", "range", "submit", "text", "number", "date"].map((t) => uiTagOfInput(t).tag)]);
+    for (const tag of made) expect(UI_TAGS.has(tag), tag).toBe(true);
+  });
+
+  it("drops the markup children of controls, media and svg (a text's are its runs; a select's its options)", () => {
+    expect(tags.filter(isChildlessTag)).toEqual(["Audio", "Image", "InputField", "Meter", "Progress", "Radio", "Slider", "Svg", "TextArea", "Toggle", "Video"]);
+  });
+
+  it("says a tag takes focus exactly when its element does", () => {
+    expect(tags.filter(isFocusableTag)).toEqual(["Button", "InputField", "Option", "Radio", "Select", "Slider", "TextArea", "Toggle"]);
+    for (const tag of tags.filter((t) => t !== "Canvas" && t !== "Option")) {
+      expect(isFocusableTag(tag), tag).toBe(isFocusableUI(make(uiTypeOfTag(tag))));
+    }
+  });
+
+  it("names content attributes that are fields of their component", () => {
+    for (const tag of tags.filter((t) => t !== "Option" && uiContentAttributes(t).length)) {
+      const c = make(uiTypeOfTag(tag)) as unknown as Record<string, unknown>;
+      for (const name of uiContentAttributes(tag)) expect(name in c, `${tag}.${name}`).toBe(true);
+    }
+    expect(uiContentAttributes("Panel")).toEqual([]);
+  });
+
+  it("generates ::before/::after on boxes, and part pseudo-elements on controls, never both", () => {
+    expect(tags.filter(generatesPseudoElements)).toEqual(["Button", "Form", "Label", "Panel", "Text"]);
+    expect(tags.filter((t) => uiPartElements(t).length)).toEqual(["Meter", "Progress", "Radio", "Select", "Slider", "Toggle"]);
+    for (const tag of tags) expect(generatesPseudoElements(tag) && uiPartElements(tag).length > 0, tag).toBe(false);
+  });
+
+  it("gives HTML defaults only to controls that take focus", () => {
+    expect(tags.filter(hasFormDefaults)).toEqual(["InputField", "Option", "Radio", "Slider", "TextArea", "Toggle"]);
+    for (const tag of tags.filter(hasFormDefaults)) expect(isFocusableTag(tag), tag).toBe(true);
   });
 });
 
