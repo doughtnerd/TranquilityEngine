@@ -5,6 +5,8 @@
 // in cell space: rectangles are cell-space rectangles (diamonds on an isometric map), flood fill follows the cells
 // sharing a side, and stamps keep their layout. On hexagonal maps a quarter turn isn't a symmetry, so the brush only
 // flips tiles' images there: Rotate is off and a multi-cell stamp's layout is neither mirrored nor turned.
+// On staggered and hexagonal maps a stamp picked or copied from the map keeps its shape wherever it's placed (ADR 0442):
+// it remembers its frame and its cells move by the grid's lattice (`stampLattice.ts`); the footprint is those cells.
 // The brush skips locked layers (ADR 0439). A stamp of several named layers (a selection copied across layers, a saved
 // stamp, ADR 0440) pastes with the pencil into the map's layers of the same names. The brush remembers the tileset its
 // tile ids are of, so a stamp copied from one Tilemap paints another with another tileset by tile uuid.
@@ -18,6 +20,7 @@ import { pickWeighted, type Tileset } from "../runtime/tileset";
 import { cellRandom, newSeed, RANDOM_BRUSH_STREAM } from "../runtime/cellHash";
 import { blockTargets, layerLocked } from "./selectionLogic";
 import { orientedStamp } from "./stampLayout";
+import { blockCellAt, frameAt, orientedFrame, placeCell, type StampFrame } from "./stampLattice";
 import { blockOfStamp, retargetBlock, stampOfBlock, type StampBlock } from "./stampLibrary";
 import { editor, persisted, type OpenScene } from "../../../editor/sdk";
 
@@ -56,6 +59,11 @@ export const activeLayer = signal(0);
  * pencil pastes each into the map's layer of the same name. Null: `brushStamp` alone, into the active layer.
  */
 export const brushLayers = signal<StampBlock | null>(null);
+/**
+ * ADR 0442: where the brush's stamp was laid out on a staggered or hexagonal map (picked or copied there, or saved so),
+ * so it keeps its shape wherever it's painted. Null: its cells land cell for cell (a palette block).
+ */
+export const brushFrame = signal<StampFrame | null>(null);
 /** ADR 0440: the tileset the brush's tile ids are of (null: the painted map's). Another map's tileset gets the tiles by uuid. */
 export const brushSource = signal<Tileset | null>(null);
 /**
@@ -91,6 +99,7 @@ function pickPaintingTool(): void {
 export function chooseStamp(stamp: Stamp, random = false, source: Tileset | null = null): void {
   brushStamp.value = stamp;
   brushLayers.value = null;
+  brushFrame.value = null;
   brushSource.value = source;
   brushTerrain.value = null;
   brushPrefabs.value = [];
@@ -105,6 +114,7 @@ export function chooseStamp(stamp: Stamp, random = false, source: Tileset | null
 export function chooseBlock(block: StampBlock, source: Tileset | null): void {
   brushStamp.value = stampOfBlock(block);
   brushLayers.value = block.layers.length > 1 ? block : null;
+  brushFrame.value = block.frame ?? null;
   brushSource.value = source;
   brushTerrain.value = null;
   brushPrefabs.value = [];
@@ -142,12 +152,16 @@ export function flipBrush(axis: "x" | "y" | "rotate", map: Tilemap | null = null
   brushFlags.value = axis === "x" ? f ^ FLIP_X : axis === "y" ? f ^ FLIP_Y : rotateClockwise(f);
 }
 
-/** A rectangle of cells, `x0..x1 × y0..y1` with the ends exclusive: what a stroke covers or the brush would paint. */
+/**
+ * A rectangle of cells, `x0..x1 × y0..y1` with the ends exclusive: what a stroke covers or the brush would paint. A
+ * stamp that keeps its shape on a staggered or hexagonal map (ADR 0442) also lists its `cells`, which the rectangle bounds.
+ */
 export interface Footprint {
   x0: number;
   y0: number;
   x1: number;
   y1: number;
+  cells?: Cell[];
 }
 
 /**
@@ -208,7 +222,7 @@ export function beginStroke(map: Tilemap, tool: BrushTool, cell: Cell): BrushStr
       if (tool === "rect" || tool === "pick" || tool === "select") {
         return { x0: Math.min(start[0], last[0]), y0: Math.min(start[1], last[1]), x1: Math.max(start[0], last[0]) + 1, y1: Math.max(start[1], last[1]) + 1 };
       }
-      return footprintOf(shape, last, start);
+      return footprintOf(shape, last, start, map);
     },
   };
 }
@@ -224,20 +238,38 @@ function tellIfLocked(map: Tilemap): void {
  * pencil, else the cell. `map` decides the layout's turns (none on hexagonal maps).
  */
 export function footprintAt(tool: BrushTool, cell: Cell, map: Tilemap | null = null): Footprint {
-  return footprintOf(footprintShape(tool, map), cell, cell);
+  return footprintOf(footprintShape(tool, map), cell, cell, map);
 }
 
-/** The block `tool` paints at a cell with the brush as it is now: the pencil's stamp as laid out, else one cell. */
-function footprintShape(tool: BrushTool, map: Tilemap | null): { width: number; height: number } {
-  if (tool !== "pencil" || brushTerrain.peek() || brushRandom.peek() || brushPrefabs.peek().length > 0) return { width: 1, height: 1 };
-  const { width, height } = orientedStamp(brushStamp.peek(), brushFlags.peek(), canRotateOn(map));
-  return { width, height };
+/** The block `tool` paints at a cell with the brush as it is now: the pencil's stamp as laid out (with its frame), else one cell. */
+function footprintShape(tool: BrushTool, map: Tilemap | null): { width: number; height: number; frame: StampFrame | null } {
+  if (tool !== "pencil" || brushTerrain.peek() || brushRandom.peek() || brushPrefabs.peek().length > 0) return { width: 1, height: 1, frame: null };
+  const stamp = brushStamp.peek(), flags = brushFlags.peek(), layout = canRotateOn(map);
+  const { width, height } = orientedStamp(stamp, flags, layout);
+  return { width, height, frame: orientedFrame(brushFrame.peek(), stamp.width, stamp.height, flags, layout) };
 }
 
-/** A block of `shape` at a cell, on the grid of such blocks from `origin` (where a pencil stroke's stamps land). */
-function footprintOf(shape: { width: number; height: number }, [x, y]: Cell, origin: Cell): Footprint {
+/**
+ * A block of `shape` at a cell, on the grid of such blocks from `origin` (where a pencil stroke's stamps land). A block
+ * with a frame on a staggered or hexagonal `map` lists the cells it lands on (ADR 0442).
+ */
+function footprintOf(shape: { width: number; height: number; frame: StampFrame | null }, [x, y]: Cell, origin: Cell, map: Tilemap | null): Footprint {
   const [sx, sy] = stampCorner(x, y, origin, shape.width, shape.height);
-  return { x0: sx, y0: sy, x1: sx + shape.width, y1: sy + shape.height };
+  const grid = map?._grid();
+  if (!grid || !shape.frame || (grid.shape !== "staggered" && grid.shape !== "hexagonal")) return { x0: sx, y0: sy, x1: sx + shape.width, y1: sy + shape.height };
+  const cells: Cell[] = [];
+  const box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  for (let r = 0; r < shape.height; r++) {
+    for (let c = 0; c < shape.width; c++) {
+      const [px, py] = placeCell(grid, shape.frame, [sx, sy], c, r);
+      cells.push([px, py]);
+      box.x0 = Math.min(box.x0, px);
+      box.y0 = Math.min(box.y0, py);
+      box.x1 = Math.max(box.x1, px + 1);
+      box.y1 = Math.max(box.y1, py + 1);
+    }
+  }
+  return { ...box, cells };
 }
 
 /** The bottom-left of the stamp placement holding cell (x, y), on the grid of `width × height` stamps from `origin`. */
@@ -255,7 +287,7 @@ function paintLayer(map: Tilemap): number {
  * matched by uuid, the tiles the map's tileset lacks left out with a message.
  */
 function brushBlockFor(map: Tilemap): StampBlock {
-  const block = brushLayers.peek() ?? blockOfStamp(brushStamp.peek());
+  const block = brushLayers.peek() ?? blockOfStamp(brushStamp.peek(), "", brushFrame.peek());
   const from = brushSource.peek(), to = map.tilesetAsset;
   if (!from || !to || from === to || from.data === to.data) return block;
   const moved = retargetBlock(block, from, to);
@@ -290,6 +322,8 @@ function brushPainter(map: Tilemap, tool: BrushTool): { paint(tool: BrushTool, c
   const terrain = brushTerrain.peek(), random = brushRandom.peek();
   const flags = brushFlags.peek(), layout = canRotateOn(map);
   const block = brushBlockFor(map);
+  const grid = map._grid();
+  const frame = orientedFrame(block.frame, block.width, block.height, flags, layout);
   const layered = tool === "pencil" && !terrain && !random && block.layers.length > 1;
   const targets = layered
     ? blockTargets(map, block, active).map((t) => ({ layer: t.layer, stamp: orientedStamp({ width: block.width, height: block.height, values: t.values }, flags, layout) }))
@@ -304,8 +338,7 @@ function brushPainter(map: Tilemap, tool: BrushTool): { paint(tool: BrushTool, c
   /** The value painted at a cell: the stamp tiled from `origin`, or one of its tiles by weight, drawn from the cell and the map's seed. */
   const valueAt = (x: number, y: number, origin: Cell): number => {
     if (random) return pickWeighted(choices, () => cellRandom(seed, x, y, RANDOM_BRUSH_STREAM))?.value ?? 0;
-    const c = (((x - origin[0]) % stamp.width) + stamp.width) % stamp.width;
-    const r = (((y - origin[1]) % stamp.height) + stamp.height) % stamp.height;
+    const { c, r } = blockCellAt(grid, frame, stampCorner(x, y, origin, stamp.width, stamp.height), x, y, stamp.width, stamp.height);
     return stamp.values[r * stamp.width + c] ?? 0;
   };
   /**
@@ -333,7 +366,9 @@ function brushPainter(map: Tilemap, tool: BrushTool): { paint(tool: BrushTool, c
           for (let r = 0; r < t.stamp.height; r++) {
             for (let c = 0; c < t.stamp.width; c++) {
               const v = t.stamp.values[r * t.stamp.width + c];
-              if (v) map.setCell(sx + c, sy + r, v, t.layer);
+              if (!v) continue;
+              const [px, py] = placeCell(grid, frame, [sx, sy], c, r);
+              map.setCell(px, py, v, t.layer);
             }
           }
         }
@@ -363,6 +398,7 @@ function pickFromMap(map: Tilemap, a: Cell, b: Cell): void {
   if (values.every((v) => v === 0)) return;
   brushStamp.value = { width: w, height: h, values };
   brushLayers.value = null;
+  brushFrame.value = frameAt(map._grid(), x0, y0) ?? null;
   brushSource.value = map.tilesetAsset;
   brushTerrain.value = null;
   brushPrefabs.value = [];

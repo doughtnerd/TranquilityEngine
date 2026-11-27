@@ -7,13 +7,17 @@ import { cellValue, newLayer } from "../runtime/format";
 import { useEditorPlugins } from "../../testEditorPlugins";
 import { tilemapsEditorPlugin } from ".";
 import { openSceneFile } from "../../../editor/project";
-import { editor } from "../../../editor/sdk";
+import { editor, type OpenScene } from "../../../editor/sdk";
 import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools } from "../../../editor/testing";
-import { activeLayer, beginStroke, brushFlags, brushLayers, brushPrefabs, brushRandom, brushSource, brushStamp, brushTerrain, chooseBlock, choosePrefabs, commitTilemap, pickBrushTool, type BrushTool } from "./brush";
+import { activeLayer, beginStroke, brushFlags, brushFrame, brushLayers, brushPrefabs, brushRandom, brushSource, brushStamp, brushTerrain, chooseBlock, choosePrefabs, commitTilemap, pickBrushTool, type BrushTool } from "./brush";
 import { commitPrefabStroke } from "./prefabBrush";
 import { replaceTileIn } from "./palette";
 import { clearTileSelection, copyTiles, cutTiles, deleteTiles, moveTiles, selectAllLayers, selectAllUsed, selectCells, selectionOf, transformTiles } from "./tileSelection";
 import type { Cell } from "../runtime/brushes";
+import { parseTileset } from "../runtime/tileset";
+import { copySelection } from "./selectionLogic";
+import { decodeStamp, encodeStamp, withStamp } from "./stampLibrary";
+import { tilesetFormat } from "./tilesetFormat";
 
 const tiles = (uuids: string[]) => uuids.map((uuid, i) => ({ id: i + 1, uuid, sprite: "" }));
 const TILESET = { format: "myco.tileset@1", tileSize: [16, 16], tiles: tiles(["u1", "u2", "u3", "u4"]) };
@@ -32,6 +36,7 @@ describe("tile editing in the editor (ADR 0439, 0440)", () => {
     openSceneFile(engine, DEMO_SCENE);
     brushStamp.value = { width: 1, height: 1, values: [1] };
     brushLayers.value = null;
+    brushFrame.value = null;
     brushSource.value = null;
     brushPrefabs.value = [];
     brushRandom.value = false;
@@ -229,5 +234,83 @@ describe("tile editing in the editor (ADR 0439, 0440)", () => {
     expect(instances()).toHaveLength(2);
     scene.stack.undo();
     expect(instances()).toHaveLength(0);
+  });
+
+  /** Gives the map a staggered or hexagonal grid, written to the scene. */
+  function setGrid(scene: OpenScene, id: string, shape: "staggered" | "hexagonal", axis: "x" | "y", index: "odd" | "even") {
+    const place = { scene, path: [id], type: "engine.Tilemap" };
+    editor.scene.edit("Grid", () => {
+      editor.scene.writeField(place, "gridShape", shape);
+      editor.scene.writeField(place, "staggerAxis", axis);
+      editor.scene.writeField(place, "staggerIndex", index);
+    }, scene);
+  }
+  /** The map's tiles as `id@dx,dy`: each tile's centre (Tilemap.cellToLocal) relative to tile 1's: equal for the same shape wherever it is. */
+  const shapeOf = (map: Tilemap): string[] => {
+    const cells = [...map.tiles(0)];
+    const one = cells.find((t) => t.id === 1)!;
+    const o = map.cellToLocal(one.x, one.y);
+    return cells
+      .map((t) => {
+        const p = map.cellToLocal(t.x, t.y);
+        return `${t.id}@${(p.x - o.x).toFixed(4)},${(p.y - o.y).toFixed(4)}`;
+      })
+      .sort();
+  };
+  const GRIDS = (["staggered", "hexagonal"] as const).flatMap((shape) => (["y", "x"] as const).flatMap((axis) => (["odd", "even"] as const).map((index) => ({ shape, axis, index }))));
+
+  for (const { shape, axis, index } of GRIDS) {
+    it(`keeps the shape of a copied stamp, and of a saved one read back, on a ${shape} map (axis ${axis}, ${index}) (ADR 0442)`, () => {
+      const { scene, id, live } = newMap();
+      setGrid(scene, id, shape, axis, index);
+      expect(live().gridShape).toBe(shape);
+      live().setTile(0, 0, 1);
+      live().setTile(1, 0, 2);
+      live().setTile(0, 1, 3);
+      live().setTile(1, 1, 4);
+      const copied = shapeOf(live());
+      selectCells(live(), [0, 0], [1, 1], "replace");
+      expect(copyTiles()).toBe(true);
+      const saved = encodeStamp("Block", copySelection(live(), selectionOf(live()), [0])!, live().tilesetAsset!);
+      live().clearAll();
+      stroke(live(), "pencil", [3, 3]);
+      expect(shapeOf(live())).toEqual(copied);
+
+      // Saved in the tileset file and read back, it paints the same shape an odd number of rows and columns away.
+      const data = withStamp(parseTileset({ format: "myco.tileset@1", tiles: [] }).tileset, saved);
+      const read = tilesetFormat.parse(JSON.parse(tilesetFormat.format(data)), "t.tileset.json").value.stamps![0]!;
+      chooseBlock(decodeStamp(read, live().tilesetAsset!).block, live().tilesetAsset);
+      for (const at of [[5, 5], [4, 7]] as Cell[]) {
+        live().clearAll();
+        stroke(live(), "pencil", at);
+        expect(shapeOf(live())).toEqual(copied);
+      }
+
+      // A stamp saved before ADR 0442 (no frame) still lands cell for cell, as it did.
+      const { stagger: _, ...old } = read;
+      chooseBlock(decodeStamp(old, live().tilesetAsset!).block, live().tilesetAsset);
+      live().clearAll();
+      stroke(live(), "pencil", [5, 5]);
+      expect([live().getTile(5, 5), live().getTile(6, 5), live().getTile(5, 6), live().getTile(6, 6)]).toEqual([1, 2, 3, 4]);
+    });
+  }
+
+  it("moves the selection an odd number of rows on a staggered map keeping its shape, as one undo step (ADR 0442)", () => {
+    const { scene, id, live } = newMap();
+    setGrid(scene, id, "staggered", "y", "odd");
+    live().setTile(0, 0, 1);
+    live().setTile(1, 0, 2);
+    live().setTile(0, 1, 3);
+    commitTilemap(scene, [id], live(), "Setup");
+    const before = shapeOf(live());
+    const steps = scene.stack.allStates.length;
+    selectAllUsed(live());
+    // Dragged by the cell holding tile 3 up three rows: it lands under the pointer and the rest keep their places around it.
+    expect(moveTiles(0, 3, false, [0, 1])).toBe(true);
+    expect(scene.stack.undoLabel).toBe("Move tiles");
+    expect(scene.stack.allStates.length).toBe(steps + 1);
+    expect(live().getTile(0, 4)).toBe(3);
+    expect(shapeOf(live())).toEqual(before);
+    expect(selectionOf(live())).toEqual(new Set([...live().tiles(0)].map((t) => `${t.x},${t.y}`)));
   });
 });

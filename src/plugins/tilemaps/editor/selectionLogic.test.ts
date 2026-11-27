@@ -3,7 +3,7 @@ import { Assets, Engine, GameObject, SceneManager, Tilemap } from "../../../myco
 import type { Cell } from "../runtime/brushes";
 import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, cellValue, newLayer } from "../runtime/format";
 import { TURN_CLOCKWISE } from "../runtime/tileFlips";
-import { blockTargets, cellKey, clearSelection, copySelection, layerLocked, moveSelection, selectionLayers, selectRect, transformSelection, usedCells } from "./selectionLogic";
+import { blockTargets, cellKey, clearSelection, copySelection, layerLocked, movedSelection, moveSelection, selectionLayers, selectRect, transformSelection, usedCells } from "./selectionLogic";
 
 const TILESET = { format: "myco.tileset@1", tileSize: [16, 16], tiles: [1, 2, 3, 4].map((id) => ({ id, uuid: `u${id}`, sprite: "" })) };
 
@@ -16,8 +16,8 @@ beforeEach(async () => {
 });
 afterEach(() => engine.dispose());
 
-function newMap(gridShape: "square" | "isometric" | "hexagonal" = "square"): Tilemap {
-  const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "t.tileset.json", gridShape });
+function newMap(gridShape: "square" | "isometric" | "staggered" | "hexagonal" = "square", staggerAxis: "x" | "y" = "y", staggerIndex: "odd" | "even" = "odd"): Tilemap {
+  const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "t.tileset.json", gridShape, staggerAxis, staggerIndex });
   map.layers = [newLayer("Ground"), newLayer("Top")];
   return map;
 }
@@ -130,5 +130,58 @@ describe("the tile selection (ADR 0440)", () => {
     map.setTile(0, 0, 1, 0, FLIP_DIAGONAL);
     transformSelection(map, keys([0, 0]), [0], FLIP_Y);
     expect(map.getCell(0, 0)).toBe(cellValue(1, FLIP_DIAGONAL | FLIP_Y));
+  });
+
+  /** The map's tiles as `id@dx,dy`: each tile's centre (Tilemap.cellToLocal) relative to tile 1's: equal for the same shape wherever it is. */
+  const shapeOf = (map: Tilemap): string[] => {
+    const cells = [...map.tiles(0)];
+    const one = cells.find((t) => t.id === 1)!;
+    const o = map.cellToLocal(one.x, one.y);
+    return cells
+      .map((t) => {
+        const p = map.cellToLocal(t.x, t.y);
+        return `${t.id}@${(p.x - o.x).toFixed(4)},${(p.y - o.y).toFixed(4)}`;
+      })
+      .sort();
+  };
+
+  for (const shape of ["staggered", "hexagonal"] as const) {
+    for (const axis of ["y", "x"] as const) {
+      for (const index of ["odd", "even"] as const) {
+        it(`moves the selection an odd number of rows or columns keeping its shape on a ${shape} map (axis ${axis}, ${index}) (ADR 0442)`, () => {
+          const map = newMap(shape, axis, index);
+          map.setTile(0, 0, 1);
+          map.setTile(1, 0, 2);
+          map.setTile(0, 1, 3);
+          map.setTile(1, 1, 4);
+          const before = shapeOf(map);
+          // Copied, the block remembers its bottom-left row's (column's) kind: row (column) 0 is shifted on "even" maps.
+          expect(copySelection(map, keys([0, 0], [1, 1]), [0])?.frame).toEqual({ axis, shifted: index === "even" });
+          let sel: Set<string> = keys([0, 0], [1, 0], [0, 1], [1, 1]);
+          // Moved by its corner, or dragged by the cell holding tile 4 (which lands where it's dragged to).
+          for (const [dx, dy, byFour] of [[0, 3, false], [3, 0, false], [1, 1, true], [-5, 2, true], [0, -1, true]] as const) {
+            const four = [...map.tiles(0)].find((t) => t.id === 4)!;
+            const anchor: Cell | undefined = byFour ? [four.x, four.y] : undefined;
+            const landing = movedSelection(map, sel, dx, dy, anchor);
+            sel = moveSelection(map, sel, [0], dx, dy, false, anchor);
+            expect(sel).toEqual(landing);
+            expect(usedCells(map, [0])).toEqual(sel);
+            expect(shapeOf(map)).toEqual(before);
+            if (byFour) expect(map.getTile(four.x + dx, four.y + dy)).toBe(4);
+          }
+        });
+      }
+    }
+  }
+
+  it("moves square and isometric selections cell for cell (ADR 0442)", () => {
+    for (const shape of ["square", "isometric"] as const) {
+      const map = newMap(shape);
+      map.setTile(0, 0, 1);
+      map.setTile(1, 1, 2);
+      expect(copySelection(map, keys([0, 0], [1, 1]), [0])?.frame).toBeUndefined();
+      expect(moveSelection(map, keys([0, 0], [1, 1]), [0], 1, 3, false, [1, 1])).toEqual(keys([1, 3], [2, 4]));
+      expect([map.getTile(1, 3), map.getTile(2, 4)]).toEqual([1, 2]);
+    }
   });
 });

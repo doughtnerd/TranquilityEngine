@@ -77,6 +77,32 @@ describe("saved stamps (ADR 0440)", () => {
     expect("stamps" in data).toBe(false);
   });
 
+  it("keep the frame of a block copied on a staggered or hexagonal map through the tileset file (ADR 0442)", () => {
+    const framed: StampBlock = { ...HOUSE, frame: { axis: "x", shifted: true } };
+    const stamp = encodeStamp("House", framed, A);
+    expect(stamp.stagger).toEqual({ axis: "x", shifted: true });
+    const data = withStamp(parseTileset({ format: "myco.tileset@1", tiles: [] }).tileset, stamp);
+    const read = tilesetFormat.parse(JSON.parse(tilesetFormat.format(data)), "t.tileset.json");
+    expect(read.problems).toEqual([]);
+    expect(read.value.stamps).toEqual(data.stamps);
+    expect(decodeStamp(read.value.stamps![0]!, A)).toEqual({ block: framed, missing: 0 });
+    // Renamed and moved to another tileset, the frame goes along.
+    expect(renameStamp(data, "House", "Hut").stamps![0]!.stagger).toEqual({ axis: "x", shifted: true });
+    expect(retargetBlock(framed, A, A).block.frame).toEqual({ axis: "x", shifted: true });
+    expect(blockOfStamp({ width: 1, height: 1, values: [1] }, "", { axis: "y", shifted: false }).frame).toEqual({ axis: "y", shifted: false });
+  });
+
+  it("read a stamp saved without a frame (before ADR 0442, or from a square map) as a block laid out cell for cell", () => {
+    const old = { name: "House", size: [4, 2], layers: encodeStamp("House", HOUSE, A).layers };
+    const read = parseTileset({ format: "myco.tileset@1", tiles: [], stamps: [old, { ...old, name: "Bad", stagger: { axis: "z", shifted: 1 } }] });
+    expect(read.problems).toEqual([]);
+    expect(read.tileset.stamps!.map((s) => "stagger" in s)).toEqual([false, false]);
+    const { block } = decodeStamp(read.tileset.stamps![0]!, A);
+    expect(block).toEqual(HOUSE);
+    expect("frame" in block).toBe(false);
+    expect("stagger" in encodeStamp("House", HOUSE, A)).toBe(false);
+  });
+
   it("list prefabs once", () => {
     let data = parseTileset({ format: "myco.tileset@1" }).tileset;
     data = withPrefab(withPrefab(data, "asset:props/chest.prefab.json"), "asset:props/chest.prefab.json");

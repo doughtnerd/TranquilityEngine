@@ -1,12 +1,14 @@
 // The tile selection (ADR 0440): a set of cells of a Tilemap and what the selection tool does to the layers it acts on
 // (copy, clear, move, flip and turn in place), on the map's cells as the brush paints them. Works in cell space on
 // every grid (ADR 0435), as the brush does: a rectangle is a cell-space rectangle, and flips and turns lay the cells out
-// as the brush lays out a stamp (`stampLayout.ts`); on hexagonal maps only the tiles' images flip. Locked layers
+// as the brush lays out a stamp (`stampLayout.ts`); on hexagonal maps only the tiles' images flip. On staggered and
+// hexagonal maps copies keep their frame and moves are lattice moves, so cells keep their shape (ADR 0442). Locked layers
 // (ADR 0439) are the caller's to leave out of `layers`. The editor glue (paintTool.ts) commits each operation as one
 // undo step.
 import type { Tilemap } from "../runtime";
 import type { Cell } from "../runtime/brushes";
 import { FLIP_DIAGONAL } from "../runtime/format";
+import { frameAt, moveCell } from "./stampLattice";
 import { orientCell, withFlips } from "./stampLayout";
 import type { StampBlock } from "./stampLibrary";
 
@@ -92,6 +94,8 @@ export function copySelection(map: Tilemap, sel: CellSelection, layers: readonly
       return { name: names[li] ?? "", values };
     }),
   };
+  const frame = frameAt(map._grid(), b.x0, b.y0);
+  if (frame) block.frame = frame;
   return block.layers.some((l) => l.values.some((v) => v !== 0)) ? block : null;
 }
 
@@ -117,13 +121,39 @@ function lift(map: Tilemap, sel: CellSelection, layers: readonly number[], keep:
 }
 
 /**
- * Move the selected cells of `layers` by `(dx, dy)` cells (with `copy`, copy them, leaving the originals). Cells the
- * moved tiles land on are replaced; empty selected cells leave the cells they land on alone. Returns the moved selection.
+ * Where each cell lands when the selection moves so that cell `anchor` (default: the selection's bottom-left corner)
+ * moves by `(dx, dy)` cells: on staggered and hexagonal maps by the grid's lattice, so the cells keep their shape
+ * (ADR 0442); elsewhere every cell moves by `(dx, dy)`.
  */
-export function moveSelection(map: Tilemap, sel: CellSelection, layers: readonly number[], dx: number, dy: number, copy = false): Set<string> {
-  const moved = new Set([...sel].map((k) => keyCell(k)).map(([x, y]) => cellKey(x + dx, y + dy)));
+function mover(map: Tilemap, sel: CellSelection, dx: number, dy: number, anchor?: Cell): (cell: Cell) => Cell {
+  const b = selectionBounds(sel);
+  const from: Cell = anchor ?? (b ? [b.x0, b.y0] : [0, 0]);
+  const to: Cell = [from[0] + dx, from[1] + dy];
+  const grid = map._grid();
+  return (cell) => moveCell(grid, from, to, cell);
+}
+
+/** The selection moved so that cell `anchor` (default: its bottom-left corner) moves by `(dx, dy)` cells, keeping its shape (as `moveSelection` moves it). */
+export function movedSelection(map: Tilemap, sel: CellSelection, dx: number, dy: number, anchor?: Cell): Set<string> {
+  const move = mover(map, sel, dx, dy, anchor);
+  return new Set([...sel].map((k) => cellKey(...move(keyCell(k)))));
+}
+
+/**
+ * Move the selected cells of `layers` so that cell `anchor` (default: the selection's bottom-left corner; the cell a
+ * drag grabbed) moves by `(dx, dy)` cells (with `copy`, copy them, leaving the originals). On staggered and hexagonal
+ * maps the cells keep their shape (ADR 0442): an odd number of rows (columns) away they move by the grid's lattice.
+ * Cells the moved tiles land on are replaced; empty selected cells leave the cells they land on alone. Returns the
+ * moved selection.
+ */
+export function moveSelection(map: Tilemap, sel: CellSelection, layers: readonly number[], dx: number, dy: number, copy = false, anchor?: Cell): Set<string> {
+  const moved = movedSelection(map, sel, dx, dy, anchor);
   if (dx === 0 && dy === 0) return moved;
-  for (const { cell, layer, value } of lift(map, sel, layers, copy)) map.setCell(cell[0] + dx, cell[1] + dy, value, layer);
+  const move = mover(map, sel, dx, dy, anchor);
+  for (const { cell, layer, value } of lift(map, sel, layers, copy)) {
+    const [x, y] = move(cell);
+    map.setCell(x, y, value, layer);
+  }
   return moved;
 }
 
