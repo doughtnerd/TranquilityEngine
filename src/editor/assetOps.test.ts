@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { SpriteRenderer } from "../engine/render/components";
-import { deleteAssets } from "./assetDelete";
-import { assetClipboard, duplicateAssets, freePath, moveAssets, moveAssetsTo, newFolder, pasteAssets, renameAsset, splitExtension, whyNotMoveTarget, whyNotValidName } from "./assetOps";
+import { deleteAssets, whyNotDeletable } from "./assetDelete";
+import { DEFAULT_CONTEXT_PATH } from "../engine/input/contexts";
+import { assetClipboard, duplicateAssets, freePath, moveAssets, moveAssetsTo, newFolder, pasteAssets, renameAsset, splitExtension, whyNotMovable, whyNotMoveTarget, whyNotValidName } from "./assetOps";
 import { OrbitCamera } from "./OrbitCamera";
 import { askBeforeDeletingAssets } from "./preferences";
 import { openSceneFile } from "./project";
@@ -136,5 +137,21 @@ describe("deleting several", () => {
     expect(onDisk("images/PipeUp.png")).toBeUndefined();
     expect(onDisk("prefabs/music.prefab.json")).not.toContain("town.mp3");
     expect(status.value?.text).toMatch(/^Deleted 2 items\. Removed references from /);
+  });
+});
+
+describe("the default input context (ADR 0417)", () => {
+  it("is in the project, and can't be renamed, moved or deleted, nor can the folder that holds it", async () => {
+    expect(project.files).toContain(DEFAULT_CONTEXT_PATH);
+    expect(whyNotMovable(project, [DEFAULT_CONTEXT_PATH])).toMatch(/default input context/);
+    expect(whyNotDeletable(project, [DEFAULT_CONTEXT_PATH])).toMatch(/default input context/);
+    expect(whyNotMovable(project, ["input/"])).toMatch(/default input context/);
+    expect(whyNotDeletable(project, ["input/"])).toMatch(/default input context/);
+    expect(await renameAsset(DEFAULT_CONTEXT_PATH, "other")).toBe(false);
+    expect(await moveAssetsTo([DEFAULT_CONTEXT_PATH], "images")).toBe(false);
+    expect(await moveAssets([["input", "ctl"]])).toBe(false);
+    expect(await deleteAssets([DEFAULT_CONTEXT_PATH])).toBe(false);
+    expect(status.value?.text).toMatch(/default input context/);
+    expect(onDisk(DEFAULT_CONTEXT_PATH)).toBeDefined();
   });
 });

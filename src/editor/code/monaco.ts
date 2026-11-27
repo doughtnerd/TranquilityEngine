@@ -4,6 +4,7 @@
 // autocomplete and errors work across scripts). The models are an adapter of the Code buffers
 // (codeBuffers.ts, ADR 0308): each holds its buffer's text, unsaved or the file's.
 import { effect } from "@preact/signals";
+import { jsonModuleSource } from "./jsonModule";
 import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import JsonWorker from "monaco-editor/languages/features/json/json.worker.js?worker";
@@ -84,16 +85,7 @@ function syncJsonLibs(files: ReadonlyMap<string, string>): void {
   }
   for (const [path, text] of files) {
     if (!path.endsWith(".json") || jsonLibs.has(path)) continue;
-    // Monaco's worker reads files with unknown extensions, .json included, as TypeScript, so give it
-    // the JSON as a module whose default export has the types TypeScript infers from it.
-    let module = "declare const json: any;\nexport default json;\n";
-    try {
-      JSON.parse(text);
-      module = `const json = ${text.trim()};\nexport default json;\n`;
-    } catch {
-      // invalid JSON: untyped (the loader reports it when a script imports it)
-    }
-    jsonLibs.set(path, { text, lib: ts.typescriptDefaults.addExtraLib(module, codeFileUri(path)) });
+    jsonLibs.set(path, { text, lib: ts.typescriptDefaults.addExtraLib(jsonModuleSource(path, text), codeFileUri(path)) });
   }
 }
 
