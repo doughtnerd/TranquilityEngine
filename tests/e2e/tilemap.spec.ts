@@ -1,6 +1,6 @@
 // Tilemaps in the editor (ADR 0103): the platformer sample's level draws, the Tile Palette shows its
 // tileset, and painting in the scene view is one undoable step.
-import { afterFrames, expect, test, openEditor, type Hooks } from "./fixtures";
+import { afterFrames, expect, test, openEditor, play, type Hooks } from "./fixtures";
 import { menu, openMenu } from "./menus";
 import fs from "node:fs";
 import path from "node:path";
@@ -140,4 +140,61 @@ test("a Tiled map imports as a tileset and a prefab through Import as Myco asset
   const prefab = (await read("levels/room.prefab.json"))!;
   expect(prefab).toContain('"gridShape": "isometric"');
   expect(errors).toEqual([]);
+});
+
+const tilemapCard = (page: import("./fixtures").Page) => page.locator(".inspector-body .component", { has: page.locator("h3", { hasText: /^Tilemap$/ }) });
+
+test("switching the level to an isometric or hexagonal grid redraws it, and shows only that grid's fields", async ({ page }) => {
+  await openEditor(page, { files: platformerFiles() });
+  await page.locator('.tree .row[data-key="level"]').click();
+  const card = tilemapCard(page);
+  const rect = () => page.evaluate(() => (window as unknown as Hooks).nodeRect("level"));
+  await afterFrames(page);
+  const square = (await rect())!;
+  expect(square).not.toBeNull();
+  await expect(card.getByRole("combobox", { name: "staggerAxis" })).toHaveCount(0);
+
+  await card.getByRole("combobox", { name: "gridShape" }).selectOption("isometric");
+  await expect.poll(async () => {
+    const r = await rect();
+    return r ? Math.round((r.width / r.height) * 100) : null;
+  }).not.toBe(Math.round((square.width / square.height) * 100));
+  await expect(card.getByRole("combobox", { name: "staggerAxis" })).toHaveCount(0);
+
+  await card.getByRole("combobox", { name: "gridShape" }).selectOption("hexagonal");
+  await expect(card.getByRole("combobox", { name: "staggerAxis" })).toBeVisible();
+  await expect(card.getByRole("textbox", { name: "hexSide" }).or(card.getByRole("spinbutton", { name: "hexSide" }))).toBeVisible();
+  await afterFrames(page);
+  expect(await rect()).not.toBeNull();
+});
+
+test("animated tiles play in Play mode, and stop with an animation speed of 0", async ({ page }) => {
+  test.setTimeout(120_000);
+  const { captureView, pixelsChanged } = await import("./viewCapture");
+  const view = () => page.locator("#game-view canvas").first();
+  /** Pixels that change over a second of play (the coins' frames are 0.1–0.3 s long). */
+  async function change(): Promise<number> {
+    await page.waitForTimeout(1500); // the player settles on the ground
+    let most = 0;
+    let last = await captureView(view());
+    for (let i = 0; i < 6; i++) {
+      await page.waitForTimeout(170);
+      const next = await captureView(view());
+      most = Math.max(most, pixelsChanged(last, next));
+      last = next;
+    }
+    return most;
+  }
+
+  await openEditor(page, { files: platformerFiles() });
+  await play(page);
+  expect(await change()).toBeGreaterThan(20);
+  await page.getByRole("button", { name: /Stop/ }).click();
+
+  await page.locator('.tree .row[data-key="level"]').click();
+  const speed = tilemapCard(page).getByRole("textbox", { name: "animationSpeed" }).or(tilemapCard(page).getByRole("spinbutton", { name: "animationSpeed" }));
+  await speed.fill("0");
+  await speed.press("Enter");
+  await play(page);
+  expect(await change()).toBeLessThan(20);
 });
