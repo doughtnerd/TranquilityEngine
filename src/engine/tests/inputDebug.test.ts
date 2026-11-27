@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, InputContext, InputPlayers, button, defineActions, defineInputContext, dpad, vec2 } from "../index";
-import { canonicalControlPath, inputActionSets, inputContextNames, inputContextProblems, inputControlInfo, inputState, watchInput, watchRawPresses, unregisterScripts, withScriptRegistrations, type RawPress } from "../editor";
+import { canonicalControlPath, inputActionSets, inputContextNames, inputContextProblems, inputControlInfo, inputState, traceInputModifiers, watchInput, watchRawPresses, unregisterScripts, withScriptRegistrations, type RawPress } from "../editor";
 
 // The editor's view of the input system (ADR 0336, 0337): what the Input debugger panel and the context asset editor
 // read through the editor SDK, driven through Input.inject as real adapters drive it.
@@ -147,6 +147,53 @@ describe("for the context asset editor", () => {
     expect(problems[0].message).toContain('there\'s no action "nothing"');
     expect(problems[1].message).toContain("isn't a control path");
     expect(problems[2].message).toContain("hold.min");
+  });
+});
+
+describe("a mapping's note (ADR 0417)", () => {
+  it("is editor-only: the evaluator reports the same problems with or without it", () => {
+    const mappings = [
+      { action: "fire", control: "<Keyboard>/f" },
+      { action: "fire", control: "<Gamepad>/nope" },
+    ];
+    expect(inputContextProblems({ name: "n", mappings: mappings.map((m) => ({ ...m, note: "why it's here" })) })).toEqual(inputContextProblems({ name: "n", mappings }));
+    expect(inputContextProblems({ name: "n", mappings: [{ action: "fire", control: "<Keyboard>/f", note: "Space is taken by the menu" }] })).toEqual([]);
+  });
+});
+
+describe("traceInputModifiers", () => {
+  it("passes a value through the stack top to bottom with the engine's modifiers, each step's output beside it", () => {
+    const t = traceInputModifiers([{ deadzone: { min: 0.2, shape: "axial" } }, { scale: 2 }, { negate: { y: true } }], [0.1, 0.6], { kind: "vec2" });
+    expect(t.dims).toBe(2);
+    expect(t.steps.map((s) => s.value)).toEqual([
+      [0, 0.5],
+      [0, 1],
+      [0, -1],
+    ]);
+    expect(t.out).toEqual([0, -1]);
+  });
+
+  it("keeps the order: the same modifiers in another order give another value", () => {
+    const a = traceInputModifiers([{ scale: 0.5 }, { deadzone: { min: 0.3 } }], [0.5]).out;
+    const b = traceInputModifiers([{ deadzone: { min: 0.3 } }, { scale: 0.5 }], [0.5]).out;
+    expect(a).toEqual([0]);
+    expect(b[0]).toBeCloseTo(((0.5 - 0.3) / 0.7) * 0.5, 5);
+  });
+
+  it("passes the value through smooth (time-based) and a modifier with bad parameters, saying why", () => {
+    const t = traceInputModifiers([{ smooth: { rate: 10 } }, { curve: { exponent: 0 } }, { curve: { exponent: 2 } }], [-0.5]);
+    expect(t.steps[0]).toMatchObject({ value: [-0.5], timeBased: true, error: null });
+    expect(t.steps[1].value).toEqual([-0.5]);
+    expect(t.steps[1].error).toContain("exponent");
+    expect(t.steps[2].value).toEqual([-0.25]);
+  });
+
+  it("runs the engine's stick dead zone first when a stick's mapping has none, and reads a button's magnitude", () => {
+    const t = traceInputModifiers([], [0.1, 0.05], { kind: "vec2", controls: ["<Gamepad>/leftStick"] });
+    expect(t.steps).toEqual([{ value: [0, 0], error: null, timeBased: false, implicit: true }]);
+    expect(traceInputModifiers([{ deadzone: { min: 0.05 } }], [0.5], { controls: ["<Gamepad>/leftStickX"] }).steps).toHaveLength(1);
+    expect(traceInputModifiers([], [0.6, 0.8], { kind: "button" }).out).toEqual([1]);
+    expect(traceInputModifiers([{ swizzle: "yx" }], [0.7], { kind: "vec2" }).out).toEqual([0, expect.closeTo(0.7, 5)]);
   });
 });
 

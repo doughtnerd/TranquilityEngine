@@ -71,6 +71,11 @@ export interface MappingSpec {
   readonly triggers?: readonly TriggerSpec[];
   /** Override the action's consume setting for this mapping. */
   readonly consume?: boolean;
+  /**
+   * A note for whoever edits the context (ADR 0417): why the mapping is there. Editor-only: the Input dialog shows and
+   * writes it, and the evaluator ignores it.
+   */
+  readonly note?: string;
 }
 
 /** A context: a named list of mappings (`*.input.json`). */

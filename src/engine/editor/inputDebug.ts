@@ -20,10 +20,11 @@ import { _undefineBuiltinSystem, defineBuiltinSystem, type BuiltinSystem } from 
 import type { GameObject } from "../scene/GameObject";
 import { ActionEvents, ActionPhase, actionSetClashes, actionSetSource, actionSets, actionView, type ActionEventPhase, type ActionKind, type ActionPhaseName } from "../input/actions";
 import { DEFAULT_CONTEXT, registeredContexts } from "../input/contexts";
-import type { InputContextSpec, MappingSpec } from "../input/contextTypes";
+import type { InputContextSpec, MappingSpec, ModifierSpec } from "../input/contextTypes";
+import { compileModifier } from "../input/modifiers";
 import { PRESS_POINT, control, namedControlPaths, type DeviceFamily } from "../input/controls";
 import { DEVICE_FAMILIES, DeviceEvents, DeviceKind, InputDevice, deviceNodes, takesLocalInput } from "../input/deviceEntities";
-import { contextProblems, lastEvaluation, playerTable, type CompiledMapping } from "../input/evaluate";
+import { DEFAULT_STICK_DEADZONE, contextProblems, lastEvaluation, playerTable, type CompiledMapping } from "../input/evaluate";
 import { ControlledBy, InputPlayer, PlayerJoined, PlayerLeft, playerNodes } from "../input/players";
 import { RebindResults, pendingRebind, type PendingRebind } from "../input/rebind";
 import { Input } from "../input/Input";
@@ -341,6 +342,62 @@ export function inputControlPaths(): { readonly device: string; readonly control
 /** A control path's canonical form (`<keyboard>/Space` → `<Keyboard>/space`), or null if it names no control. */
 export function canonicalControlPath(path: string): string | null {
   return control(path)?.path ?? null;
+}
+
+/** One modifier's part in a value tried through a mapping's stack (`traceInputModifiers`). */
+export interface ModifierTraceStep {
+  /** The value it hands on: the first `dims` components. */
+  readonly value: readonly number[];
+  /** Why the modifier can't run (its parameters are bad), as Play reports it; the value then passes through. */
+  readonly error: string | null;
+  /** It depends on time (`smooth`), so a single value passes through unchanged. */
+  readonly timeBased: boolean;
+  /** Added by the engine, not the mapping: a stick's dead zone when the mapping has none (the default 0.15). */
+  readonly implicit: boolean;
+}
+
+/** A value tried through a mapping's modifiers: each step's output, and what the action gets. */
+export interface ModifierTrace {
+  /** The components the modifiers run on: the more of the input's and the action's. */
+  readonly dims: number;
+  readonly steps: readonly ModifierTraceStep[];
+  /** The last step's value as the action's type reads it (a button: the magnitude, up to 1). */
+  readonly out: readonly number[];
+}
+
+const KIND_DIMS = { button: 1, axis: 1, vec2: 2, vec3: 3 } as const;
+
+/**
+ * `input` passed through `modifiers` top to bottom as Play runs them (ADR 0336, 0417): the engine's own modifier
+ * functions, on as many components as the larger of the input's and the action's (`kind`). `controls` are the
+ * mapping's control paths: when one is a gamepad stick and the stack has no dead zone, the engine's default one runs
+ * first and shows as an implicit step. `smooth` follows its input over time, so one value passes through it.
+ */
+export function traceInputModifiers(modifiers: readonly ModifierSpec[], input: readonly number[], options: { readonly kind?: ActionKind; readonly controls?: readonly string[] } = {}): ModifierTrace {
+  const dims = Math.max(1, Math.min(3, Math.max(input.length, options.kind ? KIND_DIMS[options.kind] : 1)));
+  const v = new Float32Array(3);
+  for (let i = 0; i < Math.min(3, input.length); i++) v[i] = input[i];
+  const stick = (options.controls ?? []).some((p) => {
+    const src = control(p)?.source as { device?: string; read?: string } | undefined;
+    return src?.device === "gamepad" && (src.read === "stick" || src.read === "axis");
+  });
+  const specs: { spec: ModifierSpec; implicit: boolean }[] = modifiers.map((spec) => ({ spec, implicit: false }));
+  if (stick && !modifiers.some((m) => "deadzone" in m)) specs.unshift({ spec: { deadzone: { min: DEFAULT_STICK_DEADZONE } }, implicit: true });
+  const round = (x: number) => Math.round(x * 1e6) / 1e6;
+  const steps = specs.map(({ spec, implicit }): ModifierTraceStep => {
+    const timeBased = "smooth" in spec;
+    let error: string | null = null;
+    try {
+      const run = compileModifier(spec);
+      if (!timeBased) run(v, dims, 0);
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+    return { value: Array.from(v.subarray(0, dims), round), error, timeBased, implicit };
+  });
+  const out = Float32Array.from(v);
+  if (options.kind === "button") out[0] = Math.min(1, Math.sqrt(out[0] * out[0] + (dims > 1 ? out[1] * out[1] : 0) + (dims > 2 ? out[2] * out[2] : 0)));
+  return { dims, steps, out: Array.from(out.subarray(0, options.kind ? KIND_DIMS[options.kind] : dims), round) };
 }
 
 /** The problems the evaluator reports for a context, each with its mapping's index: the messages Play would log. */
