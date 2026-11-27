@@ -15,7 +15,7 @@ Maps name tiles by a uuid that never changes, so deleting a tile empties its cel
 
 ### Animated tiles
 
-In a tile's **Animation** section, add frames (slices of the same image as the tile's sprite), give each a duration in seconds, and watch the preview. **Start: Random** offsets each cell's animation, decided by the cell and the map's seed so it's the same every run. Animations follow game time (pausing the game pauses them); the Tilemap's **Animation Speed** scales them, 0 stops them. In the editor, outside Play, tiles show their first frame.
+In a tile's **Animation** section, add frames (slices of the same image as the tile's sprite), give each a duration in seconds, and watch the preview. **Start: Random** offsets each cell's animation, decided by the cell and the map's seed so it's the same every run. Animations follow game time (pausing the game pauses them); the Tilemap's **Animation Speed** scales them, 0 stops them, and changing it during play changes the rate smoothly. In the editor, outside Play, tiles show their first frame.
 
 ## 2. Make a tilemap
 
@@ -47,7 +47,7 @@ In the palette, click a tile for a single-tile brush, drag across tiles for a st
 Each layer has a name, a **sorting layer** and **order** (so layers can be behind or in front of sprites; the sorting layers come from project settings), visibility, tint and opacity, and a **collision** switch (decoration layers usually turn it off). Paint goes to the layer selected in the palette.
 
 - **Lock** a layer to keep the brushes off it. **Dim inactive layers** (a palette toggle, remembered per user) fades the other layers while you paint.
-- A layer's **offset** (in world units) shifts its drawing and collision; its **parallax** factor makes it move with the camera by that fraction (`[0.5, 0.5]` scrolls at half speed). Parallax is visual only. Set them from scripts (`setLayerOffset`, `setLayerParallax`) or in the imported data.
+- A layer's **offset** (in world units) shifts its drawing and collision; its **parallax** factor makes it move with the camera by that fraction (`[0.5, 0.5]` scrolls at half speed). Parallax is visual only, and each camera (split screen included) sees its own. Set them from scripts (`setLayerOffset`, `setLayerParallax`) or in the imported data.
 
 ### Y-sorting
 
@@ -72,7 +72,7 @@ Pick the terrain in the palette and paint: the painted cells and their neighbour
 - **rectangles** (default): solid tiles merge into a few rectangles, in one compound shape whose inner seams don't snag sliding bodies;
 - **outline**: only the outline of each solid region collides (hollow), good for large terrain.
 
-It works on every grid shape. The merged shapes are kept per 16 × 16 chunk, so painting re-merges only what you touched.
+It works on every grid shape. On square maps (rectangles mode) the solid tiles are voxel colliders per 16 × 16 chunk, changed cell by cell, so digging or painting at runtime costs a couple of milliseconds even on very large maps; other grids merge per chunk and rebuild one compound.
 
 **Drawing tile shapes.** Select a tile in the tileset inspector: its collision section shows the sprite with the cell over it. Use the presets (None, Full cell, One-way cell), **Add rectangle**, **Add polygon** (click points, Enter or click the first point to close), drag points, press an edge's middle to add a point, Ctrl/⌘+click a point to remove it (Shift turns off pixel snapping). **Generate from sprite** traces the tile's opaque pixels. A tile can have several shapes, each optionally **one-way**. **Copy** / **Paste** and **Apply to selected** (Ctrl/⌘-click tiles in the grid) reuse shapes. Switch to **Shadow** to give a tile different 2D shadow shapes (glass that blocks bodies but not light, a fence that blocks light): by default tiles cast shadows with their collision.
 
@@ -116,7 +116,7 @@ Layers are named by index or by name. Flip flags are `FLIP_X`, `FLIP_Y` and `FLI
 
 Put the files in your project (maps `.tmx`/`.tmj`, tilesets `.tsx`/`.tsj`, LDtk `.ldtk`, and their images), right-click the map or project in the Assets panel and choose **Import as Myco assets…**. The dialog lists what it will write and anything it can't carry over; pick the output folder, pixels per unit, whether objects and entities become nodes (with trigger colliders for their shapes) and, for LDtk, which IntGrid values collide.
 
-- Each Tiled tileset becomes a `.tileset.json` (its grid tiles become slices in the image's sidecar), with collision shapes, animations, properties and simple Wang sets as terrains.
+- Each Tiled tileset becomes a `.tileset.json` (its grid tiles become slices in the image's sidecar), with collision shapes, animations, properties and Wang sets of one or two colours as terrains.
 - A Tiled map becomes a prefab: one Tilemap per tileset it uses, layers in the same order, with grid shape, offsets, parallax and lock; object layers become nodes with a `MapObject`.
 - Each LDtk level becomes a prefab (auto-layers come in as their tiles), each world a prefab placing its levels; IntGrid layers become hidden Tilemaps whose tile data holds the values (`getTileData`), and entities become `MapObject` nodes.
 
@@ -124,4 +124,4 @@ Import again after changing the source: tiles keep their ids and uuids and nodes
 
 ## Known limits
 
-One tileset per Tilemap (a map using several becomes several Tilemaps). Tiles sort against sprites by layer unless the layer is y-sorted. Hexagonal maps can't turn tiles, and multi-cell stamps on staggered and hexagonal maps keep their layout in offset coordinates. Parallax follows the editor's or game's main camera only. Importing is one-way (no export back to Tiled or LDtk), and Tiled's layer blend modes, hex rotation, zstd-compressed layers, text objects and `.world` files aren't imported. Very large maps rebuild their physics compound on every collision edit.
+One tileset per Tilemap (a map using several becomes several Tilemaps). Tiles sort against sprites by layer unless the layer is y-sorted. Hexagonal maps can't turn tiles. Tiled corner terrain sets don't fully survive on hexagonal maps. Importing is one-way (no export back to Tiled or LDtk), and Tiled's layer blend modes, hex rotation, zstd-compressed layers, text objects and `.world` files aren't imported.

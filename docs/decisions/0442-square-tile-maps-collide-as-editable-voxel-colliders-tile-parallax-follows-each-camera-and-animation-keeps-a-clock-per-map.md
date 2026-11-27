@@ -79,6 +79,11 @@ parallax layer's motion vectors come from its per-camera matrix history).
   saved stamps store it as `stagger` in the tileset. Stamps saved before, and stamps picked from the Tile Palette's grid,
   have no frame and land cell for cell. Flips on staggered maps are approximate in some directions, as before.
 - **Wang sets:** see 0436's "As built".
+- **Voxels:** `collisionShapes(merge, { withoutCells: true })` leaves the offered cells out (callers that don't ask get
+  boxes as before); `voxelColliders`, `setVoxels` and `linkVoxels` are optional on backends. Chunk colliders of a group
+  share its origin, so links pass shift (0, 0); diagonal chunks are linked too. Benchmark: the physics step after a
+  one-cell edit went from 314.7 ms to 2.38 ms (median 2.13); the compound path, with the capability hidden, 276.6 ms.
+  The edge between a voxel collider and the polygon compound beside it isn't internal (different collider types).
 
 
 - **Region compounds with overlapping skirts.** Cheaper rebuilds, but a body crossing a region border can still meet
