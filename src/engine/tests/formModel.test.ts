@@ -3,7 +3,7 @@ import { Assets, Engine } from "../index";
 import { World } from "../core/World";
 import { UIForm, UIInputField, UIOption, UIRadio, UISelect, UISlider, UIToggle } from "../ui/components";
 import { textRunOf } from "../ui/elementKinds";
-import { FormControlState, adoptControlState, chosenOptions, controlState, pageSlider, playerTyped, resetForm, selectLabel, selectedness, settleSelect, sliderToEnd, stepSlider, writeControl, writeControlValue } from "../ui/formModel";
+import { FormControlState, adoptControlState, chosenOptions, controlState, htmlStepRule, pageSlider, playerTyped, resetForm, selectLabel, selectedness, settleSelect, sliderToEnd, stepSlider, stepValue, writeControl, writeControlValue } from "../ui/formModel";
 import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
 
 // ADR 0436: the form-control model, driven through its interface: pure reads (a select's label and choice), HTML's
@@ -134,5 +134,47 @@ describe("the player's semantic inputs", () => {
     s.interactable = false;
     sliderToEnd(world, s, "min");
     expect(s.value).toBe(9);
+  });
+});
+
+describe("HTML's stepping (stepUp, stepDown and a number field's arrows)", () => {
+  const rule = (attrs: Parameters<typeof htmlStepRule>[1], type: "number" | "range" = "number") => htmlStepRule(type, attrs)!;
+
+  it("moves an on-step value n steps, and an off-step value only to the nearest step that way", () => {
+    const r = rule({ min: "1", step: "3" }); // steps 1, 4, 7…
+    expect(stepValue(4, 2, r)).toBe(10);
+    expect(stepValue(5, 5, r)).toBe(7); // off the steps: n is ignored
+    expect(stepValue(5, -1, r)).toBe(4);
+    expect(stepValue(4, -1, r)).toBe(1); // stepUp(-1) is stepDown(1), as browsers do
+  });
+
+  it("puts the result at the largest (smallest) step-aligned value in range, and changes nothing the wrong way", () => {
+    const r = rule({ min: "0", max: "3", step: "2" });
+    expect(stepValue(2, 1, r)).toBe(2); // 4 is past max: the top step in range is 2
+    expect(stepValue(3, 1, r)).toBeNull(); // 3 is above every step in range: up would move it down
+    expect(stepValue(-5, -1, rule({ min: "0", step: "1" }))).toBeNull(); // below min, down can't go up to min
+    expect(stepValue(0, 1, rule({ min: "5", max: "4" }))).toBeNull(); // min above max
+  });
+
+  it("steps an unreadable value from 0, from the default value without a min, and as a range with its defaults", () => {
+    expect(stepValue(NaN, 1, rule({}))).toBe(1);
+    expect(stepValue(NaN, 1, rule({ min: "5" }))).toBe(5); // 0 + 1 is below min: the smallest step in range
+    expect(stepValue(2, 1, rule({ value: "0.5" }))).toBe(2.5); // base 0.5: 2 is off the steps
+    expect(stepValue(0.1, 2, rule({ step: "0.1" }))).toBe(0.3);
+    expect(stepValue(99, 5, rule({}, "range"))).toBe(100); // a range is 0..100 by default
+    expect(htmlStepRule("number", { step: "any" })).toBeNull(); // no allowed step: the DOM's stepUp throws
+  });
+});
+
+describe("default content attributes (the UI host's, ADR 0436)", () => {
+  it("applies a select's `multiple` before its options, so each option's `selected` attribute stays chosen", () => {
+    const doc = buildUI(`<Canvas><select id="s" multiple=""><option id="a" value="a" selected=""/><option id="b" value="b"/><option id="c" value="c" selected=""/></select></Canvas>`);
+    expect(["a", "b", "c"].map((id) => byId(doc, id, UIOption).selected)).toEqual([true, false, true]);
+  });
+
+  it("keeps the last `selected` option of a single select, and the last checked radio of a group, as HTML's parser does", () => {
+    const doc = buildUI(`<Canvas><select id="s"><option id="a" value="a" selected=""/><option id="b" value="b" selected=""/></select><input type="radio" id="x" name="g" checked=""/><input type="radio" id="y" name="g" checked=""/></Canvas>`);
+    expect([byId(doc, "a", UIOption).selected, byId(doc, "b", UIOption).selected, settleSelect(byId(doc, "s", UISelect))]).toEqual([false, true, [byId(doc, "b", UIOption)]]);
+    expect([byId(doc, "x", UIRadio).checked, byId(doc, "y", UIRadio).checked]).toEqual([false, true]);
   });
 });

@@ -34,8 +34,8 @@ import { defineBuiltinSystem } from "../../core/systems";
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import { UICanvas, UIInputField, UIText, isFocusableUI, type UIComponentType } from "../components";
-import { clickUI, controlValue, writeControlValue } from "../formModel";
-import { uiContentAttributes, uiTypeOfTag } from "../elementKinds";
+import { clickUI, controlValue, defaultAttributeWritten, writeControlValue } from "../formModel";
+import { uiContentAttributes, uiDefaultAttribute, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
 import { backdropFilterFields, filterStepsOf, filterText, type UIFilterFields } from "../filters";
@@ -932,17 +932,20 @@ export class UIHostTree {
   private writeAttributes(el: UIHostElement, attributes: ReadonlyMap<string, string>): void {
     el._attributes = attributes;
     const comp = el._comp as unknown as Record<string, unknown>;
+    const defaultAttribute = uiDefaultAttribute(el.uiTag);
+    // In the kind table's order, so a select's `multiple` and a radio's `name` are on it before its options are made or
+    // its `checked` applies (ADR 0436). Only attributes that changed are written.
     for (const name of uiContentAttributes(el.uiTag)) {
       const value = attributes.get(name);
       const before = el._content.get(name);
-      // Written when the attribute changes, so a player's typing stays until the component sets the attribute again. Not a
-      // dirty flag: those are the form-control model's (ADR 0436), kept by the front end; this only skips attributes that
-      // didn't change. Written straight to the field (the element's other fields, a select's `multiple` or a radio's
-      // `name`, aren't styled onto it yet when it's made); the UI core settles a select's choice at its next sync.
-      if (value !== undefined && value !== before) comp[name] = contentValue(comp[name], value);
-      else if (value === undefined && before !== undefined) comp[name] = requireSupport().defaultFieldValue(el._comp.constructor as ComponentClass, name);
       if (value === undefined) el._content.delete(name);
       else el._content.set(name, value);
+      if (value === before) continue;
+      const v = value !== undefined ? contentValue(comp[name], value) : requireSupport().defaultFieldValue(el._comp.constructor as ComponentClass, name);
+      // HTML's default (`value`, `checked`, `selected`): the form-control model's dirty rules say whether the current
+      // value follows it, so a player's (or a script's) change stays.
+      if (name === defaultAttribute) defaultAttributeWritten(el._comp, defaultAttribute, v as string | number | boolean);
+      else comp[name] = v;
     }
   }
 

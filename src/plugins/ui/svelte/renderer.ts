@@ -68,8 +68,8 @@ import { onLocaleEpoch } from "../../../engine/localisation/Locale";
 import { setLocaleTracker } from "../../../engine/localisation/t";
 import { SVG_CONTENT_TAGS, uiTagOfHtml, uiTagOfInput } from "../../../engine/ui/host/htmlTags";
 import { UIAudio, UIForm, UISvg, UIText, UIVideo } from "../../../engine/ui/components";
-import { FormControlState, adoptControlState, selectedness, writeControl } from "../../../engine/ui/formModel";
-import { hasFormDefaults, isChildlessTag, isFocusableTag } from "../../../engine/ui/elementKinds";
+import { FormControlState, adoptControlState, htmlStepRule, optionsWithValue, selectedness, stepValue, writeControl } from "../../../engine/ui/formModel";
+import { hasFormDefaults, isChildlessTag, isFocusableTag, uiDefaultAttribute } from "../../../engine/ui/elementKinds";
 import { applyAffine, invert, multiply } from "../../../engine/ui/transform2d";
 import { distanceToOutline, flattenPath, insideFill, parseSvgTransform, pathLength, pointAtLength, shapePath, SVG_GEOMETRY_TAGS, viewBoxMap } from "../../../engine/ui/svg/svgGeometry";
 import { UI_MEDIA_EVENTS, type UIMediaEvent, type UIMediaEventType } from "../../../engine/ui/media";
@@ -1003,7 +1003,7 @@ export class UIRenderElement extends UINodeBase {
     if (this._uiTag === "Select") {
       // The DOM's select: the first option with that value is chosen at once and every other one isn't (none: none is).
       const options = this.options;
-      const match = options.find((o) => o.value === v);
+      const [match] = optionsWithValue(options, (o) => o.value, v);
       for (const o of options) if (o !== match && o.selected) o.selected = false;
       if (match) match.selected = true;
       return;
@@ -1022,7 +1022,7 @@ export class UIRenderElement extends UINodeBase {
     this.value = String(n);
   }
 
-  /** A number field's or slider's `stepUp(n)`: its value `n` steps up, on its step from `min` and within `min`..`max` (no events, as on the web). */
+  /** A number field's or slider's `stepUp(n)`: HTML's stepping (the form-control model's `stepValue`), no events, as on the web. */
   stepUp(n = 1): void {
     this.stepBy(Number(n));
   }
@@ -1035,23 +1035,10 @@ export class UIRenderElement extends UINodeBase {
   private stepBy(n: number): void {
     const type = this.type;
     const stepText = this.getAttribute("step");
-    if ((type !== "number" && type !== "range") || stepText?.toLowerCase() === "any") throw new Error(`InvalidStateError: stepUp() and stepDown() apply to number and range inputs with a step (this is type="${type}"${stepText ? ` step="${stepText}"` : ""})`);
-    const step = parseFloat(stepText ?? "") > 0 ? parseFloat(stepText!) : 1;
-    const range = type === "range";
-    const min = parseFloat(this.getAttribute("min") ?? "");
-    const max = parseFloat(this.getAttribute("max") ?? "");
-    const lo = Number.isFinite(min) ? min : range ? 0 : -Infinity;
-    const hi = Number.isFinite(max) ? max : range ? 100 : Infinity;
-    const base = Number.isFinite(min) ? min : 0;
-    const current = Number.isFinite(this.valueAsNumber) ? this.valueAsNumber : 0;
-    // HTML: a value off the step moves only to the nearest step that way; one on a step moves n steps.
-    const k = (current - base) / step;
-    const onStep = Math.abs(k - Math.round(k)) < 1e-9;
-    let next = onStep ? current + n * step : base + (n > 0 ? Math.ceil(k) : Math.floor(k)) * step;
-    if (next > hi) next = base + Math.floor((hi - base) / step) * step;
-    if (next < lo) next = base + Math.ceil((lo - base) / step) * step;
-    const decimals = Math.max((String(step).split(".")[1] ?? "").length, (String(base).split(".")[1] ?? "").length);
-    this.value = String(Number(next.toFixed(decimals)));
+    const rule = type === "number" || type === "range" ? htmlStepRule(type, { min: this.getAttribute("min"), max: this.getAttribute("max"), step: stepText, value: this.defaultValue }) : null;
+    if (!rule) throw new Error(`InvalidStateError: stepUp() and stepDown() apply to number and range inputs with a step (this is type="${type}"${stepText ? ` step="${stepText}"` : ""})`);
+    const next = stepValue(this.valueAsNumber, n, rule);
+    if (next !== null) this.value = String(next);
   }
 
   /** ADR 0428: a checkbox's or radio's state (a radio checked unchecks its group). Setting it isn't a player change. */
@@ -1781,8 +1768,9 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
 function forget(node: UINode): void {
   if (node instanceof UIRenderElement) {
     // What the player changed stays with the node, for when it's made again (ADR 0428: a control's value and state too).
-    if (node._hosted && (node._uiTag === "InputField" || node._uiTag === "TextArea" || node._uiTag === "Slider" || node._uiTag === "Select")) node._pendingValue = node._hosted.value;
-    if (node._hosted && (node._uiTag === "Toggle" || node._uiTag === "Radio")) node._pendingState = { checked: node.checked, indeterminate: node.indeterminate };
+    const kept = uiDefaultAttribute(node._uiTag);
+    if (node._hosted && (kept === "value" || node._uiTag === "Select")) node._pendingValue = node._hosted.value;
+    if (node._hosted && kept === "checked") node._pendingState = { checked: node.checked, indeterminate: node.indeterminate };
     if (node._mediaRelays.size) dropMediaRelays(node);
     node._hosted = null;
     node._dispatchers = new Map();
@@ -1974,7 +1962,7 @@ const DEFAULT_KEYS: Readonly<Record<string, "defaultValue" | "defaultChecked" | 
 function handOverState(el: UIRenderElement): void {
   const c = el._hosted?.component;
   if (!c) return;
-  if (el._uiTag === "Option") el._form.defaults.selected = el.hasAttribute("selected");
+  if (uiDefaultAttribute(el._uiTag) === "selected") el._form.defaults.selected = el.hasAttribute("selected");
   adoptControlState(c, el._form);
 }
 
@@ -2086,7 +2074,7 @@ function chooseBound(select: UIRenderElement, value: unknown, mounting = false):
     }
     return;
   }
-  const match = options.find((o) => Object.is(rawOptionValue(o), value));
+  const [match] = optionsWithValue(options, rawOptionValue, value);
   if (match) {
     match.selected = true;
   } else if (!mounting || value !== undefined) {
@@ -2300,27 +2288,21 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     // `<option value={undefined}>`: Svelte's DOM writes an empty value, so the option's value isn't its label.
     if ((value === undefined || value === null) && key === "value" && el.localName === "option") value = "";
     if (value === undefined || value === null || value === false) return renderer.removeAttribute(el, key);
-    // A field's `value` or a checkbox's `checked` in its template (before it's in a parent) is its default too, as an HTML
-    // attribute is; written later (`value={x}`, Svelte's `set_value`), it's the current value, as the DOM property is.
-    if (key === "value" && (el._uiTag === "InputField" || el._uiTag === "TextArea" || el._uiTag === "Slider")) {
-      if (!el._parent) {
-        el._form.defaults.value ??= String(value);
-        el._templateDefault.value = true;
-      } else {
-        el._form.wrote("value");
-        if (!el._hosted) el._pendingValue = null; // the attribute is the value now, over one a default wrote
+    // A field's `value` or a checkbox's `checked` in its template (before it's in a parent) is its default attribute, as
+    // HTML's is (the UI host hands it to the form-control model, ADR 0436). Written later (`value={x}`, Svelte's
+    // `set_value`/`set_checked`), it's the current value, as the DOM property is: not an attribute at all.
+    const defaultAttribute = uiDefaultAttribute(el._uiTag);
+    if (key === defaultAttribute && key !== "selected") {
+      if (el._parent) {
+        if (key === "value") el.value = String(value);
+        else el.checked = String(value) !== "false";
+        return;
       }
+      if (key === "value") el._form.defaults.value ??= String(value);
+      else el._form.defaults.checked ??= true;
+      el._templateDefault[key] = true;
     }
-    if (key === "checked" && (el._uiTag === "Toggle" || el._uiTag === "Radio")) {
-      if (!el._parent) {
-        el._form.defaults.checked ??= true;
-        el._templateDefault.checked = true;
-      } else {
-        el._form.wrote("checked");
-        if (!el._hosted) delete el._pendingState.checked;
-      }
-    }
-    const optionDefault = key === "selected" && el._uiTag === "Option" && !el._attrs.has("selected");
+    const optionDefault = key === "selected" && defaultAttribute === "selected" && !el._attrs.has("selected");
     // `muted={x}` on <audio>/<video>: Svelte's DOM output sets the property, which sends `volumechange` at once.
     if (key === "muted" && el._parent && isMediaNode(el)) setMediaField(el, "muted", true);
     el._attrs.set(key, value);
@@ -2334,14 +2316,16 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     const asDefault = DEFAULT_KEYS[name.toLowerCase()];
     if (asDefault) return setDefault(el, asDefault, null);
     if (name === "muted" && el._parent && isMediaNode(el)) setMediaField(el, "muted", false);
-    if (name === "checked" && el._parent && (el._uiTag === "Toggle" || el._uiTag === "Radio")) {
-      // Svelte's `checked={false}`: the current state, as the DOM property (whether or not the attribute was there).
-      el._form.wrote("checked");
-      if (el._hosted) el._writeState("checked", false);
-      else el._pendingState.checked = false;
+    const defaultAttribute = uiDefaultAttribute(el._uiTag);
+    if (name === defaultAttribute && name !== "selected" && el._parent) {
+      // Svelte's `checked={false}` or `value={undefined}`: the current value, as the DOM property (the attribute, the
+      // default, stays as the template gave it).
+      if (name === "value") el.value = "";
+      else el.checked = false;
+      return;
     }
     if (!el._attrs.delete(name)) return;
-    if (name === "selected" && el._uiTag === "Option") optionDefaultChanged(el);
+    if (name === "selected" && defaultAttribute === "selected") optionDefaultChanged(el);
     if (name === "type") retag(el);
     if (name === "contenteditable") refreshTexts(el);
     if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));

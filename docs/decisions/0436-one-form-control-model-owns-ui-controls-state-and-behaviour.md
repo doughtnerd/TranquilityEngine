@@ -153,6 +153,35 @@ measuring a select, or the editor listing a view's strings, changed form state.
   wiring) are unchanged and pass.
 - The Svelte conformance run stays at 1278 of 1278 in scope.
 
+**Follow-up (2026-11-27).** The gaps this record left are closed:
+
+- **Content attributes go through the model.** The ordering problem that made the first try fail was that a select's
+  `multiple` (and a radio's `name`) reached the element only at its first restyle, after its options were made. They
+  are content attributes now (`elementKinds`: `Select` `["multiple", "value"]`, `Radio` `["name", "checked"]`), written
+  in the kind table's order as the element is made, so they're on it before its options exist or its `checked`
+  applies, as HTML's attributes are before the parser inserts children. The kind table names each control's
+  **default attribute** (`uiDefaultAttribute`: `value` for fields and sliders, `checked` for checkboxes and radios,
+  `selected` for options; it replaces the `defaults` flag). The UI host hands that attribute to the model's
+  `defaultAttributeWritten`: as in HTML the attribute is the default, and the current value follows it only while the
+  control isn't dirty; following is a DOM-property write, so a radio checked unchecks its group and an option chosen in
+  a single select unchooses the others at once (the routing core's settle stays as the backstop). Behaviour change, towards HTML:
+  in markup, the last checked radio of a group and the last `selected` option of a single select win at once.
+- **The renderer maps Svelte's property writes as properties.** `value={x}` and `checked={x}` after the template
+  (Svelte's `set_value`/`set_checked`) write the current value through the node's `value`/`checked` (dirty) and are no
+  longer attributes, so they don't move the default; the template's attribute stays the node's attribute and default.
+- **HTML's stepping is written once**, in the model: `stepValue(value, n, rule)` on a `StepRule` from `htmlStepRule`
+  (step base `min`, else the default value, else 0; a range's 0..100; `step="any"` has no allowed step). A value off
+  the steps moves only to the nearest step that way; the result is put at the largest (smallest) step-aligned value in
+  range; nothing changes if that moves it the wrong way. `stepNumberField` (a number field's arrows) and the renderer's
+  `stepUp()`/`stepDown()` call it; `stepUp(-n)` steps down, as browsers do. Behaviour change: a number field's arrow
+  past `max` stops at the top step in range instead of `max` (`min="0" max="3" step="2"`: 2, not 3), and an empty field
+  steps from 0, then into range. `uiForms.test.ts`'s number-field test now expects HTML's values.
+- **A select's choice by value is written once** (`optionsWithValue`): the model's settle, the renderer node's
+  `value` setter and its Svelte `select_option` (`chooseBound`) use it. The renderer's lists of tags that keep a value or
+  a checked state when an element is made again, and its default-attribute checks, read `uiDefaultAttribute`.
+- Tests: `formModel.test.ts` adds HTML's stepping and the default content attributes (a `multiple` select keeps every
+  `selected` option; a single select and a radio group keep the last). Conformance stays 1278 of 1278 in scope.
+
 ## References
 
 - HTML Standard §4.10: the select element's selectedness setting algorithm, the dirty value and dirtiness flags,
