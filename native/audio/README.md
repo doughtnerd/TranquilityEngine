@@ -21,7 +21,8 @@ On the TypeScript side: `runtime/core/` is the host and backend (`context.ts`, `
 
 - Rust through rustup. `rust-toolchain.toml` pins the toolchain (and the `wasm32-unknown-unknown` target); rustup installs both on first use. If it doesn't, `rustup target add wasm32-unknown-unknown`.
 - Node, for `npm run build:audio` and the Vitest and Playwright suites (`npm install` first).
-- No `wasm-bindgen`. `wasm-opt` is optional: `build.mjs` runs `-O3` if it's on `PATH` and skips it otherwise, so a build with it and one without give different wasm. The committed wasm has been built without it so far; see decision 22 in `owner-review.md` before changing that.
+- No `wasm-bindgen`. `wasm-opt` is off: `build.mjs` runs `-O3` only with `MYCO_WASM_OPT=1` (and `wasm-opt` on `PATH`), for measuring, never for committed builds; it used to run whenever `wasm-opt` was on `PATH`, so the wasm depended on the machine (ADR 0428). The committed wasm is built without it; see decision 22 in `owner-review.md` before changing that.
+- Paths are remapped (`../rustflags.mjs`, ADR 0428): the repository root becomes `/myco` and CARGO_HOME `/cargo` in the wasm, so any checkout builds the same bytes.
 
 ## Build and test
 
@@ -72,7 +73,7 @@ npm run build:audio                                    # or: node native/audio/b
 
 `build.mjs` looks for wasi-sdk in `$WASI_SDK_PATH`, then `native/audio/target/wasi-sdk-25.0-*/` (where the steps above put it; `cargo clean` removes it with the rest of `target/`), then `/opt/wasi-sdk`. On macOS and Windows take the matching asset of the same release (`wasi-sdk-25.0-arm64-macos.tar.gz`, `wasi-sdk-25.0-x86_64-macos.tar.gz`, `wasi-sdk-25.0-x86_64-windows.tar.gz`) and unpack it the same way, or point `WASI_SDK_PATH` at it. The build passes wasi-sdk's `clang` and `llvm-ar` to the `cc` crate as `CC_wasm32_wasip1` / `AR_wasm32_wasip1`; `WASI_SDK_PATH` alone also works for a plain `cargo build -p audio-encode --target wasm32-wasip1`.
 
-Without `wasm-opt` on `PATH` the encoder is built as the other modules are, without `-O3`.
+The encoder is built as the other modules are, without `-O3` (`MYCO_WASM_OPT=1` runs it, not for committed builds).
 
 ## The wire
 

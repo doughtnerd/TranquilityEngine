@@ -1,4 +1,4 @@
-// Type-checking project scripts before Play (ADR 0125). Play asks Monaco's TypeScript service, the
+// Type-checking project scripts (and Svelte UI, ADR 0428) before Play (ADR 0125). Play asks Monaco's TypeScript service, the
 // one behind the Code panel's squiggles (strict, the engine's declarations, every script, JSON
 // file and npm package's declarations), for each script's errors. With errors, a dialog lists
 // them: clicking one opens the script at that line, Play anyway starts the game, and a checkbox
@@ -7,6 +7,7 @@ import { bufferTexts, openScript } from "./code/codeBuffers";
 import { loadMonaco, loadedMonaco } from "./code/codeState";
 import type { ScriptDiagnostic } from "./code/monaco";
 import { packageTypes } from "./packages";
+import { isUISourcePath } from "../projectCode/uiModules";
 import { checkScriptsBeforePlay } from "./preferences";
 import { packageSourceFor } from "./projectPackages";
 import type { EditorProject } from "./projects";
@@ -62,12 +63,13 @@ const describeDiagnostic = (d: ScriptDiagnostic) => `${d.path}:${d.line}: ${d.me
 
 /**
  * Before Play (ADR 0125): type-check `project`'s scripts and, with errors, ask whether to play
- * anyway. True to play. Skipped (true) when the check is turned off, the project has no scripts,
+ * anyway. True to play. Skipped (true) when the check is turned off, the project has no scripts or Svelte UI,
  * or there's no page to check in (headless, unless `options.check` is given). A check that fails
  * to run doesn't stop Play; the status bar says so.
  */
 export async function checkBeforePlay(project: EditorProject, options: CheckOptions = {}): Promise<boolean> {
-  if (!checkScriptsBeforePlay.value || project.scripts.size === 0) return true;
+  // Svelte UI sources are checked too (ADR 0428): components and rune modules, wherever they are.
+  if (!checkScriptsBeforePlay.value || (project.scripts.size === 0 && !(project.files ?? []).some(isUISourcePath))) return true;
   if (!options.check && typeof document === "undefined") return true;
   status.value = { kind: "info", text: "Checking scripts…" };
   let errors: ScriptDiagnostic[];

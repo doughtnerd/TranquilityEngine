@@ -5,11 +5,11 @@
 // vite.engine.config.ts. Games build from the prebuilt player (vite.player.config.ts, ADR 0041), served
 // here at /player/ once built, for the editor's Export.
 import { defineConfig } from "vite";
-import { engineTypes, playerFiles, rendezvousFile, samples, svelteUI, typescriptTranspile, uiRuntimeFiles, UNWATCHED } from "./vite.shared.ts";
+import { engineTypes, playerFiles, rendezvousFile, samples, svelteCheckPath, svelteUI, typescriptTranspile, uiRuntimeFiles, UNWATCHED } from "./vite.shared.ts";
 import { rendezvous } from "./src/vite/rendezvousPlugin";
 
 export default defineConfig({
-  plugins: [svelteUI(), typescriptTranspile(), engineTypes(), samples(), playerFiles(), rendezvousFile(), rendezvous(), uiRuntimeFiles()],
+  plugins: [svelteUI(), svelteCheckPath(), typescriptTranspile(), engineTypes(), samples(), playerFiles(), rendezvousFile(), rendezvous(), uiRuntimeFiles()],
   // Monaco's language workers (the editor's Code panel, ADR 0030) and the navigation bake worker (ADR 0065)
   // are ES modules; worker bundles get their own plugins, so TypeScript is transpiled there too.
   worker: { format: "es", plugins: () => [typescriptTranspile()] },
@@ -30,5 +30,7 @@ export default defineConfig({
     // tsc (typescriptTranspile) adds, so on a cold cache it was found late, re-bundled, and every open
     // page reloaded: both desktop windows started over (ADR 0082).
     include: ["preact/jsx-runtime"],
+    // svelte2tsx's `path` (ADR 0428), in the bundle of dependencies as in the build.
+    rolldownOptions: { plugins: [svelteCheckPath()] },
   },
 });

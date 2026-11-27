@@ -58,6 +58,17 @@ describe("type-checking scripts before Play (ADR 0125)", () => {
     expect(check).not.toHaveBeenCalled();
   });
 
+  it("checks a project whose only code is Svelte UI, and stops on a component's error (ADR 0428)", async () => {
+    const ui = { scripts: new Map(), files: ["ui/Hud.svelte", "scenes/main.scene.json"] } as unknown as EditorProject;
+    const found: ScriptDiagnostic[] = [{ path: "ui/Hud.svelte", line: 7, column: 9, message: "Type 'string' is not assignable to type 'number'." }];
+    let asked: ConfirmOptions | null = null;
+    expect(await checkBeforePlay(ui, { check: async () => found, ask: async (o) => ((asked = o), { ok: false, option: false }) })).toBe(false);
+    expect(asked!.items).toEqual(["ui/Hud.svelte:7: Type 'string' is not assignable to type 'number'."]);
+    const check = vi.fn(async () => found);
+    expect(await checkBeforePlay({ scripts: new Map(), files: ["scenes/main.scene.json"] } as unknown as EditorProject, { check })).toBe(true);
+    expect(check).not.toHaveBeenCalled();
+  });
+
   it("plays when the check itself fails", async () => {
     expect(await checkBeforePlay(project(), { check: async () => Promise.reject(new Error("worker died")) })).toBe(true);
     expect(status.value?.text).toMatch(/Couldn't type-check/);

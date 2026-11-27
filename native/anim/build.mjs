@@ -10,6 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { configRustflags, wasmBuildEnv } from "../rustflags.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const out = fileURLToPath(new URL("../../src/plugins/animation/runtime/wasm/", import.meta.url));
@@ -59,12 +60,17 @@ const EDITOR_OUT_NAME = "myco_anim_editor";
  */
 const EDITOR_SIZE_LIMIT = 1190 * 1024;
 
-/** Runs `cmd args` in native/anim with inherited stdio. RUSTFLAGS are dropped so .cargo/config.toml's +simd128 applies. */
-function run(cmd, args) {
+/** The environment of host tools (gen_wire, wasm-bindgen): RUSTFLAGS are dropped, so nothing but the configs applies. */
+function hostEnv() {
   const env = { ...process.env };
   delete env.RUSTFLAGS;
   delete env.CARGO_ENCODED_RUSTFLAGS;
   delete env.CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS;
+  return env;
+}
+
+/** Runs `cmd args` in native/anim with inherited stdio, in `env` (the host tools' by default). */
+function run(cmd, args, env = hostEnv()) {
   try {
     execFileSync(cmd, args, { cwd: root, stdio: "inherit", env });
   } catch {
@@ -106,13 +112,15 @@ function checkToolchain() {
 }
 
 /**
- * Builds anim-wasm for wasm32 in release (+simd128 from .cargo/config.toml) and runs wasm-bindgen into `out`. The
+ * Builds anim-wasm for wasm32 in release (+simd128 from .cargo/config.toml, paths remapped by ../rustflags.mjs) and runs
+ * wasm-bindgen into `out`. The
  * function-name and producers sections are dropped (T82r: 79 KB, 9% of the module, nothing at run time); set
  * MYCO_ANIM_KEEP_NAMES=1 to keep the names for a profile (`node --cpu-prof` then names the wasm functions). That build
  * isn't for committing.
  */
 function buildWasm(crate, dir, name) {
-  run("cargo", ["build", "-p", crate, "--target", TARGET, "--release"]);
+  // .cargo/config.toml's +simd128, and the paths remapped so any checkout builds the same bytes (ADR 0428).
+  run("cargo", ["build", "-p", crate, "--target", TARGET, "--release"], wasmBuildEnv(configRustflags(root)));
   mkdirSync(dir, { recursive: true });
   const strip = process.env.MYCO_ANIM_KEEP_NAMES === "1" ? [] : ["--remove-name-section", "--remove-producers-section"];
   run("wasm-bindgen", [`target/${TARGET}/release/${crate.replace(/-/g, "_")}.wasm`, "--target", "web", "--out-dir", dir, "--out-name", name, "--omit-default-module-path", ...strip]);
