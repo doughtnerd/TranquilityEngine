@@ -1,6 +1,6 @@
 # 0435. "Why it played" names the trigger and the game code that asked
 
-- **Status:** Proposed (built: a small extension of 0348's captures within format 2; awaiting the owner's acceptance)
+- **Status:** Accepted
 - **Date:** 2026-11-27
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
