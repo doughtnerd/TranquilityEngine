@@ -86,8 +86,6 @@ export { Decal2D, DecalProjector, Decals, type DecalBlend, type DecalHandle, typ
 
 // The UI plugin (ADR 0069, 0076, 0140).
 export {
-  Text,
-  type Anchor,
   UIButton,
   UIControlMapper,
   type UIControlMapperCell,
@@ -101,6 +99,27 @@ export {
   UIInputField,
   UIPanel,
   UIText,
+  // ADR 0428: form elements.
+  UITextArea,
+  UIToggle,
+  UIRadio,
+  UISlider,
+  UISelect,
+  UIOption,
+  UIProgress,
+  UIMeter,
+  UILabel,
+  UIForm,
+  type UIButtonType,
+  type UIInputType,
+  type UITextAreaWrap,
+  // ADR 0430
+  UISvg,
+  UIVideo,
+  UIAudio,
+  type UIMediaEvent,
+  type UIMediaEventType,
+  type UIMediaSource,
   type UIAlign,
   type UICanvasMode,
   type UIDisplay,
@@ -112,18 +131,16 @@ export {
   type UIPositionType,
   type UITextAlign,
   type UIWordBreak,
+  type UIWhiteSpaceCollapse,
+  type UITextWrapMode,
   UIActions,
   UI_CONTEXT_PRIORITY,
-  UIClassList,
-  UIDocument,
-  UIDocumentElement,
-  UIEvents,
-  type UIEvent,
-  type UIEventHandler,
-  type UIEventType,
-  type UIListOptions,
   type UITag,
-  LocalizedText, // ADR 0356 §4
+  UIView,
+  type UIViewElement,
+  type UIViewEvent,
+  UIPreferences,
+  type UIColorScheme,
 } from "./plugins/ui/runtime";
 
 // The Environment plugin (ADR 0140).

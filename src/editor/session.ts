@@ -24,11 +24,14 @@ import { installGizmo } from "./gizmo";
 import { installViewportTheme } from "./viewportTheme";
 import { OrbitCamera } from "./OrbitCamera";
 import { createPlaySession } from "./playSession";
+import { onUICodeWritten } from "./textFiles";
 import { saveOpenScene } from "./project";
 import { createSceneTabs } from "./sceneTabs";
 import { applyProjectPlugins } from "../plugins/editorPlugins";
 import { loadProjectCode, unloadThirdPartyPlugins } from "../plugins/thirdPartyEditor";
-import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
+import { editorSettings, joinPath, openFolderProject, uiFiles, useProjectAssets, type EditorProject } from "./projects";
+import { isUISourcePath } from "../projectCode/uiModules";
+
 import { currentProject, docVersion, openScene, playing, sceneCamera, scriptProblems, scriptsVersion, status, viewMode, type OpenScene } from "./state";
 import { closeAllScripts } from "./code/codeBuffers";
 import { preloadCodeEditor } from "./code/codeState";
@@ -43,7 +46,6 @@ import { installViewportSelection } from "./viewportSelection";
 import { installViewportTools } from "./viewportTools";
 import { installUIElementOutline } from "./uiOutline";
 import { installUIHandles } from "./uiHandles";
-import { loadUIDocumentSupport } from "../engine/ui/UIDocument";
 import { reloadGraphics } from "./graphicsPreview";
 
 let session: { engine: Engine; dispose(): void } | null = null;
@@ -125,11 +127,7 @@ async function loadProject(project: EditorProject): Promise<{ problem: boolean }
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;
   void setUpScripting(project);
-  // UI documents' parsers load with the editor (ADR 0077), so documents build with the scene, not a moment after.
-  const [engine] = await Promise.all([
-    Engine.create({ kind: "editor", container: viewportElements().viewport, project: editorSettings(project), storage: await projectStorage(project) }),
-    loadUIDocumentSupport().catch((err: unknown) => console.warn("[editor] the UI document parsers didn't load; documents build once they do:", err)),
-  ]);
+  const engine = await Engine.create({ kind: "editor", container: viewportElements().viewport, project: editorSettings(project), storage: await projectStorage(project) });
   reloadGraphics(engine.settings.graphics); // the Quality menu lists the project's tiers
   // Editor tools live under the World root, outside the edited scene, so they keep running (ADR 0026).
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
@@ -389,15 +387,21 @@ export async function openScriptExternally(path: string): Promise<void> {
  * the Inspector stay. During play they swap into the running game (ADR 0125), and the Editor
  * World rebuilds on Stop.
  */
-export function reloadScripts(options: { outside?: boolean } = {}): Promise<void> {
+export function reloadScripts(options: { outside?: boolean; quiet?: boolean } = {}): Promise<void> {
   return play.reloadScripts(options);
 }
+
+// ADR 0423 wave C: an edit of Svelte UI code from the Inspector, the Hierarchy or the scene view (and its undo and
+// redo) compiles the project's code again, so mounted views hot-reload; a compile error still reports itself.
+onUICodeWritten(() => reloadScripts({ quiet: true }));
 
 /**
  * Save a file from the Code panel: a script (then scripts reload), or a JSON (which must parse)
  * or JavaScript file. Scripts also reload after saving JSON one of them mentions, since scripts
- * can import JSON.
+ * can import JSON, and after saving UI code (ADR 0423: a Svelte component or rune module, or a `.css`
+ * file one of them mentions), which compiles with them: mounted `UIView`s show the new version.
  */
+
 export async function saveCodeFile(path: string, text: string): Promise<void> {
   const project = currentProject.value;
   if (!project) throw new Error("No project is open.");
@@ -407,7 +411,8 @@ export async function saveCodeFile(path: string, text: string): Promise<void> {
   docVersion.value++; // e.g. the Assets panel
   const name = path.slice(path.lastIndexOf("/") + 1);
   // A plugin's manifest (ADR 0139) decides what loads, so saving one reloads the project's code too.
-  if (/^plugins\/[^/]+\/plugin\.json$/.test(path) || (path.endsWith(".json") && [...project.scripts.values()].some((s) => s.includes(name)))) await reloadScripts();
+  if (/^plugins\/[^/]+\/plugin\.json$/.test(path) || (path.endsWith(".json") && [...project.scripts.values()].some((s) => s.includes(name))) || isUISourcePath(path) || (path.endsWith(".css") && [...uiFiles(project)].some(([p, s]) => isUISourcePath(p) && s.includes(name)))) await reloadScripts();
+
   else status.value = { kind: "info", text: `Saved ${path}.` };
 }
 

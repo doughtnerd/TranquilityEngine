@@ -6,9 +6,9 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import type { Layer } from "@babylonjs/core/Layers/layer.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
-import { Engine, GameObject, Input } from "../index";
-import { Text } from "../render/components";
+import { Assets, Engine, GameObject, Input } from "../index";
 import { UIButton, UICanvas, type UILength } from "../ui/components";
+import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
 import { BabylonUI } from "../render/babylon/ui";
 import { BabylonUIFeature, type BabylonUIHost } from "../render/babylon/uiFeature";
 import { _registeredRenderFeatures, ownerOf, specNeeded } from "../render/renderFeatures";
@@ -51,6 +51,7 @@ function host(): BabylonUIHost {
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
+  await loadUITestSupport();
   babylon = new NullEngine();
   (babylon as unknown as { createCanvas: typeof fakeCanvas }).createCanvas = fakeCanvas;
   scene = new Scene(babylon);
@@ -66,6 +67,7 @@ afterEach(() => {
   scene.dispose();
   babylon.dispose();
   engine.dispose();
+  Assets.clearSources();
   Input.reset();
   vi.restoreAllMocks();
 });
@@ -76,22 +78,20 @@ async function make(): Promise<BabylonUIFeature> {
   return feature;
 }
 
+/** A screen canvas with a button, rendered by a UI view (ADR 0421, 0423). */
 function menu() {
-  const canvas = GameObject.create("Canvas").addBehavior(UICanvas);
-  const play = GameObject.create("Play", { parent: canvas.node }).addBehavior(UIButton, { width: 200 as UILength, height: 50 as UILength } as never);
-  return { canvas, play };
+  const doc = buildUI(`<Canvas id="Canvas"><button id="Play" width="200" height="50"/></Canvas>`);
+  return { canvas: byId(doc, "Canvas", UICanvas), play: byId(doc, "Play", UIButton) };
 }
 
 describe("BabylonUIFeature", () => {
-  it("has a lazy overlay spec that owns UI components and Text, needed once the World has either", () => {
+  it("has a lazy overlay spec that owns UI components, needed once the World has a canvas", () => {
     expect(UI_SPEC).toMatchObject({ name: "ui", phase: "overlay", lazy: true, holdsFirstFrame: true });
     const w = World.require();
     expect(specNeeded(UI_SPEC, w)).toBe(false);
     const { canvas, play } = menu();
-    const text = GameObject.create("Score").addBehavior(Text, { text: "Hi" });
     expect(ownerOf([UI_SPEC], canvas)).toBe(0);
     expect(ownerOf([UI_SPEC], play)).toBe(0);
-    expect(ownerOf([UI_SPEC], text)).toBe(0);
     expect(specNeeded(UI_SPEC, w)).toBe(true);
   });
 
@@ -103,29 +103,19 @@ describe("BabylonUIFeature", () => {
     expect(f.hasPreviewUI()).toBe(false);
   });
 
-  it("reports what it drew (ADR 0276): a shown Text's box on the canvas, and a world canvas's plane left to the UI core's picking", async () => {
+  it("reports what it drew (ADR 0276): a world canvas's plane, left to the UI core's picking, and no screen canvas", async () => {
     const f = await make();
-    const score = GameObject.create("Score").addBehavior(Text, { text: "Hi", anchor: "top-left" } as never);
-    const empty = GameObject.create("Empty").addBehavior(Text, { text: "" });
-    const world = GameObject.create("Sign").addBehavior(UICanvas, { mode: "world" } as never);
+    const { canvas } = menu();
+    const world = byId(buildUI(`<Canvas id="Sign" mode="world"/>`), "Sign", UICanvas);
     f.sync(World.require());
     const drawn = [...f.drawn()];
-    const text = drawn.find((d) => d.component === score)!;
-    expect(text.shape?.kind).toBe("rect");
-    expect(text.order).toBe(Number.POSITIVE_INFINITY); // above everything in the scene
-    if (text.shape?.kind === "rect") {
-      expect(text.shape.rect.left).toBe(0); // top-left, no offset
-      expect(text.shape.rect.top).toBe(0);
-      expect(text.shape.rect.right).toBeGreaterThan(16); // two glyphs and their padding
-      expect(text.shape.rect.bottom).toBeGreaterThan(16);
-    }
-    expect(drawn.some((d) => d.component === empty)).toBe(false); // nothing shown
-    const plane = drawn.find((d) => d.component === world)!;
-    expect(plane.shape?.kind).toBe("meshes");
-    expect(plane.pickable).toBe(false); // the UI core picks canvases (ADR 0117)
-    score.enabled = false;
+    expect(drawn.map((d) => d.component)).toEqual([world]); // a screen canvas has no shape in the scene
+    expect(drawn[0].shape?.kind).toBe("meshes");
+    expect(drawn[0].pickable).toBe(false); // the UI core picks canvases (ADR 0117)
+    expect(drawn.some((d) => d.component === canvas)).toBe(false);
+    world.enabled = false;
     f.sync(World.require());
-    expect([...f.drawn()].some((d) => d.component === score)).toBe(false);
+    expect([...f.drawn()]).toEqual([]);
   });
 
   it("syncs and lays out a UICanvas with a button", async () => {
@@ -171,10 +161,9 @@ describe("BabylonUIFeature", () => {
     expect(frameUI).toBeTypeOf("function");
   });
 
-  it("releases a UI component from the core and drawing, and a Text from the drawing", async () => {
+  it("releases a UI component from the core and drawing", async () => {
     const f = await make();
     const { canvas } = menu();
-    const text = GameObject.create("Score").addBehavior(Text, { text: "Hi" });
     state.rect = { x: 0, top: 0, width: 0.5, height: 0.5 };
     f.sync(World.require());
     expect(f.core().rectOf(canvas)).not.toBeNull();
@@ -182,10 +171,6 @@ describe("BabylonUIFeature", () => {
     f.release(canvas);
     expect(f.core().rectOf(canvas)).toBeNull();
     expect(release).toHaveBeenCalledTimes(2); // the main drawing and the preview's
-    release.mockClear();
-    f.release(text);
-    expect(release).toHaveBeenCalledTimes(2);
-    expect(release.mock.calls.every(([c]) => c === text)).toBe(true);
   });
 
   it("clears both frame hooks on dispose", async () => {

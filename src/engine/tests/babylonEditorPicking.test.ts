@@ -86,7 +86,6 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     drawn.push({ component: { node } as never, shape: { kind: "meshes", meshes: [mesh as Mesh] }, order: PICK_ORDER.depthTested, ...more });
     return node;
   };
-  const text = (node: GameObject, rect: { left: number; top: number; right: number; bottom: number }) => drawn.push({ component: { node } as never, shape: { kind: "rect", rect }, order: PICK_ORDER.screen });
   const world = () => World.require();
 
   it("picks a sprite by order, not depth, and meshes nearest first below every sprite", () => {
@@ -136,7 +135,7 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     expect(queries.pick(400, 300)).toHaveLength(1);
   });
 
-  it("puts icons above sprites and text above icons, without duplicates", () => {
+  it("puts icons above sprites, without duplicates", () => {
     camera();
     const s = sprite("s", 100, [0, 0, 0]);
     World.require().setEditMode(s.entity, true);
@@ -146,9 +145,7 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     icon.transform!.position.set(-1, 0, 0); // 60 px left of the sprite's centre, within reach of (300, 300)
     icon.addBehavior(Camera);
     queries.sync(world());
-    const label = GameObject.create("label");
-    text(label, { left: 390, top: 290, right: 410, bottom: 310 });
-    expect(queries.pick(400, 300)).toEqual([label, s]); // text, then the sprite (its own icon and its quad, listed once)
+    expect(queries.pick(400, 300)).toEqual([s]); // its own icon and its quad, listed once
     expect(queries.pick(345, 300)).toEqual([icon, s]); // the camera icon, then the sprite under it
   });
 
@@ -267,13 +264,6 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     expect(rect(b).right).toBeCloseTo(400 - 2 * 60);
     expect(rect(plain)).toEqual({ left: 400, right: 400, top: 300 - 120, bottom: 300 - 120 });
     expect(out.map((o) => o.node)[0]).toBe(root); // parents first
-  });
-
-  it("uses a screen-space text's own rectangle in screenBounds", () => {
-    camera();
-    const label = GameObject.create("label");
-    text(label, { left: 10, top: 20, right: 110, bottom: 60 });
-    expect(queries.screenBounds(label)[0].rect).toEqual({ left: 10, top: 20, right: 110, bottom: 60 });
   });
 
   it("measures the world box around everything drawn for a node: its meshes and its sprite's quad", () => {

@@ -5,7 +5,6 @@
 
 mod common;
 
-use anim_math::ease::ease;
 use anim_wasm::init::Core;
 use anim_wire::core::{
     PASS_FIXED, PASS_NORMAL, STATUS_BAD_RECORD, STATUS_FULL, STATUS_OK, STATUS_STALE_HANDLE,
@@ -13,6 +12,7 @@ use anim_wire::core::{
 use anim_wire::tween::*;
 use anim_wire::WireRecord;
 use common::core;
+use myco_tween::ease::ease;
 
 const DT: f32 = 0.25;
 

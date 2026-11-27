@@ -1,9 +1,10 @@
-// The Inspector's Localise control for a UI document element's text field (ADR 0356 §9): shows the key the field is
-// bound to with its text in the preview language (Unlink removes the binding), or offers to pick a key (search keys and
-// text, each with its preview) or Extract to string table (a suggested key in a chosen table, the field's literal text
-// as its reference text). A view: matches and the suggestions come from `localiseModel.ts` through the Inspector.
+// The Inspector's Localise control for a Svelte element's text (ADR 0356 §9, ADR 0423 wave F): its text content or a
+// text attribute. Shows the key it's written with (`{t("key")}`) and its text in the preview language (Unlink writes
+// the reference text back as literal text), or offers to pick a key (search keys and text, each with its preview) or
+// Extract to string table (a suggested key in a chosen table, the literal text as its reference text). A view: matches
+// and the suggestions come from `localiseKeys.ts` through the Inspector (`UIViewLocalise.tsx`).
 import { useState } from "preact/hooks";
-import type { KeyMatch } from "./localiseModel";
+import type { KeyMatch } from "./localiseKeys";
 import "./localisation.css";
 
 export interface LocaliseControlProps {
@@ -22,6 +23,8 @@ export interface LocaliseControlProps {
   readonly suggestedKey: string;
   /** Why nothing can be changed now (read-only, playing), or null. */
   readonly disabled: string | null;
+  /** Why Unlink can't write the key's text back (its message takes arguments, no table defines it), or null. */
+  readonly unlinkRefusal?: string | null;
   onPick(key: string): void;
   onUnlink(): void;
   onExtract(table: string, key: string): void;
@@ -41,7 +44,7 @@ export function LocaliseControl(p: LocaliseControlProps) {
           <span class="mono" title="The string key this field shows">
             {p.boundKey}
           </span>
-          <button type="button" class="link-button" disabled={off} title={p.disabled ?? "Write the text into the element again instead of the key"} onClick={p.onUnlink}>
+          <button type="button" class="link-button" disabled={off || !!p.unlinkRefusal} title={p.disabled ?? (p.unlinkRefusal ? `Can't unlink: ${p.unlinkRefusal}` : "Write the key's text into the source again instead of the key")} onClick={p.onUnlink}>
             Unlink
           </button>
         </div>

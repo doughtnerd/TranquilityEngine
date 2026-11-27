@@ -115,6 +115,37 @@ function write(path, content) {
   written.push(path);
 }
 
+// ---------------------------------------------------------------------------------------------- the HUD component
+
+// The status panel is a Svelte component (ADR 0423); scripts/behaviors/Hud.ts passes its `status` prop.
+const HUD_SVELTE = `<script lang="ts">
+  // The navigation sample's status panel (ADR 0423): one text block, which scripts/behaviors/Hud.ts passes in
+  // through its UIView's props.
+  let { status = "" }: { status?: string } = $props();
+</script>
+
+<span id="status" text={status}></span>
+
+<style>
+  /* White text with a black outline, top left, in reference pixels. */
+  #status {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    text-align: left;
+    font-size: 18px;
+    font-weight: bold;
+    color: white;
+    text-outline-color: black;
+    text-outline-width: 3px;
+    /* A label over the game lets the pointer through to it (ADR 0385). */
+    raycast-target: false;
+    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0432 white-space). */
+    white-space: pre-wrap;
+  }
+</style>
+`;
+
 // ---------------------------------------------------------------------------------------------- navigation settings
 
 const motion = (ease, easeInTime, easeOutTime) => ({ ease, easeInTime, easeOutTime });
@@ -696,7 +727,7 @@ function buildMain() {
   course("Jump course", "jumper", PREFABS.jumper, COUNTS.jumpers, 12, 48, 1);
   course("Climb course", "climber", PREFABS.climber, COUNTS.climbers, -12, -48, 0.75);
 
-  scene.add("HUD", [{ type: "engine.Text", data: { text: "", fontSize: 18, anchor: "top-left", align: "left", offset: [16, 16], outlineColor: "#000000", outlineWidth: 3 } }, { type: "navdemo.Hud" }], undefined, false);
+  scene.add("HUD", [{ type: "engine.UIView", data: { component: "asset:ui/Hud.svelte" } }, { type: "navdemo.Hud" }], undefined, false);
   return { file: scene.file(), groupCount };
 }
 
@@ -721,6 +752,7 @@ const main = buildMain();
 writeMaterials(main.groupCount);
 writePrefabs();
 write("scenes/main.scene.json", main.file);
+write("ui/Hud.svelte", HUD_SVELTE);
 for (let i = 0; i < 9; i++) write(chunkScene(i), buildChunk(i));
 
 const total = COUNTS.walkers + COUNTS.flyers + COUNTS.walkFlyers + COUNTS.groups * COUNTS.groupSize + COUNTS.flyerGroups * COUNTS.flyerGroupSize + COUNTS.walkFlyGroups * COUNTS.walkFlyGroupSize + COUNTS.jumpers + COUNTS.climbers;

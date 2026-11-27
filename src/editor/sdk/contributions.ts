@@ -82,7 +82,7 @@ export interface AssetKindContribution<T = any> {
   readonly referencedAs?: readonly string[];
   /** Which built-in thumbnail renderer draws its preview (internal tier: renderers stay first-party, ADR 0133). */
   readonly preview?: "sky" | "material" | "shadergraph" | "particles" | "environment" | "model" | "prefab" | "scene" | "audio";
-  /** Policy (ADR 0140): files of this kind open in the Code panel (UI documents, stylesheets). Ignored when `open` is set. */
+  /** Policy (ADR 0140): files of this kind open in the Code panel (Svelte components, stylesheets). Ignored when `open` is set. */
   readonly codeEditor?: boolean;
   /** Policy (ADR 0133, 0140): what adding a file of this kind to a scene makes (a drop on the Hierarchy or the scene view, the Assets panel's +). */
   readonly addToScene?: AssetSceneNodes;

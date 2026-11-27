@@ -312,6 +312,13 @@ describe("cleaning a parsed file of a deleted asset", () => {
     });
     expect(settingsWithoutAsset({ name: "x" }, "prefabs/music.prefab.json").changed).toBe(false);
   });
+
+  it("drops a deleted action set file from input.actionSets (ADR 0433)", () => {
+    expect(settingsWithoutAsset({ input: { join: "single", actionSets: ["input/a.actions.json", "input/b.actions.json"] } }, "input/a.actions.json")).toEqual({
+      settings: { input: { join: "single", actionSets: ["input/b.actions.json"] } },
+      changed: true,
+    });
+  });
 });
 
 // ADR 0302: a project-wide edit asks each file's owner to apply it, and users come from the same readers as dependencies.

@@ -1,4 +1,5 @@
-import { Audio, AudioSource, GameBehavior, GameObject, Input, Text, Time, behavior, field } from "myco";
+import { Audio, AudioSource, GameBehavior, GameObject, Input, Time, behavior, field } from "myco";
+import { setHud } from "../labHud";
 import { Loudness } from "./Loudness";
 
 /**
@@ -20,6 +21,8 @@ import { Loudness } from "./Loudness";
  */
 @behavior("lab.MixerLab")
 export class MixerLab extends GameBehavior {
+  /** The page's HUD node (a UIView of ui/<Page>.svelte): this script passes its `mixer` prop. */
+  @field(GameObject) hud: GameObject | null = null;
   @field(String) voiceKey = "1";
   @field(String) sfxKey = "2";
   @field(String) tourKey = "3";
@@ -91,8 +94,7 @@ export class MixerLab extends GameBehavior {
   }
 
   private show(): void {
-    const label = this.node.getBehavior(Text);
-    if (!label) return;
+    if (!this.hud) return;
     const now = Time.time;
     if (now - this.shownAt < 0.1) return;
     this.shownAt = now;
@@ -104,6 +106,6 @@ export class MixerLab extends GameBehavior {
       `Tour (3): ${tour}\n` +
       `Music duck x${music.toFixed(2)}   SFX presence 0.30, Voice level RMS -30 dBFS 0.35\n` +
       `Ambience duck x${ambience.toFixed(2)}   Voice level peak -20 dBFS 0.50`;
-    if (text !== this.shown) label.text = this.shown = text;
+    if (text !== this.shown) setHud(this.hud, "mixer", (this.shown = text));
   }
 }

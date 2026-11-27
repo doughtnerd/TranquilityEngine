@@ -1,8 +1,9 @@
 // Node-style module resolution over a project folder's files (ADR 0125), for packages.ts's esbuild
 // plugin and its TypeScript declarations: `exports` maps (resolve.exports), then the
-// `browser`/`module`/`main` fields, extension and index probing, and nested node_modules. No file
-// access of its own: callers give a `PackageFiles`.
-import { resolve as resolveExports } from "resolve.exports";
+// `browser`/`module`/`main` fields, extension and index probing, nested node_modules, and a package's
+// own subpath imports (`#internal`, its `imports` map). No file access of its own: callers give a
+// `PackageFiles`. The game UI bundle (ADR 0425) resolves Svelte's runtime through it too.
+import { imports as resolveImports, resolve as resolveExports } from "resolve.exports";
 
 /** Read access to the project folder, by project-relative "/"-separated path; null when there's no such file. */
 export interface PackageFiles {
@@ -54,8 +55,12 @@ export type Resolved = { file: string } | { empty: true } | { error: string };
  */
 export class PackageResolver {
   private readonly texts = new Map<string, Promise<string | null>>();
+  private readonly conditions: string[];
 
-  constructor(readonly files: PackageFiles) {}
+  /** `conditions`: export conditions to match besides `browser`, `module`, `import` and `default` (such as `production`). */
+  constructor(readonly files: PackageFiles, conditions: readonly string[] = []) {
+    this.conditions = ["module", ...conditions];
+  }
 
   read(path: string): Promise<string | null> {
     let text = this.texts.get(path);
@@ -144,6 +149,21 @@ export class PackageResolver {
       const file = await this.probe(target);
       return file ? { file } : { error: `can't find "${specifier}" from ${importer || "the project"}` };
     }
+    if (specifier.startsWith("#")) {
+      if (!owner) return { error: `"${specifier}": subpath imports resolve only inside packages` };
+      let targets: readonly string[] | void;
+      try {
+        targets = resolveImports((await this.packageJson(owner)) ?? {}, specifier, { browser: true, conditions: this.conditions }) as readonly string[] | void;
+      } catch (err) {
+        return { error: `"${specifier}": ${err instanceof Error ? err.message : String(err)}` };
+      }
+      for (const target of targets ?? []) {
+        if (!target.startsWith(".")) return this.resolve(target, importer);
+        const file = join(owner, target);
+        if (await this.isFile(file)) return { file };
+      }
+      return { error: `"${specifier}" isn't in ${owner.slice(owner.lastIndexOf("node_modules/") + "node_modules/".length)}'s imports` };
+    }
     if (owner) {
       const mapped = await this.browserMap(owner, specifier);
       if (mapped === false) return { empty: true };
@@ -160,7 +180,7 @@ export class PackageResolver {
     if (pkg.exports !== undefined) {
       let targets: readonly string[] | void;
       try {
-        targets = resolveExports(pkg, sub, { browser: true, conditions: ["module"] }) as readonly string[] | void;
+        targets = resolveExports(pkg, sub, { browser: true, conditions: this.conditions }) as readonly string[] | void;
       } catch (err) {
         return { error: `"${specifier}": ${err instanceof Error ? err.message : String(err)}` };
       }

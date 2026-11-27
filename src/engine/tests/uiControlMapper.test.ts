@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Engine, GameObject, Input, InputPlayers, button, chordOf, defineActions, dpad, vec2 } from "../index";
+import { Assets, Engine, GameObject, Input, InputPlayers, button, chordOf, defineActions, dpad, vec2 } from "../index";
 import { UIButton, UICanvas, UIImage, UIText } from "../ui/components";
-import { UIControlMapper } from "../ui/controlMapper";
+import { UIControlMapper } from "../../plugins/ui/runtime/UIControlMapper";
 import { World } from "../core/World";
 import { UIPointer, stubDocument } from "./uiPointer";
+import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
+// The built-in UI components, as the editor provides them (ADR 0423 wave B).
+import "../../plugins/ui/builtinUI";
 
 // ADR 0337, 0339 and 0340: the engine's rebinding screen, driven as a player does: clicks through a UI
 // core, keys and pad buttons through Input (focus navigation moves between its buttons and `submit`
@@ -25,6 +28,7 @@ let pads: number[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
+  await loadUITestSupport();
   stubDocument();
 });
 
@@ -35,6 +39,7 @@ afterEach(() => {
   Input.inject.releaseAll();
   vi.unstubAllGlobals();
   engine.dispose();
+  Assets.clearSources();
   Input.reset();
 });
 
@@ -61,9 +66,9 @@ async function pointer(height = 1400): Promise<UIPointer> {
   return p;
 }
 
-/** A mapper under a game's canvas, with a UI core laying it out. */
+/** A mapper under a game's canvas (a UI view's), with a UI core laying it out. */
 async function mapper(init: Partial<UIControlMapper> = {}): Promise<UIControlMapper> {
-  const canvas = GameObject.create("Canvas").addBehavior(UICanvas);
+  const canvas = byId(buildUI(`<Canvas id="Canvas"/>`), "Canvas", UICanvas);
   const m = GameObject.create("Controls", { parent: canvas.node }).addBehavior(UIControlMapper, { actions: "jump, move, bomb", ...init } as never);
   step();
   await pointer();
@@ -105,6 +110,9 @@ function focused(m: UIControlMapper): string | null {
   ];
   return buttons.find(([, b]) => b?.focused)?.[0] ?? null;
 }
+
+/** A colour's channels, rounded (the screen's colours go through CSS). */
+const rgba = (c: { r: number; g: number; b: number; a: number }) => [c.r, c.g, c.b, c.a].map((v) => Math.round(v * 1000) / 1000);
 
 /** The texts drawn inside a node. */
 const texts = (node: GameObject): string[] => [...node.children.flatMap((c) => [...(c.getComponent(UIText) ? [c.getComponent(UIText)!.text] : []), ...texts(c)])];
@@ -166,17 +174,18 @@ describe("UIControlMapper (ADR 0337)", () => {
     expect(focused(m)).toBe("Jump/keyboard");
     expect(m.focusedCell).toMatchObject({ action: "jump", device: "keyboard", label: "Space" });
     // The focused button has the accent border, after mouse use too (Delete and Unbind act on it).
-    expect(row(m, "Jump").keyboard!.button.borderColor).toEqual(m.accentColor);
-    expect(row(m, "Jump").gamepad!.button.borderColor).toEqual(m.cellColor);
+    expect(rgba(row(m, "Jump").keyboard!.button.borderColor)).toEqual(rgba(m.accentColor));
+    expect(rgba(row(m, "Jump").gamepad!.button.borderColor)).toEqual(rgba(m.cellColor));
     pointers[0].click(row(m, "Jump").gamepad!.button);
     step(2);
     tap("escape"); // the click started a rebind
     expect(focused(m)).toBe("Jump/gamepad");
-    expect(row(m, "Jump").gamepad!.button.borderColor).toEqual(m.accentColor);
-    expect(row(m, "Jump").keyboard!.button.borderColor).toEqual(m.cellColor);
+    expect(rgba(row(m, "Jump").gamepad!.button.borderColor)).toEqual(rgba(m.accentColor));
+    expect(rgba(row(m, "Jump").keyboard!.button.borderColor)).toEqual(rgba(m.cellColor));
 
-    const canvas = GameObject.create("Menu").addBehavior(UICanvas);
-    const play = GameObject.create("Play", { parent: canvas.node }).addBehavior(UIButton);
+    const menu = buildUI(`<Canvas id="Menu"><button id="Play"/></Canvas>`);
+    const canvas = byId(menu, "Menu", UICanvas);
+    const play = byId(menu, "Play", UIButton);
     play.focused = true;
     const other = GameObject.create("Controls", { parent: canvas.node }).addBehavior(UIControlMapper, { actions: "jump" } as never);
     step(2);
@@ -291,7 +300,7 @@ describe("UIControlMapper (ADR 0337)", () => {
     step();
     await pointer();
     step();
-    const canvas = node.children.find((c) => c.getComponent(UICanvas));
+    const canvas = node.getComponentInChildren(UICanvas)?.node; // its built-in document's root
     expect(canvas).toBeDefined();
     expect(canvas!.getComponent(UICanvas)).toMatchObject({ autoFocus: true, player: 0, modal: true });
     expect(m.rows).toHaveLength(1);

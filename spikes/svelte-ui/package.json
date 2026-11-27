@@ -1,0 +1,14 @@
+{
+  "name": "myco-spike-svelte-ui",
+  "private": true,
+  "type": "module",
+  "description": "Feasibility spike: Svelte 5 custom renderer into the UI core (never shipped).",
+  "scripts": {
+    "test": "vitest run --config vitest.config.mts",
+    "sizes": "node sizes.mjs",
+    "probe": "node probe.mjs"
+  },
+  "dependencies": {
+    "svelte": "5.59.2"
+  }
+}

@@ -1,4 +1,5 @@
-// Moving and resizing UI document elements in the scene view (ADR 0077 §4, wave B part 3).
+// Moving and resizing UI elements in the scene view (ADR 0077 §4, wave B part 3; ADR 0423 wave C: the elements a
+// UIView renders from a Svelte component).
 //
 // The selected element gets eight resize handles (corners and edges) on its box, drawn in an SVG
 // overlay over the viewport like its outline (`uiOutline.ts`): theme-token colours, no renderer
@@ -9,7 +10,7 @@
 // decisions about percentages, aspect ratio and snapping, are `uiHandleMath.ts`; the drags' edits are `uiHandleDrags.ts`.
 //
 // A handle or move drag is one undo step: `beginUIEdit`, `setUIElementAttributes` on each pointer
-// move (the file is rewritten as the drag goes and the document rebuilds under it), `endUIEdit`;
+// move (the file is rewritten as the drag goes and the view re-renders under it), `endUIEdit`;
 // Escape puts the files back (`cancelUIEdit`). A reorder is one `moveUIElement` on release. A press
 // on the box that doesn't travel `MOVE_THRESHOLD` pixels is a click, which `viewportSelection.ts`
 // handles as before (select, click again to cycle). Handles show only where the element can be
@@ -20,8 +21,11 @@ import type { World } from "../engine/core/World";
 import { viewport, viewportCanvas } from "../engine/editor";
 import { openScene } from "./state";
 import { boxMap, handleCursor, handlePoints, type DragOptions, type HandleId, type Point } from "./uiHandleMath";
-import { beginMove, beginResize, whyNoHandles, type BoxOf, type HandleDrag } from "./uiHandleDrags";
-import { resolveUIElement, selectedUIRef, type UIElementRef } from "./uiDocuments";
+import { beginMove, beginResize, handleElement, whyNoHandles, type BoxOf, type HandleDrag } from "./uiHandleDrags";
+import { selectedUIViewRef, type UIViewRef } from "./uiViews";
+
+/** The selected UI element's ref (one a UIView rendered, ADR 0423 wave C). */
+const selectedRef = (): UIViewRef | null => selectedUIViewRef();
 import { viewportElements } from "./ui/ScenePanel";
 
 /** Pointer travel (CSS pixels) before a press on the box becomes a move (as a click's slop in `viewportSelection.ts`). */
@@ -30,9 +34,9 @@ const HANDLE_SIZE = 8;
 
 /** True when a press at canvas point `p` is on the selected element's box and its handles are shown (a drag there moves it). */
 export function pressOnSelectedUI(world: World, p: Point): boolean {
-  const scene = openScene.peek(), ref = selectedUIRef();
-  const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;
-  if (!el || !el.node.activeInHierarchy || whyNoHandles(el)) return false;
+  const ref = selectedRef();
+  const el = openScene.peek() && ref ? handleElement(ref) : null;
+  if (!ref || !el || !el.active || whyNoHandles(ref)) return false;
   const box = viewport(world).uiElementBox(el.component), map = box && boxMap(box);
   const at = map?.toLocal(p);
   return !!box && !!at && at[0] >= 0 && at[1] >= 0 && at[0] <= box.size[0] && at[1] <= box.size[1];
@@ -58,7 +62,7 @@ export function installUIHandles(engine: Engine): () => void {
 
   let drag: { drag: HandleDrag; pointerId: number; target: Element } | null = null;
   /** A press on the box, until it travels far enough to move or is released as a click. */
-  let pending: { ref: UIElementRef; x: number; y: number; pointerId: number } | null = null;
+  let pending: { ref: UIViewRef; x: number; y: number; pointerId: number } | null = null;
 
   const local = (e: { clientX: number; clientY: number }): Point => {
     const r = canvas.getBoundingClientRect();
@@ -116,7 +120,7 @@ export function installUIHandles(engine: Engine): () => void {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const ref = selectedUIRef();
+    const ref = selectedRef();
     const d = ref ? beginResize(ref, id, local(e), boxOf) : null;
     if (d) startDrag(d, e, e.currentTarget as Element);
   };
@@ -136,7 +140,7 @@ export function installUIHandles(engine: Engine): () => void {
   const onCanvasDown = (e: PointerEvent) => {
     pending = null;
     if (e.button !== 0 || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || drag) return;
-    const p = local(e), ref = selectedUIRef();
+    const p = local(e), ref = selectedRef();
     if (ref && pressOnSelectedUI(world, p)) pending = { ref, x: p[0], y: p[1], pointerId: e.pointerId };
   };
   const onCanvasMove = (e: PointerEvent) => {
@@ -159,9 +163,9 @@ export function installUIHandles(engine: Engine): () => void {
   let last = "";
   const frame = () => {
     raf = requestAnimationFrame(frame);
-    const scene = openScene.peek(), ref = selectedUIRef();
-    const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;
-    const box = el && el.node.activeInHierarchy && !whyNoHandles(el) ? viewport(world).uiElementBox(el.component) : null;
+    const ref = selectedRef();
+    const el = openScene.peek() && ref ? handleElement(ref) : null;
+    const box = ref && el && el.active && !whyNoHandles(ref) ? viewport(world).uiElementBox(el.component) : null;
     const map = box && boxMap(box);
     const c = canvas.getBoundingClientRect(), h = host.getBoundingClientRect();
     const dx = c.left - h.left, dy = c.top - h.top;

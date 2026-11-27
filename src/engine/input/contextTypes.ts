@@ -4,8 +4,14 @@
  * triggers. These are its types; `contexts.ts` loads them and `evaluate.ts` runs them.
  */
 
-/** Modifiers change a value, in order. On a mapping, or on the action (after every mapping's). */
-export type ModifierSpec =
+/**
+ * Modifiers change a value, in order. On a mapping, or on the action (after every mapping's). `off: true` keeps one
+ * in the stack but skips it, as if it weren't there (ADR 0433: the Input dialog's Turn off).
+ */
+export type ModifierSpec = ModifierKind & { readonly off?: boolean };
+
+/** What a modifier does: one key naming it, with its parameters. */
+export type ModifierKind =
   /** Values under `min` read 0; the rest rescale to 0..1 up to `max` (default 1). `radial` (default for vectors) uses the length. */
   | { readonly deadzone: { readonly min?: number; readonly max?: number; readonly shape?: "axial" | "radial" } }
   /** Flip components: `{ negate: { y: true } }`; `true` flips all. */
@@ -71,6 +77,11 @@ export interface MappingSpec {
   readonly triggers?: readonly TriggerSpec[];
   /** Override the action's consume setting for this mapping. */
   readonly consume?: boolean;
+  /**
+   * A note for whoever edits the context (ADR 0433): why the mapping is there. Editor-only: the Input dialog shows and
+   * writes it, and the evaluator ignores it.
+   */
+  readonly note?: string;
 }
 
 /** A context: a named list of mappings (`*.input.json`). */

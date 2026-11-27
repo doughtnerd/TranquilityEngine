@@ -13,7 +13,7 @@ import { Color, DEG2RAD, Quaternion, Vector2, Vector3 } from "../core/math";
 import { AssetRef, PlainObject, _componentAliasVersion, component, field, getComponentClass, getComponentId, getFields, isListType, resolveComponentId, type ComponentClass, type FieldInfo, type ScalarFieldType } from "../core/registry";
 import type { World } from "../core/World";
 import { Assets } from "./Assets";
-import { GameObject, _componentAllowedIn, type InstantiateOptions } from "./GameObject";
+import { GameObject, UI_FROM_VIEWS, _componentAllowedIn, _viewOnlyComponentId, type InstantiateOptions } from "./GameObject";
 import { assetRefs } from "./resolvedScene";
 import { nodeRefId } from "./nodeReferences";
 import { foldNodes, type FoldAdapter, type FoldPath, type FoldScope, type NodeStep } from "./overrideFold";
@@ -307,7 +307,21 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
       node.addData(def, data as Record<string, number>);
       return def;
     }
+    // UI is made only by UI views (ADR 0421, 0423): saved UI components, the removed screen `Text` and `LocalizedText`
+    // (matched by name, their classes are gone), and the retired `UIDocument` stop the load. No automatic migration.
+    if (REMOVED_UI.has(entry.type)) {
+      this.problem(`${source}: node "${nodePath(node)}" saves "${entry.type}", which was removed. ${UI_FROM_VIEWS}`, at, entry);
+      return undefined;
+    }
+    if (RETIRED_DOCUMENTS.has(entry.type)) {
+      this.problem(`${source}: node "${nodePath(node)}" saves "${entry.type}": UI documents (*.ui.xml, *.ui.css) were retired by ADR 0423. Write the UI as a Svelte component and mount it with a UIView.`, at, entry);
+      return undefined;
+    }
     const type = getComponentClass(entry.type) as (new () => Component) | undefined;
+    if (type && _viewOnlyComponentId(type) !== null) {
+      this.problem(`${source}: node "${nodePath(node)}" saves a UI component ("${entry.type}"). ${UI_FROM_VIEWS}`, at, entry);
+      return undefined;
+    }
     if (!type) {
       this.problem(`${source}: unknown component type "${entry.type}". Is the class imported and decorated with @behavior("${entry.type}")?`, at, entry);
       return undefined;
@@ -379,6 +393,18 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
     };
     for (const f of this.fixups) f.apply(resolve);
   }
+}
+
+/** Component types ADR 0421 removed: the screen `Text` and `LocalizedText`, by id and by bare name. */
+const REMOVED_UI = new Set(["engine.Text", "engine.LocalizedText", "Text", "LocalizedText"]);
+/** The UI document component ADR 0423 retired, by id and by bare name. */
+const RETIRED_DOCUMENTS = new Set(["engine.UIDocument", "UIDocument"]);
+
+/** A node's path of names from the World root (`/menu/Canvas/Title`), as `nodeAtPath` reads it. */
+function nodePath(node: GameObject): string {
+  const names: string[] = [];
+  for (let n: GameObject | null = node; n?.parent; n = n.parent) names.unshift(n.name);
+  return `/${names.join("/")}`;
 }
 
 /**

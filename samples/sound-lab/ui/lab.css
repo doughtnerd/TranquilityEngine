@@ -1,0 +1,30 @@
+/* The Sound Lab's page text (ADR 0423), imported by every page's component: white text with a black outline, top left. */
+#hud {
+  position: absolute;
+  top: 20px;
+  left: 24px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  color: white;
+  font-weight: bold;
+  text-align: left;
+  text-outline-color: black;
+  text-outline-width: 4px;
+}
+
+.title { font-size: 22px; }
+.compact .title { font-size: 20px; }
+
+/* A page's readouts sit below its heading. */
+.readout {
+  font-size: 24px;
+}
+#loudness, #mixer { font-size: 20px; }
+
+/* Labels over the game let the pointer through to it (ADR 0385). */
+#hud span {
+  raycast-target: false;
+  /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0432 white-space). */
+  white-space: pre-wrap;
+}

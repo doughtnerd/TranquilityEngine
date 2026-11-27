@@ -1,48 +1,63 @@
 // The UI plugin's runtime half (ADR 0069, 0076, 0140): claims the UI Components (canvases, elements,
-// UIDocument) and Text, and registers the lazy UI render feature. The classes, `UICore` and the Babylon
+// UIView), and registers the lazy UI render feature. The classes, `UICore` and the Babylon
 // GUI drawing stay in core: the adapter reads them from `render/babylon/` (ADR 0075), and the editor's
 // overlays and input routing use the core. `myco` (`src/myco.ts`) exports the public parts from here.
 // Runtime code: never imports from `src/editor/` or Babylon (the feature's code loads on demand).
-import { Text } from "../../../engine/render/components";
 import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
-import { isUIComponent, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../../../engine/ui/components";
-import { LocalizedText } from "../../../engine/ui/LocalizedText";
-import { UIDocument } from "../../../engine/ui/UIDocument";
-import { UIControlMapper } from "../../../engine/ui/controlMapper";
+import { isUIComponent, UIAudio, UIButton, UICanvas, UIForm, UIImage, UIInputField, UILabel, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UISvg, UIText, UITextArea, UIToggle, UIVideo } from "../../../engine/ui/components";
+import { UIControlMapper } from "./UIControlMapper";
+import { UIView } from "./UIView";
 import type { RuntimePlugin } from "../../runtimeContext";
+import type { World } from "../../../engine/core/World";
+import type { WorldServiceDef } from "../../../engine/core/worldServices";
+import { forgetUIPreferences, loadUIPreferences } from "../../../engine/ui/preferences";
 import { uiManifest } from "../manifest";
 
-export { Text, type Anchor } from "../../../engine/render/components";
-export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UINavigationMode, type UIPositionType, type UITextAlign, type UIWordBreak } from "../../../engine/ui/components";
+export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm, UISvg, UIVideo, UIAudio, type UIButtonType, type UIInputType, type UITextAreaWrap, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UINavigationMode, type UIPositionType, type UITextAlign, type UIWordBreak, type UIWhiteSpaceCollapse, type UITextWrapMode } from "../../../engine/ui/components";
 export { UIActions, UI_CONTEXT_PRIORITY } from "../../../engine/ui/navigation";
-export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperSetting, type UIControlMapperSettingKind, type UIControlMapperText } from "../../../engine/ui/controlMapper";
-export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "../../../engine/ui/UIDocument";
-// ADR 0356 §4: localised text for hand-built scene UI.
-export { LocalizedText } from "../../../engine/ui/LocalizedText";
+export type { UIMediaEvent, UIMediaEventType, UIMediaSource } from "../../../engine/ui/media";
+export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperSetting, type UIControlMapperSettingKind, type UIControlMapperText } from "./UIControlMapper";
+export type { UITag } from "../../../engine/ui/document/types";
+export { UIView } from "./UIView";
+export { UIPreferences, type UIColorScheme } from "../../../engine/ui/preferences";
+/** A UI element a `UIView`'s component rendered (ADR 0423): `view.query("#play")`. */
+export type { UIHostElement as UIViewElement, UIHostEvent as UIViewEvent } from "../../../engine/ui/host/UIHost";
 
 /**
- * Screen and world UI canvases and their elements, and `Text`; loaded the first time a World
+ * Screen and world UI canvases and their elements; loaded the first time a World
  * has one (ADR 0083), holding the first frame meanwhile (ADR 0120). The only `overlay` feature.
  */
 const UI_SPEC: RenderFeatureSpec = {
   name: "ui",
   phase: "overlay",
-  types: [UICanvas, Text],
-  owns: (c) => isUIComponent(c) || c instanceof Text,
+  types: [UICanvas],
+  owns: (c) => isUIComponent(c),
   lazy: true,
   holdsFirstFrame: true,
   // A warm set's world-space UI (ADR 0080): warmed by `loadWarm` until the feature loads (ADR 0154).
   warms: (content) => content.worldUI,
 };
 
+/** Internal (ADR 0431): the player's saved UI preferences (namespace `settings`, key `myco.ui`), read before a runtime World's first scene. */
+const UI_PREFERENCES_SERVICE: WorldServiceDef<null, World> = {
+  id: "myco.uiPreferences",
+  load: async () => null,
+  create: (world) => world,
+  dispose: (world) => forgetUIPreferences(world),
+  neededBy: { scene: () => true },
+  runsIn: (world) => world.kind === "runtime",
+  prepareScene: (world) => loadUIPreferences(world),
+};
+
 export const uiRuntimePlugin: RuntimePlugin = {
   manifest: uiManifest,
   activate(context) {
-    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UIDocument, UIControlMapper, Text, LocalizedText]);
+    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm, UISvg, UIVideo, UIAudio, UIControlMapper, UIView]);
     context.registerRenderFeature({
       spec: UI_SPEC,
       load: () => import("./uiFeature").then((m) => m.loadUIFeature()),
       loadWarm: () => import("./uiWarm").then((m) => m.createUIWarm),
     });
+    context.registerWorldService(UI_PREFERENCES_SERVICE);
   },
 };

@@ -37,8 +37,8 @@ describe("the render plugins' asset kinds (ADR 0140)", () => {
       ["skies/box.cubemap.json", "cubemap", "Cubemap"],
       ["grading/warm.cube", "lut", "Colour LUT"],
       ["grade/warm.CUBE", "lut", "Colour LUT"],
-      ["ui/menu.ui.xml", "uidocument", "UI Document"],
-      ["ui/menu.ui.css", "stylesheet", "Stylesheet"],
+      ["ui/Menu.svelte", "svelte", "Svelte Component"],
+      ["ui/theme.css", "stylesheet", "Stylesheet"],
     ];
     for (const [path, kind, label] of cases) {
       expect(assetKind(path), path).toBe(kind);
@@ -54,7 +54,7 @@ describe("the render plugins' asset kinds (ADR 0140)", () => {
     expect(previewKind("models/ship.glb")).toBe("model");
     expect(previewKind("env/studio.hdr")).toBe("environment");
     expect(previewKind("skies/box.cubemap.json")).toBe("environment");
-    expect(opensInCodePanel("uidocument")).toBe(true);
+    expect(opensInCodePanel("svelte")).toBe(true);
     expect(opensInCodePanel("stylesheet")).toBe(true);
     for (const k of ["model", "environment", "cubemap", "lut"]) expect(opensInCodePanel(k), k).toBe(false);
     expect(inspectedFor("env/studio.hdr")).toBe("env/studio.hdr");
@@ -70,10 +70,10 @@ describe("the render plugins' asset kinds (ADR 0140)", () => {
     expect(satisfiesFieldKind("envmap", "env/room.env")).toBe(true);
     expect(satisfiesFieldKind("envmap", "env/studio.hdr")).toBe(false);
     expect(satisfiesFieldKind("lut", "grading/warm.cube")).toBe(true);
-    expect(satisfiesFieldKind("uidocument", "ui/menu.ui.xml")).toBe(true);
-    expect(satisfiesFieldKind("uidocument", "ui/menu.ui.css")).toBe(false);
+    expect(satisfiesFieldKind("svelte", "ui/Menu.svelte")).toBe(true);
+    expect(satisfiesFieldKind("svelte", "ui/theme.css")).toBe(false);
     expect(canAddToScene("models/ship.glb")).toBe(true);
-    for (const p of ["env/studio.hdr", "grading/warm.cube", "ui/menu.ui.xml"]) expect(canAddToScene(p), p).toBe(false);
+    for (const p of ["env/studio.hdr", "grading/warm.cube", "ui/Menu.svelte"]) expect(canAddToScene(p), p).toBe(false);
   });
 
   it("go when their plugin is disabled: the files show as generic ones", () => {
@@ -84,8 +84,7 @@ describe("the render plugins' asset kinds (ADR 0140)", () => {
       expect(assetKind("env/studio.hdr")).toBe("other");
       expect(assetKind("skies/box.cubemap.json")).toBe("json");
       expect(assetKind("grading/warm.cube")).toBe("other");
-      expect(assetKind("ui/menu.ui.xml")).toBe("xml");
-      expect(assetKind("ui/menu.ui.css")).toBe("other");
+      expect(assetKind("ui/theme.css")).toBe("other");
       expect(canAddToScene("models/ship.glb")).toBe(false);
       expect(previewKind("models/ship.glb")).toBeNull();
       expect(satisfiesFieldKind("mesh", "models/ship.glb")).toBe(false);

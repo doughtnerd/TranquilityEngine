@@ -6,7 +6,7 @@
 // on a button is not. The DOM is a few stubs (the engine tests run in Node). The event files' data is in soundLabMusic.test.ts.
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, SceneManager, Text } from "../../myco";
+import { Assets, Engine, GameObject, SceneManager, UIView } from "../../myco";
 import { readProject } from "../../server/project";
 import.meta.glob("../../../samples/sound-lab/scripts/behaviors/*.ts", { eager: true });
 import { MusicLab } from "../../../samples/sound-lab/scripts/behaviors/MusicLab";
@@ -17,6 +17,7 @@ import { setCalibration } from "../../plugins/audio/runtime/music/calibration";
 import { playlistHost } from "../../plugins/audio/runtime/playlists/host";
 import type { RhythmLab, RhythmState } from "../../../samples/sound-lab/scripts/behaviors/RhythmLab";
 import { DomInput } from "./domInput";
+import { serveSampleUI } from "./sampleUI";
 
 /** Lets the calibration's storage read or write land (a few promise turns). */
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
@@ -30,6 +31,7 @@ async function boot(scene: string): Promise<void> {
   const project = await readProject(SAMPLE);
   Assets.clearSources();
   Assets.addSource(project.assets);
+  serveSampleUI(import.meta.glob("../../../samples/sound-lab/ui/*.svelte", { eager: true }));
   engine = await Engine.create({ headless: true, project: project.settings });
   engine.world.render = RENDER;
   await SceneManager.load(scene);
@@ -108,7 +110,7 @@ describe("a page that claims the keyboard", () => {
 
 describe("the music page", () => {
   const music = () => GameObject.findObjectOfType(MusicLab)!;
-  const label = () => music().node.getBehavior(Text)!;
+  const label = () => ({ text: music().hud!.getBehavior(UIView)!.props.music as string });
   const assets = () => Audio.debug().events.map((r) => r.asset);
 
   it("starts the eight-stem event with 4 and the A, B, C playlist with 5, each stopping the one before", async () => {
@@ -204,7 +206,7 @@ describe("touch", () => {
   it("the music page's buttons are its keys, and Back loads the tour", async () => {
     const dom = stubDom();
     await boot("scenes/music.scene.json");
-    const label = () => GameObject.findObjectOfType(MusicLab)!.node.getBehavior(Text)!.text;
+    const label = () => GameObject.findObjectOfType(MusicLab)!.hud!.getBehavior(UIView)!.props.music as string;
     expect(dom.bar().children.map((b) => b.attrs["data-key"])).toEqual(["1", "2", "3", "t", "y", "l", "p", "4", "5", "o", "d", "b"]);
     dom.button("4").fire("pointerdown");
     advance(0.1);

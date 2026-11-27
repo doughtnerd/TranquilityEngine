@@ -75,8 +75,7 @@ export type FieldChoices =
  * The editor offers only matching assets; scene files and scripts may still hold any path.
  * - `model`: model files (glTF, OBJ, FBX…); `mesh`: a model or a built-in mesh (`builtin:cube`);
  * - `material`: material assets and shader graphs; `texture`: images; `sprite`: images and their slices;
- * - `rendertexture`, `particles`, `formation`, `lut` (`.cube`), `tileset`, `uidocument` (`.ui.xml`),
- *   `scene`, `prefab`: assets of that kind;
+ * - `rendertexture`, `particles`, `formation`, `lut` (`.cube`), `tileset`, `scene`, `prefab`: assets of that kind;
  * - `environment`: what an Environment's `map` takes (HDR/EXR/DDS/`.env` maps, skies, cubemaps, panoramas);
  * - `envmap`: a baked `.env` map; `audio`: sound files; `font`: `.ttf`, `.otf`, `.woff`, `.woff2`;
  * - `navbake`: a baked navigation chunk (`.nav.bin`).
@@ -102,7 +101,6 @@ export type KnownAssetFieldKind =
   | "envmap"
   | "tileset"
   | "font"
-  | "uidocument"
   | "navbake"
   | "scene"
   | "prefab";
@@ -110,7 +108,7 @@ export type KnownAssetFieldKind =
 /** Every known field kind (`KnownAssetFieldKind`), in declaration order. */
 export const ASSET_FIELD_KINDS: readonly KnownAssetFieldKind[] = [
   "model", "mesh", "material", "texture", "sprite", "rendertexture", "audio", "particles", "formation",
-  "lut", "environment", "envmap", "tileset", "font", "uidocument", "navbake", "scene", "prefab",
+  "lut", "environment", "envmap", "tileset", "font", "navbake", "scene", "prefab",
 ];
 
 /** Options on a declared field (ADR 0033, 0038, 0131). */

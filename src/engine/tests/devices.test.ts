@@ -86,6 +86,21 @@ describe("device input through the DOM adapter", () => {
     expect(Input.getMouseButton(2)).toBe(false);
   });
 
+  it("reads a click that waited in the queue where it happened, not where the pointer has moved since", () => {
+    const dom = DomInput.attach();
+    // Two clicks in one long frame: the second waits (one press per button per frame, then a frame up, ADR 0336).
+    dom.click(0, 30, 40);
+    dom.click(0, 200, 90);
+    engine.step(DT);
+    expect(Input.getMouseButtonUp(0)).toBe(true);
+    expect(Input.mousePosition).toEqual(new Vector2(30, 40));
+    engine.step(DT); // the button reads up
+    expect(Input.mousePosition).toEqual(new Vector2(200, 90));
+    engine.step(DT);
+    expect(Input.getMouseButtonDown(0)).toBe(true);
+    expect(Input.mousePosition).toEqual(new Vector2(200, 90));
+  });
+
   it("releases every held key when the window loses focus", () => {
     const dom = DomInput.attach();
     dom.keyDown("d");

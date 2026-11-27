@@ -1,18 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Color, Engine, GameObject } from "../index";
+import { Assets, Color, Engine } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../ui/components";
 import { UI_TAGS, cssFontWeight, isInteractiveKind, isLeafKind, isPaintedUI, textRunOf, uiKindOf, uiPseudoState, uiTypeOfTag } from "../ui/elementKinds";
 import { UI_FONT_FAMILY } from "../ui/fonts";
+import { loadUITestSupport, uiElement } from "./uiMarkup";
 
 // ADR 0271: the UI element kinds and the resolved text run.
 
 let engine: Engine;
 beforeEach(async () => {
   engine = await Engine.create({ headless: true });
+  await loadUITestSupport();
 });
-afterEach(() => engine.dispose());
+afterEach(() => {
+  engine.dispose();
+  Assets.clearSources();
+});
 
-const make = <T extends UIComponentType>(type: new () => T, init: Partial<T> = {}): T => GameObject.create("n").addBehavior(type as never, init as never) as T;
+const make = <T extends UIComponentType>(type: new () => T, init: Partial<T> = {}): T => uiElement("n", null, type, init);
 
 describe("UI element kinds", () => {
   it("names each component's kind, subclasses first", () => {
@@ -20,7 +25,7 @@ describe("UI element kinds", () => {
   });
 
   it("maps every markup tag to its component type", () => {
-    expect([...UI_TAGS].sort()).toEqual(["Button", "Canvas", "Image", "InputField", "Panel", "Text"]);
+    expect([...UI_TAGS].sort()).toEqual(["Audio", "Button", "Canvas", "Form", "Image", "InputField", "Label", "Meter", "Option", "Panel", "Progress", "Radio", "Select", "Slider", "Svg", "Text", "TextArea", "Toggle", "Video"]);
     expect(uiTypeOfTag("InputField")).toBe(UIInputField);
     expect(uiTypeOfTag("Button")).toBe(UIButton);
   });
@@ -32,15 +37,19 @@ describe("UI element kinds", () => {
 
   it("gives each kind's pseudo-classes", () => {
     const button = make(UIButton);
-    expect(uiPseudoState(button)).toEqual({ hover: false, pressed: false, focus: false, disabled: false });
+    const none = { checked: false, indeterminate: false, "placeholder-shown": false };
+    expect(uiPseudoState(button)).toEqual({ hover: false, pressed: false, focus: false, disabled: false, ...none });
+    button.focused = true; // ADR 0340 focus: `button:focus` matches
+    expect(uiPseudoState(button)).toMatchObject({ focus: true });
+    button.focused = false;
     button.interactable = false;
     expect(uiPseudoState(button)).toMatchObject({ disabled: true });
     const field = make(UIInputField);
     field.focused = true;
-    expect(uiPseudoState(field)).toEqual({ hover: false, pressed: false, focus: true, disabled: false });
+    expect(uiPseudoState(field)).toEqual({ hover: false, pressed: false, focus: true, disabled: false, ...none });
     const text = make(UIText);
     text.enabled = false;
-    expect(uiPseudoState(text)).toEqual({ hover: false, pressed: false, focus: false, disabled: true });
+    expect(uiPseudoState(text)).toEqual({ hover: false, pressed: false, focus: false, disabled: true, ...none });
   });
 
   it("paints by each kind's rule (the editor's UI picking reads it): nothing for a canvas or a transparent panel, a fill or a border", () => {

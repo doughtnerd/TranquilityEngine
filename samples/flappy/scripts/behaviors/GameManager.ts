@@ -1,4 +1,4 @@
-import { Audio, GameBehavior, GameObject, Input, SceneManager, Storage, Text, behavior, field } from "myco";
+import { Audio, GameBehavior, GameObject, Input, SceneManager, Storage, UIView, behavior, field } from "myco";
 import { BirdEvents, GameState } from "../data";
 import { MusicReadout, touchToggle } from "../musicReadout";
 import { Bird, flapPressed } from "./Bird";
@@ -27,10 +27,8 @@ function restoreMusic(seconds: number): void {
 export class GameManager extends GameBehavior {
   @field(GameObject) bird: GameObject | null = null;
   @field(GameObject) spawner: GameObject | null = null;
-  @field(GameObject) scoreLabel: GameObject | null = null;
-  @field(GameObject) messageLabel: GameObject | null = null;
-  /** A text label that shows the music readout (key M, or the music button on a touch screen). */
-  @field(GameObject) musicLabel: GameObject | null = null;
+  /** The HUD's UIView (ui/Hud.svelte): the score, the message and the music readout (key M, or the music button on a touch screen). */
+  @field(GameObject) hud: GameObject | null = null;
   @field(String) musicKey = "m";
   @field(Number) restartDelay = 0.6;
 
@@ -42,8 +40,13 @@ export class GameManager extends GameBehavior {
   private touchPressed = false;
   private removeTouchToggle: (() => void) | null = null;
 
+  private get ui(): UIView | null {
+    return this.hud?.getBehavior(UIView) ?? null;
+  }
+
   async start(): Promise<void> {
     restoreMusic(0.2);
+    if (this.ui) Object.assign(this.ui.props, { score: "", message: "", music: "" });
     this.removeTouchToggle = touchToggle(() => (this.touchPressed = true));
     this.setMessage("Press Space or click to flap");
     this.setScore();
@@ -101,18 +104,15 @@ export class GameManager extends GameBehavior {
   private showMusic(): void {
     if (Input.getKeyDown(this.musicKey) || this.touchPressed) this.readout.toggle();
     this.touchPressed = false;
-    const label = this.musicLabel?.getBehavior(Text);
-    const text = this.readout.lines();
-    if (label && label.text !== text) label.text = text;
+    const ui = this.ui;
+    if (ui) ui.props.music = this.readout.lines();
   }
 
   private setScore(): void {
-    const label = this.scoreLabel?.getBehavior(Text);
-    if (label) label.text = String(this.score);
+    if (this.ui) this.ui.props.score = String(this.score);
   }
 
   private setMessage(text: string): void {
-    const label = this.messageLabel?.getBehavior(Text);
-    if (label) label.text = text;
+    if (this.ui) this.ui.props.message = text;
   }
 }

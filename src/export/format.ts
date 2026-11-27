@@ -170,10 +170,14 @@ export interface AudioMediaEntry {
   readonly frames: number;
 }
 
-/** Where a compiled script, or a JSON file's module, goes in the build. */
+/**
+ * Where a compiled script, or a JSON file's module, goes in the build. A Svelte rune module keeps its `.ts`
+ * (`ui/hud.svelte.ts` → `code/ui/hud.svelte.ts.js`), so it never lands on a component beside it (`ui/hud.svelte`, ADR 0423).
+ */
 export function modulePath(projectPath: string): string {
-  return `${CODE_DIR}/${projectPath.endsWith(".ts") ? projectPath.slice(0, -3) : projectPath}.js`;
+  return `${CODE_DIR}/${projectPath.endsWith(".ts") && !projectPath.endsWith(".svelte.ts") ? projectPath.slice(0, -3) : projectPath}.js`;
 }
+
 
 /** A relative module specifier from build file `from` to build file `to` (both "/"-separated paths from the root). */
 export function relativeSpecifier(from: string, to: string): string {

@@ -1,0 +1,138 @@
+    Finished `bench` profile [optimized] target(s) in 0.04s
+     Running benches/budgets.rs (target/release/deps/budgets-8f8601a5e4c5ed6c)
+Benchmarking characters_100/one_clip/60_bones
+Benchmarking characters_100/one_clip/60_bones: Warming up for 3.0000 s
+Benchmarking characters_100/one_clip/60_bones: Collecting 100 samples in estimated 5.6785 s (15k iterations)
+Benchmarking characters_100/one_clip/60_bones: Analyzing
+characters_100/one_clip/60_bones
+                        time:   [402.04 µs 416.06 µs 431.97 µs]
+                        change: [−6.3356% −2.2957% +1.5587%] (p = 0.27 > 0.05)
+                        No change in performance detected.
+Found 8 outliers among 100 measurements (8.00%)
+  8 (8.00%) high mild
+Benchmarking characters_100/crossfade/60_bones
+Benchmarking characters_100/crossfade/60_bones: Warming up for 3.0000 s
+Benchmarking characters_100/crossfade/60_bones: Collecting 100 samples in estimated 5.3210 s (10k iterations)
+Benchmarking characters_100/crossfade/60_bones: Analyzing
+characters_100/crossfade/60_bones
+                        time:   [455.54 µs 464.43 µs 475.12 µs]
+                        change: [−8.5484% −5.9578% −3.6120%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking characters_100/locomotion/60_bones
+Benchmarking characters_100/locomotion/60_bones: Warming up for 3.0000 s
+Benchmarking characters_100/locomotion/60_bones: Collecting 100 samples in estimated 7.4191 s (10k iterations)
+Benchmarking characters_100/locomotion/60_bones: Analyzing
+characters_100/locomotion/60_bones
+                        time:   [750.70 µs 772.59 µs 795.26 µs]
+                        change: [−1.7756% +1.3213% +4.7930%] (p = 0.42 > 0.05)
+                        No change in performance detected.
+Found 3 outliers among 100 measurements (3.00%)
+  3 (3.00%) high mild
+Benchmarking characters_100/locomotion_rig/60_bones
+Benchmarking characters_100/locomotion_rig/60_bones: Warming up for 3.0000 s
+Benchmarking characters_100/locomotion_rig/60_bones: Collecting 100 samples in estimated 9.7162 s (10k iterations)
+Benchmarking characters_100/locomotion_rig/60_bones: Analyzing
+characters_100/locomotion_rig/60_bones
+                        time:   [959.23 µs 989.09 µs 1.0217 ms]
+                        change: [−0.4170% +2.3929% +5.1993%] (p = 0.10 > 0.05)
+                        No change in performance detected.
+Found 4 outliers among 100 measurements (4.00%)
+  2 (2.00%) high mild
+  2 (2.00%) high severe
+Benchmarking characters_100/one_clip/80_bones
+Benchmarking characters_100/one_clip/80_bones: Warming up for 3.0000 s
+Benchmarking characters_100/one_clip/80_bones: Collecting 100 samples in estimated 6.8123 s (15k iterations)
+Benchmarking characters_100/one_clip/80_bones: Analyzing
+characters_100/one_clip/80_bones
+                        time:   [436.79 µs 451.03 µs 465.14 µs]
+                        change: [−9.1091% −6.6289% −4.0626%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking characters_100/crossfade/80_bones
+Benchmarking characters_100/crossfade/80_bones: Warming up for 3.0000 s
+Benchmarking characters_100/crossfade/80_bones: Collecting 100 samples in estimated 6.5604 s (10k iterations)
+Benchmarking characters_100/crossfade/80_bones: Analyzing
+characters_100/crossfade/80_bones
+                        time:   [579.29 µs 606.61 µs 639.51 µs]
+                        change: [−0.6270% +2.9805% +7.3956%] (p = 0.16 > 0.05)
+                        No change in performance detected.
+Found 10 outliers among 100 measurements (10.00%)
+  9 (9.00%) high mild
+  1 (1.00%) high severe
+Benchmarking characters_100/locomotion/80_bones
+Benchmarking characters_100/locomotion/80_bones: Warming up for 3.0000 s
+Benchmarking characters_100/locomotion/80_bones: Collecting 100 samples in estimated 9.5139 s (10k iterations)
+Benchmarking characters_100/locomotion/80_bones: Analyzing
+characters_100/locomotion/80_bones
+                        time:   [877.77 µs 899.83 µs 922.48 µs]
+                        change: [−3.4234% −1.0383% +1.1805%] (p = 0.37 > 0.05)
+                        No change in performance detected.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+Benchmarking characters_100/locomotion_rig/80_bones
+Benchmarking characters_100/locomotion_rig/80_bones: Warming up for 3.0000 s
+
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 5.4s, enable flat sampling, or reduce sample count to 60.
+Benchmarking characters_100/locomotion_rig/80_bones: Collecting 100 samples in estimated 5.4346 s (5050 iterations)
+Benchmarking characters_100/locomotion_rig/80_bones: Analyzing
+characters_100/locomotion_rig/80_bones
+                        time:   [1.0049 ms 1.0355 ms 1.0709 ms]
+                        change: [−3.8929% −1.1052% +1.5535%] (p = 0.42 > 0.05)
+                        No change in performance detected.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+
+Benchmarking matching_20/kd_tree/6_frames
+Benchmarking matching_20/kd_tree/6_frames: Warming up for 3.0000 s
+Benchmarking matching_20/kd_tree/6_frames: Collecting 100 samples in estimated 7.2250 s (15k iterations)
+Benchmarking matching_20/kd_tree/6_frames: Analyzing
+matching_20/kd_tree/6_frames
+                        time:   [445.36 µs 458.91 µs 475.39 µs]
+                        change: [−5.4189% −2.2490% +0.8354%] (p = 0.17 > 0.05)
+                        No change in performance detected.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+Benchmarking matching_20/brute_force/6_frames
+Benchmarking matching_20/brute_force/6_frames: Warming up for 3.0000 s
+Benchmarking matching_20/brute_force/6_frames: Collecting 100 samples in estimated 5.0611 s (500 iterations)
+Benchmarking matching_20/brute_force/6_frames: Analyzing
+matching_20/brute_force/6_frames
+                        time:   [10.058 ms 10.193 ms 10.327 ms]
+                        change: [+6.0810% +8.5354% +11.033%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 3 outliers among 100 measurements (3.00%)
+  1 (1.00%) low mild
+  2 (2.00%) high mild
+
+Benchmarking tweens_1000/linear
+Benchmarking tweens_1000/linear: Warming up for 3.0000 s
+Benchmarking tweens_1000/linear: Collecting 100 samples in estimated 5.0291 s (364k iterations)
+Benchmarking tweens_1000/linear: Analyzing
+tweens_1000/linear      time:   [13.658 µs 14.146 µs 14.663 µs]
+                        change: [−6.4764% −3.8160% −0.9598%] (p = 0.01 < 0.05)
+                        Change within noise threshold.
+Found 22 outliers among 100 measurements (22.00%)
+  18 (18.00%) low mild
+  2 (2.00%) high mild
+  2 (2.00%) high severe
+Benchmarking tweens_1000/eased
+Benchmarking tweens_1000/eased: Warming up for 3.0000 s
+Benchmarking tweens_1000/eased: Collecting 100 samples in estimated 5.0886 s (227k iterations)
+Benchmarking tweens_1000/eased: Analyzing
+tweens_1000/eased       time:   [19.537 µs 20.139 µs 20.868 µs]
+                        change: [−10.482% −6.6114% −2.5146%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 13 outliers among 100 measurements (13.00%)
+  13 (13.00%) high mild
+Benchmarking tweens_1000/vec3_quat
+Benchmarking tweens_1000/vec3_quat: Warming up for 3.0000 s
+Benchmarking tweens_1000/vec3_quat: Collecting 100 samples in estimated 5.1622 s (106k iterations)
+Benchmarking tweens_1000/vec3_quat: Analyzing
+tweens_1000/vec3_quat   time:   [47.157 µs 48.282 µs 49.414 µs]
+                        change: [−3.0364% −0.1533% +2.5839%] (p = 0.92 > 0.05)
+                        No change in performance detected.
+Found 18 outliers among 100 measurements (18.00%)
+  7 (7.00%) low severe
+  1 (1.00%) low mild
+  4 (4.00%) high mild
+  6 (6.00%) high severe
+

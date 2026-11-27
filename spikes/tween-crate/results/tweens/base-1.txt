@@ -1,0 +1,36 @@
+    Finished `bench` profile [optimized] target(s) in 0.04s
+     Running benches/budgets.rs (target/release/deps/budgets-8f8601a5e4c5ed6c)
+Benchmarking tweens_1000/linear
+Benchmarking tweens_1000/linear: Warming up for 3.0000 s
+Benchmarking tweens_1000/linear: Collecting 100 samples in estimated 10.050 s (712k iterations)
+Benchmarking tweens_1000/linear: Analyzing
+tweens_1000/linear      time:   [14.354 µs 14.952 µs 15.557 µs]
+                        change: [+10.068% +13.713% +17.361%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 9 outliers among 100 measurements (9.00%)
+  8 (8.00%) high mild
+  1 (1.00%) high severe
+Benchmarking tweens_1000/eased
+Benchmarking tweens_1000/eased: Warming up for 3.0000 s
+Benchmarking tweens_1000/eased: Collecting 100 samples in estimated 10.063 s (475k iterations)
+Benchmarking tweens_1000/eased: Analyzing
+tweens_1000/eased       time:   [22.216 µs 22.904 µs 23.582 µs]
+                        change: [+0.2809% +3.1868% +5.9945%] (p = 0.02 < 0.05)
+                        Change within noise threshold.
+Found 24 outliers among 100 measurements (24.00%)
+  12 (12.00%) low mild
+  8 (8.00%) high mild
+  4 (4.00%) high severe
+Benchmarking tweens_1000/vec3_quat
+Benchmarking tweens_1000/vec3_quat: Warming up for 3.0000 s
+Benchmarking tweens_1000/vec3_quat: Collecting 100 samples in estimated 10.034 s (207k iterations)
+Benchmarking tweens_1000/vec3_quat: Analyzing
+tweens_1000/vec3_quat   time:   [45.671 µs 46.810 µs 47.957 µs]
+                        change: [−0.7168% +1.8314% +4.4091%] (p = 0.16 > 0.05)
+                        No change in performance detected.
+Found 31 outliers among 100 measurements (31.00%)
+  18 (18.00%) low severe
+  4 (4.00%) low mild
+  3 (3.00%) high mild
+  6 (6.00%) high severe
+

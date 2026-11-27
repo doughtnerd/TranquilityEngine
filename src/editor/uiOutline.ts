@@ -1,13 +1,13 @@
-// The selected UI document element's box, outlined in the scene view (ADR 0077 §4). Drawn as an SVG
+// The selected UI element's box (one a UIView rendered), outlined in the scene view (ADR 0077 §4). Drawn as an SVG
 // polygon over the viewport, following the UI core's layout boxes every frame: a rectangle on a
-// screen canvas, the projected quad on a world canvas. Renderer-neutral DOM (no backend code); the
+// screen canvas, the projected quad on a world canvas, clipped to what an `overflow: hidden` ancestor shows (ADR 0422). Renderer-neutral DOM (no backend code); the
 // boxes come from the UI core's layout (ADR 0076). The
 // resize handles and reorder marker are `uiHandles.ts`, in an overlay of their own above this one.
 import type { Engine } from "../engine";
 import { viewport, viewportCanvas } from "../engine/editor";
 import { viewportElements } from "./ui/ScenePanel";
 import { openScene } from "./state";
-import { resolveUIElement, selectedUIRef } from "./uiDocuments";
+import { selectedUIComponent } from "./uiViews";
 
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -28,10 +28,12 @@ export function installUIElementOutline(engine: Engine): () => void {
   let last = "";
   const frame = () => {
     raf = requestAnimationFrame(frame);
-    const scene = openScene.peek(), ref = selectedUIRef();
-    const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;
+    const scene = openScene.peek();
+    const el = scene ? selectedUIComponent(scene.sync) : null; // a view's element (ADR 0423 wave C)
     const canvas = viewportCanvas(world);
-    const points = el && canvas && el.node.activeInHierarchy ? (viewport(world).uiElementBox(el.component)?.points ?? null) : null;
+    // The part that's drawn (ADR 0422: an `overflow: hidden` ancestor clips it), else the whole box.
+    const box = el && canvas && el.node.activeInHierarchy ? viewport(world).uiElementBox(el.component) : null;
+    const points = box ? (box.clip ?? box.points) : null;
     let attr = "";
     if (points && canvas) {
       const c = canvas.getBoundingClientRect(), h = host.getBoundingClientRect();

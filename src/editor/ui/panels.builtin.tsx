@@ -44,7 +44,6 @@ const BUILTIN_PANELS: readonly PanelContribution[] = [
   // The live input debugger (ADR 0336, 0337): opened from the Window menu, beside the Network panel.
   { id: "inputDebugger", title: "Input Debugger", view: () => import("./InputDebuggerPanel").then((m) => m.InputDebuggerPanel), beside: "network", onDemand: true },
   // A `*.input.json` opened from the Assets panel (ADR 0233: the kind's `panel`).
-  { id: "inputContext", title: "Input Context", view: () => import("./InputContextEditor").then((m) => m.InputContextPanel), beside: "inspector", onDemand: true },
 ];
 
 /** Register the built-in panels. Returns a function that removes them again (for tests). */

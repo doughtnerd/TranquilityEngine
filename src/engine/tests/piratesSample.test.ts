@@ -2,6 +2,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, Input, Lobby, Replicated, SceneInstance } from "../index";
 import { UIButton, UIPanel, UIText } from "../ui/components";
+import { UIView } from "../../plugins/ui/runtime/UIView";
+import type { UIHostElement } from "../ui/host/UIHost";
+import { serveSampleUI } from "./sampleUI";
 import { World } from "../core/World";
 import { readProject } from "../../server/project";
 import { UIPointer } from "./uiPointer";
@@ -46,6 +49,27 @@ async function click(world: World, button: UIButton): Promise<void> {
   pointers.push(p);
   p.click(button);
 }
+
+/** The UIView on the node of a behavior (the menu's, the HUD's). */
+function uiOf(behavior: { node: GameObject }): UIView {
+  return behavior.node.getBehavior(UIView)!;
+}
+
+/** An element a view rendered, which must be there. */
+function at(ui: UIView, selector: string): UIHostElement {
+  const el = ui.query(selector);
+  if (!el) throw new Error(`no "${selector}" in ${ui.component}`);
+  return el;
+}
+
+/** Laid out and drawn: its node active, and neither it nor an element above it `display: none` (the scripts' `.hidden`). */
+function shown(el: UIHostElement): boolean {
+  if (!el.node.activeInHierarchy) return false;
+  for (let e: UIHostElement | null = el; e; e = e.parent) if ((e.component as UIPanel).display === "none") return false;
+  return true;
+}
+
+const textOf = (el: UIHostElement | null) => el!.as(UIText).text;
 
 /** Other players' pages, stepped with this one. */
 const pages: OtherPage[] = [];
@@ -133,16 +157,18 @@ describe("the King of Pirates sample", () => {
   it("spawns the player's ship and bots, which sail, fight and sink ships, as the client sees", { timeout: 120_000 }, async () => {
     const errors: string[] = [];
     vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => void errors.push(args.map(String).join(" ")));
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnings: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => void warnings.push(args.map(String).join(" ")));
 
     const project = await readProject(SAMPLE);
     Assets.addSource(project.assets);
+    serveSampleUI(import.meta.glob("../../../samples/pirates/ui/*.svelte", { eager: true }));
     const engine = await Engine.create({ headless: true, project: project.settings });
     engines.push(engine);
     const menu = engine._world("Menu")!;
     await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
     // Practice, as the player would click it.
-    await click(menu, menu._componentsOfType(Menu)[0].node.find("Screen/Home/Left/Practice")!.getBehavior(UIButton)!);
+    await click(menu, at(uiOf(menu._componentsOfType(Menu)[0]), "#practice").as(UIButton));
     await stepUntil(engine, () => Lobby.state === "match", "the practice match");
     expect(Lobby.room).toMatchObject({ name: "Practice", public: false, settings: { arena: "bay", ships: "6", length: "300" } });
     const server = engine._world("Match 1")!, client = engine._world("Match 1 Client")!;
@@ -204,25 +230,30 @@ describe("the King of Pirates sample", () => {
     expect(mine[0].rep.isPredictedLocally).toBe(true);
     // The player's ship sails under their room slot's colours; the HUD names the bots.
     expect(mine[0].data.team).toBe(Lobby.me!.slot);
-    const hud = client._componentsOfType(Hud)[0].node;
-    const textAt = (path: string) => hud.find(path)!.getBehavior(UIText)!.text;
-    const rows = () => [0, 1, 2, 3, 4, 5, 6, 7].map((i) => hud.find(`Overlay/Leaderboard/Row${i}`)!).filter((n) => n.active);
+    // The HUD is a Svelte component (ui/Hud.svelte): its leaderboard rows are an {#each} of the captains.
+    const hud = uiOf(client._componentsOfType(Hud)[0]);
+    await hud.ready;
+    expect(warnings.filter((w) => /Hud\.svelte/.test(w))).toEqual([]);
+    const rows = () => hud.queryAll("#leaderboard > .board-row").filter(shown);
     expect(rows()).toHaveLength(6);
-    const names = rows().map((r) => r.find("Name")!.getBehavior(UIText)!.text);
+    const names = rows().map((r) => textOf(r.query(".name")));
     expect(names).toContain("You");
     expect(names).toContain("Anne Bonny");
     // Best first, the player's row lit, and the clock on top.
-    const scores = rows().map((r) => Number(r.find("Score")!.getBehavior(UIText)!.text));
+    const scores = rows().map((r) => Number(textOf(r.query(".score"))));
     expect([...scores].sort((a, b) => b - a)).toEqual(scores);
-    const myRow = rows().find((r) => r.find("Name")!.getBehavior(UIText)!.text === "You")!;
-    expect(myRow.getBehavior(UIPanel)!.backgroundColor!.a).toBeGreaterThan(0);
-    expect(textAt("Screen/Top/ClockBox/Clock")).toMatch(/^\d:\d\d$/);
-    expect(textAt("Screen/Bottom/Bars/Hull/Label")).toMatch(/^Hull \d+$/);
-    expect(textAt("Screen/Bottom/Bars/Port/Label")).toMatch(/^\[A\] Port/);
+    expect(rows().map((r) => textOf(r.query(".rank")))).toEqual(["1.", "2.", "3.", "4.", "5.", "6."]);
+    const myRow = rows().find((r) => textOf(r.query(".name")) === "You")!;
+    expect(myRow.as(UIPanel).backgroundColor!.a).toBeGreaterThan(0);
+    expect(myRow.query(".name")!.as(UIText).fontWeight).toBe("bold");
+    expect(textOf(at(hud, "#clock"))).toMatch(/^\d:\d\d$/);
+    expect(textOf(at(hud, "#hull-label"))).toMatch(/^Hull \d+$/);
+    expect(textOf(at(hud, "#port .battery-label"))).toMatch(/^\[A\] Port/);
+    expect(at(hud, "#hull-fill").as(UIPanel).width).toMatch(/^\d+%$/);
 
     // The HUD's awareness. The minimap shows the ships afloat the player's chart shows: their own,
     // and any not inside another team's fog cloud (bots may have dropped some) and not a ghost.
-    const activeDots = (layer: string) => hud.find(`Overlay/Minimap/Chart/${layer}`)!.children.filter((n) => n.active).length;
+    const activeDots = (layer: string) => at(hud, `#${layer}`).children.filter(shown).length;
     const playerTeam = mine[0].data.team;
     const cloudsIn = (world: World) =>
       world._componentsOfType(Replicated).filter((r) => r.node.isValid && r.node.hasData(Cloud)).map((r) => ({ team: (r.node.getData(Cloud) as CloudView).team, x: r.node.transform!.position.x, z: r.node.transform!.position.z }));
@@ -231,10 +262,10 @@ describe("the King of Pirates sample", () => {
       return shipsIn(client).filter((s) => s.data.sunk <= 0 && (s.rep.isOwnedLocally || (s.data.ghost <= 0 && !inCloudAmong(spots, s.x, s.z, playerTeam)))).length;
     };
     engine.step(STEP);
-    expect(activeDots("Ships")).toBe(visible());
-    expect(activeDots("Ships")).toBeGreaterThan(0);
-    expect(activeDots("Land")).toBeGreaterThan(3);
-    expect(activeDots("Clouds")).toBe(cloudsIn(client).length);
+    expect(activeDots("ships")).toBe(visible());
+    expect(activeDots("ships")).toBeGreaterThan(0);
+    expect(activeDots("land")).toBeGreaterThan(3);
+    expect(activeDots("clouds")).toBe(cloudsIn(client).length);
 
     // A ghost ship is left off the player's minimap while the power-up lasts.
     const ghostBot = shipsIn(server).find((s) => s.data.bot && s.data.sunk <= 0 && s.data.ghost <= 0)!;
@@ -243,8 +274,8 @@ describe("the King of Pirates sample", () => {
     World._runIn(server, () => void Object.assign(ghostBot.data, { ghost: 30, cloud: 0, hp: 100, sunk: 0 }));
     await stepUntil(engine, () => ghostOnClient().data.ghost > 0, "the ghost on the client", 120);
     engine.step(STEP);
-    expect(activeDots("Ships")).toBe(visible());
-    const chartedTeams = hud.find("Overlay/Minimap/Chart/Ships")!.children.filter((n) => n.active).map((n) => n.getBehavior(UIPanel)!.backgroundColor!.toHex().toLowerCase());
+    expect(activeDots("ships")).toBe(visible());
+    const chartedTeams = at(hud, "#ships").children.filter(shown).map((n) => n.as(UIPanel).backgroundColor!.toHex().toLowerCase());
     expect(chartedTeams).not.toContain(TEAM_COLORS[ghostTeam].toLowerCase());
     World._runIn(server, () => void (ghostBot.data.ghost = 0));
     await stepUntil(engine, () => ghostOnClient().data.ghost <= 0, "the ghost wearing off", 120);
@@ -265,8 +296,8 @@ describe("the King of Pirates sample", () => {
     if (seenBot.data.sunk <= 0 && Math.hypot(seenBot.x - bot.x, seenBot.z - bot.z) < CLOUD_RADIUS - 2) {
       expect(seenBot.rep.node.find("Visual")!.active).toBe(false);
     }
-    expect(activeDots("Ships")).toBe(visible());
-    expect(activeDots("Clouds")).toBe(cloudsIn(client).length);
+    expect(activeDots("ships")).toBe(visible());
+    expect(activeDots("clouds")).toBe(cloudsIn(client).length);
 
     // The player's ship, afloat and in its own cloud, draws ghosted, with a note.
     const serverMe = () => shipsIn(server).find((s) => s.rep.ownerId === player.rep.ownerId)!;
@@ -279,25 +310,25 @@ describe("the King of Pirates sample", () => {
     const me = () => shipsIn(client).find((s) => s.rep.isOwnedLocally)!;
     place(serverMe().x, serverMe().z, serverMe().data.heading);
     dropCloud(serverMe().x, serverMe().z, playerTeam);
-    await stepUntil(engine, () => hud.find("Overlay/Fog")!.active, "the fog note", 120);
-    expect(hud.find("Overlay/Fog/Box/Detail")!.getBehavior(UIText)!.text).toBe("Your enemies can't see you");
+    await stepUntil(engine, () => shown(at(hud, "#fog")), "the fog note", 120);
+    expect(textOf(at(hud, "#fog .detail"))).toBe("Your enemies can't see you");
     expect(me().rep.node.find("Visual/GhostHull")!.active).toBe(true);
     expect(me().rep.node.find("Visual/Hull")!.active).toBe(false);
 
     // Past the arena's edge the banner warns and the hull takes damage; near it, a milder warning.
-    const banner = () => hud.find("Overlay/Edge")!;
-    const title = () => hud.find("Overlay/Edge/Box/Title")!.getBehavior(UIText)!.text;
+    const banner = () => shown(at(hud, "#edge"));
+    const title = () => textOf(at(hud, "#edge .title"));
     const radius = dataIn(server, null, (n) => n.getData(Game) as GameView | null)!.radius;
     place(radius + 6, 0, 90); // sailing away from the middle, along +X
-    await stepUntil(engine, () => banner().active && title() === "Return to the battle!", "the out-of-arena banner", 120);
-    expect(hud.find("Overlay/Edge/Box/Detail")!.getBehavior(UIText)!.text).toMatch(/^You're taking damage - steer (east|north-east|south-east)$/);
+    await stepUntil(engine, () => banner() && title() === "Return to the battle!", "the out-of-arena banner", 120);
+    expect(textOf(at(hud, "#edge .detail"))).toMatch(/^You're taking damage - steer (east|north-east|south-east)$/);
     for (let i = 0; i < 10; i++) engine.step(STEP);
     expect(serverMe().data.hp).toBeLessThan(100);
-    expect(hud.find("Overlay/HomeMarker")!.active).toBe(true);
+    expect(shown(at(hud, "#home-marker"))).toBe(true);
     place(radius - 5, 0, 0);
     await stepUntil(engine, () => title() === "The edge of the arena", "the near-edge warning", 120);
     place(0.3 * radius, 0.3 * radius, 0);
-    await stepUntil(engine, () => !banner().active, "the warning gone", 120);
+    await stepUntil(engine, () => !banner(), "the warning gone", 120);
     expect(errors).toEqual([]);
   });
 
@@ -308,10 +339,11 @@ describe("the King of Pirates sample", () => {
 
     const project = await readProject(SAMPLE);
     Assets.addSource(project.assets);
+    serveSampleUI(import.meta.glob("../../../samples/pirates/ui/*.svelte", { eager: true }));
     const engine = await Engine.create({ headless: true, project: project.settings });
     engines.push(engine);
     const menuWorld = engine._world("Menu")!;
-    const menu = menuWorld._componentsOfType(Menu)[0].node;
+    const menu = uiOf(menuWorld._componentsOfType(Menu)[0]);
     // This page's lobby World listens over WebSocket first, so its matches do too, for Anne in a page
     // of her own. The menu's "local" connection, on its first frame, finds it.
     const lobbyTemplate = (project.settings as unknown as { bootstrap: { templates: { Lobby: object } } }).bootstrap.templates.Lobby;
@@ -320,7 +352,7 @@ describe("the King of Pirates sample", () => {
     await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
     expect(engine.findWorld("Lobby 2")).toBeNull();
     // This page creates a room (Create Room, as clicked); Anne joins it by its code; the host starts it.
-    await click(menuWorld, menu.find("Screen/Home/Left/CreateRoom")!.getBehavior(UIButton)!);
+    await click(menuWorld, at(menu, "#create-room").as(UIButton));
     await stepUntil(engine, () => Lobby.state === "room", "the room");
     const anne = (await otherPage(project, url, "Anne")).Lobby;
     await stepUntil(engine, () => anne.state === "lobby", "Anne's lobby");
@@ -339,22 +371,24 @@ describe("the King of Pirates sample", () => {
 
     // Escape opens the dialog (as the HUD's keyboard check would); the ship holds fire while it's open.
     const hud = client._componentsOfType(Hud)[0];
-    const dialog = hud.node.find("Leave")!;
-    expect(dialog.active).toBe(false);
+    const ui = uiOf(hud);
+    const dialog = at(ui, "#leave");
+    expect(shown(dialog)).toBe(false);
     hud.leaving = true;
     engine.step(STEP);
-    expect(dialog.active).toBe(true);
-    expect(hud.node.find("Leave/Box/Title")!.getBehavior(UIText)!.text).toBe("Leave the match?");
-    expect(hud.node.find("Leave/Box/Buttons/Leave")!.active).toBe(true);
+    expect(shown(dialog)).toBe(true);
+    expect(textOf(at(ui, "#leave .title"))).toBe("Leave the match?");
+    expect(textOf(at(ui, "#leave .detail"))).toBe("A bot takes your ship's place.");
+    expect(shown(at(ui, "#leave-go"))).toBe(true);
     // Keep sailing closes it.
-    await click(client, hud.node.find("Leave/Box/Buttons/Stay")!.getBehavior(UIButton)!);
+    await click(client, at(ui, "#leave-stay").as(UIButton));
     engine.step(STEP);
     expect(hud.leaving).toBe(false);
-    expect(dialog.active).toBe(false);
+    expect(shown(dialog)).toBe(false);
     // Open it again and leave.
     hud.leaving = true;
     engine.step(STEP);
-    await click(client, hud.node.find("Leave/Box/Buttons/Leave")!.getBehavior(UIButton)!);
+    await click(client, at(ui, "#leave-go").as(UIButton));
     engine.step(STEP);
     expect(Lobby.matchWorld).toBeNull();
     expect(engine.findWorld(client.name)).toBeNull();
@@ -363,8 +397,8 @@ describe("the King of Pirates sample", () => {
     expect(Lobby.room!.state).toBe("playing");
     expect(engine.findWorld("Menu")!.paused).toBe(false);
     engine.step(STEP);
-    expect(menu.find("Screen/Room")!.active).toBe(true);
-    expect(menu.find("Screen/Room/Side/RoomStatus")!.getBehavior(UIText)!.text).toMatch(/^You left the match/);
+    expect(shown(at(menu, "#room"))).toBe(true);
+    expect(textOf(at(menu, "#room-status"))).toMatch(/^You left the match/);
 
     // On the server the ship goes and a bot takes the slot; Anne sails on.
     await stepUntil(engine, () => !shipsIn(server).some((s) => s.rep.node === mine.rep.node), "the ship removed on the server", 600);
@@ -384,16 +418,19 @@ describe("the King of Pirates sample", () => {
 
     const project = await readProject(SAMPLE);
     Assets.addSource(project.assets);
+    serveSampleUI(import.meta.glob("../../../samples/pirates/ui/*.svelte", { eager: true }));
     const engine = await Engine.create({ headless: true, project: project.settings });
     engines.push(engine);
     const menu = engine._world("Menu")!;
     await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
-    await click(menu, menu._componentsOfType(Menu)[0].node.find("Screen/Home/Left/Practice")!.getBehavior(UIButton)!);
+    await click(menu, at(uiOf(menu._componentsOfType(Menu)[0]), "#practice").as(UIButton));
     await stepUntil(engine, () => Lobby.state === "match", "the practice match");
     const server = engine._world("Match 1")!, client = engine._world("Match 1 Client")!;
     await stepUntil(engine, () => shipsIn(server).some((s) => !s.data.bot) && client._componentsOfType(Hud).length > 0, "the player's ship and the HUD", 1200);
     const hud = client._componentsOfType(Hud)[0];
-    const text = (path: string) => hud.node.find(path)!.getBehavior(UIText)!.text;
+    const ui = uiOf(hud);
+    await ui.ready;
+    const text = (selector: string) => textOf(at(ui, selector));
     const mine = () => shipsIn(server).find((s) => !s.data.bot)!;
     // What the server has from the client's helm stream, read in the server World as its systems do.
     const helm = () => World._runIn(server, () => Helm.of(mine().rep.node))!;
@@ -402,7 +439,7 @@ describe("the King of Pirates sample", () => {
     };
     frames(2);
     // On the keyboard and mouse the HUD names the keys.
-    expect(text("Screen/Bottom/Help")).toBe("Mouse: steer   |   A / D: battery   |   Space: fire   |   F: fog cloud (ghost ship)   |   Esc: leave the match");
+    expect(text("#help")).toBe("Mouse: steer   |   A / D: battery   |   Space: fire   |   F: fog cloud (ghost ship)   |   Esc: leave the match");
 
     const PAD = 41;
     try {
@@ -418,8 +455,8 @@ describe("the King of Pirates sample", () => {
       expect(h.x - mine().x).toBeGreaterThan(STICK_REACH * 0.7);
       expect(Math.abs(h.z - mine().z)).toBeLessThan(STICK_REACH * 0.3);
       // The HUD now names the pad's controls.
-      expect(text("Screen/Bottom/Help")).toBe("Left Stick: steer   |   LB / RB: battery   |   RT: fire   |   X: fog cloud (ghost ship)   |   Menu: leave the match");
-      expect(text("Screen/Bottom/Bars/Port/Label")).toMatch(/^\[LB\] Port/);
+      expect(text("#help")).toBe("Left Stick: steer   |   LB / RB: battery   |   RT: fire   |   X: fog cloud (ghost ship)   |   Menu: leave the match");
+      expect(text("#port .battery-label")).toMatch(/^\[LB\] Port/);
 
       // Let go: the ship holds its course and stops firing; the battery stays picked.
       Input.inject.gamepadAxis(PAD, 0, 0);
@@ -435,14 +472,14 @@ describe("the King of Pirates sample", () => {
       Input.inject.gamepadButton(PAD, 9, 0);
       frames(2);
       expect(hud.leaving).toBe(true);
-      expect(hud.node.find("Leave")!.active).toBe(true);
-      expect(hud.node.find("Leave/Box/Buttons/Stay")!.getBehavior(UIButton)!.focused).toBe(true);
+      expect(shown(at(ui, "#leave"))).toBe(true);
+      expect(at(ui, "#leave-stay").as(UIButton).focused).toBe(true);
       Input.inject.gamepadButton(PAD, 1, 1);
       frames(2);
       Input.inject.gamepadButton(PAD, 1, 0);
       frames(2);
       expect(hud.leaving).toBe(false);
-      expect(hud.node.find("Leave")!.active).toBe(false);
+      expect(shown(at(ui, "#leave"))).toBe(false);
     } finally {
       Input.inject.gamepadDisconnected(PAD);
       engine.step(STEP);
@@ -458,6 +495,7 @@ describe("the King of Pirates sample", () => {
 
     const project = await readProject(SAMPLE);
     Assets.addSource(project.assets);
+    serveSampleUI(import.meta.glob("../../../samples/pirates/ui/*.svelte", { eager: true }));
     // A 20-second match and a short quick-match wait, for the test.
     const settings = structuredClone(project.settings) as unknown as { bootstrap: { templates: { Lobby: { lobby: { quickMatchWait: number; settings: { length: { choices: string[] } } } } } } };
     const lobby = settings.bootstrap.templates.Lobby.lobby;

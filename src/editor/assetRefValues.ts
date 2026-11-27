@@ -123,11 +123,15 @@ function instancesOf(nodes: readonly NodeEntry[], path: string): Set<string> {
   return gone;
 }
 
-/** Project settings without autoloads of the deleted asset `path`. */
+/** Project settings without autoloads, or action set files (`input.actionSets`, ADR 0433), of the deleted asset `path`. */
 export function settingsWithoutAsset(settings: Record<string, unknown>, path: string): { settings: Record<string, unknown>; changed: boolean } {
+  let out = settings;
   const autoload = settings.autoload;
-  if (!Array.isArray(autoload) || !autoload.some((a) => namesAsset(a, path))) return { settings, changed: false };
-  return { settings: { ...settings, autoload: autoload.filter((a) => !namesAsset(a, path)) }, changed: true };
+  if (Array.isArray(autoload) && autoload.some((a) => namesAsset(a, path))) out = { ...out, autoload: autoload.filter((a) => !namesAsset(a, path)) };
+  const input = settings.input;
+  const sets = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>).actionSets : undefined;
+  if (Array.isArray(sets) && sets.some((a) => namesAsset(a, path))) out = { ...out, input: { ...(input as Record<string, unknown>), actionSets: sets.filter((a) => !namesAsset(a, path)) } };
+  return { settings: out, changed: out !== settings };
 }
 
 /**

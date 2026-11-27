@@ -86,6 +86,16 @@ export function defineComponent<S extends Schema>(id: string, schema: S, options
   return def;
 }
 
+/**
+ * @internal Define `id` again in place of the definition it has, without the editor's script bookkeeping: an asset's
+ * data component (an `*.actions.json` set, ADR 0433) whose file changed. Rows of the old definition stay in their
+ * own stores; nodes get the new one's as their owners add it.
+ */
+export function _redefineComponent<S extends Schema>(id: string, schema: S, options: { key?: string } = {}): DataComponentDef<S> {
+  if (!_isReplacingRegistrations()) dataById.delete(id);
+  return defineComponent(id, schema, options);
+}
+
 /** @internal Every defined data component id (for the editor's Add Component list). */
 export function listDataComponentIds(): string[] {
   return [...dataById.keys()];

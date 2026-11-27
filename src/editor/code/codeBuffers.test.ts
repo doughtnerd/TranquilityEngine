@@ -73,7 +73,7 @@ describe("Code panel tabs", () => {
 
 describe("which files the buffers hold", () => {
   it("scripts and text files, never scenes or prefabs, with one rule for the list and for one file", () => {
-    expect([...codeFiles(project).keys()].sort()).toEqual(["data/level.json", "project.json", "scripts/a.ts", "scripts/b.ts"]);
+    expect([...codeFiles(project).keys()].sort()).toEqual(["data/level.json", "input/default.input.json", "project.json", "scripts/a.ts", "scripts/b.ts"]);
     expect(codeFileText(project, "data/level.json")).toBe(LEVEL);
     expect(codeFileText(project, "data/main.scene.json")).toBeUndefined();
     expect(codeFileText(project, "images/bird.png")).toBeUndefined();

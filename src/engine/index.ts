@@ -39,7 +39,7 @@ export type { ImportPlatform, ImportSettings, PlatformOverrides, TextureCompress
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
 // ParticleSystem (and ParticlePropertyValue) are the Particles plugin's public exports (`src/myco.ts`, ADR 0135);
-// SpriteRenderer, MeshRenderer, Environment, PostProcessing, Text, WaterSurface and the UI Components
+// SpriteRenderer, MeshRenderer, Environment, PostProcessing, WaterSurface and the UI Components
 // are the Sprites, Meshes, Environment, Post-processing, UI and Water plugins' (ADR 0140).
 export { Camera, Fog, Light, ReflectionProbe, type FogMode, type LightType, type MaterialPropertyValue, type ProbeRefresh, type Projection } from "./render/components";
 export { Material, type MaterialValue } from "./render/Material";
@@ -50,10 +50,12 @@ export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 
 // Text localisation (ADR 0356 §6): string keys resolved through the language's fallback chain, ICU messages on `Intl`.
 export { Locale, LocalText, type LocaleLanguage, type MessageArg, type MessageArgs } from "./localisation/Locale";
+export { t, tHtml } from "./localisation/t";
 
 export { Input } from "./input/Input";
 export { ActionEvents, ActionPhase, axis, axisOf, button, chordOf, defineActions, dpad, vec2, vec3, type ActionEvent, type ActionEventPhase, type ActionOptions, type ActionReader, type ActionSetDef, type ActionSetOptions, type ActionSetView, type ActionType, type BindingSpec } from "./input/actions";
-export { DEFAULT_CONTEXT, InputContext, defineInputContext, type InputContextSpec, type MappingSpec, type ModifierSpec, type TriggerSpec, type TriggerType } from "./input/contexts";
+export { DEFAULT_CONTEXT, DEFAULT_CONTEXT_PATH, InputContext, defineInputContext, type InputContextSpec, type MappingSpec, type ModifierSpec, type TriggerSpec, type TriggerType } from "./input/contexts";
+export { ACTION_SET_EXTENSION, actionSetFromData, actionSetProblems, defineActionsFromData, type ActionSetFile, type ActionSetFileAction, type ActionSetProblem } from "./input/actionAssets";
 export type { CustomTriggerSpec } from "./input/contextTypes";
 export { TriggerState, defineTrigger, type CustomTrigger, type TriggerFactory, type TriggerStateValue, type TriggerWorld } from "./input/triggers";
 export { ConnectionPlayer } from "./input/inputNet";

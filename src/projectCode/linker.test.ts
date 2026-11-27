@@ -33,7 +33,7 @@ const packages = (mode: PackageSource["mode"]): PackageSource => ({
 async function both(input: LinkInput, mode: PackageSource["mode"] | null = null) {
   const withPackages = mode ? { ...input, packages: packages(mode) } : input;
   const memory = new MemoryTarget(engine);
-  return { memory: await link(withPackages, memory), build: await link(withPackages, buildTarget), target: memory };
+  return { memory: await link(withPackages, memory), build: await link(withPackages, buildTarget()), target: memory };
 }
 
 const byPath = <T extends { path: string }>(list: readonly T[]) => [...list].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -154,7 +154,7 @@ describe("the memory target", () => {
 
 describe("the build target", () => {
   it("writes each module under code/ with relative imports, JSON as modules, and no source maps", async () => {
-    const { output: files } = await link({ code: PROJECT, json: JSON_FILES }, buildTarget);
+    const { output: files } = await link({ code: PROJECT, json: JSON_FILES }, buildTarget());
     const main = files.get("code/scripts/main.js")!;
     expect(main).toContain('from "../../myco.js"');
     expect(main).toContain('from "./util.js"');
@@ -167,7 +167,7 @@ describe("the build target", () => {
 
   it("writes the bundled packages into code/deps/, with scripts and entries pointing at them", async () => {
     const code = new Map([["scripts/game.ts", `import { add } from "esm-pkg";\nexport const n = add(1, 1);\n`]]);
-    const linked = await link({ code, packages: packages("production"), extraEntries: ["acme-plugin"] }, buildTarget);
+    const linked = await link({ code, packages: packages("production"), extraEntries: ["acme-plugin"] }, buildTarget());
     expect(linked.problems).toEqual([]);
     expect(linked.entries.get("acme-plugin")).toMatch(/^code\/deps\/.+\.js$/);
     expect(linked.output.has(linked.entries.get("acme-plugin")!)).toBe(true);
@@ -240,5 +240,22 @@ describe("load order", () => {
     expect(problem("scripts/c.ts")).toMatch(/can't find "\.\/gone"/);
     expect(problem("scripts/d.ts")).toMatch(/can't import "lodash"/);
     expect(problem("scripts/e.ts")).toMatch(/imports scripts\/c\.ts/);
+  });
+});
+
+describe("action set imports (ADR 0433)", () => {
+  const code = new Map([["scripts/system.ts", `import PlayerActions from "../input/player.actions.json";\nexport const id = PlayerActions.id;\nexport const names = PlayerActions.actions.map((a) => a.name);\n`]]);
+  const json = new Map([["input/player.actions.json", JSON.stringify({ id: "test.linker.PlayerActions", actions: [{ name: "jump", type: "button" }] })]]);
+
+  it("gives a script the defined set, not the file's JSON, in both targets", async () => {
+    const { memory, build, target } = await both({ code, json });
+    expect(memory.problems).toEqual([]);
+    expect(build.problems).toEqual([]);
+    const module = await target.scriptModule("scripts/system.ts");
+    expect(module.id).toBe("test.linker.PlayerActions");
+    expect(module.names).toEqual(["jump"]);
+    const wrapper = build.output.get("code/input/player.actions.json.set.js")!;
+    expect(wrapper).toContain(`actionSetFromData("input/player.actions.json", data)`);
+    expect(build.output.get("code/scripts/system.js")).toContain(`from "../input/player.actions.json.set.js"`);
   });
 });

@@ -2,6 +2,7 @@
 // its FileSystem (Tauri's fs plugin, or the browser's File System Access handle, ADR 0038), and
 // bundled with esbuild's WebAssembly build, loaded the first time a project imports a package.
 import type { EsbuildApi, PackageSource } from "./packages";
+import type { UIRuntimeSource } from "../projectCode/uiBundle";
 import { joinPath, type EditorProject } from "./projects";
 
 let esbuild: Promise<EsbuildApi> | null = null;
@@ -19,6 +20,18 @@ function editorEsbuild(): Promise<EsbuildApi> {
     esbuild = null; // try again next time
     throw err;
   }));
+}
+
+/**
+ * The engine's Svelte runtime and renderer, which the editor's exports bundle a game's UI code with (ADR 0425): the
+ * engine's files `npm run export` reads from its checkout, served with the editor (`virtual:myco-ui-runtime`, loaded
+ * on the first export of a project with Svelte UI).
+ */
+export function editorUIRuntimeSource(): UIRuntimeSource {
+  return {
+    files: { read: async (path) => (await import("virtual:myco-ui-runtime")).default[path] ?? null },
+    esbuild: editorEsbuild,
+  };
 }
 
 /** Where `project`'s packages come from, or undefined for a project that isn't a folder. */

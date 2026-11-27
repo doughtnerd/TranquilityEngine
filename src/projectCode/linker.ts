@@ -14,7 +14,13 @@ import { rewriteImports } from "../editor/moduleImports";
 import { bundlePackages, isPackageSpecifier, packagesKey, type PackageBundle, type PackageSource } from "../editor/packages";
 import { isScriptPath } from "../editor/projectPaths";
 import { compileScript, EDITOR_MODULE, isEngineModule, resolveScript, type CompiledScript, type ScriptProblem } from "./compile";
+import { compileUI } from "./compileUI";
 import { loadOrder } from "./loadOrder";
+import { isUIRuntimeSpecifier, isUISourcePath } from "./uiModules";
+
+
+/** Action set assets (ADR 0433): a script importing one gets the defined set, not the file's JSON. */
+const ACTION_SET_FILE = ".actions.json";
 
 /** What to link: a host's selection of a project's code. */
 export interface LinkInput {
@@ -22,6 +28,13 @@ export interface LinkInput {
   readonly code: ReadonlyMap<string, string>;
   /** The project's JSON files' text by path; scripts can import them. */
   readonly json?: ReadonlyMap<string, string>;
+  /**
+   * The project's UI code by path (ADR 0423): Svelte components (`*.svelte`) and rune modules
+   * (`*.svelte.ts`), which compile and load like scripts, and its `.css` files, of which those that UI code
+   * imports compile to modules registering their rules. Other paths are ignored.
+   */
+  readonly ui?: ReadonlyMap<string, string>;
+
   /** The project's node_modules, for npm package imports (ADR 0125); without it, a package import is a problem. */
   readonly packages?: PackageSource;
   /** npm plugin entries to bundle with the packages (`planPluginCode`'s `npmEntries`, ADR 0139); one that can't be bundled is a problem. */
@@ -43,20 +56,34 @@ export interface TargetLink<Output> {
    * reuse what it emitted for the same `key` (the specifiers and the installed packages) instead.
    */
   packages(key: string, bundle: () => Promise<PackageBundle>): Promise<EmittedPackages>;
+  /**
+   * Get the UI runtime modules the code imports ready before any `specifier` names them (ADR 0423), when the
+   * target needs to (the memory target loads the host's own copies; the build target checks it has a runtime to
+   * bundle, ADR 0425). Throws when one can't load.
+   */
+  uiRuntime?(specifiers: readonly string[]): Promise<void>;
   /** Emit the module of a JSON file a script imports (called once per file); its address. */
+
   json(path: string, value: unknown): string;
-  /** What script `from` writes to import the engine (`"myco"`), the editor SDK (`"myco/editor"`), or the module at `address`. */
-  specifier(from: string, to: { readonly engine: true } | { readonly editorSdk: true } | { readonly address: string }): string;
+  /**
+   * What script `from` writes to import the engine (`"myco"`), the editor SDK (`"myco/editor"`), a UI runtime
+   * module (`ui`: Svelte's runtime or the engine's renderer, ADR 0423, provided by the host or bundled, ADR 0425), or the module at `address`.
+   */
+  specifier(from: string, to: { readonly engine: true } | { readonly editorSdk: true } | { readonly ui: string } | { readonly address: string }): string;
+
   /** Emit script `path`'s rewritten module, after the modules it imports; its address. Throws when the module fails to load. */
   script(path: string, code: string): Promise<string>;
-  /** The link is done: `loaded` are the scripts emitted, in order. */
-  close(loaded: readonly string[]): Output;
+  /** The link is done: `loaded` are the scripts emitted, in order. May finish asynchronously (the build target bundles UI code). */
+  close(loaded: readonly string[]): Output | Promise<Output>;
 }
 
 /** Where linked code goes: the seam between the linker and a host's destination. */
 export interface LinkTarget<Output> {
   /** Whether compiled scripts carry inline source maps (the TypeScript, for the debugger). */
   readonly sourceMap: boolean;
+  /** Whether UI components compile in Svelte's dev mode (template locations, for the editor's picking; ADR 0423). */
+  readonly dev: boolean;
+
   open(): TargetLink<Output>;
 }
 
@@ -85,16 +112,31 @@ const NO_PACKAGES = "npm packages load from the project folder's node_modules, a
 export async function link<Output>(input: LinkInput, target: LinkTarget<Output>): Promise<Linked<Output>> {
   const json = input.json ?? new Map<string, string>();
   const extraEntries = input.extraEntries ?? [];
-  const code = [...input.code].filter(([path]) => isScriptPath(path)).sort(byPath);
+  const ui = input.ui ?? new Map<string, string>();
+  const uiSources = [...ui].filter(([path]) => isUISourcePath(path));
+  const code = [...input.code, ...uiSources].filter(([path], i, all) => (isScriptPath(path) || isUISourcePath(path)) && all.findIndex(([p]) => p === path) === i).sort(byPath);
   const assetRefs = input.isAsset ? projectScriptAssetRefs(code.map(([, source]) => source), input.isAsset) : [];
 
   const problems: ScriptProblem[] = [];
   const compiled = new Map<string, CompiledScript>();
   for (const [path, source] of code) {
-    const result = await compileScript(path, source, { sourceMap: target.sourceMap });
+    const result = isUISourcePath(path) ? await compileUI(path, source, { dev: target.dev }) : await compileScript(path, source, { sourceMap: target.sourceMap });
     if ("code" in result) compiled.set(path, result);
     else problems.push(result);
   }
+  // The `.css` files UI code imports (ADR 0423): each a module registering its rules, loaded before what imports it.
+  const cssPaths = new Set([...ui.keys()].filter((p) => p.endsWith(".css")));
+  for (const s of [...compiled.values()]) {
+    if (!isUISourcePath(s.path)) continue;
+    for (const imp of s.imports) {
+      const css = imp.specifier.endsWith(".css") ? resolveScript(s.path, imp.specifier, cssPaths) : null;
+      if (!css || compiled.has(css)) continue;
+      const result = await compileUI(css, ui.get(css)!, { dev: target.dev });
+      if ("code" in result) compiled.set(css, result);
+      else problems.push(result);
+    }
+  }
+
   const parsed = new Map<string, unknown>();
   for (const [path, text] of json) {
     try {
@@ -105,6 +147,19 @@ export async function link<Output>(input: LinkInput, target: LinkTarget<Output>)
   }
 
   const out = target.open();
+  const uiSpecifiers = [...new Set([...compiled.values()].flatMap((s) => s.imports.map((i) => i.specifier)).filter(isUIRuntimeSpecifier))].sort();
+  if (uiSpecifiers.length > 0 && out.uiRuntime) {
+    try {
+      await out.uiRuntime(uiSpecifiers);
+    } catch (err) {
+      for (const s of [...compiled.values()]) {
+        if (!s.imports.some((i) => isUIRuntimeSpecifier(i.specifier))) continue;
+        compiled.delete(s.path);
+        problems.push({ path: s.path, message: `the UI runtime (Svelte) didn't load: ${err instanceof Error ? err.message : String(err)}` });
+      }
+    }
+  }
+
   const specifiers = [...new Set([...packageSpecifiers(compiled.values()), ...extraEntries])].sort();
   const packageProblems = new Map<string, string | undefined>();
   let entries: ReadonlyMap<string, string> = new Map();
@@ -129,6 +184,7 @@ export async function link<Output>(input: LinkInput, target: LinkTarget<Output>)
 
   const known = new Set([...compiled.keys(), ...json.keys()]);
   const jsonAddresses = new Map<string, string>();
+  const actionSetModules = new Map<string, string>();
   const addresses = new Map<string, string>();
   const loaded: string[] = [];
   for (const path of plan.order) {
@@ -137,13 +193,30 @@ export async function link<Output>(input: LinkInput, target: LinkTarget<Output>)
       continue;
     }
     const s = compiled.get(path)!;
+    // An `*.actions.json` import (ADR 0433) is a module that defines the file's set (or returns it, defined already).
+    for (const { specifier: spec } of s.imports) {
+      if (isEngineModule(spec) || spec === EDITOR_MODULE || isPackageSpecifier(spec)) continue;
+      const target = resolveScript(path, spec, known);
+      if (!target || !target.endsWith(ACTION_SET_FILE) || !parsed.has(target) || actionSetModules.has(target)) continue;
+      if (!jsonAddresses.has(target)) jsonAddresses.set(target, out.json(target, parsed.get(target)));
+      const module = `${target}.set.ts`;
+      const code = `import { actionSetFromData } from ${JSON.stringify(out.specifier(module, { engine: true }))};\nimport data from ${JSON.stringify(out.specifier(module, { address: jsonAddresses.get(target)! }))};\nexport default actionSetFromData(${JSON.stringify(target)}, data);\n`;
+      try {
+        actionSetModules.set(target, await out.script(module, code));
+      } catch (err) {
+        problems.push({ path: target, message: (err as Error).message });
+      }
+    }
     const rewritten = rewriteImports(s.code, s.imports, (spec) => {
       if (isEngineModule(spec)) return out.specifier(path, { engine: true });
       if (spec === EDITOR_MODULE) return out.specifier(path, { editorSdk: true });
+      if (isUIRuntimeSpecifier(spec)) return out.specifier(path, { ui: spec });
+
       if (isPackageSpecifier(spec)) return out.specifier(path, { address: entries.get(spec)! });
       const target = resolveScript(path, spec, known)!;
       if (!parsed.has(target)) return out.specifier(path, { address: addresses.get(target)! });
       if (!jsonAddresses.has(target)) jsonAddresses.set(target, out.json(target, parsed.get(target)));
+      if (actionSetModules.has(target)) return out.specifier(path, { address: actionSetModules.get(target)! });
       return out.specifier(path, { address: jsonAddresses.get(target)! });
     });
     try {
@@ -153,7 +226,7 @@ export async function link<Output>(input: LinkInput, target: LinkTarget<Output>)
       problems.push({ path, message: err instanceof Error ? err.message : String(err) });
     }
   }
-  return { loaded, problems, assetRefs, specifiers, entries, output: out.close(loaded) };
+  return { loaded, problems, assetRefs, specifiers, entries, output: await out.close(loaded) };
 }
 
 /** The package specifiers `scripts` import (ADR 0125). */

@@ -16,7 +16,8 @@
 //!   ([`anim_sample::timeline::mix_add`]); deeper entries contribute records only. A [`Node`] per
 //!   subclip key (and per nesting path) keeps that entry's notify-state bits; they end when the
 //!   entry is exited, the timeline is stopped, killed or retired.
-//! - **a sequence:** tween members at offsets ([`Spec`] from `tweens.rs`), one block each.
+//! - **a sequence:** tween members at offsets (`myco_tween::seq`'s program over [`Spec`]s, ADR
+//!   0424 spike), one block each.
 //!
 //! # Outputs
 //!
@@ -49,6 +50,7 @@ use anim_wire::WireRecord;
 use crate::assets::{handle, split, Arena};
 use crate::tracks::RecordWriter;
 use crate::tweens::Spec;
+use myco_tween::seq::{self, Member};
 
 /// The memory this feature needs for `init`'s parameters, in bytes (summed by [`crate::init`]):
 /// the default table, its record buffer and an estimate of its values.
@@ -102,14 +104,6 @@ struct Block {
     host_id: u32,
     /// A subclip block's layout clip (0 otherwise).
     layout: u32,
-}
-
-#[derive(Clone, Copy)]
-struct Member {
-    spec: Spec,
-    offset: f32,
-    host_id: u32,
-    done: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -432,7 +426,6 @@ impl Timelines {
             return Err(STATUS_BAD_RECORD);
         }
         let mut members = Vec::with_capacity(head.members as usize);
-        let mut duration = 0.0f64;
         for i in 0..head.members as usize {
             let m = SeqMember::decode(&body[i * stride..]).map_err(|_| STATUS_BAD_RECORD)?;
             let spec = Spec::new(
@@ -447,15 +440,9 @@ impl Timelines {
                 [m.to0, m.to1, m.to2, m.to3],
             )
             .ok_or(STATUS_BAD_RECORD)?;
-            let offset = finite_or(m.offset, 0.0).max(0.0);
-            duration = duration.max(offset as f64 + spec.total());
-            members.push(Member {
-                spec,
-                offset,
-                host_id: m.host_id,
-                done: false,
-            });
+            members.push(Member::new(spec, m.offset, m.host_id));
         }
+        let duration = seq::duration(&members);
         let index = self.free.pop().ok_or(STATUS_FULL)? as usize;
         let generation = self.slots[index].generation;
         let mut blocks = Vec::with_capacity(members.len());
@@ -1243,32 +1230,27 @@ fn eval_seq(
 ) {
     let v0 = inst.value_off as usize;
     let w0 = inst.weight_off as usize;
-    inst.order.clear();
-    for (i, m) in inst.members.iter_mut().enumerate() {
-        let mut v = [0.0f32; 4];
-        let ev = m.spec.eval(t as f64 - m.offset as f64, arena, &mut v);
-        let b = inst.blocks[i];
-        if ev.started {
-            for (k, x) in v.iter().enumerate().take(b.words as usize) {
-                values[v0 + b.offset as usize + k] = x.to_bits();
+    let blocks = &inst.blocks;
+    seq::eval(
+        arena,
+        &mut inst.members,
+        t,
+        emit,
+        &mut inst.order,
+        |i, value| {
+            let b = blocks[i];
+            if let Some(v) = value {
+                for (k, x) in v.iter().enumerate().take(b.words as usize) {
+                    values[v0 + b.offset as usize + k] = x.to_bits();
+                }
+                weights[w0 + i] = 1.0;
+            } else {
+                weights[w0 + i] = 0.0;
             }
-            weights[w0 + i] = 1.0;
-        } else {
-            weights[w0 + i] = 0.0;
-        }
-        if emit && ev.done && !m.done {
-            inst.order.push(i as u32);
-        }
-        m.done = ev.done;
-    }
+        },
+    );
     let members = &inst.members;
-    let end = |i: u32| members[i as usize].offset as f64 + members[i as usize].spec.total();
-    inst.order.sort_unstable_by(|a, b| {
-        end(*a)
-            .partial_cmp(&end(*b))
-            .unwrap_or(core::cmp::Ordering::Equal)
-            .then(a.cmp(b))
-    });
+    let end = |i: u32| members[i as usize].end();
     for &i in &inst.order {
         changes.push(TimelineChange {
             instance: h,

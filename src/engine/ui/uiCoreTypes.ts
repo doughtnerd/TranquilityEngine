@@ -15,8 +15,22 @@
 import type { World } from "../core/World";
 import type { Camera } from "../render/components";
 import type { UICanvas, UIComponentType } from "./components";
+import type { UIRect } from "./layout";
+import type { UIAffine } from "./transform2d";
+import type { UIFilterStep } from "./filters";
+import type { UIInlineLayout } from "./text/inlineLayout";
 
-export type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input";
+export type { UIInlineLayout } from "./text/inlineLayout";
+
+/** ADR 0429: what an editable text being edited shows: a caret, or the selection's rectangles (one per line). */
+export interface UIInlineEditing {
+  readonly caret: { readonly x: number; readonly top: number; readonly height: number } | null;
+  readonly selection: readonly { readonly x: number; readonly y: number; readonly width: number; readonly height: number }[];
+}
+
+export type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input"
+  // ADR 0428: form elements.
+  | "textarea" | "toggle" | "radio" | "slider" | "select" | "option" | "progress" | "meter" | "label" | "form";
 
 /** How a text run wraps: at spaces (`UIText.wordBreak` `break-word`), at any character (`break-all`), or never (`keep-all`, input fields). */
 export type UITextWrap = "word" | "anywhere" | "none";
@@ -39,10 +53,97 @@ export interface UITextRun {
   readonly direction: "ltr" | "rtl";
   /** Its alignment as an edge, `start`/`end` resolved for `direction`. */
   readonly align: "left" | "center" | "right" | "justify";
+  /**
+   * ADR 0429: the styled inline runs a text element holds (its inline child elements and the text between them), in
+   * order, laid out together (`text/inlineLayout.ts`); `text` is then their text joined. Absent for plain text: one run in
+   * the fields above, as before.
+   */
+  readonly runs?: readonly UIInlineRun[];
+  /** ADR 0432: its inline elements with padding, borders or margins (outer ones before those inside them). Absent: none. */
+  readonly boxes?: readonly UIInlineBox[];
+  /** ADR 0429: `contenteditable`: whitespace is kept as typed (line breaks break lines) and the player edits the text. */
+  readonly editable?: boolean;
+}
+
+/** ADR 0429: `vertical-align` keywords an inline run takes (`sub` and `super` are baseline shifts, folded into `shift`). */
+export type UIVerticalAlign = "baseline" | "sub" | "super" | "middle" | "top" | "bottom" | "text-top" | "text-bottom";
+
+/**
+ * ADR 0429: one styled run of a text element: text in one style, a line break (`text` "\n", a `<br>`) or an inline image
+ * (`text` U+FFFC, one character, so offsets into the joined text count it). Resolved by `textRunOf` from the element's
+ * inline children, with whitespace collapsed across runs as HTML does (unless the text is editable).
+ */
+export interface UIInlineRun {
+  readonly text: string;
+  readonly fontSize: number;
+  /** CSS font weight ("400", "700"). */
+  readonly fontWeight: string;
+  readonly fontStyle: "normal" | "italic";
+  /** CSS font family list. */
+  readonly fontFamily: string;
+  /** CSS colour text (`rgba(…)`); transparent for a run that's `visibility: hidden`. */
+  readonly color: string;
+  /** Lines drawn with the glyphs, space-separated (`underline`, `line-through`, `overline`), its inline ancestors' included; "" for none. */
+  readonly decoration: string;
+  /** CSS colour text painted behind its glyphs (its own or the nearest inline ancestor's `background-color`), or null. */
+  readonly background: string | null;
+  /** Its own `vertical-align` keyword other than a shift (`middle`, `top`…); `baseline` otherwise. */
+  readonly verticalAlign: UIVerticalAlign;
+  /** How far its baseline is raised (UI pixels; negative lowers it): `sub` and `super` on it and its inline ancestors. */
+  readonly shift: number;
+  /** An inline image: its texture and size in UI pixels; null for text. */
+  readonly image: { readonly src: string; readonly width: number; readonly height: number } | null;
+  /** The element events on it go to (hit-testing resolves to it): the nearest inline element, never a text piece. */
+  readonly owner: UIComponentType | null;
+  /** The component whose `text` holds this run's text (what editing changes); null for line breaks and images. */
+  readonly source: UIComponentType | null;
+  /** ADR 0432: `text-wrap-mode: nowrap`: no line breaks after its characters (only forced ones). Absent: it wraps. */
+  readonly nowrap?: boolean;
+  /** ADR 0432: its spaces at a line's end take room (`break-spaces`, or `pre` that doesn't wrap) rather than hanging past it. */
+  readonly keepSpaces?: boolean;
+  /**
+   * ADR 0432: an atomic inline box (`display: inline-block`, a button, a form control, an SVG or media element inside a
+   * text): `text` U+FFFC, `owner` the element, which is laid out in a Yoga tree of its own and drawn as itself. Its margin
+   * box's size and its baseline down from that box's top, in UI pixels. Absent or null otherwise.
+   */
+  readonly atom?: UIInlineAtomSize | null;
+}
+
+/** ADR 0432: an atomic inline box's margin box size and its baseline (down from that box's top), in UI pixels. */
+export interface UIInlineAtomSize {
+  readonly width: number;
+  readonly height: number;
+  readonly baseline: number;
+}
+
+/**
+ * ADR 0432: an inline element with padding, a border or margins (or a background with any of those), as CSS lays out an
+ * inline box: its start side's margin, border and padding take room before its first run's text and its end side's after
+ * its last run's; top and bottom ones are drawn but don't change the line's height. A box broken across lines is sliced:
+ * each line's part has its start and end sides only where the box starts and ends.
+ */
+export interface UIInlineBox {
+  /** The element. */
+  readonly owner: UIComponentType;
+  /** The runs inside it, `[first, last]` (indices into the text's runs). */
+  readonly first: number;
+  readonly last: number;
+  /** Margins, borders and padding: `[start, end]` for margins (horizontal only, as CSS's inline boxes), `[top, right, bottom, left]` for the others. */
+  readonly margin: readonly [number, number];
+  readonly border: readonly [number, number, number, number];
+  readonly padding: readonly [number, number, number, number];
+  /** Its font size and baseline shift: its content area is its font's glyph box around its baseline. */
+  readonly fontSize: number;
+  readonly shift: number;
+  /** CSS colours: its background (null: none) and border. */
+  readonly background: string | null;
+  readonly borderColor: string;
+  /** Its corners' radius in UI pixels. */
+  readonly radius: number;
 }
 
 /** A text run to measure, for Yoga's layout of text elements (direction and alignment don't change its size). */
-export interface TextMeasureRequest extends Omit<UITextRun, "direction" | "align"> {
+export interface TextMeasureRequest extends Omit<UITextRun, "direction" | "align" | "runs" | "boxes" | "editable"> {
   /** Width available in UI pixels (Infinity when unbounded, and always for `wrap: "none"`); text wraps to it. */
   readonly maxWidth: number;
 }
@@ -53,6 +154,11 @@ export interface UICoreHost {
   viewCamera?(): Camera | null;
   /** Measure text in UI pixels. Without it, the core estimates (Node). */
   measureText?(request: TextMeasureRequest): { width: number; height: number };
+  /**
+   * ADR 0429: one line of text's exact width in UI pixels in a CSS font (`italic 700 16px Inter, …`), for laying out inline
+   * runs (wrapping across runs, positions, hit-testing, the caret). Without it, the core estimates (Node).
+   */
+  measureRunWidth?(text: string, font: string): number;
 }
 
 export interface UICoreOptions {
@@ -84,6 +190,68 @@ export interface UILaidOutCanvas {
   readonly visible: boolean;
 }
 
+/** ADR 0427: one scrollbar as drawn, in its canvas's UI pixels in layout space (the scroller's transform applies to it). */
+export interface UIScrollbar {
+  readonly track: UIRect;
+  readonly thumb: UIRect;
+}
+
+/**
+ * ADR 0427: a clipping element's scroll state at the last layout. Lengths in UI pixels; the padding box is the area its
+ * content scrolls in (`clientWidth`/`clientHeight`), the content's extent the union of its children's margin boxes plus
+ * its end padding (`scrollWidth`/`scrollHeight`, at least the padding box).
+ */
+export interface UIScrollInfo {
+  /** Its scroll offset after clamping (what's drawn). */
+  readonly x: number;
+  readonly y: number;
+  /**
+   * The offsets' range. An axis scrolling from its start has `min` 0 and `max` how far the content reaches past the
+   * padding box; ADR 0432: one scrolling from its end (`row-reverse`/`column-reverse`, `direction: rtl`) has `max` 0
+   * and a negative `min`, as CSSOM's `scrollLeft`/`scrollTop` there.
+   */
+  readonly minX: number;
+  readonly minY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+  readonly clientWidth: number;
+  readonly clientHeight: number;
+  readonly scrollWidth: number;
+  readonly scrollHeight: number;
+  /** Whether the player scrolls the axis (`overflow` `auto` or `scroll` on it); a `hidden` axis scrolls only by script. */
+  readonly userX: boolean;
+  readonly userY: boolean;
+  /** The padding box in layout space (canvas UI pixels before transforms). */
+  readonly client: UIRect;
+  /** The scrollbars shown (null: none on that axis). */
+  readonly barX: UIScrollbar | null;
+  readonly barY: UIScrollbar | null;
+  /** ADR 0432: its scroll snapping (`scroll-snap-type` and its descendants' snap areas); null when it doesn't snap. */
+  readonly snap: UIScrollSnap | null;
+}
+
+/** ADR 0432: one snap area's snap positions (scroll offsets, unclamped; null: it doesn't snap on that axis). */
+export interface UIScrollSnapArea {
+  readonly comp: UIComponentType;
+  readonly x: number | null;
+  readonly y: number | null;
+  /** `scroll-snap-stop: always`. */
+  readonly stop: boolean;
+  /** Its snap area (border box plus `scroll-margin`) in content space: where it is at scroll offset 0, from the padding box's corner. */
+  readonly area: UIRect;
+}
+
+/** ADR 0432: a scroller's snapping at the last layout. */
+export interface UIScrollSnap {
+  /** The axes it snaps on. */
+  readonly x: boolean;
+  readonly y: boolean;
+  readonly mandatory: boolean;
+  /** Its snapport (the padding box inset by `scroll-padding`), relative to the padding box's corner. */
+  readonly port: UIRect;
+  readonly areas: readonly UIScrollSnapArea[];
+}
+
 /** An element (not a canvas) as laid out in the last `sync`. */
 export interface UILaidOutElement {
   readonly comp: UIComponentType;
@@ -94,14 +262,83 @@ export interface UILaidOutElement {
   readonly y: number;
   readonly width: number;
   readonly height: number;
-  /** Draw order within its canvas: parents before children, earlier siblings first. */
+  /**
+   * Draw order within its canvas (ADR 0422): parents before children, then siblings by `zIndex` and document order;
+   * an element with a non-zero `zIndex` or an `overflow` other than `visible` draws its descendants right after itself. The pointer
+   * goes to the highest first.
+   */
   readonly order: number;
+  /**
+   * The overlap of every `overflow: hidden` ancestor's padding box, in layout space (before transforms); null when none
+   * clips it. With transforms (ADR 0422 wave 3), each clip moves with its clipper: `bounds` is what's drawn.
+   */
+  readonly clip: UIRect | null;
+  /** Its nearest `overflow: hidden` ancestor (the drawing layer draws it inside that one's clip), or null. */
+  readonly clipper: UIComponentType | null;
+  /** With `overflow` other than `visible` (`hidden`, or scrolling, ADR 0427): its padding box (inside its border), which its descendants are clipped to; else null. */
+  readonly childClip: UIRect | null;
   /** Drawn: active and enabled, `visible`, and every ancestor element too. */
   readonly visible: boolean;
   /** `opacity` times every ancestor's. */
   readonly opacity: number;
   /** Text and input field elements: the text run the core measured, which the drawing layer draws. Null for other kinds. */
   readonly text: UITextRun | null;
+  /**
+   * ADR 0429: a text element with inline runs: its lines and their fragments, laid out at its content width, positions in
+   * UI pixels from its content box's corner (`inset`), which the drawing layer draws as they are. Null or absent otherwise.
+   */
+  readonly inline?: UIInlineLayout | null;
+  /** ADR 0429: an editable text the player is editing: its caret (null while a selection shows) and selection, in `inline`'s coordinates. */
+  readonly editing?: UIInlineEditing | null;
+  /**
+   * ADR 0422 wave 3: where it's drawn, as a map from its laid-out box (the fields above) to canvas UI pixels: its
+   * ancestors' transforms and its own (`transform2d.ts`). Null when nothing transforms it.
+   */
+  readonly transform: UIAffine | null;
+  /** The axis-aligned bounds of what's drawn of it, in canvas UI pixels: its box transformed, cut down by its clips. Its box when nothing transforms or clips it. */
+  readonly bounds: UIRect;
+  /**
+   * ADR 0427: `bounds` cut down only by clips that don't scroll (`overflow: hidden` on both axes), so navigation can find an
+   * element scrolled out of view and scroll it back. The same as `bounds` when no scrolling element clips it.
+   */
+  readonly reach: UIRect;
+  /** ADR 0427: with `overflow` other than `visible`: its scroll state; else null. */
+  readonly scroll: UIScrollInfo | null;
+  /**
+   * ADR 0430: the CSS filter drawn over it (`filters.ts`): its own steps, then each ancestor's, nearest first, as a
+   * filter applies to an element's subtree; lengths in canvas UI pixels through each filtering element's transform.
+   * Null or absent: none.
+   */
+  readonly filter?: readonly UIFilterStep[] | null;
+  /**
+   * ADR 0432: its `backdrop-filter` (`filters.ts` steps, its own, lengths in canvas UI pixels through its transform): what's
+   * drawn behind it within its border box (and rounded corners), filtered, under its background. Null or absent: none.
+   */
+  readonly backdrop?: readonly UIFilterStep[] | null;
+  /**
+   * ADR 0428: what a form element draws over its own box (a checkbox's fill and mark, a slider's track, fill and thumb,
+   * a progress bar's fill, a select's arrow), in its box's frame; null for other elements and when there's nothing.
+   */
+  readonly parts: readonly UIPart[] | null;
+}
+
+/**
+ * ADR 0428: one part of a form element, a filled rectangle in its border box's frame (origin its top-left corner, UI
+ * pixels): `rotate` (degrees, clockwise about its centre) turns it, so strokes such as a check mark are thin rectangles.
+ * `color` is RGBA in 0..1.
+ */
+export interface UIPart {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly color: readonly [number, number, number, number];
+  readonly radius: number;
+  readonly rotate: number;
+  /** ADR 0432 (part pseudo-elements): a border inside its edge, `width` UI pixels; absent: none. */
+  readonly border?: { readonly width: number; readonly color: readonly [number, number, number, number] };
+  /** ADR 0432: a box shadow (offset and blur in UI pixels); absent: none. */
+  readonly shadow?: { readonly color: readonly [number, number, number, number]; readonly x: number; readonly y: number; readonly blur: number };
 }
 
 /** A ray in world space, for picking world canvases. */
@@ -119,6 +356,13 @@ export interface UICorners {
   readonly space: "screen" | "world";
   readonly points: number[][];
   readonly size: readonly [number, number];
+  /** The corners of the part that is drawn, as `points`, when an `overflow: hidden` ancestor clips it (ADR 0422); null when nothing does. */
+  readonly clip: number[][] | null;
+  /**
+   * ADR 0422 wave 3: `points` is the box as drawn, after its transforms. These are its laid-out box's corners with only
+   * its ancestors' transforms: where layout put it in its parent's frame. The same as `points` without a transform of its own.
+   */
+  readonly layoutPoints: number[][];
 }
 
 /** The renderer-neutral UI core (ADR 0076). */
@@ -127,7 +371,7 @@ export interface UICoreLike {
   sync(world: World, width: number, height: number, deltaSeconds?: number): void;
   /** Canvases from the last sync, ascending `sortOrder`. */
   canvases(): readonly UILaidOutCanvas[];
-  /** Elements from the last sync, grouped by canvas in `canvases()` order, each canvas's in `order`. */
+  /** Elements from the last sync, grouped by canvas in `canvases()` order, each canvas's in tree order (parents first; `order` is the draw order). */
   elements(): readonly UILaidOutElement[];
   /** Increases whenever `sync` changed any box, visibility, text run or the element set (drawing layers can skip work otherwise). */
   readonly layoutVersion: number;

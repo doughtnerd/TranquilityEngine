@@ -1,6 +1,7 @@
 /**
- * The built-in subtitle look's values (ADR 0357 §5), declared once: the built-in stylesheet's variables are written
- * from them, and previews without a renderer (the editor, the Studio) draw with them.
+ * The built-in subtitle look's values (ADR 0357 §5), declared once: the built-in component's (`SubtitleRows.svelte`)
+ * fallbacks for its `--subtitle-*` variables are these (its test checks they match), and previews without a renderer (the
+ * editor, the Studio) draw with them.
  */
 export const SUBTITLE_LOOK = Object.freeze({
   color: "#ffffff",

@@ -259,14 +259,13 @@ export class BabylonEditorGuides implements IconStyle {
   /**
    * Position a flat outline around each selected node's quads (sprites) and a box around each of its
    * meshes (MeshRenderers, tile layers, water, world canvases), whichever feature drew them (ADR 0276).
-   * A screen rectangle (screen Text) has no outline here.
    */
   private syncOutlines(): void {
     let used = 0, boxes = 0;
     if (this.outlined.size > 0 && this.outlineShown) {
       for (const d of this.ctx.drawn()) {
         const shape = d.shape;
-        if (!shape || shape.kind === "rect" || !this.isOutlined(d.component.node)) continue;
+        if (!shape || !this.isOutlined(d.component.node)) continue;
         if (shape.kind === "box" || shape.kind === "polyline") {
           // A decal's volume is outlined by itself; a line by the box around it (ADR 0395, 0396).
           if (shape.kind === "box") Matrix.FromArrayToRef(shape.matrix as number[], 0, tmpB);
