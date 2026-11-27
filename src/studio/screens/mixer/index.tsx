@@ -17,10 +17,7 @@ import { AUDIO_PROJECT_FILE, type AudioProject } from "../../../engine/audio/pro
 import { Icon } from "../../components/Icon";
 import type { StudioPanel } from "../../shell/studioPanels";
 import { replayStore } from "../../shell/replay";
-import { profilerStore } from "../profiler/profilerScreen";
-import { takeOfCapture } from "../profiler/reviewLink";
-import { captureNames } from "../../../plugins/audio/runtime/capture/reader";
-import { recordedBusReading } from "./recordedLevels";
+import { recordedBus } from "./recordedBus";
 import { studioRouter, toasts } from "../../shell/studioServices";
 import { historyPanel } from "../placeholder";
 import { BusesPanel } from "./BusesPanel";
@@ -39,24 +36,6 @@ import { renameParameterOutside } from "./globalParametersPanels";
 import { SnapshotsPanel } from "./SnapshotsPanel";
 import { TriggerDialogHost } from "./TriggerDialog";
 import { NewGlobalParameterHost } from "./newGlobalParameter";
-
-/** Each open profile's names, built once (every meter asks each frame). */
-const namesOf = new WeakMap<object, ReturnType<typeof captureNames>>();
-
-/**
- * A bus as the open take recorded it at the replay's playhead: the take's profile is open on the Profiler (opening a take
- * opens both) and its cursor follows the replay (`reviewLink.ts`), so its seek is the moment. Subscribes in a render.
- */
-function recordedBus(name: string) {
-  const open = replayStore().open.value;
-  const store = profilerStore();
-  const seek = store.seek.value;
-  const source = store.source;
-  if (!open || !seek || !source || takeOfCapture(store.state.value) !== open.path) return null;
-  let names = namesOf.get(source.summary);
-  if (!names) namesOf.set(source.summary, (names = captureNames(source.summary)));
-  return recordedBusReading(seek, (slot, at) => names.bus(slot, at), name);
-}
 import "./mixer.css";
 
 /** Per user: whether the live board is open, and List or Strips. */

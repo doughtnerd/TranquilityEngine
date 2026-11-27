@@ -1,10 +1,11 @@
 // "Why it played" (ADR 0348; spec §4.6.5; the prototype's causal chain): the decision path from the game's request
-// through every playlist level to the sample and the bus. The capture's `eventStart` and `pick` records give the request
+// through every playlist level to the sample and the bus. The request step names the trigger and its source (the
+// GameObject, behaviour hook and system that asked, ADR 0435) when the capture records them. The capture's `eventStart` and `pick` records give the request
 // and each level's decision (`decisionModel.ts` ties a voice to its instance); without them (a voice not tied to an
 // instance, an older capture) the chain is the sound and the bus, with a note saying why. Each step names the screen its
 // asset is edited on. Pure.
 import type { ScreenId } from "../../shell/screens";
-import { pickKind, pickReason, type InstanceDecisions } from "./decisionModel";
+import { pickKind, pickReason, type InstanceCause, type InstanceDecisions } from "./decisionModel";
 import { STATUS_SEVERITY, voiceSummary, type VoiceBlock } from "./voiceModel";
 
 export type WhyKind = "game" | "playlist" | "sample" | "bus";
@@ -21,6 +22,8 @@ export interface WhyStep {
   readonly screen: ScreenId | null;
   /** The asset or item that screen opens on (a path or a bus name). */
   readonly target: string | null;
+  /** More than the node has room for, one fact a line (the game step's source, ADR 0435); its tooltip. */
+  readonly detail?: string;
 }
 
 export interface WhyChain {
@@ -43,13 +46,31 @@ function pathTitle(path: string): string {
   return folder ? `${folder} / ${name}` : name;
 }
 
+/** Shown when a capture names the request but no script was running (a component's own start, async code, a UI event). */
+const NO_SCRIPT = "No script hook running";
+
+/**
+ * ADR 0435: the game step from the instance's cause: the trigger's name, and where it came from (GameObject, behaviour
+ * hook, system) as one line and, in full, as the detail. A capture from before it keeps the older "Game event …" step.
+ */
+function gameStep(decision: InstanceDecisions): WhyStep {
+  const c: InstanceCause | null = decision.cause;
+  const event = pathTitle(decision.asset).split(" / ").pop();
+  if (!c || c.trigger === null) return { kind: "game", label: "GAME", name: `Game event ${event}`, why: "Game trigger", severity: "ok", screen: null, target: null };
+  const facts: [string, string | null][] = [["GameObject", c.node], ["Behaviour", c.behaviour], ["System", c.system]];
+  const known = facts.filter((f): f is [string, string] => f[1] !== null);
+  const why = known.length ? known.map(([k, v]) => (k === "System" ? `system ${v}` : v)).join(" · ") : NO_SCRIPT;
+  const detail = [`Trigger: ${c.trigger}`, ...(known.length ? known.map(([k, v]) => `${k}: ${v}`) : [NO_SCRIPT]), `Asked for: ${decision.asset}`].join("\n");
+  return { kind: "game", label: "GAME", name: c.trigger, why, severity: "ok", screen: null, target: null, detail };
+}
+
 /** The chain for `block` from what the capture holds; `decision` is its playlist instance, when tied. */
 export function whyChain(block: VoiceBlock, decision?: InstanceDecisions | null): WhyChain {
   const severity = STATUS_SEVERITY[block.status];
   const refusedHere = block.status === "blocked" || block.status === "refused";
   const steps: WhyStep[] = [];
   if (decision) {
-    steps.push({ kind: "game", label: "GAME", name: `Game event ${pathTitle(decision.asset).split(" / ").pop()}`, why: "Game trigger", severity: "ok", screen: null, target: null });
+    steps.push(gameStep(decision));
     const picks = [...decision.picks].sort((a, b) => a.depth - b.depth);
     if (picks.length === 0 || picks[0]!.playlist !== decision.asset)
       steps.push({ kind: "playlist", label: "PLAYLIST", name: pathTitle(decision.asset), why: refusedHere ? voiceSummary(block) : "Started", severity: refusedHere ? severity : "ok", screen: "playlists", target: decision.asset });

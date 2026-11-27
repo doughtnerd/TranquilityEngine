@@ -309,11 +309,12 @@ function outputOf(loc: LineLocation): string | null {
 }
 
 /** The play options a line's playlist gets: the caller's (less `node`), its position (or the node's), and the key. */
-function playOptions(key: string, o: LineOptions): { options: PlaylistOptions; node: GameObject | null } {
+function playOptions(key: string, o: LineOptions, trigger: string): { options: PlaylistOptions; node: GameObject | null } {
   const { node, ...rest } = o;
   const n = node && typeof node === "object" && node.isValid ? node : null;
   const position = rest.position ?? n?.transform?.worldPosition;
-  return { options: { ...rest, ...(position ? { position: { x: position.x, y: position.y, z: position.z } } : {}), line: key }, node: n };
+  // ADR 0435: the capture's "Why it played" names the request and the line's node.
+  return { options: { ...rest, ...(position ? { position: { x: position.x, y: position.y, z: position.z } } : {}), line: key, trigger, triggerNode: n }, node: n };
 }
 
 /** The take's emitter for a placed line: its node, or where it was placed. */
@@ -325,14 +326,15 @@ function emitterOf(handle: LineHandle, key: string, node: GameObject | null, pos
 
 /**
  * Plays the line at `loc` into `handle` now (ADR 0354 §5). The handle ends refused when nothing can play: no World plays
- * sound, its template is refused, or (`missing: "silent"`) no language of the chain has its file.
+ * sound, its template is refused, or (`missing: "silent"`) no language of the chain has its file. `trigger` is the request
+ * a capture's "Why it played" names (ADR 0435).
  */
-export function startLine(handle: LineHandle, loc: LineLocation, options: LineOptions): LineHandle {
+export function startLine(handle: LineHandle, loc: LineLocation, options: LineOptions, trigger = "Audio.line"): LineHandle {
   handle.bind(loc);
   const key = loc.line.key;
   const now = playlistHost().clock();
   const file = lineFile(loc.table, loc.line, audioChain(), audioLocalisation().roots, (p) => Assets.has(p));
-  const { options: play, node } = playOptions(key, options);
+  const { options: play, node } = playOptions(key, options, trigger);
   const record = (language: string | null): void => {
     if (takeTap.sink && handle.event === null) takeTap.sink.line(handle, key, language, emitterOf(handle, key, node, play.position), takePlayOptions(options));
   };

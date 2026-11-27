@@ -541,6 +541,23 @@ describe("reading EVENTs back by name (ADR 0227): the reader's typed events inve
     expect(eventsCapture(c, 0).events.map((e) => e.event.type)).toEqual(["eventStart", "parameter"]);
   });
 
+  it("ADR 0435: an eventStart with a cause reads back its trigger and source; one without reads as before", () => {
+    const g = rig();
+    g.feed(768);
+    g.sink.eventStart(4, "impact", { trigger: "Audio.play", node: "/Player/Bike", behaviour: "BikeAudio.update", system: null });
+    g.sink.eventStart(5, "impact", { trigger: "AudioZone", node: null, behaviour: null, system: "game.Waves" });
+    g.sink.eventStart(6, "impact");
+    const c = g.decode();
+    const p = (name: string) => idOf(c, "parameters", name);
+    expect(eventsCapture(c, 0).events.map((e) => ({ ...e.event, perfMs: 0 }))).toEqual([
+      { type: "eventStart", perfMs: 0, instance: 4, asset: idOf(c, "events", "impact"), cause: { trigger: p("Audio.play"), node: p("/Player/Bike"), behaviour: p("BikeAudio.update"), system: null } },
+      { type: "eventStart", perfMs: 0, instance: 5, asset: idOf(c, "events", "impact"), cause: { trigger: p("AudioZone"), node: null, behaviour: null, system: p("game.Waves") } },
+      { type: "eventStart", perfMs: 0, instance: 6, asset: idOf(c, "events", "impact") },
+    ]);
+    // The causeless start is the two-arg record older builds wrote (and read).
+    expect(events(c).filter((e) => e.payload.kind === EventKind.eventStart).map((e) => e.payload.args.length)).toEqual([6, 6, 2]);
+  });
+
   it("an EVENT too short for its kind's layout opens but is not read (a foreign or malformed writer)", async () => {
     const epoch = { reason: 0, sampleRate: SAMPLE_RATE, limiterLatencyFrames: 0, outputLatencyFrames: 0, timeOffset: 0, perfMs: 1 };
     const file = assembleCapture(SAMPLE_HEADER, SAMPLE_META, [

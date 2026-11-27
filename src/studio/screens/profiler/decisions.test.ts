@@ -52,6 +52,41 @@ describe("decisions", () => {
   });
 });
 
+describe("the game step's trigger and source (ADR 0435)", () => {
+  const CAUSE_PARAMS = ["Audio.play", "/Level/Player/Bike", "BikeAudio.onCollisionEnter", "game.Waves", "AudioSource"];
+  const causeNames = { event: (id: number) => EVENTS[id]!, parameter: (id: number) => CAUSE_PARAMS[id]! } as unknown as CaptureNames;
+  const start = (cause: { trigger: number | null; node: number | null; behaviour: number | null; system: number | null }) =>
+    [ev(10, 20.2, { perfMs: 0, type: "eventStart", instance: 7, asset: 0, cause })];
+
+  it("names the trigger, and the GameObject, behaviour hook and system it came from", () => {
+    const [d] = instanceDecisions(start({ trigger: 0, node: 1, behaviour: 2, system: 3 }), causeNames, 20);
+    expect(d!.cause).toEqual({ trigger: "Audio.play", node: "/Level/Player/Bike", behaviour: "BikeAudio.onCollisionEnter", system: "game.Waves" });
+    const game = whyChain(voice, d).steps[0]!;
+    expect(game).toMatchObject({ kind: "game", label: "GAME", name: "Audio.play", why: "/Level/Player/Bike · BikeAudio.onCollisionEnter · system game.Waves" });
+    expect(game.detail!.split("\n")).toEqual([
+      "Trigger: Audio.play",
+      "GameObject: /Level/Player/Bike",
+      "Behaviour: BikeAudio.onCollisionEnter",
+      "System: game.Waves",
+      "Asked for: vehicles/land.playlist.json",
+    ]);
+  });
+
+  it("shows what it has: a component's GameObject alone, or no script when nothing was running", () => {
+    const [source] = instanceDecisions(start({ trigger: 4, node: 1, behaviour: null, system: null }), causeNames, 20);
+    expect(whyChain(voice, source).steps[0]).toMatchObject({ name: "AudioSource", why: "/Level/Player/Bike" });
+    const [bare] = instanceDecisions(start({ trigger: 0, node: null, behaviour: null, system: null }), causeNames, 20);
+    expect(whyChain(voice, bare).steps[0]).toMatchObject({ name: "Audio.play", why: "No script hook running" });
+  });
+
+  it("a capture from before it keeps the older game step", () => {
+    const [d] = instanceDecisions(events, names, 20);
+    expect(d!.cause).toBeNull();
+    expect(whyChain(voice, d).steps[0]).toMatchObject({ name: "Game event land", why: "Game trigger" });
+    expect(whyChain(voice, d).steps[0]!.detail).toBeUndefined();
+  });
+});
+
 describe("the graph's geometry", () => {
   it("opens in a row when it fits at 60%, else a column", () => {
     expect(chooseLayout(5, { w: 1000, h: 300 })).toBe("row");
