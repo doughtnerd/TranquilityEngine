@@ -50,6 +50,7 @@ function fakeHosts(view: () => Camera | null = () => null) {
       return b;
     },
     textureSize: () => [100, 50],
+    onCameraRender: () => () => {},
   };
   return { host: { decals, quads: quadHost, pixelsPerUnit: () => 100, viewCamera: view }, boxes, quads };
 }

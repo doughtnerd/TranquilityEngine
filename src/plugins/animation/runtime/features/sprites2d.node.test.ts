@@ -169,6 +169,7 @@ function fakeHost() {
       return b;
     },
     textureSize: () => [64, 32],
+    onCameraRender: () => () => {},
   };
   return { host, batches };
 }

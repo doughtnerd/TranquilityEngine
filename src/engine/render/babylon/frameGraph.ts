@@ -641,7 +641,12 @@ export class BabylonFrame {
     // once a frame, for the first camera; first in line, this makes it cluster again for this one.
     const render = new FrameGraphObjectRendererTask(`render${i}`, graph, this.scene, { enableClusteredLights: true });
     render.objectRenderer.onInitRenderingObservable.add(() => reclusterForNextCamera(this.scene), undefined, true);
-    render.objectRenderer.onBeforeRenderObservable.add(() => this.beforeView?.(v.camera));
+    render.objectRenderer.onBeforeRenderObservable.add(() => {
+      this.beforeView?.(v.camera);
+      // The frame graph doesn't raise the scene's before-camera-render observable, which scene.render() without one
+      // does for each camera: raise it here, before this camera draws (ADR 0442: quad batches' per-camera matrices).
+      this.scene.onBeforeCameraRenderObservable.notifyObservers(v.camera);
+    });
     render.targetTexture = clear.outputTexture;
     if (clear.depthTexture) render.depthTexture = clear.outputDepthTexture;
     render.camera = v.camera;

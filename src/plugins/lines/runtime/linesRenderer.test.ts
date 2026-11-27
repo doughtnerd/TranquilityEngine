@@ -50,6 +50,7 @@ function fakeHosts() {
       return b;
     },
     textureSize: () => [1, 1],
+    onCameraRender: () => () => {},
   };
   return { host: { dynamicMeshes, quads }, meshes, batches };
 }
