@@ -320,6 +320,28 @@ export interface UILaidOutElement {
    * a progress bar's fill, a select's arrow), in its box's frame; null for other elements and when there's nothing.
    */
   readonly parts: readonly UIPart[] | null;
+  /**
+   * ADR 0437: a box element's resolved paint (`paint.ts`), which the drawing layer draws as it is: a panel's (and every
+   * kind built on one) with its state colours resolved, a text's box. Null for kinds without a box to paint (images).
+   */
+  readonly paint: UIPaint | null;
+}
+
+/** ADR 0437: a colour as RGBA, each 0..1. */
+export type UIRGBA = readonly [number, number, number, number];
+
+/**
+ * ADR 0437: what an element's box is drawn with now, its interaction state resolved: the Unity-style state colours
+ * (`hoverColor`, `pressedColor`, `focusColor`) where they apply, else its style's own (already restyled for `:hover`…).
+ */
+export interface UIPaint {
+  /** Its fill; null: none (no colour, or a transparent one). A `backgroundImage` gradient replaces it, an image draws over it. */
+  readonly background: UIRGBA | null;
+  readonly borderColor: UIRGBA;
+  /** Each side's border width in UI pixels: top, right, bottom, left. */
+  readonly borderWidths: readonly [number, number, number, number];
+  /** Each corner's radius in UI pixels: top-left, top-right, bottom-right, bottom-left. */
+  readonly radii: readonly [number, number, number, number];
 }
 
 /**
@@ -373,7 +395,7 @@ export interface UICoreLike {
   canvases(): readonly UILaidOutCanvas[];
   /** Elements from the last sync, grouped by canvas in `canvases()` order, each canvas's in tree order (parents first; `order` is the draw order). */
   elements(): readonly UILaidOutElement[];
-  /** Increases whenever `sync` changed any box, visibility, text run or the element set (drawing layers can skip work otherwise). */
+  /** Increases whenever `sync` changed any box, visibility, text run, paint (ADR 0437) or the element set (drawing layers can skip work otherwise). */
   readonly layoutVersion: number;
   /** True when there's a visible screen canvas. */
   readonly hasScreenUI: boolean;

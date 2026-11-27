@@ -55,7 +55,7 @@ async function stepUntil(engine: Engine, done: () => boolean, what: string, maxF
 }
 
 /** The sample, from its own bootstrap: the Menu World on scenes/menu.scene.json. */
-async function openMenu(warnings: string[]): Promise<{ engine: Engine; menu: World; ui: UIView; click(el: UIHostElement): void }> {
+async function openMenu(warnings: string[]): Promise<{ engine: Engine; menu: World; ui: UIView; pointer: UIPointer; click(el: UIHostElement): void }> {
   vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => void warnings.push(args.map(String).join(" ")));
   const project = await readProject(SAMPLE);
   Assets.addSource(project.assets);
@@ -70,7 +70,7 @@ async function openMenu(warnings: string[]): Promise<{ engine: Engine; menu: Wor
   // The buttons are pressed through a UI core and Input, as the renderer routes a player's clicks.
   const pointer = await UIPointer.create(menu);
   pointers.push(pointer);
-  return { engine, menu, ui, click: (el) => pointer.click(el.as(UIButton)) };
+  return { engine, menu, ui, pointer, click: (el) => pointer.click(el.as(UIButton)) };
 }
 
 /** Laid out and drawn: its node active, and neither it nor an element above it `display: none` (the script's `.hidden`). */
@@ -84,7 +84,7 @@ const textOf = (el: UIHostElement | null) => el!.as(UIText).text;
 describe("the pirates menu (a Svelte component)", () => {
   it("mounts the component with no problems, showing what the lobby says", { timeout: 60_000 }, async () => {
     const warnings: string[] = [];
-    const { menu, ui } = await openMenu(warnings);
+    const { engine, menu, ui, pointer } = await openMenu(warnings);
     expect(menu._componentsOfType(Menu)).toHaveLength(1);
     expect(warnings.filter((w) => /Menu\.svelte/.test(w))).toEqual([]);
 
@@ -98,7 +98,14 @@ describe("the pirates menu (a Svelte component)", () => {
     expect(ui.query("#title")!.as(UIText).color.toHex().toLowerCase()).toBe("#ffd973");
     const quick = ui.query("#quick-match")!.as(UIButton);
     expect(quick.height).toBe("60");
-    expect(quick.hoverColor.toHex().toLowerCase()).toBe(new Color(0.95, 0.7, 0.26).toHex().toLowerCase());
+    // Its `:hover` background is what the core paints it with under the pointer (ADR 0437).
+    pointer.hover(quick);
+    engine.step(STEP);
+    pointer.sync();
+    const hovered = pointer.core.elements().find((e) => e.comp === quick)!.paint!.background!;
+    expect(new Color(...hovered).toHex().toLowerCase()).toBe(new Color(0.95, 0.7, 0.26).toHex().toLowerCase());
+    pointer.leave();
+    engine.step(STEP);
     expect(ui.query("#quick-match span")!.as(UIText).fontWeight).toBe("bold"); // inherited through the button
     expect(ui.query("#left")!.as(UIPanel).width).toBe("430");
     expect(ui.query("#code")!.as(UIInputField).maxLength).toBe(5);

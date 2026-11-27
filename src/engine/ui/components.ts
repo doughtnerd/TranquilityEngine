@@ -19,6 +19,7 @@ import { GameObject } from "../scene/GameObject";
 import { uiInteractions } from "./interactions";
 import { resetFormEvent, submitForm } from "./formControls";
 import { _addMediaPlayer, _removeMediaPlayer, AudioSourceMedia, makeVideoSource, UIMediaPlayer, type UIMediaEvent, type UIMediaEventType, type UIMediaFields, type UIMediaSource } from "./media";
+import type { UIStyledStates } from "./paint";
 // Keyboard and gamepad navigation (ADR 0340) comes with the components: `engine.UIActions`, the `ui` context and `engine.UINavigation`.
 import "./navigation";
 
@@ -427,6 +428,12 @@ export class UIPanel extends UIElement {
   @field(Number) boxShadowOffsetY = 0;
   /** How far the shadow blurs, in UI pixels (CSS's blur radius). */
   @field(Number) boxShadowBlur = 0;
+  /**
+   * @internal ADR 0437: the pseudo-classes of its own (`:hover`, `:pressed`, `:focus`) named by the style rules that give
+   * it its `backgroundColor` and `borderColor`, written by the UI host as it styles it; null: unstyled. In those states
+   * its resolved paint (`paint.ts`) draws its style's colour, not the Unity-style state colour.
+   */
+  _styledStates: UIStyledStates | null = null;
 }
 
 /**

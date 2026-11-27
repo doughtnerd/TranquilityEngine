@@ -35,14 +35,15 @@ import type { FieldInfo } from "../../core/registry";
 import type { GameObject } from "../../scene/GameObject";
 import { Locale } from "../../localisation/Locale";
 import { uiPreferencesVersion } from "../preferences";
-import { UIButton, UICanvas, UIInputField, UIPanel, UIText, isFocusableUI, type UIComponentType } from "../components";
+import { UICanvas, UIInputField, UIPanel, UIText, isFocusableUI, type UIComponentType } from "../components";
 import { clickUI, setUIValue, uiValueOf } from "../formControls";
 import { setUIPartStyles, type UIPartStyle } from "../formParts";
 import { generatesPseudoElements, samePseudoState, uiContentAttributes, uiPartElements, uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
+import type { UIPaintState, UIStyledStates } from "../paint";
 import { boundsOf, transformRect } from "../transform2d";
 import { backdropFilterFields, filterStepsOf, filterText, type UIFilterFields } from "../filters";
-import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudo, UIPseudoElement, UIPseudoState, UIStylesheet, UITag } from "../document/types";
+import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudoElement, UIPseudoState, UIStylesheet, UITag } from "../document/types";
 import type { UIContentPiece } from "../document/contentValue";
 import type { UIAnimationSpec, UITransitionSpec } from "../document/animationValues";
 import type { UIElementUnits, UIHasUse } from "../document/cascade";
@@ -858,6 +859,34 @@ function walkAll(el: UIHostElement, fn: (el: UIHostElement) => void): void {
   if (el._after) walkAll(el._after, fn);
 }
 
+const NO_STATES: readonly UIPaintState[] = [];
+const PAINT_STATES: ReadonlySet<string> = new Set<UIPaintState>(["hover", "pressed", "focus"]);
+
+/** ADR 0437: the paint states its rule for `field` names on it (in the subject of a selector of it that matches it now); null when neither does. */
+function styledStatesOf(el: UIHostElement, resolved: ReadonlyMap<string, ResolvedValue>, P: Cascade): UIStyledStates | null {
+  const named = (field: string): readonly UIPaintState[] => {
+    const source = resolved.get(field)?.source;
+    if (source?.kind !== "rule") return NO_STATES;
+    const out = new Set<UIPaintState>();
+    for (const s of source.rule.selectors) {
+      const states = s.pseudoElement ? NO_STATES : subjectStates(s);
+      if (states.length && P.matchSelector(s, el._target)) for (const n of states) out.add(n);
+    }
+    return out.size ? [...out] : NO_STATES;
+  };
+  const background = named("backgroundColor"), border = named("borderColor");
+  return background.length || border.length ? { background, border } : null;
+}
+
+/** The paint states a selector's subject compound names, `:is()`/`:where()` options' included. */
+function subjectStates(s: Selector): UIPaintState[] {
+  const subject = s.parts[s.parts.length - 1]?.selector;
+  if (!subject) return [];
+  const out = subject.pseudo.filter((p): p is UIPaintState => PAINT_STATES.has(p));
+  for (const is of subject.is ?? []) for (const inner of is.selectors) out.push(...subjectStates(inner));
+  return out;
+}
+
 /** ADR 0432: a pseudo-element's style target: matched through its originating element (`parent`). */
 function pseudoTarget(el: UIHostElement, which: UIPseudoElement): MutableTarget {
   return {
@@ -1498,7 +1527,6 @@ export class UIHostTree {
   private apply(el: UIHostElement, resolved: Map<string, ResolvedValue>, P: Cascade): boolean {
     const type = el._comp.constructor as ComponentClass;
     const sheets = parsedSheets;
-    const parentResolved = el._parent?._resolved ?? null;
     const comp = el._comp as unknown as Record<string, unknown>;
     const fields = P.fieldsOf(type);
     const content = new Set(uiContentAttributes(el.uiTag));
@@ -1540,24 +1568,9 @@ export class UIHostTree {
         animations?.map((spec): UIResolvedAnimation => ({ spec, tracks: () => P.keyframeTracks(sheets, spec.name, type, resolved, el._markup.file, warn, passed) })) ?? null,
       );
     }
-    // A button's hover and pressed colours come from `:hover` / `:pressed` backgrounds, so the drawing shows them.
-    if (sheetsUsePseudo && el._comp instanceof UIButton) {
-      // The target itself, in another state for a moment: its siblings know it by identity (structural selectors).
-      const at = (state: Partial<Record<UIPseudo, boolean>>) => {
-        const saved = el._target.state;
-        el._target.state = { ...saved, hover: false, pressed: false, ...state };
-        try {
-          return P.resolveStyle(el._target, el._markup, type, sheets, parentResolved, () => {}).get("backgroundColor");
-        } finally {
-          el._target.state = saved;
-        }
-      };
-      const base = at({});
-      const hover = at({ hover: true });
-      const pressed = at({ hover: true, pressed: true });
-      if (hover && hover.source !== base?.source && hover.value) el._comp.hoverColor = P.cloneValue(hover.value) as Color;
-      if (pressed && pressed.source !== base?.source && pressed.value) el._comp.pressedColor = P.cloneValue(pressed.value) as Color;
-    }
+    // ADR 0437: the states of its own its rules give its fill and border colour: its resolved paint draws those from its
+    // style (`_lateSync` restyles it as its state changes), not from the Unity-style state colours.
+    if (el._comp instanceof UIPanel) el._comp._styledStates = sheetsUsePseudo ? styledStatesOf(el, resolved, P) : null;
     const changed = !passesOnSame(el._resolved, resolved, P);
     el._resolved = resolved;
     el._applied = next;
