@@ -9,36 +9,37 @@
  * - Mixer buses are Babylon `AudioBus`es (parent through `outBus`); `applyMix` sets each bus's volume to its resolved gain.
  *   Snapshots and ducking arrive already folded into that gain. Effects (reverb, filters, compressor), a snapshot's low-pass,
  *   priority, stealing by priority and virtual voices are core-only: the fallback ignores them rather than fake them.
- * - A sound is one `StaticSound` (decoded once per URL, shared by every voice) or, for `stream` clips, one `StreamingSound`.
- *   `play` is synchronous but creating the sound is not, so the voice returned records its setters and applies them when
- *   the sound is ready (the pattern of `PendingVoice` in `pendingBackend.ts`).
+ * - A voice is a `BabylonVoice` (`babylonVoice.ts`), which reaches this backend only through its `VoiceHost`. Its sound
+ *   plays a buffer from the clip loader (`babylonClipLoader.ts`: decoded once per URL and shared by every voice, an
+ *   ambisonic clip's W channel, a generator's render) or, for `stream` clips, is one `StreamingSound`. `play` is
+ *   synchronous but creating the sound is not, so the voice keeps what its setters ask and applies it when the sound is
+ *   ready (its voice sound state, `babylonVoiceState.ts`).
  * - `maxVoices` maps to a cap on live voices per bus (the oldest is stopped), and to each sound's `maxInstances`.
+ * - Music (`music`) is `BabylonMusic` (`babylonMusic.ts`), through its `MusicHost`.
  *
  * Babylon is imported module by module and only when a sound first plays, so servers and tests that never play don't load it.
- * Nothing of Babylon appears outside this file (ADR 0010).
+ * Nothing of Babylon appears outside this file and the voice, voice state, clip loader and mapping modules (ADR 0010).
  */
-import type { AudioParameterRampShape } from "@babylonjs/core/AudioV2/audioParameter";
 import type { AudioBus, PrimaryAudioBus } from "@babylonjs/core/AudioV2/abstractAudio/audioBus";
 import type { AudioEngineV2 } from "@babylonjs/core/AudioV2/abstractAudio/audioEngineV2";
-import type { StaticSound } from "@babylonjs/core/AudioV2/abstractAudio/staticSound";
-import type { StaticSoundBuffer } from "@babylonjs/core/AudioV2/abstractAudio/staticSoundBuffer";
-import type { StreamingSound } from "@babylonjs/core/AudioV2/abstractAudio/streamingSound";
 import type { Vec3Like } from "../../../engine/core/math";
-import type { World } from "../../../engine/core/World";
 import { AudioReverbZone } from "./AudioReverbZone";
 import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import type { MixOpTarget } from "../../../engine/audio/mixer";
 import { FALLBACK_LIVE_CAPS, type SentClass } from "../../../engine/audio/busCapability";
 import { BABYLON_CPU_REASON, babylonCpuDebug, babylonMixDebug } from "./mix/mixDebug";
-import { NULL_PROFILE_SINK, type ProfileSink, type ProfileStopReason } from "./mix/profileSink";
+import { NULL_PROFILE_SINK, type ProfileSink } from "./mix/profileSink";
 import { mixerTapFor, taps } from "./mix/profileTaps";
 import type { KeyframeBus, KeyframeVoice } from "./capture/format";
 import { KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_VOICES, NO_NAME, keyframeAudibility, keyframePitch } from "./capture/keyframeLayout";
 import { generatorParamIndex } from "../../../engine/audio/generators/catalogue";
-import { mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioGenerators, type GeneratorSource, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicLifecycleEvent, type MusicGroupRequest, type AudioOutputDevice, type BackendKeyframe, type MusicBackendDebug, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type ShapedParams, type VoiceSpatialOptions } from "./backend";
-import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
-import { DistanceEffect, SendCurveTable, SpatialViewFlag, type ListenerFrame, type SpatialPassHost, type SpatialVoiceView, type ZonePass } from "./core/spatial";
+import { mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioGenerators, type GeneratorSource, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioStatus, type AudioVoice, type ListenerPose, type MusicBackend, type AudioOutputDevice, type BackendKeyframe, type PlayRequest } from "./backend";
+import { busCreationSteps, listenerQuaternion, planBuses, webAudioVector, type BusPlan } from "./babylonMapping";
+import { BabylonClipLoader } from "./babylonClipLoader";
+import { BabylonVoice, type VoiceHost, type VoiceMusic } from "./babylonVoice";
+import { BabylonMusic, type MusicHost } from "./babylonMusic";
+import { DistanceEffect, SendCurveTable, type ListenerFrame, type SpatialPassHost, type SpatialVoiceView, type ZonePass } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
 import { OcclusionPass } from "./core/occlusion";
 import { encodeVoiceId, voiceGen, voiceIndex } from "./core/ids";
@@ -47,8 +48,6 @@ import { HiddenTabPolicy } from "./hiddenTab";
 import { writeKeyframeBusLanes } from "./mix/keyframeBus";
 import { Unlock, type UnlockContext } from "./core/unlock";
 import { warnOnce } from "./core/handle";
-import { loadFileLoopPoints, onLoopPoints } from "./loopPoints";
-import { fadeLawWeight } from "./fadeLaw";
 
 /** What a test (or an unusual host) can replace. */
 export interface BabylonBackendOptions {
@@ -62,8 +61,6 @@ export interface BabylonBackendOptions {
   visibility?: VisibilitySource | null;
 }
 
-type Sound = StaticSound | StreamingSound;
-
 /** The engine and what hangs off it, once created. */
 interface Live {
   readonly engine: AudioEngineV2;
@@ -73,25 +70,13 @@ interface Live {
   plan: BusPlan[];
   /** Unknown bus names play on this one: the first root, else the main bus. */
   rootName: string | null;
-  /** Decoded clips by URL, so repeated one-shots don't refetch. */
-  readonly buffers: Map<string, Promise<StaticSoundBuffer>>;
-  /** Decoded clip lengths in seconds by asset path, for `clipDuration`. */
-  readonly durations: Map<string, number>;
-  /** ADR 0162 §8: ambisonic clips' channel 0 as a mono buffer, by URL (null: refused, already warned). */
-  readonly wBuffers: Map<string, Promise<AudioBuffer | null>>;
-  /** ADR 0360 §8: generator renders by patch and seed (`generatorKey`), oldest first, at most `GENERATOR_CACHE_RENDERS`. */
-  readonly generatorBuffers: Map<string, Promise<AudioBuffer>>;
+  /** Decoded clips, ambisonic W channels, generator renders and clip durations. */
+  readonly clips: BabylonClipLoader;
 }
-
-/** ADR 0360 §8: the generator renders the fallback keeps (a render is ≈ 0.2 MB a second at 48 kHz). */
-const GENERATOR_CACHE_RENDERS = 64;
 
 /** The one warning a session gets the first time the fallback plays a generator (ADR 0360 §8). */
 const GENERATOR_RENDER_WARNING =
   "the Babylon audio fallback plays generators as offline renders: their parameters and gen: curves don't follow while they play (ADR 0360).";
-
-/** A generator render's cache key: the kind, the resolved values (the patch) and the seed. */
-const generatorKey = (g: GeneratorSource): string => `${g.kind}|${g.seed >>> 0}|${g.values.join(",")}`;
 
 /** True when the generator sounds until released (an oscillator or synth with no length): its render loops. */
 function generatorLoops(g: GeneratorSource): boolean {
@@ -101,655 +86,10 @@ function generatorLoops(g: GeneratorSource): boolean {
 
 /** Babylon ramps each parameter change over this many seconds (`parameterRampDuration`); no per-call duration is needed. */
 const BUS_RAMP_SECONDS = 0.015;
-const RAMP = "linear" as AudioParameterRampShape;
 /** Ids of voices past the slot table (no Doppler or occlusion for them): generation 0, so no pass binds them. */
 let overflowId = 1;
 /** Voices the spatial view lists at once (ADR 0162 K4: Doppler and occlusion run over these). */
 const SPATIAL_SLOTS = 1024;
-
-const warnedFlatStream = new Set<string>();
-/**
- * The fallback plays a `stream` clip as HTML5 audio (a `StreamingSound`), which it keeps flat: its position and
- * attenuation are dropped, with one warning per asset. (On the core a streamed clip is a full voice: spatial too.)
- */
-function warnFlatStream(path: string): void {
-  if (warnedFlatStream.has(path)) return;
-  warnedFlatStream.add(path);
-  console.warn(`[myco] "${path}" streams, which the Babylon audio fallback plays as HTML5 audio and can't make spatial; it plays flat. Turn off "stream" in its import settings for positional sound there.`);
-}
-
-/**
- * What a music member adds to a plain play (api-and-models §8): the file frames it starts and loops at, the silent start
- * of a stamped fade-in, and the group's hook for the member's end. Frames become seconds at the context's rate once the
- * engine exists.
- */
-interface VoiceMusic {
-  startFrame: number;
-  loopStartFrame: number;
-  /** 0: the file's end. */
-  loopEndFrame: number;
-  fadeZero: boolean;
-  onEnd: (voice: BabylonVoice) => void;
-}
-
-/** A non-linear shaped fade runs as at most this many linear `setVolume` ramps, each at least `SHAPED_STEP_MIN_SECONDS` long. */
-const SHAPED_STEPS = 8;
-const SHAPED_STEP_MIN_SECONDS = 0.03;
-/** A music start later than this after its stamp counts as late, seconds. */
-const MUSIC_LATE_SECONDS = 0.002;
-
-class BabylonVoice implements AudioVoice {
-  /** `(gen << 16) | slot` in the backend's spatial table (so `AudioSource._voiceId` binds the occlusion pass), or a generation-0 id past it. */
-  readonly id: number;
-  /** The slot in the spatial view, -1 past the table. */
-  readonly slot: number;
-  /** The clip plays as a `StreamingSound`: not for an ambisonic clip, which always decodes (§8). */
-  private readonly stream: boolean;
-  /** Main's occlusion gain (1 open) and the one `applyVolume` last put on the sound. */
-  private occGain = 1;
-  private appliedOcc = 1;
-  /** Main's Doppler factor (1 none), decoded clips only. */
-  private dopplerFactor = 1;
-  /** The fallback has no stealing, virtual or locked voices (api-and-models 1 "Fallback backend"); only a failed load shows. */
-  reason: AudioReason | null = null;
-  private ended = false;
-  /** ADR 0171 (Bb1): the voice left through `voiceSteal`, which stands in for its `voiceStop`. */
-  private stolen = false;
-  private bus: string;
-  private volume: number;
-  /** The fade's target gain, and the gain the sound has now (they differ until `applyVolume` runs). */
-  private gain = 1;
-  private appliedGain = 1;
-  private rampSeconds = 0;
-  private pitch: number;
-  private attenuation: Attenuation | null;
-  private position: Vec3Like | null;
-  private paused = false;
-  private started = false;
-  private sound: Sound | null = null;
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  /** ADR 0158 §4: the loop region and flag asked for (by `setLoop` or the clip's loop points), applied when the sound is ready. */
-  private region: { start: number; end: number } | null = null;
-  private looping: boolean;
-  /** E4.5: the wait for the clip's loop points, until they arrive or the voice ends. */
-  private unsubPoints: (() => void) | null = null;
-  /** True once a `setLoop` (an event's) set the region: the clip's own points don't override it. */
-  private regionSet = false;
-  /** True while the region is the clip's own points (their end is clamped to the buffer; an event's isn't). */
-  private regionIsFile = false;
-  /** The sound's length in seconds once its buffer is loaded (a loop end is clamped to it). */
-  private duration = Number.POSITIVE_INFINITY;
-  /** Where playback starts in the file, seconds: a music member's start frame (converted at load), or a `seek` before the start. */
-  private startOffset = 0;
-  /** Music member: the context time the sound was put on (the stamp's time when on time), null before. */
-  private startedAtTime: number | null = null;
-  /** A streamed music member waits for its stamp on a timer (a `StreamingSound` has no `waitTime`). */
-  private startTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Pending steps and the end of a shaped fade (the `fade` ramp). */
-  private readonly shapedTimers = new Set<ReturnType<typeof setTimeout>>();
-  /** Pending steps of a stamped params ramp (the stem's own gain, a second factor beside `fade`). */
-  private readonly paramTimers = new Set<ReturnType<typeof setTimeout>>();
-  /** Music: the stem's own gain (quantised automation, solo), a factor of the voice's volume beside `fade`. */
-  private param = 1;
-  private appliedParam = 1;
-  /** ADR 0162 §1.2: the request's `occlusion` switch and `dopplerLevel`, as `setSpatialOptions` last changed them. */
-  private occlusionOn: boolean;
-  private dopplerLevel: number;
-
-  constructor(private readonly backend: BabylonBackend, private readonly req: PlayRequest, private readonly music?: VoiceMusic) {
-    this.stream = req.stream && req.ambisonic !== true;
-    this.slot = backend._allocSlot(this);
-    this.id = this.slot >= 0 ? encodeVoiceId(this.slot, backend._slotGen(this.slot)) : overflowId++ & 0xffff || 1;
-    this.bus = req.bus;
-    this.volume = req.volume ?? 1;
-    this.pitch = req.pitch ?? 1;
-    this.looping = req.loop;
-    this.occlusionOn = req.occlusion !== false;
-    this.dopplerLevel = req.dopplerLevel ?? 0;
-    // `PlayRequest.offset`: where playback starts in the file (a loop wraps it once the buffer's length is known, `seek`).
-    if (req.offset !== undefined && Number.isFinite(req.offset) && req.offset > 0) this.startOffset = req.offset;
-    if (music?.fadeZero) {
-      this.gain = 0;
-      this.appliedGain = 0;
-    }
-    // E4.5 (ADR 0158 §4): a plain looping clip or stream loops its sidecar's or file's loop points; they are read
-    // from the file once per path (`loadFileLoopPoints`) and applied when known (`pointsArrived`).
-    if (req.loop && !music && !(req.group && req.group > 0) && !req.generator) {
-      this.unsubPoints = onLoopPoints(req.path, (p) => this.pointsArrived(p));
-      void loadFileLoopPoints(req.path, req.url);
-    }
-    const flat = req.stream && (req.attenuation !== undefined || req.position !== undefined);
-    if (flat) warnFlatStream(req.path);
-    // §8: an ambisonic clip plays its W channel as plain mono: no position, no distance, no rotation.
-    const ambisonic = req.ambisonic === true;
-    if (ambisonic) warnOnce(`babylon-ambisonic:${req.path}`, `"${req.path}" is an ambisonic clip; the Babylon audio fallback plays its W channel as mono, unrotated (ADR 0162).`);
-    if (filterIsActive(req.filter) || (req.aux && req.aux.level > 0)) warnOnce(`babylon-fx:${req.path}`, `"${req.path}" asks for a ${filterIsActive(req.filter) ? "filter" : "aux send"}, which the Babylon audio fallback skips (ADR 0162).`);
-    this.attenuation = flat || ambisonic ? null : (req.attenuation ?? null);
-    this.position = !flat && !ambisonic && req.position ? { x: req.position.x, y: req.position.y, z: req.position.z } : null;
-    mixer.voiceStarted(this.bus);
-    // §5.6 voiceStart: the fallback starts a voice when it is asked (`atFrame` 0: at or before now), with no core flag bits.
-    if (backend._profile !== NULL_PROFILE_SINK) backend._profile.voiceStart(this.id, req.path, backend._busRef(this.bus), 0, 0, this.volume);
-    void this.load();
-  }
-
-  /** @internal Bb1: the bus's `maxVoices` stopped this voice for `thief` (§5.6 voiceSteal, reason busMaxVoices). */
-  _stolenBy(thief: BabylonVoice): void {
-    if (this.ended) return;
-    this.stolen = true;
-    this.backend._profile.voiceSteal(this.id, thief.id, "busMaxVoices");
-    this.stop();
-  }
-
-  get playing(): boolean {
-    return !this.ended;
-  }
-
-  /** @internal The event instance this voice belongs to, null for none (debug rows). */
-  get event(): number | null {
-    return this.req.group ? this.req.group : null;
-  }
-
-  /** @internal Debug row fields. */
-  get row(): { clip: string; bus: string; gain: number; pitch: number } {
-    return { clip: this.req.path, bus: this.bus, gain: this.volume * this.param * this.gain, pitch: this.pitch };
-  }
-
-  /** @internal The bus this voice counts on. */
-  get busName(): string {
-    return this.bus;
-  }
-
-  /** @internal Music: the context time the sound was put on, null while it hasn't started. */
-  get _startedAt(): number | null {
-    return this.startedAtTime;
-  }
-
-  /** @internal Music: the voice is done (ended, stopped or failed to load). */
-  get _ended(): boolean {
-    return this.ended;
-  }
-
-  /** @internal Ends the voice's bookkeeping once: the bus count drops and the backend forgets it. */
-  private finish(reason: ProfileStopReason): void {
-    if (this.ended) return;
-    this.ended = true;
-    // §5.6 voiceStop (a steal reports itself as the `voiceSteal`, as on the core, so it adds no stop of its own).
-    if (!this.stolen) this.backend._profile.voiceStop(this.id, reason);
-    if (this.startTimer !== null) clearTimeout(this.startTimer);
-    this.startTimer = null;
-    for (const t of this.shapedTimers) clearTimeout(t);
-    this.shapedTimers.clear();
-    for (const t of this.paramTimers) clearTimeout(t);
-    this.paramTimers.clear();
-    this.music?.onEnd(this);
-    this.unsubPoints?.();
-    this.unsubPoints = null;
-    mixer.voiceEnded(this.bus);
-    this.backend._forget(this);
-  }
-
-  private disposeSound(): void {
-    const sound = this.sound;
-    this.sound = null;
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = null;
-    try {
-      sound?.dispose();
-    } catch {
-      /* already gone */
-    }
-  }
-
-  private async load(): Promise<void> {
-    let sound: Sound;
-    try {
-      const live = await this.backend._ready();
-      if (!live) {
-        // The backend already warned that the engine can't start: no second warning per voice.
-        if (!this.ended) {
-          this.reason = "failed";
-          this.finish("failed");
-        }
-        return;
-      }
-      if (this.ended) return;
-      if (this.music) this.setMusicRegion();
-      const cap = this.backend._cap(this.bus);
-      const options: Record<string, unknown> = {
-        outBus: this.backend._busNode(live, this.bus),
-        volume: occludedVolume(this.volume * this.appliedParam, this.appliedGain, this.occGain),
-        loop: this.req.loop,
-        ...(cap !== null ? { maxInstances: cap } : {}),
-      };
-      this.appliedOcc = this.occGain;
-      if (!this.stream) options.playbackRate = dopplerPlaybackRate(this.pitch, this.dopplerFactor);
-      if (this.attenuation || this.position) Object.assign(options, spatialSoundOptions(spatialParams(this.attenuation ?? DEFAULT_ATTENUATION, mixer.audioSettings.spatial)));
-      const name = `${this.req.path}#${this.id}`;
-      if (this.stream) sound = await live.engine.createStreamingSoundAsync(name, this.req.url, options);
-      else {
-        // §8: an ambisonic clip is decoded with `decodeAudioData` and its channel 0 handed over as a mono `AudioBuffer`
-        // (null: refused over the size limit, warned once; the voice fails quietly).
-        // ADR 0360 §8: a generator plays its offline render (cached by patch and seed) as a clip.
-        const buffer: StaticSoundBuffer | AudioBuffer | null = this.req.generator
-          ? await this.backend._generatorBuffer(live, this.req.generator)
-          : this.req.ambisonic === true
-            ? await this.backend._wBuffer(live, this.req.url, this.req.path)
-            : await this.backend._buffer(live, this.req.url);
-        if (buffer === null) {
-          if (!this.ended) {
-            this.reason = "failed";
-            this.finish("failed");
-          }
-          return;
-        }
-        if (Number.isFinite(buffer.duration)) {
-          live.durations.set(this.req.path, buffer.duration);
-          this.duration = buffer.duration;
-        }
-        sound = await live.engine.createSoundAsync(name, buffer as StaticSoundBuffer, options);
-      }
-    } catch (e) {
-      if (!this.ended) {
-        console.warn(`[myco] audio: could not load "${this.req.path}": ${e instanceof Error ? e.message : String(e)}`);
-        this.reason = "failed";
-        this.finish("failed");
-      }
-      return;
-    }
-    if (this.ended) {
-      try {
-        sound.dispose();
-      } catch {
-        /* already gone */
-      }
-      return;
-    }
-    this.sound = sound;
-    sound.onEndedObservable.add(() => {
-      this.finish("ended");
-      this.disposeSound();
-    });
-    if (this.position) this.applyPosition();
-    if (this.region || this.looping !== this.req.loop) this.applyLoop();
-    if (!this.paused) this.start();
-    if (this.gain !== this.appliedGain || this.param !== this.appliedParam || this.occGain !== this.appliedOcc) this.applyVolume(this.rampSeconds);
-  }
-
-  /** Music: the member's start offset and loop region, from file frames at the context's rate. */
-  private setMusicRegion(): void {
-    const m = this.music;
-    if (!m) return;
-    const rate = this.backend._rate();
-    this.startOffset = Math.max(0, m.startFrame) / rate;
-    if (this.req.loop) {
-      this.region = { start: Math.max(0, m.loopStartFrame) / rate, end: Math.max(0, m.loopEndFrame) / rate };
-      this.regionSet = true;
-      this.regionIsFile = false;
-      this.looping = true;
-    }
-  }
-
-  /** E4.5: the clip's loop points are known (null: it has none, so it loops whole). Never overrides an event's `setLoop`. */
-  private pointsArrived(p: { start: number; end: number } | null): void {
-    this.unsubPoints = null;
-    if (this.ended || this.regionSet || !p) return;
-    this.region = { start: p.start, end: p.end };
-    this.regionIsFile = true;
-    if (this.sound) this.applyLoop();
-  }
-
-  private start(): void {
-    const sound = this.sound;
-    if (!sound || this.started) return;
-    this.started = true;
-    const live = this.backend._live;
-    // `at` is a time on the heard clock (`Audio.time`); Babylon takes seconds from now. Only decoded clips can wait.
-    const wait = live && this.req.at !== undefined && Number.isFinite(this.req.at) ? this.req.at - live.engine.currentTime : 0;
-    if (this.music) {
-      const offset = this.startOffset > 0 ? { startOffset: this.startOffset } : {};
-      if (!this.stream) {
-        // Decoded: stamped through `waitTime` (§8).
-        this.startedAtTime = (live?.engine.currentTime ?? 0) + Math.max(0, wait);
-        (sound as StaticSound).play(wait > 0 ? { waitTime: wait, ...offset } : { ...offset });
-      } else if (wait > MUSIC_LATE_SECONDS) {
-        // Streamed: HTML5 audio can't wait, so a timer holds the start (best effort, unaligned).
-        this.startTimer = setTimeout(() => {
-          this.startTimer = null;
-          if (this.ended) return;
-          this.startedAtTime = this.backend._live?.engine.currentTime ?? 0;
-          sound.play(offset);
-        }, wait * 1000);
-      } else {
-        this.startedAtTime = live?.engine.currentTime ?? 0;
-        sound.play(offset);
-      }
-      return;
-    }
-    const offset = this.startOffset > 0 ? { startOffset: this.startOffset } : {};
-    if (!this.stream && wait > 0) (sound as StaticSound).play({ waitTime: wait, ...offset });
-    else sound.play(offset);
-  }
-
-  /**
-   * ADR 0264 (§8): a shaped fade of this voice's `fade` ramp, on every voice (streamed ones ramp too, as HTML5 volume
-   * steps). It starts at `f.at` (a timer, since a Babylon ramp starts when it is set) and runs `setVolume` ramps: one for
-   * a linear law, up to eight for the others. It replaces a fade under way and starts from the fade gain as it is when it
-   * begins. A timer that fires late joins the law at the phase the stamp's time implies, so the fade still ends when it
-   * was planned to.
-   */
-  fadeShaped(f: ShapedFade): void {
-    if (this.ended) return;
-    this.startRamp(this.shapedTimers, f.at, () => this.runShaped(f, this.shapedTimers, "fade"));
-  }
-
-  /** ADR 0264, G-1 (§8): the voice's own gain ramp, stamped at `r.at` on a timer; the cutoff is skipped. */
-  paramsShaped(r: ShapedParams): void {
-    if (this.ended) return;
-    if (r.lowpassHz !== undefined) warnOnce("babylon-music-lowpass", "a low-pass ramp on a voice is skipped by the Babylon audio fallback (api-and-models §8).");
-    if (r.gain === undefined) return;
-    const f: ShapedFade = { to: r.gain, seconds: r.seconds, law: r.law ?? "linear", ...(r.at !== undefined ? { at: r.at } : {}) };
-    this.startRamp(this.paramTimers, r.at, () => this.runShaped(f, this.paramTimers, "param"));
-  }
-
-  private startRamp(timers: Set<ReturnType<typeof setTimeout>>, at: number | undefined, run: () => void): void {
-    for (const t of timers) clearTimeout(t);
-    timers.clear();
-    const live = this.backend._live;
-    const wait = at !== undefined && Number.isFinite(at) && live ? at - live.engine.currentTime : 0;
-    if (wait > MUSIC_LATE_SECONDS) this.later(timers, run, wait);
-    else run();
-  }
-
-  private later(timers: Set<ReturnType<typeof setTimeout>>, fn: () => void, seconds: number): void {
-    const t = setTimeout(() => {
-      timers.delete(t);
-      fn();
-    }, seconds * 1000);
-    timers.add(t);
-  }
-
-  private runShaped(f: ShapedFade, timers: Set<ReturnType<typeof setTimeout>>, which: "fade" | "param"): void {
-    if (this.ended) return;
-    const param = which === "param";
-    const set = (v: number, seconds: number): void => {
-      if (param) this.setParam(v, seconds);
-      else this.fade(v, seconds);
-    };
-    const from = param ? this.param : this.gain;
-    const to = Math.min(4, Math.max(0, Number.isFinite(f.to) ? f.to : 1));
-    const total = Math.max(0, Number.isFinite(f.seconds) ? f.seconds : 0);
-    let u0 = f.startPhase !== undefined && Number.isFinite(f.startPhase) ? Math.min(1, Math.max(0, f.startPhase)) : 0;
-    // A timer fires after its stamp: the fade joins the law where the stamp's time puts it.
-    const live = this.backend._live;
-    if (total > 0 && f.at !== undefined && Number.isFinite(f.at) && live) {
-      const late = live.engine.currentTime - f.at;
-      if (late > MUSIC_LATE_SECONDS) u0 = Math.min(1, u0 + (late / total) * (1 - u0));
-    }
-    const remaining = total * (1 - u0);
-    const at = (u: number): number => from + (to - from) * fadeLawWeight(f.law, u);
-    if (remaining <= 0) {
-      set(to, 0);
-      if (f.stopAtEnd) this.stop();
-      return;
-    }
-    if (u0 > 0) set(at(u0), 0);
-    const steps = f.law === "linear" ? 1 : Math.max(1, Math.min(SHAPED_STEPS, Math.floor(remaining / SHAPED_STEP_MIN_SECONDS)));
-    const dur = remaining / steps;
-    const step = (i: number): void => {
-      if (this.ended) return;
-      set(i === steps ? to : at(u0 + ((1 - u0) * i) / steps), dur);
-      if (i < steps) this.later(timers, () => step(i + 1), dur);
-      else if (f.stopAtEnd) this.later(timers, () => this.stop(), dur);
-    };
-    step(1);
-  }
-
-  /** Music: ease the stem's own gain to `to` over `seconds` (a factor of the volume beside `fade`). */
-  private setParam(to: number, seconds: number): void {
-    if (this.ended) return;
-    this.param = Math.min(4, Math.max(0, Number.isFinite(to) ? to : 1));
-    if (this.sound) this.applyVolume(seconds);
-    else this.rampSeconds = seconds;
-  }
-
-  /**
-   * Put the loop region and flag on the sound. A streamed sound can't loop a region: it loops whole (warned once).
-   * `looping` false is release: `loop` clears, the current pass finishes and the clip plays on to its end.
-   */
-  private applyLoop(): void {
-    const sound = this.sound;
-    if (!sound) return;
-    const region = this.region;
-    if (this.stream) {
-      if (region && (region.start > 0 || region.end > 0)) warnOnce(`babylon-stream-loop:${this.req.path}`, `"${this.req.path}" streams, which the Babylon audio fallback can't loop by region; it loops whole.`);
-    } else if (region) {
-      const s = sound as StaticSound;
-      s.loopStart = Math.max(0, region.start);
-      // The TypeScript reader doesn't clamp to the file's length (the Rust decoder does).
-      s.loopEnd = this.regionIsFile ? Math.min(Math.max(0, region.end), this.duration) : Math.max(0, region.end);
-    }
-    sound.loop = this.looping;
-  }
-
-  /** Put volume times the fade's gain on the sound, easing over `seconds` when it is above zero. */
-  private applyVolume(seconds = 0): void {
-    const sound = this.sound;
-    if (!sound) return;
-    this.appliedGain = this.gain;
-    this.appliedParam = this.param;
-    this.appliedOcc = this.occGain;
-    this.rampSeconds = 0;
-    const target = occludedVolume(this.volume * this.param, this.gain, this.occGain);
-    if (seconds > 0) sound.setVolume(target, { duration: seconds, shape: RAMP });
-    else sound.volume = target;
-  }
-
-  private applySpatial(): void {
-    const sound = this.sound;
-    if (!sound) return;
-    const p = spatialParams(this.attenuation ?? DEFAULT_ATTENUATION, mixer.audioSettings.spatial);
-    const s = sound.spatial;
-    s.distanceModel = p.distanceModel;
-    s.minDistance = p.minDistance;
-    s.maxDistance = p.maxDistance;
-    s.rolloffFactor = p.rolloffFactor;
-    s.panningModel = p.panningModel;
-  }
-
-  private applyPosition(): void {
-    const sound = this.sound;
-    const p = this.position;
-    if (!sound || !p) return;
-    const s = sound.spatial;
-    const w = webAudioVector(p);
-    s.position.set(w.x, w.y, w.z);
-    s.update();
-  }
-
-  /** @internal The bus nodes were rebuilt: connect to the new one. */
-  _rebind(live: Live): void {
-    if (this.sound && !this.ended) this.sound.outBus = this.backend._busNode(live, this.bus);
-  }
-
-  setVolume(v: number): void {
-    if (this.ended) return;
-    this.volume = v;
-    this.applyVolume();
-  }
-  /** Ease the gain to `to` times the voice's volume. */
-  fade(to: number, seconds: number): void {
-    if (this.ended) return;
-    this.gain = Math.min(4, Math.max(0, Number.isFinite(to) ? to : 1));
-    if (this.sound) this.applyVolume(seconds);
-    else this.rampSeconds = seconds;
-  }
-  /** Priority has no meaning here: nothing is stolen by priority. */
-  setPriority(priority: number): void {
-    void priority;
-  }
-  /** Streamed clips have no playback rate in Babylon; their pitch stays 1. */
-  setPitch(rate: number): void {
-    if (this.ended) return;
-    this.pitch = rate;
-    const sound = this.sound;
-    if (sound && !this.stream) (sound as StaticSound).playbackRate = dopplerPlaybackRate(rate, this.dopplerFactor);
-  }
-
-  // --- ADR 0162 (K0, K4, §8): main's occlusion and Doppler results, and the source's velocity ---
-
-  /** Gain only: `volume × occGain` through the sound's volume; the cutoff is dropped (one warning the first time a wall asks for one). */
-  setOcclusion(gain: number, lpHz: number): void {
-    if (this.ended) return;
-    if (lpHz < 20000) warnOnce("babylon-occlusion-cutoff", "occlusion on the Babylon audio fallback only lowers the volume; its low-pass cutoff is dropped (ADR 0162).");
-    const g = Number.isFinite(gain) ? Math.min(1, Math.max(0, gain)) : 1;
-    if (g === this.occGain) return;
-    this.occGain = g;
-    if (this.sound) this.applyVolume();
-  }
-
-  /** Doppler multiplies a decoded clip's `playbackRate`; a stream plays flat as HTML5 audio and takes none. */
-  setDopplerRate(factor: number): void {
-    if (this.ended || this.stream) return;
-    this.dopplerFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
-    const sound = this.sound;
-    if (sound) (sound as StaticSound).playbackRate = dopplerPlaybackRate(this.pitch, this.dopplerFactor);
-  }
-
-  /** The source's velocity from physics (`AudioSource.velocity`, Doppler). */
-  setVelocity(v: Vec3Like): void {
-    if (this.ended) return;
-    this.backend._setVelocity(this.id, v);
-  }
-
-  /** @internal Fills this voice's row of the spatial view (called by `collectSpatialVoices`); `listener` is the pose for the audibility estimate. */
-  _fillView(view: BabylonSpatialView, i: number, listener: ListenerPose | null, distance: DistanceEffect): void {
-    const pos = this.position;
-    const ambisonic = this.req.ambisonic === true;
-    const spatial = pos !== null && !ambisonic;
-    const att = this.attenuation ?? DEFAULT_ATTENUATION;
-    view.world[i] = this.req.world ?? 0;
-    view.viewFlags[i] =
-      (spatial ? SpatialViewFlag.SPATIAL : 0) |
-      SpatialViewFlag.MIXED |
-      (spatial && this.occlusionOn ? SpatialViewFlag.OCCLUSION : 0) |
-      (ambisonic ? SpatialViewFlag.AMBISONIC : 0);
-    view.minDist[i] = att.minDistance;
-    view.maxDist[i] = att.maxDistance;
-    view.volume[i] = this.volume;
-    view.dopplerLevel[i] = this.dopplerLevel;
-    let a0 = this.volume * this.param * this.gain;
-    if (pos) {
-      view.posX[i] = pos.x;
-      view.posY[i] = pos.y;
-      view.posZ[i] = pos.z;
-      if (listener) {
-        const p = spatialParams(att, mixer.audioSettings.spatial);
-        distance.model = p.distanceModel;
-        distance.refDistance = p.minDistance;
-        distance.maxDistance = p.maxDistance;
-        a0 *= Math.max(0, distance.gain(Math.hypot(pos.x - listener.position.x, pos.y - listener.position.y, pos.z - listener.position.z)));
-      }
-    }
-    view.audibility0[i] = a0;
-  }
-  setAttenuation(a: Attenuation): void {
-    if (this.ended) return;
-    if (this.stream) return warnFlatStream(this.req.path);
-    this.attenuation = a;
-    this.applySpatial();
-    this.applyPosition();
-  }
-  setPosition(p: Vec3Like): void {
-    if (this.ended) return;
-    if (this.stream) return warnFlatStream(this.req.path);
-    this.position = { x: p.x, y: p.y, z: p.z };
-    this.applyPosition();
-  }
-  /** ADR 0158 §4 (seconds; `end` 0 is the clip's end). `looping` false releases the loop. */
-  setLoop(start: number, end: number, looping: boolean): void {
-    if (this.ended) return;
-    this.region = { start: Number.isFinite(start) ? start : 0, end: Number.isFinite(end) ? end : 0 };
-    this.regionSet = true;
-    this.regionIsFile = false;
-    this.looping = looping;
-    this.applyLoop();
-  }
-  /**
-   * ADR 0264: move to `seconds` of the sound. Before the sound has started it starts there; after, the sound restarts at
-   * the offset (`currentTime`). A looping sound wraps the time, otherwise it clamps to the clip's end.
-   */
-  seek(seconds: number): void {
-    if (this.ended || !Number.isFinite(seconds)) return;
-    let t = Math.max(0, seconds);
-    if (Number.isFinite(this.duration) && this.duration > 0) t = this.looping ? t % this.duration : Math.min(t, this.duration);
-    const sound = this.sound;
-    if (sound && this.started) sound.currentTime = t;
-    else this.startOffset = t;
-  }
-
-  /**
-   * ADR 0264 (§1.2, K4): Play edits of the source's M3 options. The fallback's Doppler and occlusion passes read the
-   * `occlusion` switch and `dopplerLevel`; it has no sends or ambisonic rotation (warned at play) to change.
-   */
-  setSpatialOptions(o: VoiceSpatialOptions): void {
-    if (this.ended) return;
-    if (o.occlusion !== undefined) this.occlusionOn = o.occlusion;
-    if (o.dopplerLevel !== undefined && Number.isFinite(o.dopplerLevel)) this.dopplerLevel = Math.max(0, o.dopplerLevel);
-  }
-
-  /** @internal Bb3: a live rename moved the bus's state under a new name; the voice follows without recounting. */
-  _renamedBus(to: string): void {
-    this.bus = to;
-  }
-  setBus(bus: string): void {
-    if (this.ended || bus === this.bus) return;
-    mixer.voiceEnded(this.bus);
-    this.bus = bus;
-    mixer.voiceStarted(bus);
-    const live = this.backend._live;
-    if (this.sound && live) this.sound.outBus = this.backend._busNode(live, bus);
-    this.backend._enforceCap(bus, this);
-  }
-  pause(): void {
-    if (this.ended || this.paused) return;
-    this.paused = true;
-    if (this.sound && this.started) this.sound.pause();
-  }
-  resume(): void {
-    if (this.ended || !this.paused) return;
-    this.paused = false;
-    if (!this.sound) return;
-    if (this.started) this.sound.resume();
-    else this.start();
-  }
-  stop(fadeSeconds = 0): void {
-    if (this.ended) return;
-    const sound = this.sound;
-    this.finish(fadeSeconds > 0 && this.started ? "faded" : "stopped"); // `playing` goes false now
-    if (!sound) return; // still loading: the load sees `ended` and drops the sound
-    if (fadeSeconds > 0 && this.started) {
-      sound.setVolume(0, { duration: fadeSeconds, shape: RAMP });
-      this.timer = setTimeout(() => {
-        try {
-          sound.stop();
-        } catch {
-          /* already gone */
-        }
-        this.disposeSound();
-      }, fadeSeconds * 1000);
-      return;
-    }
-    try {
-      if (this.started) sound.stop();
-    } catch {
-      /* already gone */
-    }
-    this.disposeSound();
-  }
-}
-
-/** The settings of a sound given a position but no attenuation: the engine's defaults for `AudioSource`. */
-const DEFAULT_ATTENUATION: Attenuation = { minDistance: 1, maxDistance: 100, rolloff: "inverse" };
 
 /**
  * ADR 0162 (K4, F1): the fallback's `SpatialVoiceView`. Slots are `SPATIAL_SLOTS` long; a voice takes one at play and gives
@@ -828,7 +168,7 @@ class BabylonSpatialView implements SpatialVoiceView {
     for (let i = 0; i < this.next; i++) {
       const v = this.voices[i];
       if (!v) continue;
-      v._fillView(this, i, listener, this.distance);
+      v.fillView(this, i, listener, this.distance);
       this.slots[n++] = i;
     }
     this.count = n;
@@ -914,8 +254,8 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     mute: (_rampMs, mode) => {
       this.hiddenMuted = true;
       this.applyMaster();
-      this._profile.hiddenTab(true);
-      if (mode === "pause") this._profile.gap("paused"); // §5.3: under `audio.background: "pause"` a hidden page records nothing until it shows
+      this.profile.hiddenTab(true);
+      if (mode === "pause") this.profile.gap("paused"); // §5.3: under `audio.background: "pause"` a hidden page records nothing until it shows
     },
     suspend: () => {
       const ctx = this.ctx;
@@ -933,15 +273,36 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     if (this.visibility?.hidden) this.enterBackground();
   }
 
-  /** @internal */
-  get _live(): Live | null {
-    return this.liveNow;
-  }
+  /**
+   * What a voice asks of this backend (`VoiceHost`): the engine and clip loader, bus nodes, `maxVoices`, its spatial slot
+   * and velocity, and the capture's sink.
+   */
+  private readonly voiceHost: VoiceHost = {
+    ready: () => this.ready(),
+    engineTime: () => this.liveNow?.engine.currentTime ?? null,
+    outBus: (bus) => (this.liveNow ? this.busNode(this.liveNow, bus) : null),
+    maxVoices: (bus) => this.cap(bus),
+    enforceCap: (bus, keep) => this.enforceCap(bus, keep),
+    busRef: (bus) => this.busRef(bus),
+    sampleRate: () => this.rate(),
+    profile: () => this.profile,
+    claimSlot: (voice) => {
+      const slot = this.spatialVoices.alloc(voice);
+      return { slot, id: slot >= 0 ? encodeVoiceId(slot, this.spatialVoices.gen[slot]!) : overflowId++ & 0xffff || 1 };
+    },
+    ended: (voice) => {
+      this.voices.delete(voice);
+      this.spatialVoices.release(voice.slot, voice);
+    },
+    setVelocity: (id, v) => {
+      if (this.spatialVoices.voiceOf(id)) this.doppler.setVelocity(voiceIndex(id), v);
+    },
+  };
 
   // --- Engine, context and unlock ----------------------------------------------------------------------------------
 
-  /** @internal The engine once it exists, created on first use. Null when it couldn't start (every voice then fails). */
-  _ready(): Promise<Live | null> {
+  /** The engine once it exists, created on first use. Null when it couldn't start (every voice then fails). */
+  private ready(): Promise<Live | null> {
     return (this.chain ??= this.create());
   }
 
@@ -1016,7 +377,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
         volume: this.isMuted ? 0 : this.master,
       });
       const main = engine.defaultMainBus ?? (await engine.createMainBusAsync("main"));
-      const live: Live = { engine, main, buses: new Map(), plan: [], rootName: null, buffers: new Map(), durations: new Map(), wBuffers: new Map(), generatorBuffers: new Map() };
+      const live: Live = { engine, main, buses: new Map(), plan: [], rootName: null, clips: new BabylonClipLoader(engine, audioContext) };
       if (this.disposed) {
         this.teardown(live);
         return null;
@@ -1050,7 +411,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     live.buses = buses;
     live.plan = plan;
     live.rootName = plan.find((b) => b.parent === null)?.name ?? null;
-    for (const v of this.voices) v._rebind(live);
+    for (const v of this.voices) v.rebind();
     for (const b of old.values()) {
       try {
         b.dispose();
@@ -1060,8 +421,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     }
   }
 
-  /** @internal */
-  _busNode(live: Live, name: string): PrimaryAudioBus {
+  private busNode(live: Live, name: string): PrimaryAudioBus {
     return live.buses.get(name) ?? (live.rootName !== null ? live.buses.get(live.rootName) : undefined) ?? live.main;
   }
 
@@ -1103,7 +463,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     const rename = op.op === "renameBus";
     if (rename) {
       const to = op.to.trim();
-      for (const v of this.voices) if (v.busName === op.from) v._renamedBus(to);
+      for (const v of this.voices) if (v.busName === op.from) v.followRename(to);
       const gain = this.gains.get(op.from);
       this.gains.delete(op.from);
       if (gain !== undefined) this.gains.set(to, gain);
@@ -1120,8 +480,8 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     return { ok: true, class: cls };
   }
 
-  /** @internal ADR 0171 (Bb1): the capture's event sink; the null object while no recorder runs (a tap costs one comparison). */
-  _profile: ProfileSink = NULL_PROFILE_SINK;
+  /** ADR 0171 (Bb1): the capture's event sink; the null object while no recorder runs (a tap costs one comparison). */
+  private profile: ProfileSink = NULL_PROFILE_SINK;
 
   /**
    * ADR 0171 (Bb1; api-and-models §5.6, §9): the capture's event taps on the fallback, all on main. One sink reaches this
@@ -1131,16 +491,16 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
    * or queued voices, no ladder, no loudness controls, and no EPOCH or GAP from a core (a `pause` background reports its GAP).
    */
   setProfileSink(sink: ProfileSink | null): void {
-    this._profile = sink ?? NULL_PROFILE_SINK;
-    (this.mixerRef ?? mixer)._setTap(sink ? mixerTapFor(sink, () => this._rate(), (n) => this._busRef(n)) : null);
-    taps.sink = this._profile;
+    this.profile = sink ?? NULL_PROFILE_SINK;
+    (this.mixerRef ?? mixer)._setTap(sink ? mixerTapFor(sink, () => this.rate(), (n) => this.busRef(n)) : null);
+    taps.sink = this.profile;
   }
 
   /**
-   * @internal A bus name's `busRef` (`gen << 8 | slot`, §6.3): the mixer's slot for it with generation 0 (the fallback has no
+   * A bus name's `busRef` (`gen << 8 | slot`, §6.3): the mixer's slot for it with generation 0 (the fallback has no
    * slot table; a slot is never reused by a later bus, see `Mixer._applyLive`'s `addBus`).
    */
-  _busRef(bus: string): number {
+  private busRef(bus: string): number {
     return ((this.mixerRef ?? mixer)._lanes(bus)?.slot ?? 0) & 0xff;
   }
 
@@ -1161,7 +521,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
       if (voices.length < KEYFRAME_MAX_VOICES) {
         const row = v.row;
         voices.push({
-          id: v.id >>> 0, clip: nameId("clips", row.clip), slot: this._busRef(row.bus) & 0xff, state: 0, priority: 0, reason: 0,
+          id: v.id >>> 0, clip: nameId("clips", row.clip), slot: this.busRef(row.bus) & 0xff, state: 0, priority: 0, reason: 0,
           gain: Math.fround(row.gain), pitch: keyframePitch(row.pitch), audibility: keyframeAudibility(1), playheadFrames: 0,
         });
       }
@@ -1200,51 +560,24 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     }
   }
 
-  /** @internal `maxVoices` of a bus, or null. */
-  _cap(bus: string): number | null {
+  /** `maxVoices` of a bus, or null. */
+  private cap(bus: string): number | null {
     const settings = this.mixerRef?.audioSettings.buses.find((b) => b.name === bus);
     return settings?.maxVoices ?? null;
   }
 
-  /** @internal Stops the oldest voices on `bus` until it holds at most its `maxVoices`, never `keep`. */
-  _enforceCap(bus: string, keep: BabylonVoice): void {
-    const cap = this._cap(bus);
+  /** Stops the oldest voices on `bus` until it holds at most its `maxVoices`, never `keep`. */
+  private enforceCap(bus: string, keep: BabylonVoice): void {
+    const cap = this.cap(bus);
     if (cap === null) return;
     const onBus = [...this.voices].filter((v) => v.busName === bus);
     for (let i = 0; onBus.length - i > cap; i++) {
       const v = onBus[i]!;
-      if (v !== keep) v._stolenBy(keep);
+      if (v !== keep) v.stealFor(keep);
     }
   }
 
   // --- Sounds ------------------------------------------------------------------------------------------------------
-
-  /** @internal The decoded clip for `url`, fetched once. */
-  _buffer(live: Live, url: string): Promise<StaticSoundBuffer> {
-    let buffer = live.buffers.get(url);
-    if (!buffer) {
-      buffer = live.engine.createSoundBufferAsync(url);
-      live.buffers.set(url, buffer);
-      buffer.catch(() => live.buffers.delete(url));
-    }
-    return buffer;
-  }
-
-  /** @internal */
-  _forget(voice: BabylonVoice): void {
-    this.voices.delete(voice);
-    this.spatialVoices.release(voice.slot, voice);
-  }
-
-  /** @internal A spatial slot for `voice` (-1 when full). */
-  _allocSlot(voice: BabylonVoice): number {
-    return this.spatialVoices.alloc(voice);
-  }
-
-  /** @internal The generation slot `i` holds now. */
-  _slotGen(i: number): number {
-    return this.spatialVoices.gen[i]!;
-  }
 
   /** ADR 0162 (K4) `SpatialPassHost`: this frame's live voices, for Doppler and occlusion. */
   collectSpatialVoices(): void {
@@ -1261,54 +594,18 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     return true;
   }
 
-  /** @internal K0 `AudioVoice.setVelocity`. */
-  _setVelocity(id: number, v: Vec3Like | null): void {
-    if (this.spatialVoices.voiceOf(id)) this.doppler.setVelocity(voiceIndex(id), v);
-  }
-
-  /**
-   * @internal ADR 0162 §8: an ambisonic clip's channel 0 (W) as a mono `AudioBuffer`, decoded once per URL with
-   * `decodeAudioData` (a streamed clip decodes too: HTML5 audio downmixes 4 or 16 channels unpredictably). Null for a clip
-   * that decodes to more than `AMBISONIC_DECODE_LIMIT_BYTES`: refused with a warning, once.
-   */
-  _wBuffer(live: Live, url: string, path: string): Promise<AudioBuffer | null> {
-    let buffer = live.wBuffers.get(url);
-    if (!buffer) {
-      buffer = this.decodeW(url, path);
-      live.wBuffers.set(url, buffer);
-      buffer.catch(() => live.wBuffers.delete(url));
-    }
-    return buffer;
-  }
-
-  private async decodeW(url: string, path: string): Promise<AudioBuffer | null> {
-    const ctx = this.ctx;
-    if (!ctx) throw new Error("no audio context");
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const decoded = await ctx.decodeAudioData(await response.arrayBuffer());
-    const bytes = decodedBytes(decoded.length, decoded.numberOfChannels);
-    if (bytes > AMBISONIC_DECODE_LIMIT_BYTES) {
-      console.warn(`[myco] audio: "${path}" is an ambisonic clip that decodes to ${(bytes / 1e6).toFixed(0)} MB, over the Babylon audio fallback's ${AMBISONIC_DECODE_LIMIT_BYTES / 1e6} MB limit; not played (ADR 0162).`);
-      return null;
-    }
-    const mono = ctx.createBuffer(1, decoded.length, decoded.sampleRate);
-    mono.copyToChannel(decoded.getChannelData(0), 0);
-    return mono;
-  }
-
   play(req: PlayRequest): AudioVoice | null {
-    // ADR 0360 §8: a generator plays as its offline render (`_generatorBuffer`), looped when it sounds until released;
+    // ADR 0360 §8: a generator plays as its offline render (the clip loader's), looped when it sounds until released;
     // its parameters don't follow while it plays (one warning a session).
     if (req.generator) {
       warnOnce("babylon-generators", GENERATOR_RENDER_WARNING);
-      return this._playVoice({ ...req, url: "", stream: false, loop: req.loop || generatorLoops(req.generator) });
+      return this.playVoice({ ...req, url: "", stream: false, loop: req.loop || generatorLoops(req.generator) });
     }
     // ADR 0362: reverse and the per-sample Amp envelope are the audio core's (ABI 6.1); here a reversed clip plays forward
     // and an envelope is left out (one warning each a session).
     if (req.reverse) warnOnce("babylon-reverse", "[myco] audio: reversed clips play forwards on the Web Audio fallback (reverse needs the audio core).");
     if (req.envelope) warnOnce("babylon-amp-envelope", "[myco] audio: a clip's Amp envelope isn't applied on the Web Audio fallback (it needs the audio core).");
-    return this._playVoice(req);
+    return this.playVoice(req);
   }
 
   /**
@@ -1319,55 +616,19 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     setParams: () => {},
   };
 
-  /**
-   * @internal ADR 0360 §8: generator `g` rendered by the offline module (fetched on the first generator: the fallback's
-   * only use of it) at the context's rate (a finite generator to its end, an endless one 2 s looped with a 50 ms
-   * crossfade) as a mono `AudioBuffer`, cached by patch and seed.
-   */
-  _generatorBuffer(live: Live, g: GeneratorSource): Promise<AudioBuffer> {
-    const key = generatorKey(g);
-    let buffer = live.generatorBuffers.get(key);
-    if (buffer) {
-      // Most recently used last.
-      live.generatorBuffers.delete(key);
-      live.generatorBuffers.set(key, buffer);
-      return buffer;
-    }
-    buffer = this.renderGenerator(g);
-    live.generatorBuffers.set(key, buffer);
-    buffer.catch(() => live.generatorBuffers.delete(key));
-    while (live.generatorBuffers.size > GENERATOR_CACHE_RENDERS) live.generatorBuffers.delete(live.generatorBuffers.keys().next().value!);
-    return buffer;
-  }
-
-  private async renderGenerator(g: GeneratorSource): Promise<AudioBuffer> {
-    const ctx = this.ctx;
-    if (!ctx) throw new Error("no audio context");
-    const { renderResolvedGenerator } = await import("../../../engine/audio/generators/generatorRender");
-    const r = await renderResolvedGenerator({ kind: g.kind, values: [...g.values], seed: g.seed }, { rate: ctx.sampleRate, loop: "buffer" });
-    const buffer = ctx.createBuffer(1, Math.max(1, r.frames), r.rate);
-    buffer.copyToChannel(r.pcm as Float32Array<ArrayBuffer>, 0);
-    return buffer;
-  }
-
-  /** @internal `play`, with a music member's extras. */
-  _playVoice(req: PlayRequest, music?: VoiceMusic): BabylonVoice | null {
+  /** `play`, with a music member's extras. */
+  private playVoice(req: PlayRequest, music?: VoiceMusic): BabylonVoice | null {
     if (this.disposed) return null;
-    const voice = new BabylonVoice(this, req, music);
+    const voice = new BabylonVoice(this.voiceHost, req, music);
     this.voices.add(voice);
-    this._enforceCap(req.bus, voice);
+    this.enforceCap(req.bus, voice);
     return voice;
   }
 
-  /** @internal The context's sample rate, for file frames to seconds. */
-  _rate(): number {
+  /** The context's sample rate, for file frames to seconds. */
+  private rate(): number {
     const r = this.ctx?.sampleRate;
     return r && r > 0 ? r : 48000;
-  }
-
-  /** @internal `dispose` has run. */
-  get _disposed(): boolean {
-    return this.disposed;
   }
 
   /**
@@ -1375,11 +636,25 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
    * as `setVolume` ramps, streamed stems flat and unaligned, no priming, no rhythm mode. Its presence is what lets a
    * music player leave "starting" on this backend.
    */
-  readonly music: MusicBackend = new BabylonMusic(this);
+  readonly music: MusicBackend = new BabylonMusic(this.musicHost());
+
+  private musicHost(): MusicHost {
+    return {
+      isDisposed: () => this.disposed,
+      time: () => this.time,
+      sampleRate: () => this.rate(),
+      warm: (urls) => {
+        void this.ready().then((live) => {
+          if (live) for (const url of urls) live.clips.warm(url);
+        });
+      },
+      play: (req, music) => this.playVoice(req, music),
+    };
+  }
 
   /** A loaded clip's length in seconds, null while it isn't decoded (or streams). */
   clipDuration(path: string): number | null {
-    return this.liveNow?.durations.get(path) ?? null;
+    return this.liveNow?.clips.duration(path) ?? null;
   }
 
   /** The fallback keeps no clip facts (G-1): a stem's stream-or-decode rule uses its import setting here. */
@@ -1438,7 +713,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
   set masterVolume(v: number) {
     this.master = v;
     this.applyMaster();
-    if (this._profile !== NULL_PROFILE_SINK) this._profile.masterChange(this.master, this.isMuted || this.hiddenMuted);
+    if (this.profile !== NULL_PROFILE_SINK) this.profile.masterChange(this.master, this.isMuted || this.hiddenMuted);
   }
   get muted(): boolean {
     return this.isMuted;
@@ -1446,7 +721,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
   set muted(m: boolean) {
     this.isMuted = m;
     this.applyMaster();
-    if (this._profile !== NULL_PROFILE_SINK) this._profile.masterChange(this.master, m || this.hiddenMuted);
+    if (this.profile !== NULL_PROFILE_SINK) this.profile.masterChange(this.master, m || this.hiddenMuted);
   }
   private applyMaster(): void {
     if (this.liveNow) this.liveNow.engine.volume = this.isMuted || this.hiddenMuted ? 0 : Math.max(0, this.master);
@@ -1474,7 +749,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     if (this.hiddenMuted) {
       this.hiddenMuted = false;
       this.applyMaster();
-      this._profile.hiddenTab(false);
+      this.profile.hiddenTab(false);
     }
   }
 
@@ -1506,14 +781,14 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
       time: this.time,
       background: this.background,
       counters: { ...zeroCounters(), mixedVoices: n, logicalVoices: n, ...this.m3Counters() },
-      buses: (this.mixerRef?.resolveAll() ?? []).map((b) => ({ name: b.name, gain: b.gain, effectiveGain: b.effectiveGain, peakL: 0, peakR: 0, voices: counts.get(b.name) ?? 0, maxVoices: this._cap(b.name) })),
+      buses: (this.mixerRef?.resolveAll() ?? []).map((b) => ({ name: b.name, gain: b.gain, effectiveGain: b.effectiveGain, peakL: 0, peakR: 0, voices: counts.get(b.name) ?? 0, maxVoices: this.cap(b.name) })),
       // Existing tests (and architecture 8 for this fallback) expect an empty list for plain voices: only event voices get rows.
       voices: [...this.voices].filter((v) => v.event !== null).map((v) => ({ id: v.id, clip: v.row.clip, bus: v.row.bus, world: null, state: "playing" as const, priority: 0, gain: v.row.gain, pitch: v.row.pitch, audibility: 1, playheadSeconds: null, owner: null, event: v.event })),
       // ADR 0162 §1.6 (D5): what applies here. Beds, zones, ambisonic voices and the ladder don't exist on this fallback.
       occlusion: this.occlusion.debug(),
       // G7b: `currentFrame` is the audio clock in frames (the context's time at its rate): the fallback has no STATUS, so this is
       // the frame a capture stamps its events and keyframes with (`capture.ts` reads it as it reads the core's).
-      core: { backend: "babylon", voices: n, buffers: this.liveNow?.buffers.size ?? 0, context: this.ctx?.state ?? "none", currentFrame: Math.floor(this.time * this._rate()) },
+      core: { backend: "babylon", voices: n, buffers: this.liveNow?.clips.decodedClips ?? 0, context: this.ctx?.state ?? "none", currentFrame: Math.floor(this.time * this.rate()) },
       // ADR 0171 (Dbg1; §1.3, §9): the fallback's inert M5 sections.
       mixCaps: { ...this.mixCaps },
       cpu: babylonCpuDebug(),
@@ -1544,10 +819,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
       }
     }
     live.buses.clear();
-    live.buffers.clear();
-    live.durations.clear();
-    live.wBuffers.clear();
-    live.generatorBuffers.clear();
+    live.clips.clear();
     const ctx = this.ctx;
     // `engine.dispose()` closes its context. The host's context outlives this backend, so shield it from the close.
     const shielded = ctx !== null && !this.ownsContext;
@@ -1575,7 +847,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     if (this.disposed) return;
     for (const v of [...this.voices]) v.stop();
     this.disposed = true;
-    if (this._profile !== NULL_PROFILE_SINK) this.setProfileSink(null); // the taps point at nothing once this backend is gone
+    if (this.profile !== NULL_PROFILE_SINK) this.setProfileSink(null); // the taps point at nothing once this backend is gone
     this.deviceOff?.();
     this.deviceOff = null;
     this.visibility?.removeEventListener("visibilitychange", this.onVisibility);
@@ -1587,158 +859,6 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     if (live) this.teardown(live);
     else this.closeOwnedContext();
     // A start still in flight sees `disposed` and tears down what it made.
-  }
-}
-
-/** One admitted group on the fallback: its request, and once stamped its voices (null where a member couldn't start). */
-interface MusicGroup {
-  req: MusicGroupRequest;
-  voices: (BabylonVoice | null)[] | null;
-  at: number;
-  /** The `start` event went out. */
-  started: boolean;
-}
-
-/**
- * The fallback's `MusicBackend` (api-and-models §8, B1). Decoded members start through `StaticSound.play({ waitTime })`
- * from `Audio.time` (the context's clock, no latency correction); streamed members play as flat HTML5 audio from a timer,
- * unaligned. There is no gate and no priming: `primedState` always answers ready, and `primeGroup` only warms the decoded
- * buffers and warns. Group events are queued as voices start and end and delivered by `pump` (the backend's `update`).
- */
-class BabylonMusic implements MusicBackend {
-  readonly caps = { primes: false, stampedFades: true, heardClock: false, rhythm: false } as const;
-  onGroupEvent: ((e: MusicGroupEvent) => void) | null = null;
-  /** ADR 0248: never called: the fallback has no rebuild, crash, abandon or STATUS-driven hidden tick to report. */
-  onLifecycle: ((e: MusicLifecycleEvent) => void) | null = null;
-  /** No prime is ever timed here; the core's seed. */
-  readonly primeEmaMs = 40;
-  /** No music ring pool on the fallback (streamed stems play as HTML5 audio): the planner skips its pool check. */
-  readonly ringPool = 0;
-  private readonly groups = new Map<number, MusicGroup>();
-  private readonly queue: MusicGroupEvent[] = [];
-
-  constructor(private readonly backend: BabylonBackend) {}
-
-  admitGroup(req: MusicGroupRequest): MusicAdmitResult {
-    if (this.backend._disposed) return { ok: false, reason: "neverFits", permanent: true };
-    this.groups.set(req.group, { req, voices: null, at: 0, started: false });
-    this.warm(req);
-    return { ok: true };
-  }
-
-  primeGroup(req: MusicGroupRequest): void {
-    if (!this.groups.has(req.group)) this.groups.set(req.group, { req, voices: null, at: 0, started: false });
-    for (const m of req.members) if (m.play.stream) warnFlatStream(m.play.path);
-    warnOnce("babylon-music-drift", "interactive music on the Babylon audio fallback can't prime or gate streamed stems; they start separately and may drift apart. Turn off \"stream\" on stems for aligned playback there (api-and-models §8).");
-    this.warm(req);
-  }
-
-  /** Start the engine and decode the group's non-streamed clips ahead of the stamp, so the stamp only has to make the sounds. */
-  private warm(req: MusicGroupRequest): void {
-    const wanted = req.members.filter((m) => !m.play.stream);
-    void this.backend._ready().then((live) => {
-      if (!live) return;
-      for (const m of wanted) this.backend._buffer(live, m.play.url).catch(() => {});
-    });
-  }
-
-  primedState(group: number): MusicPrimedState | null {
-    const g = this.groups.get(group);
-    if (!g) return null;
-    const n = g.req.members.length;
-    return { group, primed: n, of: n, ready: true };
-  }
-
-  stampGroup(stamp: MusicGroupStamp): (AudioVoice | null)[] {
-    const g = this.groups.get(stamp.group);
-    if (!g) return [];
-    if (g.voices) return g.voices;
-    g.at = stamp.at;
-    const voices = g.req.members.map((m, k) => {
-      const v = this.backend._playVoice(
-        { ...m.play, loop: m.loop, at: stamp.at },
-        {
-          startFrame: m.startFrame,
-          loopStartFrame: m.loopStartFrame ?? 0,
-          loopEndFrame: m.loopEndFrame ?? 0,
-          fadeZero: m.fadeZero === true,
-          onEnd: (voice) => this.memberEnded(stamp.group, k, voice),
-        },
-      );
-      return v;
-    });
-    g.voices = voices;
-    for (const f of stamp.fades ?? []) {
-      const fade = f.fade.at === undefined ? { ...f.fade, at: stamp.at } : f.fade;
-      voices[f.member]?.fadeShaped(fade);
-    }
-    return voices;
-  }
-
-  cancelGroup(group: number): void {
-    const g = this.groups.get(group);
-    if (!g) return;
-    this.groups.delete(group);
-    for (const v of g.voices ?? []) v?.stop();
-    for (let i = this.queue.length - 1; i >= 0; i--) if (this.queue[i]!.group === group) this.queue.splice(i, 1);
-  }
-
-  releaseInstance(instance: number): void {
-    void instance; // no worker cache here
-  }
-
-  /**
-   * ADR 0249: no ring pool, no group table and no core counters here (zeros); the live groups, every member counted primed
-   * (nothing is primed on the fallback), `stamped` until the `start` went out, then `playing`.
-   */
-  debugView(): MusicBackendDebug {
-    const groups: MusicBackendDebug["groups"] = [];
-    for (const [id, g] of this.groups) {
-      const n = g.req.members.length;
-      groups.push({ id, state: g.started ? "playing" : g.voices ? "stamped" : "admitted", primed: n, of: n });
-    }
-    return {
-      poolUsed: 0, poolSize: 0, poolHighWater: 0, musicRingRefused: 0, groupTableFull: 0, encodedOverBudget: 0,
-      streamStartsLate: 0, groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0, voiceSplits: 0, curvePoolFull: 0,
-      groups,
-    };
-  }
-
-  protect(instance: number, paths: readonly string[]): void {
-    void instance;
-    void paths;
-  }
-
-  private memberEnded(group: number, member: number, voice: BabylonVoice): void {
-    const g = this.groups.get(group);
-    if (!g?.voices) return;
-    this.queue.push(voice.reason === "failed" ? { kind: "error", group, member, message: `could not load "${g.req.members[member]?.play.path ?? ""}"` } : { kind: "end", group, member });
-  }
-
-  /** Deliver this frame's events: each group's `start` once its members are on (or failed), then the members' ends and errors. */
-  pump(): void {
-    if (this.groups.size === 0) return;
-    const now = this.backend.time;
-    for (const [id, g] of this.groups) {
-      if (!g.voices || g.started || now < g.at) continue;
-      const live = g.voices.filter((v): v is BabylonVoice => v !== null);
-      if (live.some((v) => !v._ended && v._startedAt === null)) continue;
-      const startedAt = live.reduce((t, v) => (v._startedAt !== null ? Math.max(t, v._startedAt) : t), g.at);
-      g.started = true;
-      if (!live.some((v) => v._startedAt !== null)) continue; // every member failed: their errors tell it
-      const slip = startedAt - g.at;
-      const late = slip > MUSIC_LATE_SECONDS;
-      this.queue.unshift({ kind: "start", group: id, late, slipFrames: late ? Math.round(slip * this.backend._rate()) : 0, startFrame: g.req.members[0]?.startFrame ?? 0 });
-    }
-    const out = this.queue.splice(0);
-    const sink = this.onGroupEvent;
-    for (const e of out) {
-      if (sink) sink(e);
-      if (e.kind === "end" || e.kind === "error") {
-        const g = this.groups.get(e.group);
-        if (g?.voices?.every((v) => v === null || v._ended)) this.groups.delete(e.group);
-      }
-    }
   }
 }
 
