@@ -56,10 +56,9 @@ import type { World } from "../../core/World";
 import { splitSpriteRef } from "../../scene/importSettings";
 import type { WarmContent } from "../../scene/warmUp";
 import { WARM_PREFIX, type WarmItem } from "./warmUp";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UISelect, UISvg, UIText, UITextArea, UIVideo, isFocusableUI, type UIComponentType } from "../../ui/components";
+import { UICanvas, UIImage, UIInputField, UIPanel, UISelect, UISvg, UIText, UITextArea, UIVideo, type UIComponentType } from "../../ui/components";
 import type { ICanvasRenderingContext } from "@babylonjs/core/Engines/ICanvas.js";
 import { fontEpoch, onFontLoaded } from "../../ui/fonts";
-import { uiInteractions } from "../../ui/interactions";
 import { uiBorderEdges, uiEdges } from "../../ui/layout";
 import { wrapLine, wrapText, type LineBreakMode } from "../../ui/text/lineBreak";
 import type { TextMeasureRequest, UICoreLike, UIInlineBox, UIInlineEditing, UIInlineRun, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
@@ -1067,11 +1066,9 @@ export class BabylonUI {
       if (put(r, "h", p.height)) r.heightInPixels = p.height;
       if (put(r, "radius", p.radius)) r.cornerRadius = p.radius;
       if (put(r, "rotate", p.rotate)) r.rotation = (p.rotate * Math.PI) / 180;
-      const [cr, cg, cb, ca] = p.color;
-      const css = `rgba(${Math.round(cr * 255)}, ${Math.round(cg * 255)}, ${Math.round(cb * 255)}, ${ca})`;
+      const css = rgbaCss(p.color);
       if (put(r, "color", css)) r.background = css;
       // ADR 0432: part pseudo-elements' borders and shadows.
-      const rgbaCss = (c: readonly number[]) => `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${c[3]})`;
       const bw = p.border?.width ?? 0;
       if (put(r, "bw", bw)) r.thickness = bw;
       const bc = p.border ? rgbaCss(p.border.color) : "transparent";
@@ -1334,36 +1331,25 @@ export class BabylonUI {
     }
   }
 
-  /** A panel, button or input field's box. `scale` is its canvas's texture pixels per UI pixel. */
+  /**
+   * A panel, button or input field's box. `scale` is its canvas's texture pixels per UI pixel. ADR 0437: its fill, border
+   * and corners are the core's resolved paint (state colours already resolved), drawn as given.
+   */
   private syncPanel(e: ElementEntry, c: UIPanel, el: UILaidOutElement, scale: number): void {
     const r = e.control as PaintedRectangle;
-    let background = c.backgroundColor;
-    let border = c.borderColor;
-    // Focus colours (ADR 0340) show while the last UI input was navigation: a button's fill, a field's border.
-    // ADR 0428: every control shows it, a button (and an option) by its fill, the others by their border.
-    const showsFocus = isFocusableUI(c) && uiInteractions(c._world).showsFocus(c);
-    if (c instanceof UIButton && c.interactable) {
-      // Pressed needs hovered too (a press dragged off the button shows it unpressed).
-      if (c.pressed && c.hovered) background = c.pressedColor;
-      else if (c.hovered) background = c.hoverColor;
-      else if (showsFocus) background = c.focusColor;
-    } else if (!(c instanceof UIButton) && isFocusableUI(c) && showsFocus) border = c.focusColor;
-    const bk = background ? colorKey(background) : -1;
-    if (put(r, "bg", bk)) r.background = background ? background.toCss() : "";
-    // ADR 0422 wave 2: a corner's own radius, or (at -1) borderRadius. Babylon's corners, by how Rectangle draws them:
-    // X top-left, Y top-right, Z bottom-right, W bottom-left (its declarations' comments swap Z and W).
-    const corner = (v: number) => (v >= 0 ? v : c.borderRadius);
-    const tl = corner(c.borderTopLeftRadius);
-    const tr = corner(c.borderTopRightRadius);
-    const br = corner(c.borderBottomRightRadius);
-    const bl = corner(c.borderBottomLeftRadius);
+    const paint = el.paint!;
+    const bg = paint.background ? rgbaCss(paint.background) : "";
+    if (put(r, "bg", bg)) r.background = bg;
+    // Babylon's corners, by how Rectangle draws them: X top-left, Y top-right, Z bottom-right, W bottom-left (its
+    // declarations' comments swap Z and W).
+    const [tl, tr, br, bl] = paint.radii;
     if (put(r, "radius", `${tl}|${tr}|${br}|${bl}`)) {
       r.cornerRadiusX = tl;
       r.cornerRadiusY = tr;
       r.cornerRadiusZ = br;
       r.cornerRadiusW = bl;
     }
-    this.syncBorder(e, r, uiBorderEdges(c), border);
+    this.syncBorder(e, r, paint.borderWidths, rgbaCss(paint.borderColor));
     // The shadow is the background's (Babylon's Rectangle casts it from its fill). Canvas2D shadows ignore the
     // context's transform, so they're scaled here, as the canvas's scale scales everything else.
     const shadow = c.boxShadowColor;
@@ -1427,13 +1413,12 @@ export class BabylonUI {
    * A panel's border (ADR 0422): the Rectangle's own stroke while every side is as wide; unequal sides draw each side
    * as a filled edge rectangle inside the box (top and bottom across it, left and right down it), the stroke off.
    */
-  private syncBorder(e: ElementEntry, r: Rectangle, sides: readonly [number, number, number, number], color: Color): void {
+  private syncBorder(e: ElementEntry, r: Rectangle, sides: readonly [number, number, number, number], color: string): void {
     const [top, right, bottom, left] = sides;
     const even = top === right && top === bottom && top === left;
     const thickness = even ? top : 0;
     if (put(r, "border", thickness)) r.thickness = thickness;
-    const ck = colorKey(color);
-    if (put(r, "color", ck)) r.color = color.toCss();
+    if (put(r, "color", color)) r.color = color;
     if (even && !e.edges) return;
     e.edges ??= [0, 1, 2, 3].map((i) => {
       const edge = new Rectangle(`${r.name}.edge${i}`);
@@ -1453,7 +1438,7 @@ export class BabylonUI {
         if (i === 0 || i === 2) edge.heightInPixels = w;
         else edge.widthInPixels = w;
       }
-      if (put(edge, "color", ck)) edge.background = color.toCss();
+      if (put(edge, "color", color)) edge.background = color;
     });
   }
 
@@ -1500,17 +1485,20 @@ export class BabylonUI {
   /** ADR 0429: a text's box background and inline runs, redrawn when the core's layout, runs or editing state change. */
   private syncInline(t: LocalisedTextBlock, el: UILaidOutElement): void {
     const c = el.comp as UIText;
-    const bg = c.backgroundColor && c.backgroundColor.a > 0 ? c.backgroundColor.toCss() : null;
+    // ADR 0437: its box as the core resolved it.
+    const paint = el.paint!;
+    const bg = paint.background ? rgbaCss(paint.background) : null;
     if (put(t, "boxBackground", bg)) {
       t.boxBackground = bg;
       t._markAsDirty();
     }
-    // ADR 0432: its own border and rounded corners.
-    const widths = uiBorderEdges(c);
-    const border = widths.some((w) => w > 0) && c.borderColor && c.borderColor.a > 0 ? { widths, color: c.borderColor.toCss() } : null;
-    if (put(t, "boxBorder", border ? `${widths.join(",")}|${border.color}|${c.borderRadius}` : `-|${c.borderRadius}`)) {
+    // ADR 0432: its own border and rounded corners (a text's box has one radius).
+    const widths = paint.borderWidths;
+    const radius = paint.radii[0];
+    const border = widths.some((w) => w > 0) && paint.borderColor[3] > 0 ? { widths, color: rgbaCss(paint.borderColor) } : null;
+    if (put(t, "boxBorder", border ? `${widths.join(",")}|${border.color}|${radius}` : `-|${radius}`)) {
       t.boxBorder = border;
-      t.boxRadius = Math.max(0, c.borderRadius || 0);
+      t.boxRadius = radius;
       t._markAsDirty();
     }
     // ADR 0432: `::selection`'s colours for an editable text's selection.
@@ -1958,6 +1946,11 @@ function put(control: object, key: string, value: unknown): boolean {
   if (last[key] === value) return false;
   last[key] = value;
   return true;
+}
+
+/** An RGBA colour (each 0..1) as CSS, as `Color.toCss` writes it. */
+function rgbaCss(c: readonly number[]): string {
+  return `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${c[3]})`;
 }
 
 /** A number that changes when a colour does (premultiplied rounding like `toCss`). */

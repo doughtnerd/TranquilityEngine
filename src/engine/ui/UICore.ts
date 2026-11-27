@@ -17,12 +17,13 @@ import { devices, type InputClaim, type PointerFrame } from "../input/devices";
 import { UIButton, UICanvas, UIImage, UIInputField, UIOption, UISelect, UISlider, UIText, UITextArea, isFocusableUI, type UIComponentType, type UIFocusableElement } from "./components";
 import { controlState, dragSlider, formOf, pageSlider, playerTyped, selectLabels, setSelectOpen, settleSelect, sliderToEnd, stepNumberField, submitForm, uiClickRecord } from "./formModel";
 import { formPartsOf, partsKey } from "./formParts";
+import { paintOf, samePaint } from "./paint";
 import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInlineAtom, isInteractiveKind, isLeafKind, isRaycastTarget, isUserScroller, overflowAxes, sameTextMeasure, sameTextRun, textRunOf, uiKindOf, userScrollsAxis, type UIInlineAtomSizes } from "./elementKinds";
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
 import { canvasScale, estimateText, inRect, intersectRect, isMixedLength, loadYogaOnce, loadedYoga, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
-import type { UIInlineAtomSize, UIInlineEditing, UIInlineRun, TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPart, UIPickRay, UIScrollbar, UIScrollInfo, UIScrollSnap, UIScrollSnapArea } from "./uiCoreTypes";
+import type { UIInlineAtomSize, UIInlineEditing, UIInlineRun, TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPaint, UIPart, UIPickRay, UIScrollbar, UIScrollInfo, UIScrollSnap, UIScrollSnapArea } from "./uiCoreTypes";
 import { fireUIEvent, uiDomCode, uiDomKey, uiEventRecord, UIDataTransfer, type UIEventData, type UIEventRecord } from "./events";
 import { advanceUIScrolling, canMove, uiEndScrollGesture, uiResnap, uiScrollBy, uiScrollMoving, uiScrollTo, uiStopScrolling, uiWheelScroll, type UIScrollable } from "./scrolling";
 import { applyAffine, boundsOf, compose, invert, localTransform, multiply, transformRect, type UIAffine, type UITransformFields } from "./transform2d";
@@ -125,6 +126,8 @@ interface Entry {
   /** ADR 0428: a form element's parts at the last layout, and their key (`formParts.ts`). */
   parts?: UIPart[] | null;
   partsKey?: string;
+  /** ADR 0437: its last resolved paint, the same object while it draws the same. */
+  paint?: UIPaint | null;
   /** ADR 0428: what else a measured element's size depends on (a select's option labels, a text area's rows). */
   measureKey?: string;
   /**
@@ -1339,7 +1342,10 @@ export class UICore implements UICoreLike {
           e.partsKey = key;
           e.parts = parts;
         }
-        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll, parts: e.parts ?? null, filter: p.filter, backdrop: p.backdrop ?? null, inline: e.kind === "text" ? (e.inline ?? null) : null, editing: this.editingOf(e) });
+        // ADR 0437: its paint, its state colours resolved (the same object while unchanged, as parts are).
+        const paint = paintOf(e.comp);
+        if (e.paint === undefined || !samePaint(e.paint, paint)) e.paint = paint;
+        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll, parts: e.parts ?? null, paint: e.paint ?? null, filter: p.filter, backdrop: p.backdrop ?? null, inline: e.kind === "text" ? (e.inline ?? null) : null, editing: this.editingOf(e) });
       }
     }
     const changed = !sameCanvases(this.canvasList, canvasList) || !sameElements(this.elementList, elementList);
@@ -2273,7 +2279,7 @@ function sameElements(a: readonly UILaidOutElement[], b: readonly UILaidOutEleme
   if (a.length !== b.length) return false;
   return a.every((x, i) => {
     const y = b[i];
-    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip) && sameAffine(x.transform, y.transform) && sameRect(x.bounds, y.bounds) && sameRect(x.reach, y.reach) && sameScroll(x.scroll, y.scroll) && x.parts === y.parts && (x.inline ?? null) === (y.inline ?? null) && (x.editing ?? null) === (y.editing ?? null);
+    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip) && sameAffine(x.transform, y.transform) && sameRect(x.bounds, y.bounds) && sameRect(x.reach, y.reach) && sameScroll(x.scroll, y.scroll) && x.parts === y.parts && x.paint === y.paint && (x.inline ?? null) === (y.inline ?? null) && (x.editing ?? null) === (y.editing ?? null);
   });
 }
 

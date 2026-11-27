@@ -10,10 +10,11 @@ import type { Container } from "@babylonjs/gui/2D/controls/container.js";
 import { Control } from "@babylonjs/gui/2D/controls/control.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
-import { Assets, Color, Engine, GameObject, Input, Locale, type ProjectSettingsInput } from "../index";
+import { Assets, Color, Engine, GameObject, Locale, type ProjectSettingsInput } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIOption, UIPanel, UISelect, UISvg, UIText, UIToggle, UIVideo } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
 import { textRunOf, uiKindOf } from "../ui/elementKinds";
+import { paintOf } from "../ui/paint";
 import type { UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../ui/uiCoreTypes";
 import { BabylonUI, measureText } from "../render/babylon/ui";
 import { flipRows, redrawnPixels } from "../render/pixelRegions";
@@ -82,9 +83,12 @@ function canvasInfo(comp: UICanvas, over: Partial<UILaidOutCanvas> = {}): UILaid
   return { comp, mode: comp.mode, sortOrder: comp.sortOrder, width: 1280, height: 720, scale: 1, pixelSize: comp.pixelSize, worldMatrix: null, visible: true, ...over };
 }
 
-type ElementInit = Partial<Pick<UILaidOutElement, "x" | "y" | "width" | "height" | "visible" | "opacity" | "order" | "clip" | "clipper" | "childClip" | "scroll" | "parts">>;
+type ElementInit = Partial<Pick<UILaidOutElement, "x" | "y" | "width" | "height" | "visible" | "opacity" | "order" | "clip" | "clipper" | "childClip" | "scroll" | "parts" | "paint">>;
 
-/** A fake core reporting these canvases and elements (orders count up per canvas; text runs resolved as the core resolves them, on each read). */
+/**
+ * A fake core reporting these canvases and elements (orders count up per canvas; text runs and paint resolved as the
+ * core resolves them, on each read, unless an element's init gives its paint).
+ */
 class FakeCore implements UICoreLike {
   layoutVersion = 0;
   hasScreenUI = true;
@@ -102,7 +106,7 @@ class FakeCore implements UICoreLike {
   }
   sync(): void {}
   canvases() { return this.cs; }
-  elements() { return this.es.map((e) => ({ ...e, text: textRunOf(e.comp) })); }
+  elements() { return this.es.map((e) => ({ ...e, text: textRunOf(e.comp), paint: e.paint !== undefined ? e.paint : paintOf(e.comp) })); }
   rectOf() { return null; }
   hitTest() { return null; }
   pickAll() { return []; }
@@ -198,89 +202,26 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
     expect(rootOf().isVisible).toBe(false);
   });
 
-  it("colours a button by hovered and pressed like UIRuntime", async () => {
+  it("draws the paint the core resolved, state colours and all, as given (ADR 0437)", () => {
+    // What the paint is for a hovered, pressed or focused element is the core's (uiResolvedPaint.test.ts); this draws it.
     const canvas = node("C", null, UICanvas);
-    const button = node("B", canvas.node, UIButton, { backgroundColor: new Color(0.2, 0.2, 0.2, 1), hoverColor: new Color(0, 1, 0, 1), pressedColor: new Color(0, 0, 1, 1), width: "100", height: "40" });
+    const button = node("B", canvas.node, UIButton, { backgroundColor: new Color(0.2, 0.2, 0.2, 1), hoverColor: new Color(0, 1, 0, 1) });
+    const field = node("F", canvas.node, UIInputField, { borderColor: new Color(1, 1, 1, 1) });
     const core = new FakeCore();
-    core.set([canvasInfo(canvas)], [[button, canvas]]);
-    const bg = () => (byName(rootOf(), "B") as Rectangle).background;
-    // The hover and press come from a real UI core routing the pointer; the fake core lays out the drawing.
-    const pointer = await UIPointer.create(World.require());
-    try {
-      sync(core);
-      expect(bg()).toBe("rgba(51, 51, 51, 1)");
-      pointer.hover(button);
-      engine.step(1 / 60);
-      sync(core);
-      expect(bg()).toBe("rgba(0, 255, 0, 1)");
-      pointer.dom.pointerDown(0);
-      engine.step(1 / 60);
-      sync(core);
-      expect(bg()).toBe("rgba(0, 0, 255, 1)");
-      pointer.leave(); // pressed, but the pointer left: the plain colour
-      engine.step(1 / 60);
-      sync(core);
-      expect(button.pressed).toBe(true);
-      expect(bg()).toBe("rgba(51, 51, 51, 1)");
-      pointer.hover(button);
-      button.interactable = false;
-      engine.step(1 / 60);
-      sync(core);
-      expect(bg()).toBe("rgba(51, 51, 51, 1)");
-    } finally {
-      pointer.dispose();
-    }
-  });
-
-  it("draws focus colours only while the last UI input was navigation, not the pointer (ADR 0340)", async () => {
-    const canvas = node("C", null, UICanvas);
-    const grey = new Color(0.2, 0.2, 0.2, 1);
-    const first = node("First", canvas.node, UIButton, { backgroundColor: grey, hoverColor: new Color(0, 1, 0, 1), focusColor: new Color(1, 0, 0, 1), width: "100", height: "40", positionType: "absolute", left: "0", top: "0" });
-    const second = node("Second", canvas.node, UIButton, { backgroundColor: grey, hoverColor: new Color(0, 1, 0, 1), focusColor: new Color(1, 0, 0, 1), width: "100", height: "40", positionType: "absolute", left: "0", top: "100" });
-    const field = node("Field", canvas.node, UIInputField, { borderColor: new Color(1, 1, 1, 1), focusColor: new Color(0, 0, 1, 1), width: "200", height: "40", positionType: "absolute", left: "0", top: "200" });
-    const core = new FakeCore();
-    core.set([canvasInfo(canvas)], [[first, canvas], [second, canvas], [field, canvas]]);
-    const bg = (name: string) => (byName(rootOf(), name) as Rectangle).background;
-    const border = (name: string) => (byName(rootOf(), name) as Rectangle).color;
-    const frame = () => {
-      engine.step(1 / 60);
-      sync(core);
-    };
-    // The real core lays the UI out for navigation and routes the pointer; the fake core lays out the drawing.
-    const pointer = await UIPointer.create(World.require());
-    try {
-      pointer.leave(); // off every button
-      first.focused = true; // a script's focus: no navigation yet, no colour
-      frame();
-      expect(bg("First")).toBe("rgba(51, 51, 51, 1)");
-      Input.inject.keyDown("arrowdown");
-      frame();
-      Input.inject.keyUp("arrowdown");
-      frame();
-      expect(second.focused).toBe(true);
-      expect(bg("Second")).toBe("rgba(255, 0, 0, 1)");
-      expect(bg("First")).toBe("rgba(51, 51, 51, 1)");
-      Input.inject.keyDown("arrowdown");
-      frame();
-      Input.inject.keyUp("arrowdown");
-      frame();
-      expect(field.focused).toBe(true);
-      expect(border("Field")).toBe("rgba(0, 0, 255, 1)");
-      expect(bg("Second")).toBe("rgba(51, 51, 51, 1)");
-      pointer.dom.moveTo(600, 600); // the pointer moves (over nothing): it's the last UI input now
-      frame();
-      expect(field.focused).toBe(true);
-      expect(border("Field")).toBe("rgba(255, 255, 255, 1)");
-      pointer.click(second); // focused by a click: hovered, never the focus colour
-      frame();
-      pointer.leave();
-      frame();
-      expect(second.focused).toBe(true);
-      expect(bg("Second")).toBe("rgba(51, 51, 51, 1)");
-    } finally {
-      Input.inject.releaseAll();
-      pointer.dispose();
-    }
+    const given = (background: readonly [number, number, number, number] | null, borderColor: readonly [number, number, number, number]) =>
+      ({ background, borderColor, borderWidths: [1, 1, 1, 1], radii: [2, 3, 4, 5] }) as const;
+    core.set([canvasInfo(canvas)], [[button, canvas, { paint: given([0, 0, 1, 1], [0, 0, 0, 1]) }], [field, canvas, { paint: given(null, [1, 0, 0, 0.5]) }]]);
+    sync(core);
+    const b = byName(rootOf(), "B") as Rectangle;
+    const f = byName(rootOf(), "F") as Rectangle;
+    expect(b.background).toBe("rgba(0, 0, 255, 1)"); // not its fields' colours: the paint it was given
+    expect([b.cornerRadiusX, b.cornerRadiusY, b.cornerRadiusZ, b.cornerRadiusW]).toEqual([2, 3, 4, 5]);
+    expect(f.background).toBe("");
+    expect([f.color, f.thickness]).toEqual(["rgba(255, 0, 0, 0.5)", 1]);
+    core.set([canvasInfo(canvas)], [[button, canvas, { paint: given([0, 1, 0, 1], [0, 0, 0, 1]) }], [field, canvas, { paint: given(null, [0, 0, 1, 1]) }]]);
+    sync(core);
+    expect(b.background).toBe("rgba(0, 255, 0, 1)");
+    expect(f.color).toBe("rgba(0, 0, 255, 1)");
   });
 
   it("maps UIText to a TextBlock with font, colour, alignment and wrapping", () => {
