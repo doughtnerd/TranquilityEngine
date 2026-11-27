@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, Input } from "../index";
-import { UIButton, UIPanel, UIText } from "../ui/components";
+import { UIButton, UIInputField, UIPanel, UIText } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
 import { World } from "../core/World";
 import { UICore } from "../ui/UICore";
@@ -301,5 +301,45 @@ describe("z-index (ADR 0422)", () => {
     const orders = new Map(core.elements().map((e) => [e.comp, e.order]));
     expect([orders.get(clip), orders.get(inner), orders.get(after)]).toEqual([0, 1, 2]);
     expect(core.hitTest(50, 50)).toBe(after);
+  });
+});
+
+describe("content sizes where Yoga's shortcuts differ from CSS", () => {
+  // A HUD: a clock row, a shrink-to-fit middle of empty lines, and bars along the bottom of a space-between column.
+  const HUD = (lines: string) =>
+    buildUI(`<Canvas><div id="screen"><div id="top"/><div id="row"><div id="middle"><div id="lines">${lines}</div></div></div><div id="bottom"/></div></Canvas>`, {
+      css: `#screen { width: 100%; height: 100%; flex-direction: column; justify-content: space-between; padding: 12px }
+            #top { height: 40px }
+            #row { justify-content: center }
+            #middle, #lines { flex-direction: column; align-items: center }
+            #middle { padding: 18px }
+            #bottom { height: 80px }
+            .line { font-size: 20px }`,
+    });
+
+  it("lays a column of empty lines in a shrink-to-fit box out at its content's height, keeping the bottom row on screen", async () => {
+    const doc = HUD(`<span class="line"></span>`.repeat(8));
+    const core = await laidOut();
+    expect(box(core, panel(doc, "lines"))[3]).toBeLessThan(0.1);
+    expect(box(core, panel(doc, "middle"))[3]).toBeCloseTo(36, 1);
+    expect(box(core, panel(doc, "bottom"))).toEqual([12, 628, 1256, 80]);
+  });
+
+  it("does the same for a zero-width box with a height", async () => {
+    const doc = HUD(`<div class="line" width="0" height="24"/>`);
+    const core = await laidOut();
+    expect(box(core, panel(doc, "lines"))[3]).toBeCloseTo(24, 1);
+    expect(box(core, panel(doc, "bottom"))).toEqual([12, 628, 1256, 80]);
+  });
+
+  it("measures an empty text, or one of collapsed white space, as 0 × 0; a line of text and an empty input as a line", async () => {
+    const doc = buildUI(`<Canvas><div id="col"><span id="empty"></span><span id="spaces">   </span><span id="word">Hi</span><input id="field"/></div></Canvas>`, {
+      css: `#col { flex-direction: column; align-items: flex-start } span, input { font-size: 20px }`,
+    });
+    const core = await laidOut();
+    expect(box(core, byId(doc, "empty", UIText)).slice(2)).toEqual([0, 0]);
+    expect(box(core, byId(doc, "spaces", UIText)).slice(2)).toEqual([0, 0]);
+    expect(box(core, byId(doc, "word", UIText))[3]).toBeGreaterThan(20);
+    expect(core.rectOf(byId(doc, "field", UIInputField))!.height).toBeGreaterThan(20);
   });
 });

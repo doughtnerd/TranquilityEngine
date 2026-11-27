@@ -241,6 +241,8 @@ const NO_PLACE: Placement = { clip: null, clipper: null, childClip: null, order:
 /** ADR 0427: scrollbar thickness in UI pixels by `scrollbarWidth`, and a thumb's shortest length. */
 const SCROLLBAR_WIDTH = { auto: 10, thin: 6, none: 0 } as const;
 const MIN_THUMB = 18;
+/** A box with children's least width and height (UI pixels): far below a drawn pixel, but above Yoga's 0 (`applyProperties`). */
+const CONTAINER_MIN_SIZE = 0.001;
 /** ADR 0426/0427: how far (CSS pixels) a press moves before it's a drag: a mouse drag of a draggable element, a touch or pen drag scroll. */
 const DRAG_THRESHOLD = 4;
 const TOUCH_SCROLL_THRESHOLD = 10;
@@ -889,9 +891,13 @@ export class UICore implements UICoreLike {
     // Null: the kind's (text wraps to what's left; other boxes keep their size).
     // ADR 0427: in a parent the player scrolls along its main axis, content lays out unconstrained: a kind's default shrink is 0 there.
     if (put(15, (v = c.flexShrink === null || c.flexShrink === undefined ? (scrollsMainAxis(entry.parent) ? 0 : flexShrinkOf(entry.kind)) : finite(c.flexShrink)))) n.setFlexShrink(v as number);
-    if (put(26, (v = uiLimit(c.minWidth, bw)))) n.setMinWidth(v as never);
+    // A box with children is never quite 0 on either axis, so its parent's content size never is: Yoga sizes a parent
+    // that measures one of them at an available size of 0 or less to its whole available space on the other axis,
+    // skipping the children (a column of empty texts in a shrink-to-fit box filled the screen), where CSS uses content.
+    const floor = entry.children.length > 0 ? CONTAINER_MIN_SIZE : 0;
+    if (put(26, (v = atLeast(uiLimit(c.minWidth, bw), floor)))) n.setMinWidth(v as never);
     if (put(27, (v = uiLimit(c.maxWidth, bw)))) n.setMaxWidth(v as never);
-    if (put(28, (v = uiLimit(c.minHeight, bh)))) n.setMinHeight(v as never);
+    if (put(28, (v = atLeast(uiLimit(c.minHeight, bh), floor)))) n.setMinHeight(v as never);
     if (put(29, (v = uiLimit(c.maxHeight, bh)))) n.setMaxHeight(v as never);
     if (put(30, (v = t.wrap[c.flexWrap] ?? yoga.WRAP_NO_WRAP))) n.setFlexWrap(v as never);
     if (put(31, (v = t.alignSelf[c.alignSelf] ?? yoga.ALIGN_AUTO))) n.setAlignSelf(v as never);
@@ -1039,6 +1045,8 @@ export class UICore implements UICoreLike {
       const laid = this.layoutRuns(run, maxWidth);
       return { width: laid.width, height: laid.height };
     }
+    // An empty text (once its white space has collapsed) has no line box, as an empty block in CSS: 0 × 0.
+    if (entry.kind === "text" && run.text === "") return { width: 0, height: 0 };
     const request: TextMeasureRequest = { ...run, maxWidth: run.wrap === "none" ? Infinity : maxWidth };
     return measure(request);
   }
@@ -2252,6 +2260,12 @@ function scrollsMainAxis(parent: Entry | null): boolean {
   const axes = overflowAxes(c);
   const row = c.flexDirection === "row" || c.flexDirection === "row-reverse";
   return userScrollsAxis(row ? axes.x : axes.y);
+}
+
+/** A min-width or min-height of at least `floor` pixels; a percentage, or no floor, as it is. */
+function atLeast(v: number | `${number}%` | undefined, floor: number): number | `${number}%` | undefined {
+  if (floor <= 0 || typeof v === "string") return v;
+  return v === undefined || v < floor ? floor : v;
 }
 
 function finite(n: number): number {

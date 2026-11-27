@@ -2084,7 +2084,8 @@ function textSize(text: string, fontSize: number, weight: string, family: string
 /**
  * Measure a text run in UI pixels for the core's layout (`UICoreHost.measureText`): a 2D canvas's
  * `measureText` with the font string the GUI text blocks use, wrapped to `maxWidth` as the run's `wrap`
- * says. Empty text is one line tall and zero wide. Without a canvas (Node) it estimates.
+ * says. Empty text is one line tall and zero wide (the UI core sizes a plain empty text 0 × 0 itself, as CSS does;
+ * inputs keep the line). Without a canvas (Node) it estimates.
  */
 export function measureText(req: TextMeasureRequest): { width: number; height: number } {
   // The GUI measures text at the size it's drawn: a canvas's scale × the pixel ratio. Font hinting doesn't
