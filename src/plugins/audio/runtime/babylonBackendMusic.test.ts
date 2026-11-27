@@ -1,353 +1,388 @@
-// B1 (ADR 0166 M4, api-and-models §8): the Babylon fallback's `music` member against the mocked AudioV2 engine.
+// The Babylon fallback's `music` member (ADR 0166 M4, api-and-models §8): caps and priming, stamped starts, fades, B2
+// switches, stingers and quantised automation, group events, and the clock (no heard clock) with the rhythm-mode warning
+// (M4c). Against the mocked AudioV2 engine, through the shared rig.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../engine/audio/mixer";
-import { parseAudioSettings } from "../../../engine/audio/settings";
-import { babylonMock, makeFakeContext, type FakeContext, type MockSound } from "../testing/babylonMocks";
-import type { MusicBackend, MusicGroupEvent, MusicGroupMember, MusicGroupRequest, PlayRequest } from "./backend";
-import { BabylonBackend } from "./babylonBackend";
+import { defaultAudioSettings, parseAudioSettings } from "../../../engine/audio/settings";
+import { babylonMock, type FakeContext, type MockSound } from "../testing/babylonMocks";
+import { babylonRig, disposeBabylonRigs, engine, flush } from "../testing/babylonRig";
+import { Audio } from "./Audio";
+import { setAudioBackend, type MusicBackend, type MusicGroupEvent, type MusicGroupMember, type MusicGroupRequest, type PlayRequest } from "./backend";
+import type { BabylonBackend } from "./babylonBackend";
+import { endAudioSession } from "./testing";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
-async function flush(): Promise<void> {
-  for (let i = 0; i < 6; i++) await new Promise<void>((r) => setTimeout(r, 0));
-}
+describe("music", () => {
+  const member = (stem: string, extra: Partial<MusicGroupMember> = {}, play: Partial<PlayRequest> = {}): MusicGroupMember => ({
+    stem,
+    play: { path: `${stem}.wav`, url: `asset://${stem}.wav`, loop: false, stream: false, bus: "Music", group: 7, ...play },
+    startFrame: 0,
+    loop: false,
+    ...extra,
+  });
+  const request = (members: MusicGroupMember[], group = 1): MusicGroupRequest => ({ instance: 7, group, members });
 
-const member = (stem: string, extra: Partial<MusicGroupMember> = {}, play: Partial<PlayRequest> = {}): MusicGroupMember => ({
-  stem,
-  play: { path: `${stem}.wav`, url: `asset://${stem}.wav`, loop: false, stream: false, bus: "Music", group: 7, ...play },
-  startFrame: 0,
-  loop: false,
-  ...extra,
+  let backend: BabylonBackend;
+  let context: FakeContext;
+  let music: MusicBackend;
+
+  beforeEach(() => {
+    babylonMock.reset();
+    mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] }).settings);
+    ({ backend, context } = babylonRig());
+    music = backend.music!;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    disposeBabylonRigs();
+    vi.restoreAllMocks();
+  });
+
+  const sounds = (): MockSound[] => engine().sounds;
+  const setTime = (t: number): void => {
+    context.currentTime = t;
+    engine().currentTime = t;
+  };
+
+  describe("Babylon fallback music: capabilities and priming", () => {
+    it("has a music member with the fallback's caps", () => {
+      expect(music.caps).toEqual({ primes: false, stampedFades: true, heardClock: false, rhythm: false });
+      expect(music.primeEmaMs).toBe(40);
+    });
+
+    it("admits a group and always answers primed", () => {
+      expect(music.primedState(1)).toBeNull();
+      expect(music.admitGroup(request([member("a"), member("b")]))).toEqual({ ok: true });
+      expect(music.primedState(1)).toEqual({ group: 1, primed: 2, of: 2, ready: true });
+    });
+
+    it("refuses once the backend is disposed", () => {
+      backend.dispose();
+      expect(music.admitGroup(request([member("a")])).ok).toBe(false);
+    });
+
+    it("decodes the group's clips at admit, not the streamed ones", async () => {
+      music.admitGroup(request([member("a"), member("s", {}, { stream: true })]));
+      await flush();
+      expect(babylonMock.engine.bufferLoads).toEqual(["asset://a.wav"]);
+      expect(babylonMock.engine.streamLoads).toEqual([]);
+    });
+
+    it("primeGroup warns once that streamed stems may drift, and flat once per streamed path", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const req = request([member("flatstream1", {}, { stream: true }), member("flatstream2", {}, { stream: true })], 2);
+      music.admitGroup(req);
+      music.primeGroup(req);
+      music.primeGroup(req, { retarget: true });
+      const text = warn.mock.calls.map((c) => String(c[0]));
+      expect(text.filter((t) => t.includes("may drift"))).toHaveLength(1);
+      expect(text.filter((t) => t.includes("flatstream1.wav"))).toHaveLength(1);
+      expect(text.filter((t) => t.includes("flatstream2.wav"))).toHaveLength(1);
+    });
+  });
+
+  describe("Babylon fallback music: stamped starts", () => {
+    it("starts decoded stems through waitTime from Audio.time, with start offset and loop region in seconds", async () => {
+      const req = request([member("a", { startFrame: 48000 }), member("b", { loop: true, loopStartFrame: 24000, loopEndFrame: 96000 })]);
+      music.admitGroup(req);
+      await flush();
+      setTime(1);
+      const voices = music.stampGroup({ group: 1, at: 3.5 });
+      expect(voices).toHaveLength(2);
+      await flush();
+      expect(sounds()).toHaveLength(2);
+      expect(sounds()[0]!.plays).toEqual([{ waitTime: 2.5, startOffset: 1 }]);
+      expect(sounds()[1]!.plays).toEqual([{ waitTime: 2.5 }]);
+      const looped = sounds()[1] as MockSound & { loopStart?: number; loopEnd?: number };
+      expect(looped.loop).toBe(true);
+      expect(looped.loopStart).toBeCloseTo(0.5);
+      expect(looped.loopEnd).toBeCloseTo(2);
+    });
+
+    it("a stamp in the past plays at once", async () => {
+      music.admitGroup(request([member("a")]));
+      await flush();
+      setTime(5);
+      music.stampGroup({ group: 1, at: 4 });
+      await flush();
+      expect(sounds()[0]!.plays).toEqual([{}]);
+    });
+
+    it("fadeZero starts silent", async () => {
+      music.admitGroup(request([member("a", { fadeZero: true })]));
+      await flush();
+      music.stampGroup({ group: 1, at: 0 });
+      await flush();
+      expect(sounds()[0]!.options.volume).toBe(0);
+    });
+
+    it("a stamp for an unknown group returns nothing", () => {
+      expect(music.stampGroup({ group: 99, at: 1 })).toEqual([]);
+    });
+
+    it("streamed stems start from a timer, flat and unaligned", async () => {
+      const req = request([member("s", {}, { stream: true })]);
+      music.admitGroup(req);
+      music.primeGroup(req);
+      await flush();
+      vi.useFakeTimers();
+      setTime(1);
+      const [v] = music.stampGroup({ group: 1, at: 1.5 });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(sounds()[0]!.kind).toBe("streaming");
+      expect(sounds()[0]!.plays).toEqual([]);
+      expect(v!.fadeShaped).toBeTypeOf("function");
+      await vi.advanceTimersByTimeAsync(500);
+      expect(sounds()[0]!.plays).toEqual([{}]);
+    });
+  });
+
+  describe("Babylon fallback music: fades", () => {
+    it("a linear stamped fade is one setVolume ramp, started at its time", async () => {
+      music.admitGroup(request([member("a")]));
+      await flush();
+      vi.useFakeTimers();
+      setTime(0);
+      const [v] = music.stampGroup({ group: 1, at: 0 });
+      await vi.advanceTimersByTimeAsync(10);
+      const s = sounds()[0]!;
+      v!.fadeShaped({ to: 0, seconds: 2, law: "linear", at: 1 });
+      expect(s.ramps).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(s.ramps).toEqual([{ value: 0, duration: 2 }]);
+    });
+
+    it("an equal-power fade runs in steps and stops at the end", async () => {
+      music.admitGroup(request([member("a")]));
+      await flush();
+      vi.useFakeTimers();
+      const [v] = music.stampGroup({ group: 1, at: 0 });
+      await vi.advanceTimersByTimeAsync(10);
+      const s = sounds()[0]!;
+      v!.fadeShaped({ to: 0, seconds: 1, law: "equalPowerOut", stopAtEnd: true });
+      expect(s.ramps.length).toBe(1);
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(s.ramps.length).toBe(8);
+      expect(s.ramps[0]!.value).toBeCloseTo(Math.cos(Math.PI / 16), 5);
+      expect(s.ramps.at(-1)!.value).toBe(0);
+      expect(v!.playing).toBe(false);
+      expect(s.stops).toHaveLength(1);
+    });
+  });
+
+  describe("Babylon fallback music: B2 switches, stingers and quantised automation", () => {
+    it("a streamed stem fades with its law too (HTML5 volume steps)", async () => {
+      const req = request([member("s", {}, { stream: true })]);
+      music.admitGroup(req);
+      await flush();
+      vi.useFakeTimers();
+      setTime(0);
+      const [v] = music.stampGroup({ group: 1, at: 0 });
+      await vi.advanceTimersByTimeAsync(10);
+      const s = sounds()[0]!;
+      v!.fadeShaped({ to: 0, seconds: 1, law: "sCurve", stopAtEnd: true });
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(s.ramps.length).toBe(8);
+      expect(s.ramps.at(-1)!.value).toBe(0);
+      expect(v!.playing).toBe(false);
+    });
+
+    it("a fade whose timer fires late joins the law at the phase its stamp implies", async () => {
+      music.admitGroup(request([member("a")]));
+      await flush();
+      vi.useFakeTimers();
+      setTime(0);
+      const [v] = music.stampGroup({ group: 1, at: 0 });
+      await vi.advanceTimersByTimeAsync(10);
+      const s = sounds()[0]!;
+      setTime(1.5); // the stamp was 1.0; half of the 1 s fade is gone
+      v!.fadeShaped({ to: 0, seconds: 1, law: "linear", at: 1 });
+      expect(s.ramps[0]!.value).toBe(0);
+      expect(s.ramps[0]!.duration).toBeCloseTo(0.5, 5);
+    });
+
+    it("a stamped params ramp is a second factor beside the fade", async () => {
+      music.admitGroup(request([member("a")]));
+      await flush();
+      vi.useFakeTimers();
+      setTime(0);
+      const [v] = music.stampGroup({ group: 1, at: 0 });
+      await vi.advanceTimersByTimeAsync(10);
+      const s = sounds()[0]!;
+      v!.fade(0.5, 0);
+      v!.paramsShaped({ gain: 0.5, seconds: 1, law: "linear", at: 2 });
+      expect(s.ramps).toEqual([]);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(s.ramps).toEqual([{ value: 0.25, duration: 1 }]);
+      v!.fade(1, 0);
+      expect(s.volume).toBeCloseTo(0.5, 5);
+    });
+
+    it("a stem's low-pass ramp is skipped with one warning", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      music.admitGroup(request([member("a")]));
+      await flush();
+      const [v] = music.stampGroup({ group: 1, at: 0 });
+      await flush();
+      v!.paramsShaped({ lowpassHz: 800, seconds: 0 });
+      v!.paramsShaped({ lowpassHz: 400, seconds: 0 });
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes("low-pass"))).toHaveLength(1);
+    });
+
+    it("a stinger stamps on a later beat and a steal fades it out on a timer", async () => {
+      music.admitGroup(request([member("hit")]));
+      await flush();
+      vi.useFakeTimers();
+      setTime(1);
+      const [v] = music.stampGroup({ group: 1, at: 3 });
+      await vi.advanceTimersByTimeAsync(10);
+      const s = sounds()[0]!;
+      expect(s.plays).toEqual([{ waitTime: 2 }]);
+      v!.fadeShaped({ to: 0, seconds: 0.05, law: "linear", at: 3.5, stopAtEnd: true });
+      await vi.advanceTimersByTimeAsync(2600);
+      expect(v!.playing).toBe(false);
+    });
+  });
+
+  describe("Babylon fallback music: events", () => {
+    it("reports start once the stamp time is reached, then end", async () => {
+      music.admitGroup(request([member("a")]));
+      await flush();
+      const events: MusicGroupEvent[] = [];
+      music.onGroupEvent = (e) => events.push(e);
+      setTime(1);
+      music.stampGroup({ group: 1, at: 2 });
+      await flush();
+      backend.update(0);
+      expect(events).toEqual([]);
+      setTime(2.01);
+      backend.update(0);
+      expect(events).toEqual([{ kind: "start", group: 1, late: false, slipFrames: 0, startFrame: 0 }]);
+      sounds()[0]!.finish();
+      backend.update(0);
+      expect(events.at(-1)).toEqual({ kind: "end", group: 1, member: 0 });
+      expect(music.primedState(1)).toBeNull();
+    });
+
+    it("ADR 0249: its debug view lists the live groups (stamped, then playing) with no pool and no core counters", async () => {
+      music.admitGroup(request([member("a"), member("b")]));
+      await flush();
+      expect(music.debugView().groups).toEqual([{ id: 1, state: "admitted", primed: 2, of: 2 }]);
+      setTime(1);
+      music.stampGroup({ group: 1, at: 2 });
+      await flush();
+      expect(music.debugView().groups[0]!.state).toBe("stamped");
+      setTime(2.01);
+      backend.update(0);
+      const view = music.debugView();
+      expect(view.groups[0]!.state).toBe("playing");
+      expect([view.poolSize, view.groupsLate, view.splitQuanta]).toEqual([0, 0, 0]);
+    });
+
+    it("reports a late start with its slip", async () => {
+      music.admitGroup(request([member("a")]));
+      await flush();
+      const events: MusicGroupEvent[] = [];
+      music.onGroupEvent = (e) => events.push(e);
+      setTime(5);
+      music.stampGroup({ group: 1, at: 4.5 });
+      await flush();
+      backend.update(0);
+      expect(events).toEqual([{ kind: "start", group: 1, late: true, slipFrames: 24000, startFrame: 0 }]);
+    });
+
+    it("reports a failed member as an error", async () => {
+      babylonMock.failUrls.add("asset://bad.wav");
+      music.admitGroup(request([member("bad")]));
+      await flush();
+      const events: MusicGroupEvent[] = [];
+      music.onGroupEvent = (e) => events.push(e);
+      music.stampGroup({ group: 1, at: 0 });
+      await flush();
+      backend.update(0);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ kind: "error", group: 1, member: 0 });
+    });
+
+    it("cancelGroup stops the members and sends no events", async () => {
+      music.admitGroup(request([member("a")]));
+      await flush();
+      const events: MusicGroupEvent[] = [];
+      music.onGroupEvent = (e) => events.push(e);
+      const [v] = music.stampGroup({ group: 1, at: 9 });
+      await flush();
+      music.cancelGroup(1);
+      expect(v!.playing).toBe(false);
+      setTime(10);
+      backend.update(0);
+      expect(events).toEqual([]);
+      expect(music.primedState(1)).toBeNull();
+      music.cancelGroup(1);
+    });
+  });
 });
-const request = (members: MusicGroupMember[], group = 1): MusicGroupRequest => ({ instance: 7, group, members });
 
-let backend: BabylonBackend;
-let context: FakeContext;
-let music: MusicBackend;
+describe("clock and rhythm mode (M4c)", () => {
+  const pageSettings = mixer.audioSettings;
+  let backend: BabylonBackend;
+  let context: FakeContext;
 
-beforeEach(() => {
-  babylonMock.reset();
-  mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] }).settings);
-  context = makeFakeContext("running");
-  backend = new BabylonBackend({ createContext: () => context as unknown as AudioContext, unlockTarget: new EventTarget(), hostContext: () => null, visibility: null });
-  backend.configureBuses(mixer);
-  backend.applyMix(mixer.resolveAll());
-  music = backend.music!;
-});
-afterEach(() => {
-  vi.useRealTimers();
-  backend.dispose();
-  vi.restoreAllMocks();
-});
-
-const sounds = (): MockSound[] => babylonMock.engine.sounds;
-const setTime = (t: number): void => {
-  context.currentTime = t;
-  babylonMock.engine.currentTime = t;
-};
-
-describe("Babylon fallback music: capabilities and priming", () => {
-  it("has a music member with the fallback's caps", () => {
-    expect(music.caps).toEqual({ primes: false, stampedFades: true, heardClock: false, rhythm: false });
-    expect(music.primeEmaMs).toBe(40);
+  beforeEach(async () => {
+    babylonMock.reset();
+    mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] }).settings);
+    ({ backend, context } = babylonRig());
+    // The engine and context are created lazily, on the first sound: admit a group so `backend.time` reads the context.
+    backend.music!.admitGroup({ instance: 1, group: 1, members: [{ stem: "a", play: { path: "a.wav", url: "asset://a.wav", loop: false, stream: false, bus: "Music", group: 1 }, startFrame: 0, loop: false }] });
+    await flush();
+  });
+  afterEach(() => {
+    disposeBabylonRigs();
+    setAudioBackend(null);
+    endAudioSession();
+    mixer.configure(pageSettings);
+    vi.restoreAllMocks();
   });
 
-  it("admits a group and always answers primed", () => {
-    expect(music.primedState(1)).toBeNull();
-    expect(music.admitGroup(request([member("a"), member("b")]))).toEqual({ ok: true });
-    expect(music.primedState(1)).toEqual({ group: 1, primed: 2, of: 2, ready: true });
+  const setTime = (t: number): void => {
+    context.currentTime = t;
+    engine().currentTime = t;
+  };
+
+  const DT = 1 / 60;
+
+  describe("Babylon fallback music: the clock (§8)", () => {
+    it("has no heard clock: Audio.timeAt reads the context time", () => {
+      expect(backend.music!.caps.heardClock).toBe(false);
+      expect((backend as { timeAt?: unknown }).timeAt).toBeUndefined();
+      setAudioBackend(backend);
+      setTime(3.25);
+      expect(Audio.timeAt(12345)).toBe(3.25);
+    });
   });
 
-  it("refuses once the backend is disposed", () => {
-    backend.dispose();
-    expect(music.admitGroup(request([member("a")])).ok).toBe(false);
-  });
+  describe("Babylon fallback music: rhythm mode (§8 'Rhythm mode')", () => {
+    const rhythm = (on: boolean) => mixer.configure({ ...defaultAudioSettings(), rhythmMode: on, buses: mixer.audioSettings.buses });
 
-  it("decodes the group's clips at admit, not the streamed ones", async () => {
-    music.admitGroup(request([member("a"), member("s", {}, { stream: true })]));
-    await flush();
-    expect(babylonMock.engine.bufferLoads).toEqual(["asset://a.wav"]);
-    expect(babylonMock.engine.streamLoads).toEqual([]);
-  });
+    it("warns once when rhythm mode is on, however often it updates", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      backend.update(0);
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes("rhythmMode"))).toHaveLength(0);
+      rhythm(true);
+      for (let i = 0; i < 5; i++) backend.update(DT);
+      const hits = warn.mock.calls.map((c) => String(c[0])).filter((t) => t.includes("rhythmMode"));
+      expect(hits).toHaveLength(1);
+      expect(hits[0]).toContain("unavailable");
+    });
 
-  it("primeGroup warns once that streamed stems may drift, and flat once per streamed path", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const req = request([member("flatstream1", {}, { stream: true }), member("flatstream2", {}, { stream: true })], 2);
-    music.admitGroup(req);
-    music.primeGroup(req);
-    music.primeGroup(req, { retarget: true });
-    const text = warn.mock.calls.map((c) => String(c[0]));
-    expect(text.filter((t) => t.includes("may drift"))).toHaveLength(1);
-    expect(text.filter((t) => t.includes("flatstream1.wav"))).toHaveLength(1);
-    expect(text.filter((t) => t.includes("flatstream2.wav"))).toHaveLength(1);
-  });
-});
-
-describe("Babylon fallback music: stamped starts", () => {
-  it("starts decoded stems through waitTime from Audio.time, with start offset and loop region in seconds", async () => {
-    const req = request([member("a", { startFrame: 48000 }), member("b", { loop: true, loopStartFrame: 24000, loopEndFrame: 96000 })]);
-    music.admitGroup(req);
-    await flush();
-    setTime(1);
-    const voices = music.stampGroup({ group: 1, at: 3.5 });
-    expect(voices).toHaveLength(2);
-    await flush();
-    expect(sounds()).toHaveLength(2);
-    expect(sounds()[0]!.plays).toEqual([{ waitTime: 2.5, startOffset: 1 }]);
-    expect(sounds()[1]!.plays).toEqual([{ waitTime: 2.5 }]);
-    const looped = sounds()[1] as MockSound & { loopStart?: number; loopEnd?: number };
-    expect(looped.loop).toBe(true);
-    expect(looped.loopStart).toBeCloseTo(0.5);
-    expect(looped.loopEnd).toBeCloseTo(2);
-  });
-
-  it("a stamp in the past plays at once", async () => {
-    music.admitGroup(request([member("a")]));
-    await flush();
-    setTime(5);
-    music.stampGroup({ group: 1, at: 4 });
-    await flush();
-    expect(sounds()[0]!.plays).toEqual([{}]);
-  });
-
-  it("fadeZero starts silent", async () => {
-    music.admitGroup(request([member("a", { fadeZero: true })]));
-    await flush();
-    music.stampGroup({ group: 1, at: 0 });
-    await flush();
-    expect(sounds()[0]!.options.volume).toBe(0);
-  });
-
-  it("a stamp for an unknown group returns nothing", () => {
-    expect(music.stampGroup({ group: 99, at: 1 })).toEqual([]);
-  });
-
-  it("streamed stems start from a timer, flat and unaligned", async () => {
-    const req = request([member("s", {}, { stream: true })]);
-    music.admitGroup(req);
-    music.primeGroup(req);
-    await flush();
-    vi.useFakeTimers();
-    setTime(1);
-    const [v] = music.stampGroup({ group: 1, at: 1.5 });
-    await vi.advanceTimersByTimeAsync(10);
-    expect(sounds()[0]!.kind).toBe("streaming");
-    expect(sounds()[0]!.plays).toEqual([]);
-    expect(v!.fadeShaped).toBeTypeOf("function");
-    await vi.advanceTimersByTimeAsync(500);
-    expect(sounds()[0]!.plays).toEqual([{}]);
-  });
-});
-
-describe("Babylon fallback: every voice takes ramps and seeks (ADR 0264)", () => {
-  const plain = (extra: Partial<PlayRequest> = {}): PlayRequest => ({ path: "sfx.ogg", url: "sfx.ogg", loop: false, stream: false, bus: "Master", ...extra });
-
-  it("a plain voice runs a stamped fade at its time and stops at its end", async () => {
-    const v = backend.play(plain())!;
-    await flush();
-    vi.useFakeTimers();
-    setTime(0);
-    await vi.advanceTimersByTimeAsync(10);
-    const s = sounds()[0]!;
-    v.fadeShaped({ to: 0, seconds: 0.5, law: "linear", at: 1, stopAtEnd: true });
-    expect(s.ramps).toEqual([]);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(s.ramps).toEqual([{ value: 0, duration: 0.5 }]);
-    await vi.advanceTimersByTimeAsync(600);
-    expect(v.playing).toBe(false);
-  });
-
-  it("a seek before the start is where the sound starts; after it, the sound moves there", async () => {
-    const v = backend.play(plain())!;
-    v.seek(1.25);
-    await flush();
-    const s = sounds()[0]!;
-    expect(s.plays).toEqual([{ startOffset: 1.25 }]);
-    v.seek(0.5);
-    expect(s.currentTime).toBe(0.5);
-  });
-});
-
-describe("Babylon fallback music: fades", () => {
-  it("a linear stamped fade is one setVolume ramp, started at its time", async () => {
-    music.admitGroup(request([member("a")]));
-    await flush();
-    vi.useFakeTimers();
-    setTime(0);
-    const [v] = music.stampGroup({ group: 1, at: 0 });
-    await vi.advanceTimersByTimeAsync(10);
-    const s = sounds()[0]!;
-    v!.fadeShaped({ to: 0, seconds: 2, law: "linear", at: 1 });
-    expect(s.ramps).toEqual([]);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(s.ramps).toEqual([{ value: 0, duration: 2 }]);
-  });
-
-  it("an equal-power fade runs in steps and stops at the end", async () => {
-    music.admitGroup(request([member("a")]));
-    await flush();
-    vi.useFakeTimers();
-    const [v] = music.stampGroup({ group: 1, at: 0 });
-    await vi.advanceTimersByTimeAsync(10);
-    const s = sounds()[0]!;
-    v!.fadeShaped({ to: 0, seconds: 1, law: "equalPowerOut", stopAtEnd: true });
-    expect(s.ramps.length).toBe(1);
-    await vi.advanceTimersByTimeAsync(1100);
-    expect(s.ramps.length).toBe(8);
-    expect(s.ramps[0]!.value).toBeCloseTo(Math.cos(Math.PI / 16), 5);
-    expect(s.ramps.at(-1)!.value).toBe(0);
-    expect(v!.playing).toBe(false);
-    expect(s.stops).toHaveLength(1);
-  });
-});
-
-describe("Babylon fallback music: B2 switches, stingers and quantised automation", () => {
-  it("a streamed stem fades with its law too (HTML5 volume steps)", async () => {
-    const req = request([member("s", {}, { stream: true })]);
-    music.admitGroup(req);
-    await flush();
-    vi.useFakeTimers();
-    setTime(0);
-    const [v] = music.stampGroup({ group: 1, at: 0 });
-    await vi.advanceTimersByTimeAsync(10);
-    const s = sounds()[0]!;
-    v!.fadeShaped({ to: 0, seconds: 1, law: "sCurve", stopAtEnd: true });
-    await vi.advanceTimersByTimeAsync(1100);
-    expect(s.ramps.length).toBe(8);
-    expect(s.ramps.at(-1)!.value).toBe(0);
-    expect(v!.playing).toBe(false);
-  });
-
-  it("a fade whose timer fires late joins the law at the phase its stamp implies", async () => {
-    music.admitGroup(request([member("a")]));
-    await flush();
-    vi.useFakeTimers();
-    setTime(0);
-    const [v] = music.stampGroup({ group: 1, at: 0 });
-    await vi.advanceTimersByTimeAsync(10);
-    const s = sounds()[0]!;
-    setTime(1.5); // the stamp was 1.0; half of the 1 s fade is gone
-    v!.fadeShaped({ to: 0, seconds: 1, law: "linear", at: 1 });
-    expect(s.ramps[0]!.value).toBe(0);
-    expect(s.ramps[0]!.duration).toBeCloseTo(0.5, 5);
-  });
-
-  it("a stamped params ramp is a second factor beside the fade", async () => {
-    music.admitGroup(request([member("a")]));
-    await flush();
-    vi.useFakeTimers();
-    setTime(0);
-    const [v] = music.stampGroup({ group: 1, at: 0 });
-    await vi.advanceTimersByTimeAsync(10);
-    const s = sounds()[0]!;
-    v!.fade(0.5, 0);
-    v!.paramsShaped({ gain: 0.5, seconds: 1, law: "linear", at: 2 });
-    expect(s.ramps).toEqual([]);
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(s.ramps).toEqual([{ value: 0.25, duration: 1 }]);
-    v!.fade(1, 0);
-    expect(s.volume).toBeCloseTo(0.5, 5);
-  });
-
-  it("a stem's low-pass ramp is skipped with one warning", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    music.admitGroup(request([member("a")]));
-    await flush();
-    const [v] = music.stampGroup({ group: 1, at: 0 });
-    await flush();
-    v!.paramsShaped({ lowpassHz: 800, seconds: 0 });
-    v!.paramsShaped({ lowpassHz: 400, seconds: 0 });
-    expect(warn.mock.calls.filter((c) => String(c[0]).includes("low-pass"))).toHaveLength(1);
-  });
-
-  it("a stinger stamps on a later beat and a steal fades it out on a timer", async () => {
-    music.admitGroup(request([member("hit")]));
-    await flush();
-    vi.useFakeTimers();
-    setTime(1);
-    const [v] = music.stampGroup({ group: 1, at: 3 });
-    await vi.advanceTimersByTimeAsync(10);
-    const s = sounds()[0]!;
-    expect(s.plays).toEqual([{ waitTime: 2 }]);
-    v!.fadeShaped({ to: 0, seconds: 0.05, law: "linear", at: 3.5, stopAtEnd: true });
-    await vi.advanceTimersByTimeAsync(2600);
-    expect(v!.playing).toBe(false);
-  });
-});
-
-describe("Babylon fallback music: events", () => {
-  it("reports start once the stamp time is reached, then end", async () => {
-    music.admitGroup(request([member("a")]));
-    await flush();
-    const events: MusicGroupEvent[] = [];
-    music.onGroupEvent = (e) => events.push(e);
-    setTime(1);
-    music.stampGroup({ group: 1, at: 2 });
-    await flush();
-    backend.update(0);
-    expect(events).toEqual([]);
-    setTime(2.01);
-    backend.update(0);
-    expect(events).toEqual([{ kind: "start", group: 1, late: false, slipFrames: 0, startFrame: 0 }]);
-    sounds()[0]!.finish();
-    backend.update(0);
-    expect(events.at(-1)).toEqual({ kind: "end", group: 1, member: 0 });
-    expect(music.primedState(1)).toBeNull();
-  });
-
-  it("ADR 0249: its debug view lists the live groups (stamped, then playing) with no pool and no core counters", async () => {
-    music.admitGroup(request([member("a"), member("b")]));
-    await flush();
-    expect(music.debugView().groups).toEqual([{ id: 1, state: "admitted", primed: 2, of: 2 }]);
-    setTime(1);
-    music.stampGroup({ group: 1, at: 2 });
-    await flush();
-    expect(music.debugView().groups[0]!.state).toBe("stamped");
-    setTime(2.01);
-    backend.update(0);
-    const view = music.debugView();
-    expect(view.groups[0]!.state).toBe("playing");
-    expect([view.poolSize, view.groupsLate, view.splitQuanta]).toEqual([0, 0, 0]);
-  });
-
-  it("reports a late start with its slip", async () => {
-    music.admitGroup(request([member("a")]));
-    await flush();
-    const events: MusicGroupEvent[] = [];
-    music.onGroupEvent = (e) => events.push(e);
-    setTime(5);
-    music.stampGroup({ group: 1, at: 4.5 });
-    await flush();
-    backend.update(0);
-    expect(events).toEqual([{ kind: "start", group: 1, late: true, slipFrames: 24000, startFrame: 0 }]);
-  });
-
-  it("reports a failed member as an error", async () => {
-    babylonMock.failUrls.add("asset://bad.wav");
-    music.admitGroup(request([member("bad")]));
-    await flush();
-    const events: MusicGroupEvent[] = [];
-    music.onGroupEvent = (e) => events.push(e);
-    music.stampGroup({ group: 1, at: 0 });
-    await flush();
-    backend.update(0);
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ kind: "error", group: 1, member: 0 });
-  });
-
-  it("cancelGroup stops the members and sends no events", async () => {
-    music.admitGroup(request([member("a")]));
-    await flush();
-    const events: MusicGroupEvent[] = [];
-    music.onGroupEvent = (e) => events.push(e);
-    const [v] = music.stampGroup({ group: 1, at: 9 });
-    await flush();
-    music.cancelGroup(1);
-    expect(v!.playing).toBe(false);
-    setTime(10);
-    backend.update(0);
-    expect(events).toEqual([]);
-    expect(music.primedState(1)).toBeNull();
-    music.cancelGroup(1);
+    it("degrades: caps say no rhythm, the setting still reads, the latency is not reliable", () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      rhythm(true);
+      setAudioBackend(backend);
+      backend.update(0);
+      expect(backend.music!.caps.rhythm).toBe(false);
+      expect(Audio.rhythmMode).toBe(true);
+      expect(Audio.latency.reliable).toBe(false);
+    });
   });
 });

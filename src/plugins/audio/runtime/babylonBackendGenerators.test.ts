@@ -8,41 +8,19 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
 import { defaultGeneratorParams, generatorWireValues } from "../../../engine/audio/generators/catalogue";
 import { renderResolvedGenerator } from "../../../engine/audio/generators/generatorRender";
 import type { GeneratorKind } from "../../../engine/audio/generators/types";
-import { babylonMock, makeFakeContext, type MockEngine, type MockSound } from "../testing/babylonMocks";
+import { babylonMock, type MockSound } from "../testing/babylonMocks";
+import { babylonRig, decodingContext, disposeBabylonRigs, engine } from "../testing/babylonRig";
 import { setAudioBackend, type GeneratorSource, type PlayRequest } from "./backend";
-import { BabylonBackend } from "./babylonBackend";
 import { endAudioSession } from "./testing";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
-interface Created {
-  channels: number;
-  length: number;
-  rate: number;
-  copied: Float32Array | null;
-  duration: number;
-}
-
-const live: BabylonBackend[] = [];
-
 function rig() {
-  const context = makeFakeContext("running");
-  const created: Created[] = [];
-  Object.assign(context, {
-    createBuffer: (channels: number, length: number, rate: number) => {
-      const c: Created = { channels, length, rate, copied: null, duration: length / rate };
-      created.push(c);
-      return Object.assign(c, { copyToChannel: (data: Float32Array) => { c.copied = data.slice(); } });
-    },
-  });
-  const backend = new BabylonBackend({ createContext: () => context as unknown as AudioContext, unlockTarget: new EventTarget(), hostContext: () => null, visibility: null });
-  live.push(backend);
-  backend.configureBuses(mixer);
-  backend.applyMix(mixer.resolveAll());
+  const { context, created } = decodingContext();
+  const { backend } = babylonRig({ context });
   return { backend, created };
 }
 
-const engine = (): MockEngine => babylonMock.engine;
 const sounds = (): MockSound[] => engine().sounds;
 let warn: ReturnType<typeof vi.spyOn>;
 const said = (text: string): string[] => warn.mock.calls.map((c: unknown[]) => String(c[0])).filter((m: string) => m.includes(text));
@@ -58,7 +36,8 @@ beforeEach(() => {
 });
 afterEach(() => {
   setAudioBackend(null);
-  for (const b of live.splice(0)) b.dispose();
+  disposeBabylonRigs();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 

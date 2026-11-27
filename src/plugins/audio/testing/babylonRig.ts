@@ -12,11 +12,15 @@ import type { PlayRequest } from "../runtime/backend";
 import { BabylonBackend, type BabylonBackendOptions } from "../runtime/babylonBackend";
 import { babylonMock, makeFakeContext, type FakeContext, type MockEngine, type MockSound } from "./babylonMocks";
 
-export interface BabylonRigOptions<C extends object> extends BabylonBackendOptions {
+export interface BabylonRigOptions<C extends object> extends Omit<BabylonBackendOptions, "unlockTarget"> {
+  /** Where the unlock layer listens. Default: a fresh target. */
+  unlockTarget?: EventTarget;
   /** The fake context's starting state (when `context` isn't given). Default "running". */
   state?: string;
   /** The test's own context (sink ids, decoding), instead of `makeFakeContext(state)`. */
   context?: C;
+  /** A core host's context the backend plays on instead of making its own (the `hostContext` option). */
+  host?: object;
   /** Give the backend the mixer's buses and gains at once (`configureBuses`, `applyMix`). Default true. */
   wire?: boolean;
 }
@@ -25,7 +29,7 @@ export interface BabylonRig<C extends object = FakeContext> {
   readonly backend: BabylonBackend;
   readonly context: C;
   /** Where the unlock layer listens (a fresh target unless the options name one). */
-  readonly target: EventTarget | null;
+  readonly target: EventTarget;
   /** The `createContext` option: how often the backend made its context. */
   readonly createContext: Mock<() => AudioContext>;
 }
@@ -37,12 +41,13 @@ const rigs: BabylonBackend[] = [];
  * the test passes wins. The backend is disposed by `disposeBabylonRigs`.
  */
 export function babylonRig<C extends object = FakeContext>(options: BabylonRigOptions<C> = {}): BabylonRig<C> {
-  const { state, context: given, wire = true, ...backendOptions } = options;
+  const { state, context: given, host, wire = true, ...backendOptions } = options;
   const context = (given ?? makeFakeContext(state ?? "running")) as C;
-  const target = backendOptions.unlockTarget !== undefined ? backendOptions.unlockTarget : new EventTarget();
+  const target = backendOptions.unlockTarget ?? new EventTarget();
   // The one place a fake stands in for the context's type.
   const createContext = vi.fn(() => context as unknown as AudioContext);
-  const backend = new BabylonBackend({ createContext, hostContext: () => null, visibility: null, ...backendOptions, unlockTarget: target });
+  const hostContext = (): AudioContext | null => (host ? (host as unknown as AudioContext) : null);
+  const backend = new BabylonBackend({ createContext, hostContext, visibility: null, ...backendOptions, unlockTarget: target });
   rigs.push(backend);
   if (wire) {
     backend.configureBuses(mixer);
