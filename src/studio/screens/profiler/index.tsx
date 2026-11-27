@@ -5,6 +5,7 @@
 // playing and the Record button).
 import { HeatmapToggle, heatmapOn } from "../../components/heatmapToggle";
 import { effect, signal } from "@preact/signals";
+import type { FunctionComponent } from "preact";
 import { useEffect } from "preact/hooks";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { EmptyState } from "../../../editor/ui/EmptyState";
@@ -14,18 +15,14 @@ import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter } from "../../shell/studioServices";
 import { CaptureList } from "./CaptureList";
 import { recorderStatus } from "./captureRecorder";
-import { durationText, isCaptureFile, isCapturePath, NO_CAPTURES, runMoveFolders, runTreeFolders } from "./captureTree";
-import { TAKES_FOLDER } from "../take/takeFiles";
+import { durationText, isCaptureFile, isCapturePath, NO_CAPTURES, runMoveFolders, runTreeFolders } from "../run/captureTree";
 import { openMixDocument } from "../mixer/mixerDocument";
 import { CURSOR_KEYS } from "./cursorKeys";
 import { messageCounts } from "./messagesModel";
 import { AtCursor, MessageList, OpenInTake, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
-import { captureFileKind, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore } from "./profilerScreen";
-import { takeScreen } from "../take/takeScreen";
+import { captureLibrary, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore } from "./profilerScreen";
 import { openMixer } from "../../shell/openMixer";
-import { ReplayTransport } from "../take/index";
-import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "./runFileActions";
-import { durationsVersion, fileDuration } from "./runFileDurations";
+import { durationsVersion, fileDuration } from "../run/runFileDurations";
 import { takeOfCapture } from "./reviewLink";
 import { ProfilerTimeline } from "./ProfilerTimeline";
 import { PluginHealth } from "./PluginHealth";
@@ -40,6 +37,18 @@ import { clockText, valueAt } from "./timelineGeometry";
 import type { GroupBy } from "./voiceModel";
 import "./profiler.css";
 
+/**
+ * What the Profiler needs from the Take screen (ADR 0408: one recording for both screens): the Take screen opens the
+ * recording the Profiler opens, and the open take's replay controls are the Profiler's transport. The screens'
+ * composition (`screens/index.tsx`) gives it, so the Profiler imports nothing from the Take screen.
+ */
+export interface ProfilerTakeLink {
+  /** The Take screen opens `path` too (or says it has no take data). */
+  openPath(path: string): void;
+  /** The open take's replay controls; `disabled` while a recording runs. */
+  readonly Transport: FunctionComponent<{ readonly disabled?: boolean }>;
+}
+
 function CapturesPanel() {
   void docVersion.value; // the project's file list grows and shrinks with it
   void durationsVersion.value; // a capture's duration arrived
@@ -48,7 +57,6 @@ function CapturesPanel() {
   const folders = project?.folders ?? [];
   const state = profilerStore().state.value;
   const openPath = state.kind === "open" || state.kind === "opening" || state.kind === "failed" ? state.path : null;
-  const k = captureFileKind;
   return (
     <Panel bodyClass="pf-panel-body">
       <CaptureList
@@ -62,14 +70,7 @@ function CapturesPanel() {
         duration={(p) => fileDuration(project, p)}
         onFolder={(f) => (captureFolder.value = f)}
         onOpen={openCapture}
-        onImport={(chosen, folder) => void importInto(k, chosen, folder)}
-        onNewFolder={newRunFolder}
-        onRename={(path, name) => void renameFile(k, path, name)}
-        onRenameFolder={(folder, name) => void renameFolder(k, folder, name)}
-        onMove={(items, folder) => void moveItems(k, items, folder)}
-        onDuplicate={(path) => void duplicateFile(k, path)}
-        onDelete={(path) => void deleteFile(k, path)}
-        onDeleteFolder={(folder) => void deleteFolder(k, folder)}
+        {...captureLibrary.treeActions}
       />
     </Panel>
   );
@@ -90,7 +91,7 @@ const GROUPS = [
  * the feed ended. Otherwise the open take's replay controls (the Take screen's, ADR 0408: one recording for both
  * screens; inactive while a recording runs) and Record, which records the Studio's own runtime.
  */
-function ProfilerTransport() {
+function ProfilerTransport(props: { readonly take: ProfilerTakeLink }) {
   const session = buildSession.value;
   const recorder = profilerRecorder();
   const r = recorder.state.value;
@@ -115,7 +116,7 @@ function ProfilerTransport() {
   const host = audioHost();
   return (
     <>
-      <ReplayTransport disabled={recording} />
+      <props.take.Transport disabled={recording} />
       <RecordButton recording={r.kind === "recording" || r.kind === "starting"} busy={r.kind === "saving"} blocked={whyNotRecord({ playable: host.playable.value, voices: host.stats.value?.voices ?? 0, replaying: replayStore().playing.value })} onToggle={() => void recorder.toggle()} />
     </>
   );
@@ -125,7 +126,7 @@ function ProfilerTransport() {
 const tick = signal(0);
 
 /** What the screen does while it shows: the route's capture, the cursor keys and the player bar. */
-function useScreen(): void {
+function useScreen(take: ProfilerTakeLink): void {
   useEffect(() => {
     const store = profilerStore();
     const timer = setInterval(() => {
@@ -142,7 +143,7 @@ function useScreen(): void {
         if (takeOnShow.value.kind === "live") return;
         void store.openPath(asset);
         // One recording for both screens: the Take screen opens it too (or says it has no take data).
-        void takeScreen().openPath(asset);
+        take.openPath(asset);
       }),
       ...CURSOR_KEYS.map((k) => keymap.register({ id: `profiler.${k.action}`, keys: k.keys, label: k.label, scope: { screen: "profiler" }, run: () => store.key(k.action) })),
       effect(() => {
@@ -155,7 +156,7 @@ function useScreen(): void {
         const live = s.kind === "open" && s.origin === "live";
         setPlayerSlots("profiler", {
           nowPlaying: s.kind === "open" ? { art: "CAP", title: s.title, subtitle: `${s.replayOf ? "Replay capture" : "Capture"} · ${clockText(data?.duration ?? 0)}${live ? " · live" : ""}` } : null,
-          transport: <ProfilerTransport />,
+          transport: <ProfilerTransport take={take} />,
           status: followed ?? recorderStatus(rec, profilerRecorder().seconds, profilerRecorder().replayOf) ?? (s.kind === "open" && data ? `Cursor ${clockText(store.cursor.value)}` : undefined),
         });
       }),
@@ -168,8 +169,8 @@ function useScreen(): void {
   }, []);
 }
 
-function TimelinePanel() {
-  useScreen();
+function TimelinePanel(props: { readonly take: ProfilerTakeLink }) {
+  useScreen(props.take);
   const store = profilerStore();
   const s = store.state.value;
   const data = store.data.value;
@@ -317,10 +318,10 @@ function PluginsPanel() {
   );
 }
 
-/** The screen's panels, in the prototype's places. */
-export const PROFILER_PANELS: readonly StudioPanel[] = [
+/** The screen's panels, in the prototype's places, linked to the Take screen. */
+export const profilerPanels = (take: ProfilerTakeLink): readonly StudioPanel[] => [
   { id: "profiler-captures", title: "Captures", dock: "left", view: () => <CapturesPanel /> },
-  { id: "profiler-timeline", title: "Timeline", dock: "fill", fixed: true, view: () => <TimelinePanel /> },
+  { id: "profiler-timeline", title: "Timeline", dock: "fill", fixed: true, view: () => <TimelinePanel take={take} /> },
   { id: "profiler-cursor", title: "At cursor", dock: "right", view: () => <CursorPanel /> },
   { id: "profiler-voice", title: "Voice", dock: "right", view: () => <VoicePanel /> },
   // Spec §4.6.1: Why it played sits below, with Messages, so Voice and Why show together (the right dock keeps At cursor

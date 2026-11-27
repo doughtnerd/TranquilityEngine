@@ -166,40 +166,5 @@ export function childrenToKeep(body: PlaylistBody): { body: PlaylistBody; index:
   return body.entries.flatMap((e, index) => (e.kind === "embedded" ? [{ body: e.embedded, index }] : []));
 }
 
-// --- folders ---------------------------------------------------------------------------------------------------------
-
-/** What a project holds, for planning a folder delete. */
-export interface FolderContents {
-  readonly files: readonly string[];
-  readonly folders: readonly string[];
-}
-
-const parentOf = (path: string): string => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
-const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
-
-/**
- * Deleting a folder moves what's inside up a level (the prototype's "1 item moves to the top level", W2.14): each file
- * and folder directly in `folder` moves to its parent, as a pair [from, to]; a name taken there (or by an earlier
- * move) gets " 2", " 3"… before its extension (`split` splits a name at it). A sidecar travels with its file, so it
- * isn't moved on its own. Pure.
- */
-export function folderContentsUp(folder: string, project: FolderContents, split: (name: string) => [string, string], isSidecar: (path: string) => string | null): [string, string][] {
-  const parent = parentOf(folder);
-  const files = new Set(project.files);
-  const inside = [
-    ...project.folders.filter((f) => parentOf(f) === folder && f !== folder),
-    ...project.files.filter((f) => parentOf(f) === folder && !(isSidecar(f) !== null && files.has(isSidecar(f)!))),
-  ];
-  const claimed = new Set([...project.files, ...project.folders].filter((p) => parentOf(p) === parent));
-  const join = (name: string) => (parent ? `${parent}/${name}` : name);
-  return inside.map((from) => {
-    const [base, ext] = project.folders.includes(from) ? [nameOf(from), ""] : split(nameOf(from));
-    let to = join(nameOf(from));
-    for (let n = 2; claimed.has(to); n++) to = join(`${base} ${n}${ext}`);
-    claimed.add(to);
-    return [from, to];
-  });
-}
-
 /** A new playlist body of the open project's default type (an empty Queue, as the prototype's New playlist). */
 export const newPlaylistBody = (): PlaylistBody => emptyPlaylistBody("queue");

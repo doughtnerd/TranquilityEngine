@@ -6,7 +6,7 @@ import { CursorModel } from "../../../plugins/audio/editor/mix/cursorModel";
 import type { CaptureEvent, CaptureEventAt, CaptureKeyframeBus } from "../../../plugins/audio/runtime/capture/reader";
 import { namesFromStart } from "../../../plugins/audio/runtime/capture/testSupport";
 import { GEN_CLIP_ID_FIRST } from "../../../plugins/audio/runtime/wire.generated";
-import { captureTitle, captureTree, nextCapturePath, searchCaptures, treeFolders, whyNotCaptureFile } from "./captureTree";
+import { captureTitle, captureTree, nextCapturePath, searchCaptures, treeFolders, whyNotCaptureFile } from "../run/captureTree";
 import { CURSOR_KEYS, profilerTargets, runCursorKey } from "./cursorKeys";
 import { breakdownText, busReadouts, reasonsText } from "./cursorReadout";
 import { buildMemory, memoryAt, memoryText } from "./memoryModel";

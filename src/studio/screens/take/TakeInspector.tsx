@@ -19,7 +19,7 @@ import { PlayheadPicture } from "./TakePicture";
 import { valueText, type BusStrip, type ParameterRow, type PlayheadSummary } from "./takeInspectorModel";
 import { pathLabel, type TakeInstance } from "./takeTimeline";
 import { unitText, type PropertyCard } from "./takePlaylists";
-import { playheadText } from "../profiler/RunRuler";
+import { playheadText } from "../run/RunRuler";
 
 /** The cards of driven and static properties (spec §4.5.5): authored tick, live fill, and the mapping from its parameter. */
 export function PropertyCards(props: { readonly cards: readonly PropertyCard[]; readonly hovered?: string | null; onHover?(parameter: string | null): void }) {

@@ -2,7 +2,7 @@
 // Studio's run-file tree (`RunFileTree`, shared with Captures): search, Open take file… into the selected folder, New
 // folder, Collapse all, and per row Rename, Duplicate, Move to…, Move to top level and Delete (Undo on the toast), drag
 // onto a folder. The empty state says how takes are recorded. A view over props: the panel wires the file actions.
-import { RunFileTree, type RunFileTreeProps } from "../profiler/RunFileTree";
+import { RunFileTree, type RunFileTreeProps } from "../run/RunFileTree";
 import { NO_TAKES, takeFiles } from "./takeFiles";
 
 export type TakeListProps = Omit<RunFileTreeProps, "tree" | "noun" | "label" | "accept" | "emptyBody" | "fileIcon">;

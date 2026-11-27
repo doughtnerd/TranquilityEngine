@@ -4,21 +4,18 @@
 // MoveToDialog), Copy / Paste here / Duplicate (Ctrl+C / V / D), audio files dropped from the OS (the import review),
 // two-line rows with a filled 46×20 thumbnail, folder counts with a hover Delete, the split Add button (Import samples… /
 // New folder), Collapse all, and with no samples the prototype's centred card over the dock ("No samples yet", Import
-// samples…). Rename and move are the engine's asset operations, so
-// references (playlists, scenes) follow and the file on disk is what changes; deleting a sample moves its file to the
-// project's trash, with Undo on the toast (`sampleTrash.ts`).
+// samples…). Rename, move, new folder and both deletes are the Studio asset
+// library's (`sampleFiles.ts`, ADR 0433), so references (playlists, scenes) follow and the file on disk is what changes;
+// deleting a sample moves its file to the project's trash, and a folder's contents move up, with Undo on the toast.
 import { openMixDocument } from "../mixer/mixerDocument";
 import { applyEdit } from "../../../editor/sdk/editResult";
-import { FOLDER_COLOURS, folderColour, folderColourCss, moveFolderColours, setFolderColour } from "./folderColours";
+import { FOLDER_COLOURS, folderColour, folderColourCss, setFolderColour } from "./folderColours";
 import { useRef, useState } from "preact/hooks";
 import { createPortal } from "preact";
 import { signal } from "@preact/signals";
 import { isDerivedSamplePath, sampleEditsFromSidecar } from "../../../engine/audio/sample/format";
 import { parseImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
-import { restoreSample, trashSample } from "./sampleTrash";
-import { folderEntry } from "../../../editor/assetEntry";
-import { moveAssets, newFolder, renameAsset, whyNotValidName } from "../../../editor/assetOps";
-import { moveSourceVersions } from "./sampleVersions";
+import { sampleFiles } from "./sampleFiles";
 import { currentProject, docVersion, status } from "../../../editor/state";
 import type { EditorProject } from "../../../editor/projects";
 import { Chip } from "../../../editor/ui/Chip";
@@ -31,7 +28,7 @@ import { confirmInEditor } from "../../../editor/ui/ConfirmDialog";
 import { parseDerivedSample } from "../../../engine/audio/sample/format";
 import { Icon } from "../../components/Icon";
 import { toasts } from "../../shell/studioServices";
-import { allSamples, audioFolders, cleanFolderName, fileChip, folderOf, libraryTree, metaLine, moveUpPlan, nameOf, sampleName, searchSamples, usesOf, type LibraryFolder } from "./sampleLibrary";
+import { allSamples, audioFolders, fileChip, folderOf, libraryTree, metaLine, nameOf, sampleName, searchSamples, type LibraryFolder } from "./sampleLibrary";
 import { lengthOf, peaksOf, sampleSession } from "./sampleSession";
 import { filesOfDrop } from "../../../editor/assetImportFiles";
 import { deriveSample, freeSamplePath, stemOf, writeDerived } from "./sampleWrites";
@@ -74,39 +71,12 @@ function MiniWave(props: { project: EditorProject; path: string }) {
 /** The sample copied with Ctrl+C or the menu's Copy (Paste here makes a duplicate of it). */
 const copied = signal<string | null>(null);
 
-/** The engine's asset moves, then the moved samples' source versions with them (ADR 0342, per machine). */
-async function moveSamples(moves: readonly (readonly [string, string])[], verb?: string): Promise<boolean> {
-  const ok = await moveAssets(moves, verb);
-  const project = currentProject.peek();
-  if (ok && project) await moveSourceVersions(project, moves);
-  if (ok) followFolderColours(moves);
-  return ok;
-}
-
-/** ADR 0362 item 4: a renamed or moved folder keeps its colour (and its subfolders theirs) in the project's settings. */
-function followFolderColours(moves: readonly (readonly [string, string])[]): void {
-  const doc = openMixDocument(currentProject.peek());
-  if (!doc || doc.readOnly) return;
-  const before = doc.value.peek();
-  const next = moves.reduce((p, [from, to]) => moveFolderColours(p, from, to), before);
-  if (next !== before) doc.edit(next, { label: "Folder colour" });
-}
-
 /** ADR 0362 item 4: set or clear a folder's colour, one step of `audio.json`'s history. */
 function editFolderColour(folder: string, colour: string | null): void {
   const doc = openMixDocument(currentProject.peek());
   if (!doc) return;
   const before = doc.value.peek();
   applyEdit(setFolderColour(before, folder, colour), colour === null ? "Clear folder colour" : "Folder colour", (next, label) => doc.edit(next, { label }), before);
-}
-
-/** The engine's rename of `entry` (a file, or a folder entry) to `name`; `from` → `to` are the project paths it changes. */
-async function renameSample(entry: string, name: string, from: string, to: string): Promise<boolean> {
-  const ok = await renameAsset(entry, name);
-  const project = currentProject.peek();
-  if (ok && project) await moveSourceVersions(project, [[from, to]]);
-  if (ok) followFolderColours([[from, to]]);
-  return ok;
 }
 
 export function SamplesPanel() {
@@ -135,46 +105,21 @@ export function SamplesPanel() {
     return { line: metaLine(path, edits, derived ? null : lengthOf(project, path), derived), chip: fileChip(edits) };
   };
 
-  const deleteSample = async (path: string) => {
-    // Owner decision 2: no question first; the file goes to the project's trash and the toast's Undo brings it back.
-    const uses = usesOf(path, project.files, (p) => project.assets.get(p));
-    const r = await trashSample(project, path).catch((err: unknown) => ({ refused: err instanceof Error ? err.message : String(err) }));
-    if ("refused" in r) {
-      status.value = { kind: "info", text: `Can't delete ${nameOf(path)}: ${r.refused}.` };
-      return;
-    }
-    if (open === path) openSample(null);
-    toasts.show({
-      text: `Deleted ${nameOf(path)}${uses.length ? ` · ${uses.length} use${uses.length === 1 ? "" : "s"} left without audio until it's back` : ""}`,
-      undo: () =>
-        void restoreSample(project, r.trashed).then((back) => {
-          if ("refused" in back) status.value = { kind: "info", text: `Can't bring ${nameOf(path)} back: ${back.refused}.` };
-          else if (open === path) openSample(path);
-        }),
-    });
-  };
+  // Owner decision 2: no question first; the file goes to the project's trash and the toast's Undo brings it back.
+  const deleteSample = (path: string) => void sampleFiles.deleteFile(path);
 
   const deleteFolder = async (folder: string) => {
-    const plan = moveUpPlan(folder, project.files, project.folders);
-    const up = folderOf(folder) || project.name;
+    const plan = sampleFiles.folderDeletePlan(folder);
     const ok = await confirmInEditor({
       title: `Delete folder ${nameOf(folder)}?`,
-      message: plan.length ? `Its ${plan.length} item${plan.length === 1 ? "" : "s"} move up to ${up}; nothing is removed from the project.` : "It's empty.",
+      message: plan.items ? `Its ${plan.items} item${plan.items === 1 ? "" : "s"} move up to ${plan.to || project.name}; nothing is removed from the project.` : "It's empty.",
       confirmLabel: "Delete folder",
     });
-    if (!ok.ok) return;
-    if (plan.length && !(await moveSamples(plan, "Moved"))) return;
-    try {
-      await project.deleteFolder(folder);
-      docVersion.value++;
-      toasts.show({ text: `Deleted folder ${nameOf(folder)}` });
-    } catch (err) {
-      status.value = { kind: "error", text: `Couldn't delete ${folder}: ${err instanceof Error ? err.message : String(err)}` };
-    }
+    if (ok.ok) await sampleFiles.deleteFolder(folder);
   };
 
   const addFolder = async (parent: string) => {
-    const path = await newFolder(parent);
+    const path = await sampleFiles.newFolder(parent);
     if (path) {
       setClosed((c) => new Set([...c].filter((f) => f !== parent)));
       setTimeout(() => renameRow(TREE, `f:${path}`), 0);
@@ -212,7 +157,7 @@ export function SamplesPanel() {
         { id: "fork", label: "Fork as new sample…", hint: "Ctrl+Shift+S", disabled: readOnly, run: () => (openSample(path), (dialog.value = { kind: "fork", mode: "fork" })) },
         SEPARATOR,
         { id: "move", label: "Move to…", disabled: readOnly, run: () => setMoving([path]) },
-        folderOf(path) !== "" && { id: "top", label: "Move to top level", disabled: readOnly, run: () => void moveSamples([[path, nameOf(path)]]).then((ok) => ok && open === path && openSample(nameOf(path))) },
+        folderOf(path) !== "" && { id: "top", label: "Move to top level", disabled: readOnly, run: () => void sampleFiles.move([path], "") },
         SEPARATOR,
         { id: "delete", label: "Delete", hint: "Del", danger: true, disabled: readOnly, title: "Moves it to the project's trash; Undo brings it back", run: () => void deleteSample(path) },
       ]),
@@ -234,7 +179,7 @@ export function SamplesPanel() {
             ...FOLDER_COLOURS.map((c) => ({ id: `colour-${c.colour}`, label: c.name, checked: folderColour(mixValue, folder) === c.colour, run: () => editFolderColour(folder, c.colour) })),
           ],
         },
-        folderOf(folder) !== "" && { id: "top", label: "Move to top level", disabled: readOnly, run: () => void moveSamples([[folder, nameOf(folder)]]) },
+        folderOf(folder) !== "" && { id: "top", label: "Move to top level", disabled: readOnly, run: () => void sampleFiles.move([folder], "") },
         SEPARATOR,
         { id: "delete", label: "Delete folder", hint: "Del", danger: true, disabled: readOnly, run: () => void deleteFolder(folder) },
       ]),
@@ -263,13 +208,7 @@ export function SamplesPanel() {
       setDropOn(null);
       // A touch that turned into a scroll is cancelled and moves nothing (the row's menu has Move to… for touch).
       if (ev.type === "pointerup" && started && target !== null) {
-        const to = target ? `${target}/${nameOf(path)}` : nameOf(path);
-        void moveSamples([[path, to]]).then((ok) => {
-          if (ok) {
-            toasts.show({ text: `${nameOf(path)} → ${target ? target.split("/").join(" › ") : "top level"}` });
-            if (open === path) openSample(to);
-          }
-        });
+        void sampleFiles.move([path], target);
       }
     };
     window.addEventListener("pointermove", onMove);
@@ -309,15 +248,8 @@ export function SamplesPanel() {
             value: nameOf(path),
             label: "Sample name",
             selectTo: nameOf(path).length - (nameOf(path).toLowerCase().endsWith(".sample.json") ? 12 : (nameOf(path).match(/\.[^.]+$/)?.[0].length ?? 0)),
-            commit: (name) => {
-              const keepExt = nameOf(path).match(/(\.sample\.json|\.[^.]+)$/i)?.[0] ?? "";
-              const next = name.toLowerCase().endsWith(keepExt.toLowerCase()) ? name : `${name}${keepExt}`;
-              if (next === nameOf(path)) return;
-              const bad = whyNotValidName(next);
-              if (bad) return void (status.value = { kind: "info", text: `Can't rename: ${bad}.` });
-              const to = folderOf(path) ? `${folderOf(path)}/${next}` : next;
-              void renameSample(path, next, path, to).then((ok) => ok && open === path && openSample(to));
-            },
+            // The typed name keeps the file's extension (the library's rule).
+            commit: (name) => void sampleFiles.renameFile(path, name),
           },
       remove: readOnly ? undefined : () => void deleteSample(path),
       drag: startDrag(path),
@@ -357,10 +289,7 @@ export function SamplesPanel() {
       : {
           value: f.name,
           label: "Folder name",
-          commit: (name) => {
-            const clean = cleanFolderName(name);
-            if (clean && clean !== f.name) void renameSample(folderEntry(f.path), clean, f.path, folderOf(f.path) ? `${folderOf(f.path)}/${clean}` : clean);
-          },
+          commit: (name) => void sampleFiles.renameFolder(f.path, name),
         },
     remove: readOnly ? undefined : () => void deleteFolder(f.path),
     drag: startDrag(f.path),
@@ -458,9 +387,7 @@ export function SamplesPanel() {
           onMove={(folder) => {
             const items = moving;
             setMoving(null);
-            void moveSamples(items.map((p) => [p, folder ? `${folder}/${nameOf(p)}` : nameOf(p)] as const)).then((ok) => {
-              if (ok && open && items.includes(open)) openSample(folder ? `${folder}/${nameOf(open)}` : nameOf(open));
-            });
+            void sampleFiles.move(items, folder);
           }}
         />
       )}

@@ -5,17 +5,19 @@
 // trash on hover. Right-click menus: Rename (F2), Duplicate, Move to…, Move to top level, Delete (Del) on files; Rename,
 // New folder, Move to…, Move to top level and Delete folder (its contents move up) on folders. Drag a file or folder onto
 // a folder, or onto the "Top level" strip shown while dragging, to move it (touch has Move to… instead). A view over
-// props: the panels wire the actions (`runFileActions.ts`).
+// props: the file actions are the Studio asset library's tree actions (`library/studioLibrary.ts`, ADR 0433).
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import type { FileTreeActions } from "../../library/studioLibrary";
 import { ContextMenu, SEPARATOR, tidyEntries, type MenuEntry } from "../../../editor/ui/ContextMenu";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { MoveToDialog } from "../../../editor/ui/MoveToDialog";
 import { TreeView, renameRow, type TreeRow } from "../../../editor/ui/TreeView";
 import { Icon, type IconName } from "../../components/Icon";
 import "./runFileTree.css";
-import { captureTitle, captureTree, folderTrail, rowMeta, searchCaptures, treeFolders, type CaptureNode } from "./captureTree";
+import { captureTitle, captureTree, folderTrail, recordingExtension, rowMeta, searchCaptures, treeFolders, type CaptureNode } from "./captureTree";
 
-export interface RunFileTreeProps {
+/** What the tree shows, and the file actions it calls. */
+export interface RunFileTreeProps extends FileTreeActions {
   /** The tree's id (rename by key goes through it). */
   readonly tree: string;
   /** "take" or "capture": the words of the menus and tooltips. */
@@ -43,21 +45,10 @@ export interface RunFileTreeProps {
   /** The folder new files and folders go into changed (null: the top level, or the screen's own folder for files). */
   onFolder?(folder: string | null): void;
   onOpen(path: string): void;
-  /** Open a file…: the chosen files, and the selected folder (null: none). */
-  onImport(files: readonly File[], folder: string | null): void;
-  /** New folder in `parent`: resolves to the folder made, so its name can be typed. */
-  onNewFolder(parent: string): Promise<string | null>;
-  onRename(path: string, name: string): void;
-  onRenameFolder(folder: string, name: string): void;
-  onMove(items: readonly string[], folder: string): void;
-  onDuplicate(path: string): void;
-  onDelete(path: string): void;
-  onDeleteFolder(folder: string): void;
 }
 
 const nameOf = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 const folderOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
-const extensionOf = (p: string) => nameOf(p).slice(captureTitle(p).length);
 const fileKey = (p: string) => `file:${p}`;
 const folderKey = (p: string) => `folder:${p}`;
 
@@ -178,7 +169,7 @@ export function RunFileTree(props: RunFileTreeProps) {
             label: `${noun[0]!.toUpperCase()}${noun.slice(1)} name`,
             commit: (v) => {
               const name = v.trim();
-              if (name && name !== captureTitle(path)) props.onRename(path, `${name}${extensionOf(path)}`);
+              if (name && name !== captureTitle(path)) props.onRename(path, `${name}${recordingExtension(path)}`);
             },
           },
       ...(readOnly ? {} : { remove: () => props.onDelete(path), drag: startDrag(path) }),

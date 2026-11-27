@@ -11,7 +11,7 @@ import {
   setRoot, setTempo, setTrim, slideLoop, snip, snippets, tapeSnippet, toggleSnippet, updateLoop, updateMarker, type SampleEdit,
 } from "./sampleEditing";
 import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, summarizeMerge, writeSummary, wroteText } from "./sampleFile";
-import { allSamples, audioFolders, cleanFolderName, cleanPath, fileChip, folderChoices, libraryTree, metaLine, moveUpPlan, sampleName, searchSamples, shortLength, usesOf } from "./sampleLibrary";
+import { allSamples, audioFolders, cleanPath, fileChip, folderChoices, libraryTree, metaLine, sampleName, searchSamples, shortLength, usesOf } from "./sampleLibrary";
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
   colourCss, colourValue, fitToSource, landmarks, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, markerColour, nextMarker, shortSeconds, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
@@ -502,11 +502,6 @@ describe("library", () => {
     expect(shortLength(72)).toBe("1:12");
     expect(fileChip(skid())).toBe("2 cues · 1 loop");
     expect(fileChip(defaultSampleEdits())).toBeNull();
-  });
-
-  it("plans moving a folder's contents up, renaming clashes", () => {
-    expect(moveUpPlan("audio/sfx", ["audio/sfx/door.wav", "audio/sfx/door.wav.meta.json", "audio/door.wav"], ["audio", "audio/sfx"])).toEqual([["audio/sfx/door.wav", "audio/door 2.wav"]]);
-    expect(cleanFolderName(" Foot/steps ")).toBe("Foot-steps");
   });
 
   it("finds the playlists and derived samples that use a sample", () => {

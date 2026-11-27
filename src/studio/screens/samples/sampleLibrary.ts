@@ -1,6 +1,6 @@
 // The Samples panel's model (ADR 0342 "Samples are assets"): the project's audio files and derived samples
-// (`*.sample.json`) by folder, the search's flat list with paths, the meta line and the file chip of a row, deleting a
-// folder by moving what's in it up, and the playlists that use a sample ("Used by", the Delete prompt). Pure: the view
+// (`*.sample.json`) by folder, the search's flat list with paths, the meta line and the file chip of a row, and the
+// playlists that use a sample ("Used by", the Delete prompt). Pure: the view
 // passes the project's paths and parsed files.
 import { isDerivedSamplePath } from "../../../engine/audio/sample/format";
 import type { DerivedSampleAsset, SampleEdits, SampleKind } from "../../../engine/audio/sample/types";
@@ -117,28 +117,6 @@ export function fileChip(edits: SampleEdits | null): string | null {
   if (edits.root?.source === "file") parts.push("root");
   return parts.length ? parts.join(" · ") : null;
 }
-
-/** The moves that empty `folder` into its parent: each child file or folder, renamed "name 2" where taken. */
-export function moveUpPlan(folder: string, files: readonly string[], folders: readonly string[]): [string, string][] {
-  const parent = folderOf(folder);
-  const taken = new Set([...files, ...folders].filter((p) => folderOf(p) === parent).map(nameOf));
-  taken.delete(nameOf(folder));
-  const children = [...folders.filter((f) => folderOf(f) === folder), ...files.filter((f) => folderOf(f) === folder && !isSidecarPath(f.toLowerCase()))];
-  const out: [string, string][] = [];
-  for (const c of children) {
-    const name = nameOf(c);
-    let target = name;
-    const dot = name.lastIndexOf(".");
-    const [base, ext] = dot > 0 && !folders.includes(c) ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
-    for (let n = 2; taken.has(target); n++) target = `${base} ${n}${ext}`;
-    taken.add(target);
-    out.push([c, join(parent, target)]);
-  }
-  return out;
-}
-
-/** A folder name typed by the user, made safe: "/" becomes "-" (the prototype's rule). */
-export const cleanFolderName = (name: string): string => name.trim().replace(/[/\\]/g, "-");
 
 export interface Use {
   /** The playlist's path. */

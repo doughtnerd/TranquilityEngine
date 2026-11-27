@@ -1,5 +1,5 @@
-// The Studio's side of sharing a project folder (ADR 0341): its lock, following outside changes, moves that leave the
-// editor what it owns, the editor's hand-off, and finding a browser folder among the recent projects. Driven through
+// The Studio's side of sharing a project folder (ADR 0341): its lock, following outside changes, the editor's hand-off,
+// and finding a browser folder among the recent projects (its moves are the Studio asset library's, tested there). Driven through
 // each module's own interface over in-memory folders, with open asset documents as callers hold them.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openAssetDocument, type AssetDocument } from "../../editor/assetDocuments";
@@ -12,7 +12,6 @@ import { currentProject, status } from "../../editor/state";
 import { ROOT, useCoreAssetKinds } from "../../editor/testing";
 import type { StudioAudioRuntime } from "../runtime/studioAudioHost";
 import { recentForMount } from "./startQuery";
-import { moveStudioAssets, renameStudioAsset } from "./studioAssetMoves";
 import { studioProjects } from "./studioProject";
 import { applyStudioChanges, startStudioProjectWatch, stopStudioProjectWatch } from "./studioProjectWatch";
 
@@ -125,37 +124,6 @@ describe("the Studio's lock and watch", () => {
   it("doesn't share a project it can't write (a sample)", async () => {
     await startStudioProjectWatch({ ...project, canSave: false } as EditorProject, async () => 1);
     expect(onDisk(".myco/locks/studio.json")).toBeUndefined();
-  });
-});
-
-describe("Studio moves and renames", () => {
-  it("with no editor holding the project, rewrites every reference itself (scenes included)", async () => {
-    expect(await moveStudioAssets([["music/town.mp3", "audio/town.mp3"]])).toBe(true);
-    expect(project.files).toContain("audio/town.mp3");
-    expect(onDisk(SCENE)).toContain('"clip": "audio/town.mp3"');
-    expect(JSON.parse(onDisk(PATH) as string)).toMatchObject({ clip: "audio/town.mp3" });
-    expect(onDisk(".myco/locks/pending-moves.json")).toBeUndefined();
-  });
-
-  it("with the editor holding it, leaves the moves for the editor first and rewrites only the Studio's own files", async () => {
-    await acquireLock(fs, ROOT, "editor", 7);
-    const doc = open();
-    expect(await renameStudioAsset("music/town.mp3", "theme.mp3")).toBe(true);
-    expect(parsePendingMoves(onDisk(".myco/locks/pending-moves.json") as string).moves).toEqual([{ from: "music/town.mp3", to: "music/theme.mp3" }]);
-    expect(project.files).toContain("music/theme.mp3");
-    expect(onDisk("music/town.mp3")).toBeUndefined();
-    expect(onDisk(SCENE)).toBe(sceneText); // the editor's to rewrite
-    expect(doc.value.value).toMatchObject({ clip: "music/theme.mp3" }); // an open document follows in its history
-    await doc.flush();
-    expect(JSON.parse(onDisk(PATH) as string)).toMatchObject({ clip: "music/theme.mp3" });
-    expect(status.value?.text).toMatch(/^Renamed music\/town\.mp3 to music\/theme\.mp3\. .*The editor has the project open/);
-  });
-
-  it("refuses a move onto an existing file, leaving nothing for the editor", async () => {
-    await acquireLock(fs, ROOT, "editor", 7);
-    expect(await moveStudioAssets([["music/town.mp3", PATH]])).toBe(false);
-    expect(onDisk(".myco/locks/pending-moves.json")).toBeUndefined();
-    expect(status.value?.text).toMatch(/already exists/);
   });
 });
 

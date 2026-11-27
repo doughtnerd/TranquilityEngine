@@ -10,7 +10,7 @@ import type { AudioCapture } from "../../../plugins/audio/runtime";
 import { LiveFollow, type LiveFollowOptions, type LiveHost } from "../../../plugins/audio/editor/mix/liveFollow";
 import type { ProfileSource } from "../../../plugins/audio/editor/mix/profilerSource";
 import type { CaptureReplayOf } from "../../../plugins/audio/runtime/capture/format";
-import { nextCapturePath } from "./captureTree";
+import { nextCapturePath } from "../run/captureTree";
 import type { ProfilerStore } from "./profilerStore";
 
 export type RecorderState =

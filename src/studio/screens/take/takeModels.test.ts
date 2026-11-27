@@ -8,7 +8,7 @@ import { Take } from "../../../engine/audio/take/reader";
 import { formatClock } from "../../components/replayControlsModel";
 import { addMarker, addRegion, deleteNote, editNote, moveNote, noteColourCss, setRegionSpan } from "./notesEdits";
 import { FIXTURE_DURATION, FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
-import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeEmptyCopy, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
+import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeEmptyCopy, takeFiles, takeTree, whyNotTakeFile } from "./takeFiles";
 import { busStrip, instanceParametersAt, parameterRows, playheadSummary, valueText } from "./takeInspectorModel";
 import { findInstance, labelSegments, parameterText, pathLabel, pathTitle, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
 import { frameIndexAt, pictureStrip, visibleFrames } from "../../components/filmstripModel";
@@ -186,9 +186,7 @@ describe("the takes' files", () => {
     }
   });
 
-  it("moves and deletes a take's notes with it", () => {
-    expect(takeMoves(files, "recordings/a.sporesample", "recordings/z.sporesample")).toEqual([["recordings/a.sporesample", "recordings/z.sporesample"], ["recordings/a.sporesample.notes.json", "recordings/z.sporesample.notes.json"]]);
-    expect(takeMoves(files, "recordings/old/b.sporesample", "b.sporesample")).toEqual([["recordings/old/b.sporesample", "b.sporesample"]]);
+  it("a take's notes go with it", () => {
     expect(takeDeletion(files, "recordings/a.sporesample")).toEqual(["recordings/a.sporesample", "recordings/a.sporesample.notes.json"]);
     expect(whyNotTakeFile("run.wav")).toContain("isn't a take file");
     expect(whyNotTakeFile("run.sporesample")).toBeNull();

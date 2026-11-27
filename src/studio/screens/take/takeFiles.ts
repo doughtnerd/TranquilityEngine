@@ -1,8 +1,9 @@
 // The Takes panel's files (ADR 0348 "The Take screen"; the prototype's takes file system): the project's take files
-// (`*.sporesample`) by folder, through the Profiler's capture tree (a take is a capture file with requests), their notes
-// files (`<take>.notes.json`), which move and go with them, and where imported takes go. Pure.
+// (`*.sporesample`) by folder, through the Run screens' capture tree (`run/captureTree.ts`; a take is a capture file
+// with requests), their notes files (`<take>.notes.json`), which move and go with them, and where imported takes go.
+// Pure.
 import { takeNotesPath } from "../../../engine/audio/take/notes";
-import { RECORDINGS_FOLDER, captureTree, isTakePath, searchCaptures, type CaptureNode } from "../profiler/captureTree";
+import { RECORDINGS_FOLDER, captureTree, isTakePath, searchCaptures, type CaptureNode } from "../run/captureTree";
 
 /** Where the Studio imports takes (and where the editor's Record take saves them). */
 export const TAKES_FOLDER = RECORDINGS_FOLDER;
@@ -39,15 +40,7 @@ export function whyNotTakeFile(name: string): string | null {
   return isTakePath(name) ? null : `${name} isn't a take file (.sporesample).`;
 }
 
-/** The moves that rename or move take `from` to `to`: the take, and its notes when it has some. */
-export function takeMoves(files: readonly string[], from: string, to: string): [string, string][] {
-  const moves: [string, string][] = [[from, to]];
-  const notes = takeNotesPath(from);
-  if (files.includes(notes)) moves.push([notes, takeNotesPath(to)]);
-  return moves;
-}
-
-/** What deleting take `path` deletes: the take, and its notes when it has some. */
+/** The files that go with take `path` (the library's companions: they move, copy and delete with it): the take, and its notes when it has some. */
 export function takeDeletion(files: readonly string[], path: string): string[] {
   const notes = takeNotesPath(path);
   return files.includes(notes) ? [path, notes] : [path];

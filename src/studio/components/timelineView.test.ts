@@ -1,7 +1,7 @@
 // The zoomable timelines' shared view model: clamp, zoom about a time, scroll, the scrollbar thumb, following the
 // playhead and what a wheel event does; and the Take and Profiler ruler's labels over a zoomed view.
 import { describe, expect, it } from "vitest";
-import { rulerMarks } from "../screens/profiler/runRulerModel";
+import { rulerMarks } from "../screens/run/runRulerModel";
 import { clampTimeline, followView, MIN_SPAN, scrollTimeline, thumbOf, viewFromThumb, wheelTimeline, zoomPercentOf, zoomTimeline } from "./timelineView";
 
 const wheel = (o: Partial<{ ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; deltaX: number; deltaY: number }>) => ({ ctrlKey: false, metaKey: false, shiftKey: false, deltaX: 0, deltaY: 0, ...o });

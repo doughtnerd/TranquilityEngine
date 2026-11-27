@@ -3,8 +3,8 @@
 // Takes): search, Open capture file… into the selected folder, New folder, Collapse all, and per row Rename, Duplicate,
 // Move to…, Move to top level and Delete (Undo on the toast), drag onto a folder. The empty state says where captures
 // come from. A view over props: the panel wires the file actions.
-import { RunFileTree, type RunFileTreeProps } from "./RunFileTree";
-import { isCaptureFile, NO_CAPTURES } from "./captureTree";
+import { RunFileTree, type RunFileTreeProps } from "../run/RunFileTree";
+import { isCaptureFile, NO_CAPTURES } from "../run/captureTree";
 
 export type CaptureListProps = Omit<RunFileTreeProps, "tree" | "noun" | "label" | "accept" | "emptyBody" | "fileIcon">;
 

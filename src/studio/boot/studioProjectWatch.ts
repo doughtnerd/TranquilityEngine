@@ -5,7 +5,7 @@
 // changed files are read again into the project (`EditorProject.rereadFiles`, so `project.assets` and
 // `Assets.onChanged` listeners, the Studio's audio runtime among them, see them), and open asset documents take what
 // their file holds now through their amend path (ADR 0141): no undo step, the history kept. The pending moves file is
-// the editor's to apply, never the Studio's (the Studio writes it: studioAssetMoves.ts).
+// the editor's to apply, never the Studio's (the Studio writes it: library/studioAssetMoves.ts).
 import { isTauri } from "../../engine/platform/FileSystem";
 import { assetDocumentsDeleted } from "../../editor/assetDocuments";
 import { acquireLock, type HeldLock } from "../../editor/projectLocks";

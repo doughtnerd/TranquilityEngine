@@ -1,8 +1,9 @@
 // The Take screen's services over the real page (ADR 0348 "The Take screen"): opening a take file into the Studio's
 // replay (`shell/replay.ts`, which keeps it open across screens), the timeline read from it, the selection, the take's
 // notes as an asset document (the engine's undo tree; `<take>.notes.json`, a Studio-registered kind with no file
-// ending, as the samples sidecar is), what is special about takes for the Takes tree's file actions (`takeFileKind`:
-// the notes go with their take, the open take follows a move and closes on a delete; `runFileActions.ts` does the rest)
+// ending, as the samples sidecar is), what is special about takes for the Takes tree's file actions (`takeLibrary`:
+// the notes go with their take, the open take follows a move and closes on a delete; the Studio asset library does the
+// rest, ADR 0433)
 // and "Profile this replay". The panels call these; the models are elsewhere.
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
 import { emptyTakeNotes, formatTakeNotes, parseTakeNotes, takeNotesPath } from "../../../engine/audio/take/notes";
@@ -27,7 +28,8 @@ import { openRoute } from "../../shell/studioServices";
 import { openMixDocument } from "../mixer/mixerDocument";
 import { profilerRecorder, profilerStore, refuseWhileLive, stopFollowingBuild } from "../profiler/profilerScreen";
 import type { NotesEdit } from "./notesEdits";
-import type { RunFileKind } from "../profiler/runFileActions";
+import { studioLibrary } from "../../library/studioLibrary";
+import { recordingExtension } from "../run/captureTree";
 import { TAKES_FOLDER, takeDeletion, whyNotTakeFile } from "./takeFiles";
 import { takeTimeline, type TakeTimeline } from "./takeTimeline";
 
@@ -263,18 +265,18 @@ export const openTake = (path: string): void => {
 export const openSource = (path: string): void => openRoute({ screen: studioScreenFor(path) ?? "playlists", asset: path });
 
 
-/** Takes for the Takes tree's actions: a take's notes go with it; the open take follows a move and closes on a delete. */
-export const takeFileKind: RunFileKind = {
+/** The Takes tree's file actions: a take's notes go with it; the open take follows a move and closes on a delete. */
+export const takeLibrary = studioLibrary({
   noun: "take",
-  defaultFolder: TAKES_FOLDER,
-  whyNotFile: whyNotTakeFile,
+  imports: { defaultFolder: TAKES_FOLDER, whyNotFile: whyNotTakeFile },
+  extension: recordingExtension,
   companions: takeDeletion,
-  openPath: () => replayStore().open.peek()?.path ?? null,
+  openPaths: () => [replayStore().open.peek()?.path].filter((p): p is string => !!p),
   open: openTake,
-  moved(from, to) {
+  follow(from, to) {
     replayStore().moved(from, to);
     const s = takeScreen().state.peek();
     if (s.kind !== "none" && s.path === from) openTake(to);
   },
   closed: () => takeScreen().close(),
-};
+});

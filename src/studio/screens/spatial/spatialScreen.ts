@@ -10,7 +10,7 @@ import { assetDocumentsDeleted, openAssetDocument, readAsset, type AssetDocument
 import { whyNotDeletable } from "../../../editor/assetDelete";
 import { errorStatus } from "../../../editor/messages";
 import { createAsset } from "../../../editor/assetKindHost";
-import { duplicateAssets, renameAsset } from "../../../editor/assetOps";
+import { studioLibrary } from "../../library/studioLibrary";
 import { assetKinds } from "../../../editor/sdk/contributions";
 import { currentProject, docVersion, status } from "../../../editor/state";
 import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditorDialog";
@@ -635,17 +635,23 @@ export function newFromTake(path: string, scene: AudioTestScene, t: number): voi
   void createScene(name, scene);
 }
 
+/** The Scenes tree's file actions (ADR 0433): a typed name keeps `.audioscene.json`; the open scene follows a move. */
+export const sceneFiles = studioLibrary({
+  noun: "scene",
+  extension: () => AUDIO_SCENE_SUFFIX,
+  openPaths: () => [openPath.peek()].filter((p): p is string => !!p),
+  open: openScene,
+  follow: (_from, to) => openScene(to),
+});
+
 /** Rename a scene file (the open path follows). */
 export async function renameScene(path: string, name: string): Promise<void> {
-  const clean = name.trim().replace(/\.audioscene\.json$/i, "");
-  if (!clean || clean === sceneName(path)) return;
-  const next = `${folderOfFile(path) ? `${folderOfFile(path)}/` : ""}${clean}${AUDIO_SCENE_SUFFIX}`;
-  if ((await renameAsset(path, `${clean}${AUDIO_SCENE_SUFFIX}`)) && openPath.peek() === path) openScene(next);
+  await sceneFiles.renameFile(path, name);
 }
 
+/** Duplicate a scene beside itself and open the copy. */
 export async function duplicateScene(path: string): Promise<void> {
-  const made = await duplicateAssets([path]);
-  if (made[0]) openScene(made[0]);
+  await sceneFiles.duplicate([path]);
 }
 
 /** Delete scene files (the engine asks first); an undo toast writes them back. */

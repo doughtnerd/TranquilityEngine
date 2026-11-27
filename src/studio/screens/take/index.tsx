@@ -25,10 +25,9 @@ import { busStrip, instanceParametersAt, parameterRows, playheadSummary, type Bu
 import { isTakePath, takeEmptyCopy, takeFiles } from "./takeFiles";
 import { PlaylistsInTake } from "./PlaylistsInTake";
 import { TakeList } from "./TakeList";
-import { globalParameters, openSource, openTake, takeFileKind, takePlaylist, takeScreen } from "./takeScreen";
-import { runMoveFolders, runTreeFolders } from "../profiler/captureTree";
-import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "../profiler/runFileActions";
-import { durationsVersion, fileDuration } from "../profiler/runFileDurations";
+import { globalParameters, openSource, openTake, takeLibrary, takePlaylist, takeScreen } from "./takeScreen";
+import { runMoveFolders, runTreeFolders } from "../run/captureTree";
+import { durationsVersion, fileDuration } from "../run/runFileDurations";
 import { findInstance, parameterText, pathTitle, playlistsInTake, takeTimeline, type TakeInstance, type TakeTimeline } from "./takeTimeline";
 import { buildSession, takeOnShow, type LiveTake } from "../../runtime/buildSession";
 import { openMixer } from "../../shell/openMixer";
@@ -91,7 +90,6 @@ function TakesPanel() {
   const project = currentProject.value;
   const files = project?.files ?? [];
   const folders = project?.folders ?? [];
-  const k = takeFileKind;
   return (
     <Panel bodyClass="tk-panel-body">
       <BuildTakeSection />
@@ -106,14 +104,7 @@ function TakesPanel() {
         duration={(p) => fileDuration(project, p)}
         onFolder={(f) => (takeScreen().folder.value = f)}
         onOpen={openTake}
-        onImport={(chosen, folder) => void importInto(k, chosen, folder)}
-        onNewFolder={newRunFolder}
-        onRename={(path, name) => void renameFile(k, path, name)}
-        onRenameFolder={(folder, name) => void renameFolder(k, folder, name)}
-        onMove={(items, folder) => void moveItems(k, items, folder)}
-        onDuplicate={(path) => void duplicateFile(k, path)}
-        onDelete={(path) => void deleteFile(k, path)}
-        onDeleteFolder={(folder) => void deleteFolder(k, folder)}
+        {...takeLibrary.treeActions}
       />
     </Panel>
   );
@@ -347,7 +338,7 @@ function TimelinePanel() {
             const input = e.currentTarget as HTMLInputElement;
             const chosen = [...(input.files ?? [])];
             input.value = "";
-            if (chosen.length) void importInto(takeFileKind, chosen, store.folder.peek());
+            if (chosen.length) void takeLibrary.importFiles(chosen, store.folder.peek());
           }}
         />
       </EmptyState>
