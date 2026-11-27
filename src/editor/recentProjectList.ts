@@ -24,6 +24,12 @@ export interface RecentProject {
   label?: string;
 }
 
+/** An entry taken off the list, with a browser folder's handle, so it can be put back (`RecentProjects.restore`). */
+export interface RemovedProject {
+  readonly entry: RecentProject;
+  readonly handle?: FsaDirectoryHandle;
+}
+
 /** What the start screen shows under a recent project's name: a browser folder's note if it has one, else its path or folder name. */
 export const locationOf = (e: RecentProject): string => (e.kind === "handle" && e.label ? e.label : e.path);
 
@@ -123,13 +129,32 @@ export class RecentProjects {
     this.save(list);
   }
 
-  /** Take a project off the list (its folder is untouched). */
-  async remove(id: string): Promise<void> {
+  /**
+   * Take a project off the list (its folder is untouched). Returns what was removed, which `restore` puts back (the
+   * projects screen's Undo), or null when there was no such entry.
+   */
+  async remove(id: string): Promise<RemovedProject | null> {
     const list = this.list();
     const entry = list.find((e) => e.id === id);
-    if (!entry) return;
+    if (!entry) return null;
+    const handle = entry.kind === "handle" ? await this.handle(id) : undefined;
     this.save(list.filter((e) => e.id !== id));
     if (entry.kind === "handle") await this.handles?.delete(id).catch(() => {});
+    return { entry, ...(handle ? { handle } : {}) };
+  }
+
+  /**
+   * Put back an entry `remove` took off, where its last opening places it. Nothing changes when the project is on the
+   * list again already (reopened meanwhile); past the limit the oldest falls off as usual.
+   */
+  async restore(removed: RemovedProject): Promise<void> {
+    const { entry, handle } = removed;
+    const list = this.list();
+    if (list.some((e) => e.id === entry.id || (entry.kind === "path" && e.kind === "path" && samePath(e.path, entry.path)))) return;
+    if (entry.kind === "handle" && handle) await this.handles?.set(entry.id, handle);
+    const next = [...list, entry].sort((a, b) => b.lastOpened - a.lastOpened);
+    for (const dropped of next.slice(this.max)) if (dropped.kind === "handle") await this.handles?.delete(dropped.id).catch(() => {});
+    this.save(next.slice(0, this.max));
   }
 
   /** A browser entry's folder handle, if it's still stored. */
