@@ -17,6 +17,7 @@ import {
   TRIGGER_TYPES,
   actionChoices,
   compositeOf,
+  hasProjectActionSets,
   contextNotes,
   moveItem,
   newStep,
@@ -73,7 +74,8 @@ export function InputContextEditor(props: { path: string }) {
   const doc = openAssetDocument<InputContextSpec>(project, props.path, "inputContext");
   const spec = doc.value.value;
   const readOnly = doc.readOnly;
-  const actions = actionChoices(inputActionSets());
+  const sets = inputActionSets();
+  const actions = actionChoices(sets);
   const problems = problemsByMapping(inputContextProblems(spec));
   const edit = (next: InputContextSpec, label: string) => {
     if (!readOnly) doc.edit(next, { label });
@@ -84,7 +86,7 @@ export function InputContextEditor(props: { path: string }) {
   return (
     <AssetDocumentFrame doc={doc} kind="Input Context" class="inspector-body asset-inspector input-context" problems={notes}>
       <NameRow name={spec.name} readOnly={readOnly} onCommit={(name) => name !== spec.name && edit({ ...spec, name }, "Rename Context")} />
-      {actions.length === 0 && <p class="hint">No action sets are defined yet. Declare them in a script with defineActions; mappings name their actions.</p>}
+      {!hasProjectActionSets(sets) && <p class="hint">Your project has no action sets yet, only the engine's own (engine.UIActions, for menus). Declare yours in a script with defineActions; mappings name their actions.</p>}
       <datalist id={listId}>
         {CONTROL_GROUPS.flatMap((g) => g.controls.map((c) => <option key={c} value={c} />))}
       </datalist>
