@@ -376,6 +376,7 @@ function tileShapes(objects: unknown, boxW: number, boxH: number, where: string,
   return out;
 }
 
+/** Each side of a Wang id (top, right, bottom, left) and the two corners beside it. */
 const PATTERN_SIDES: [number, number, number][] = [
   [0, 7, 1],
   [2, 1, 3],
@@ -383,41 +384,83 @@ const PATTERN_SIDES: [number, number, number][] = [
   [6, 5, 7],
 ];
 
-/** Wang sets → terrains and patterns (ADR 0436): tiles labelled with one colour against empty get that terrain. */
+/** A Wang tile's colour ids (8, Tiled 1.5's order), or null for the old format. */
+function wangIds(raw: unknown): number[] | null {
+  const ids = Array.isArray(raw) ? raw.map((v) => num(v)) : str(raw).includes(",") ? str(raw).split(",").map((v) => num(v)) : [];
+  return ids.length === 8 ? ids : null;
+}
+
+/**
+ * A Wang tile's neighbour pattern in Tiled's order (top, top-right, … top-left) for the cells of colour `colour`.
+ *
+ * Tiled paints corner sets by vertex: a cell is in the terrain when any of its corners is the colour, so the cells
+ * sharing a corner of that colour are all in it, and a corner of another colour means its three other cells aren't all
+ * in it (auto-tiling reads that from the corner bit cleared when either side beside it is clear, `canonicalBlob`). A
+ * side is `1` when either corner beside it is the colour and "either" otherwise: the cell across may still be in the
+ * terrain through its own far corners. Edge sets name sides and leave corners "either"; mixed sets name both.
+ */
+function wangPattern(ids: readonly number[], colour: number, type: string): string {
+  const is = (i: number) => ids[i] === colour;
+  const chars: string[] = [];
+  for (let i = 0; i < 8; i++) chars.push(type === "edge" && i % 2 ? "*" : is(i) ? "1" : "0");
+  if (type === "corner") for (const [side, a, b] of PATTERN_SIDES) chars[side] = is(a) || is(b) ? "1" : "*";
+  return chars.join("");
+}
+
+/**
+ * Wang sets → terrains and patterns (ADR 0436, 0442). A set of one colour (against empty) makes that colour's terrain.
+ * A set of exactly two colours makes a terrain of the colour with fewer full tiles (the first colour on a tie), the
+ * other treated as "not this terrain": every tile showing the terrain's colour gets it, tiles of only the other colour
+ * none. In sets of three or more colours, tiles of one colour get its terrain and transitions between colours none,
+ * with a warning.
+ */
 function applyWangSets(ts: ImportTileset, sets: unknown, where: string, ctx: Ctx): void {
   if (!Array.isArray(sets)) return;
   const byIndex = new Map(ts.tiles.map((t) => [t.index, t]));
   for (const set of sets.filter(isObj)) {
     const type = str(set.type, "mixed");
     const colors = Array.isArray(set.colors) ? set.colors.filter(isObj) : [];
+    const used = type === "edge" ? [0, 2, 4, 6] : type === "corner" ? [1, 3, 5, 7] : [0, 1, 2, 3, 4, 5, 6, 7];
+    const wangTiles: { tileid: number; ids: number[] }[] = [];
+    let oldFormat = false;
     for (const wt of Array.isArray(set.wangtiles) ? set.wangtiles.filter(isObj) : []) {
-      const raw = wt.wangid;
-      const ids = Array.isArray(raw) ? raw.map((v) => num(v)) : str(raw).includes(",") ? str(raw).split(",").map((v) => num(v)) : [];
-      if (ids.length !== 8) {
-        warn(ctx, `${where}: Wang set "${str(set.name)}" uses an old Wang id format; re-save the tileset in Tiled 1.5 or later to import its terrains.`);
+      const ids = wangIds(wt.wangid);
+      if (!ids) {
+        oldFormat = true;
         break;
       }
-      const used = type === "edge" ? [0, 2, 4, 6] : type === "corner" ? [1, 3, 5, 7] : [0, 1, 2, 3, 4, 5, 6, 7];
+      wangTiles.push({ tileid: num(wt.tileid), ids });
+    }
+    if (oldFormat) {
+      warn(ctx, `${where}: Wang set "${str(set.name)}" uses an old Wang id format; re-save the tileset in Tiled 1.5 or later to import its terrains.`);
+      continue;
+    }
+    // Two colours: the terrain is the colour with fewer full tiles.
+    let terrainColour = 0;
+    if (colors.length === 2) {
+      const full = (c: number) => wangTiles.filter((wt) => used.every((i) => wt.ids[i] === c)).length;
+      terrainColour = full(2) < full(1) ? 2 : 1;
+    }
+    for (const { tileid, ids } of wangTiles) {
       const colours = new Set(used.map((i) => ids[i]!).filter((c) => c > 0));
-      const tile = byIndex.get(num(wt.tileid));
+      const tile = byIndex.get(tileid);
       if (!tile || colours.size === 0) continue;
-      if (colours.size > 1) {
+      let colour: number;
+      if (terrainColour) {
+        if (!colours.has(terrainColour)) continue;
+        colour = terrainColour;
+      } else if (colours.size > 1) {
         warn(ctx, `${where}: tile ${tile.index} is a transition between several Wang colours of "${str(set.name)}"; it was imported without a terrain.`);
         continue;
-      }
-      const colour = [...colours][0]!;
+      } else colour = [...colours][0]!;
       const def = colors[colour - 1];
       const name = def ? str(def.name) || `${str(set.name)} ${colour}` : `${str(set.name)} ${colour}`;
-      const is = (i: number) => ids[i] === colour;
-      const chars: string[] = [];
-      for (let i = 0; i < 8; i++) chars.push(type === "edge" && i % 2 ? "*" : is(i) ? "1" : "0");
-      if (type === "corner") for (const [side, a, b] of PATTERN_SIDES) chars[side] = is(a) && is(b) ? "1" : "0";
       if (tile.terrain && tile.terrain !== name) {
         warn(ctx, `${where}: tile ${tile.index} is in more than one Wang set; it keeps terrain "${tile.terrain}".`);
         continue;
       }
       tile.terrain = name;
-      tile.pattern = chars.join("");
+      tile.pattern = wangPattern(ids, colour, type);
       if (!ts.terrains.some((t) => t.name === name)) {
         const terrain: ImportTerrain = { name };
         const c = def ? cssColor(def.color) : null;

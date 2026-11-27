@@ -136,13 +136,13 @@ describe("tile data: collision, animation, Wang sets", () => {
     expect(t1.weight).toBe(0.25);
   });
 
-  it("makes terrains and patterns from one-colour Wang tiles and warns on multi-colour ones", async () => {
+  it("makes terrains and patterns from one-colour Wang tiles and warns on transitions in sets of three colours", async () => {
     const map = await load("tiled/ortho.tmx");
     const ts = map.tilesets[0]!;
     expect(ts.terrains).toEqual([{ name: "Grass", color: "#7cb342" }, { name: "Sand", color: "#ffeeaa" }]);
-    // Corner set: corners as labelled, sides only where both adjacent corners are the colour.
+    // Corner set: corners as labelled, a side `1` where either corner beside it is the colour, else "either".
     expect([ts.tiles[4]!.terrain, ts.tiles[4]!.pattern]).toEqual(["Grass", "11111111"]);
-    expect([ts.tiles[5]!.terrain, ts.tiles[5]!.pattern]).toEqual(["Grass", "01110000"]);
+    expect([ts.tiles[5]!.terrain, ts.tiles[5]!.pattern]).toEqual(["Grass", "111110*0"]);
     // Edge set: corners are "either".
     expect([ts.tiles[6]!.terrain, ts.tiles[6]!.pattern]).toEqual(["Sand", "1*1*0*0*"]);
     expect(ts.tiles[7]!.terrain).toBeUndefined();
@@ -217,6 +217,59 @@ describe("parseTiledMap: infinite maps and other orientations", () => {
     expect(map.grid).toEqual({ shape: "hexagonal", staggerAxis: "x", staggerIndex: "even", hexSide: 0.375, tileWidth: 32, tileHeight: 28 });
     expect(tiles(map, "Hexes").cells.map((c) => [c.x, c.y, c.tileIndex])).toEqual([[0, 0, 0], [1, 0, 1]]);
     expect(map.warnings.some((w) => w.includes("120°"))).toBe(true);
+  });
+});
+
+describe("two-colour Wang sets (ADR 0442)", () => {
+  /** A TSJ of 8 tiles whose Wang set `type` labels tile i with `wangids[i]` (colours 1 Grass, 2 Water). */
+  const tsj = (type: string, wangids: number[][], colours = ["Grass", "Water"]) =>
+    JSON.stringify({
+      type: "tileset", name: "gw", tilewidth: 16, tileheight: 16, tilecount: 8, columns: 4, image: "gw.png", imagewidth: 64, imageheight: 32,
+      wangsets: [{ name: "Ground", type, tile: -1, colors: colours.map((name, i) => ({ name, color: `#00000${i}`, probability: 1, tile: -1 })), wangtiles: wangids.map((wangid, tileid) => ({ tileid, wangid })) }],
+    });
+  const parse = async (text: string) => parseTiledTileset(text, "gw.tsj", read());
+  const terrainsOf = (ts: Awaited<ReturnType<typeof parse>>["tileset"]) => ts.tiles.map((t) => (t.terrain ? `${t.terrain}:${t.pattern}` : "-"));
+
+  it("makes a corner set's terrain of the colour with fewer full tiles; tiles of only the other colour get none", async () => {
+    const { tileset, warnings } = await parse(
+      tsj("corner", [
+        [0, 1, 0, 1, 0, 1, 0, 1], // all grass
+        [0, 1, 0, 1, 0, 1, 0, 1], // all grass, a variant
+        [0, 2, 0, 2, 0, 2, 0, 2], // all water
+        [0, 2, 0, 1, 0, 1, 0, 1], // water at the top-right corner
+        [0, 2, 0, 2, 0, 1, 0, 1], // water on the right half
+        [0, 1, 0, 2, 0, 1, 0, 2], // water at two opposite corners
+        [0, 2, 0, 2, 0, 2, 0, 1], // grass at the top-left corner only
+      ]),
+    );
+    expect(tileset.terrains).toEqual([{ name: "Water", color: "#000001" }]);
+    expect(terrainsOf(tileset)).toEqual([
+      "-",
+      "-",
+      "Water:11111111",
+      // Corners as labelled; a side is `1` when either corner beside it is water, else "either".
+      "Water:1110*0*0",
+      "Water:111110*0",
+      "Water:10111011",
+      "Water:11111110",
+      "-",
+    ]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("picks the first colour on a tie, and names sides (edge sets) or sides and corners (mixed sets)", async () => {
+    const edge = (await parse(tsj("edge", [[2, 0, 2, 0, 2, 0, 2, 0], [1, 0, 1, 0, 1, 0, 1, 0], [1, 0, 2, 0, 2, 0, 1, 0], [2, 0, 1, 0, 1, 0, 1, 0]]))).tileset;
+    expect(edge.terrains.map((t) => t.name)).toEqual(["Grass"]);
+    expect(terrainsOf(edge).slice(0, 4)).toEqual(["-", "Grass:1*1*1*1*", "Grass:1*0*0*1*", "Grass:0*1*1*1*"]);
+    const mixed = (await parse(tsj("mixed", [[1, 1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1, 1], [2, 2, 2, 2, 2, 2, 2, 2], [2, 2, 2, 1, 1, 1, 1, 1]]))).tileset;
+    expect(mixed.terrains.map((t) => t.name)).toEqual(["Water"]);
+    expect(terrainsOf(mixed).slice(0, 4)).toEqual(["-", "-", "Water:11111111", "Water:11100000"]);
+  });
+
+  it("still warns about transitions in sets of three or more colours", async () => {
+    const { tileset, warnings } = await parse(tsj("corner", [[0, 1, 0, 1, 0, 1, 0, 1], [0, 2, 0, 1, 0, 1, 0, 1], [0, 3, 0, 3, 0, 3, 0, 3]], ["Grass", "Water", "Sand"]));
+    expect(terrainsOf(tileset).slice(0, 3)).toEqual(["Grass:11111111", "-", "Sand:11111111"]);
+    expect(warnings.some((w) => w.includes("tile 1") && w.includes("several Wang colours"))).toBe(true);
   });
 });
 
