@@ -8,6 +8,7 @@ import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import JsonWorker from "monaco-editor/languages/features/json/json.worker.js?worker";
 import CssWorker from "monaco-editor/languages/features/css/css.worker.js?worker";
+import HtmlWorker from "monaco-editor/languages/features/html/html.worker.js?worker";
 import TsWorker from "monaco-editor/languages/features/typescript/ts.worker.js?worker";
 import engineTypes from "virtual:myco-types";
 import { codeLanguageOf, isScriptPath } from "../projectPaths";
@@ -20,8 +21,9 @@ import { componentTypeScript, generatedPathOf, SVELTE_CHECK_TYPES, type Componen
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
   // Each language service runs in its own worker; everything else in the editor's.
+  // CSS for UI stylesheets (ADR 0077), HTML for Svelte components (which edit as HTML, projectPaths.ts); XML needs no worker.
   getWorker: (_id, label) =>
-    label === "typescript" || label === "javascript" ? new TsWorker() : label === "json" ? new JsonWorker() : label === "css" ? new CssWorker() : new EditorWorker(), // UI stylesheets (ADR 0077); XML needs no worker
+    label === "typescript" || label === "javascript" ? new TsWorker() : label === "json" ? new JsonWorker() : label === "css" ? new CssWorker() : label === "html" ? new HtmlWorker() : new EditorWorker(),
 };
 
 const ts = monaco.typescript;
