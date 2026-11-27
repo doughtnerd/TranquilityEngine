@@ -55,6 +55,12 @@ function uiOf(behavior: { node: GameObject }): UIView {
   return behavior.node.getBehavior(UIView)!;
 }
 
+/** The menu World's view has mounted its Svelte component (a view's first mount waits for the UI host's lazy chunk). */
+function menuMounted(engine: Engine): boolean {
+  const menu = engine._world("Menu")?._componentsOfType(Menu)[0];
+  return !!menu && !!uiOf(menu).query("#practice");
+}
+
 /** An element a view rendered, which must be there. */
 function at(ui: UIView, selector: string): UIHostElement {
   const el = ui.query(selector);
@@ -166,7 +172,7 @@ describe("the King of Pirates sample", () => {
     const engine = await Engine.create({ headless: true, project: project.settings });
     engines.push(engine);
     const menu = engine._world("Menu")!;
-    await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
+    await stepUntil(engine, () => Lobby.state === "lobby" && menuMounted(engine), "the menu's lobby and its view");
     // Practice, as the player would click it.
     await click(menu, at(uiOf(menu._componentsOfType(Menu)[0]), "#practice").as(UIButton));
     await stepUntil(engine, () => Lobby.state === "match", "the practice match");
@@ -349,7 +355,7 @@ describe("the King of Pirates sample", () => {
     const lobbyTemplate = (project.settings as unknown as { bootstrap: { templates: { Lobby: object } } }).bootstrap.templates.Lobby;
     const lobbyWorld = engine.createWorld({ ...lobbyTemplate, name: "Lobby" });
     const url = await lobbyWorld.listen("websocket", { address: "ws://127.0.0.1:0" });
-    await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
+    await stepUntil(engine, () => Lobby.state === "lobby" && menuMounted(engine), "the menu's lobby and its view");
     expect(engine.findWorld("Lobby 2")).toBeNull();
     // This page creates a room (Create Room, as clicked); Anne joins it by its code; the host starts it.
     await click(menuWorld, at(menu, "#create-room").as(UIButton));
@@ -422,7 +428,7 @@ describe("the King of Pirates sample", () => {
     const engine = await Engine.create({ headless: true, project: project.settings });
     engines.push(engine);
     const menu = engine._world("Menu")!;
-    await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
+    await stepUntil(engine, () => Lobby.state === "lobby" && menuMounted(engine), "the menu's lobby and its view");
     await click(menu, at(uiOf(menu._componentsOfType(Menu)[0]), "#practice").as(UIButton));
     await stepUntil(engine, () => Lobby.state === "match", "the practice match");
     const server = engine._world("Match 1")!, client = engine._world("Match 1 Client")!;
