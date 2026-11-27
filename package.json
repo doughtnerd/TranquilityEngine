@@ -30,6 +30,7 @@
     "bench:memory": "node --expose-gc bench/memory.mjs",
     "build:nav": "node native/nav/build.mjs",
     "build:layout": "node native/layout/build.mjs",
+    "conformance:layout": "node scripts/layout-conformance.mjs",
     "build:input": "node native/input/build.mjs",
     "build:audio": "node native/audio/build.mjs",
     "build:anim": "node native/anim/build.mjs",
