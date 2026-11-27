@@ -39,7 +39,7 @@ import { uiContentAttributes, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
 import { backdropFilterFields, filterStepsOf, filterText, type UIFilterFields } from "../filters";
-import type { StyleTarget, UIStylesheet, UITag } from "../document/types";
+import type { ResolvedValue, StyleTarget, UIStylesheet, UITag } from "../document/types";
 import type { UIElementStyle, UISheetSource, UIStyledTree } from "../document/styledTree";
 // The UI animator's frame system is part of the host's frame (registered with the host's own systems, before any World
 // is made), though only the styled tree calls it.
@@ -233,6 +233,20 @@ export class UIHostElement {
 
   get classes(): readonly string[] {
     return this._style.target.classes;
+  }
+
+  /**
+   * What selectors match it (ADR 0438): its id, classes, attributes, pseudo-class `state` (hover, pressed, focus,
+   * disabled, form states), parent and children, as the styled tree keeps them. The same object for its whole life, so
+   * a resolved value inherited `from` a target names its element.
+   */
+  get styleTarget(): StyleTarget {
+    return this._style.target;
+  }
+
+  /** Its resolved style by field, with where each value comes from (variables and the cascade's keys included); empty until styled. */
+  get resolvedStyle(): ReadonlyMap<string, ResolvedValue> {
+    return this._style.resolved;
   }
 
   /** Its attributes as last set (inline `style` included). */

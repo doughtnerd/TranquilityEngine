@@ -350,7 +350,7 @@ function ruleOrigin(source: Extract<ValueSource, { kind: "rule" }>): FieldOrigin
 
 /** The element whose style target is `target`, among `el` and its ancestors. */
 function withTarget(el: UIHostElement, target: unknown): UIHostElement | null {
-  for (let e: UIHostElement | null = el; e; e = e.parent) if (e._style.target === target) return e;
+  for (let e: UIHostElement | null = el; e; e = e.parent) if (e.styleTarget === target) return e;
   return null;
 }
 
@@ -429,7 +429,7 @@ function contentOrigin(el: UIHostElement): FieldOrigin {
 export function viewFieldSources(el: UIHostElement): FieldSourceRow[] {
   if (!el.source) return [];
   const comp = el.component as unknown as Record<string, unknown>;
-  const resolved: ReadonlyMap<string, ResolvedValue> = el._style.resolved;
+  const resolved: ReadonlyMap<string, ResolvedValue> = el.resolvedStyle;
   const contentField = CONTENT_FIELD[el.uiTag];
   const rows: FieldSourceRow[] = [];
   for (const info of getFields(el.component.constructor as never)) {
