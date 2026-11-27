@@ -155,6 +155,54 @@ the context editor in the Inspector:
 - The prototype's choices to confirm while building: which controls count as unsuited to a slot, how a type change
   converts composites, the deadzone and curve formulas behind the tried value, and the wire size of each precision.
 
+## As built (2026-11-27)
+
+Built as decided, except where noted here.
+
+1. **The default context stays on at priority 0** for every player, as 0336 has it, not "on whenever no other context
+   is": a context above it takes the controls it performs with, and the rest still reach the default. Changing that
+   would change every 0336 game's behaviour. The default context is `input/default.input.json`'s mappings followed by
+   the code sets' inline defaults; `"default"` and the file's path both name it.
+2. **Loading.** `bootActionSets` runs after the project context is acquired and before `bootLocale`. A missing or
+   broken listed file is warned about and skipped. A file is defined again only when its text changed (the boot, a
+   script's import and `Assets.onChanged` share one cache by path), through internal `_redefineComponent` and
+   `_redefineInput` so a networked set's stream follows. Rows of the old definition stay in their own store; players
+   get the new set's at the next pairing.
+3. **One id, one source.** Whichever comes first, the asset's set is used: code defining an asset's id gets the
+   asset's definition back. Both cases warn in the console; the editor shows the clash on both entries.
+4. **Scripts.** The linker emits, for each imported `*.actions.json`, a module `<file>.set` that calls the public
+   `actionSetFromData(path, value)`; the import resolves to it. The checker types the import as `ActionSetDef`.
+5. **The editor creates `input/default.input.json`** when it opens a writable project without one, and every new
+   project has it. It and its folder can't be moved, renamed or deleted. Since `input/` now always exists, new input
+   files made at the project root land there (the kinds' default folder).
+6. **Project Settings › Input** comes after Navigation. The New Action Set file is `input/new.actions.json`, id
+   `game.New`, one button `action`.
+7. **Type changes convert mappings:** to button, a D-pad keeps up and an Axis keeps positive; to axis, a D-pad's
+   left/right become negative/positive; to vec2 or vec3, an Axis becomes a D-pad with left/right. Anything else stays,
+   and the toast says so.
+8. **Unsuited controls** flagged: a D-pad on a button or axis, an Axis composite on a vector (fills only X), a control
+   with more components than the action reads, a one-value control on a vector. A stick on a button (read past the
+   press point) and a stick on a vec3 (fills X and Y) aren't flagged.
+9. **A created action's type** comes from the mapping's control: two components → vec2, gyro → vec3, a stick axis →
+   axis, otherwise button; a D-pad → vec2, an Axis → axis, a chord → button.
+10. **Upload estimate**, worst case (a full record, no delta): per action, components × value bytes + 2 for the phase
+    flags; a value is 4 bytes when exact, else the varint size of zigzag(round(1 / quantize)); a packet carries
+    redundancy + 1 ticks. So "8-bit" (1/127) is 2 bytes on the wire and "16-bit" (1/32767) 3.
+11. **Used by** reads every scene and prefab file (the open scene as edited) for nodes whose own `InputContext` names
+    the context; prefab overrides aren't followed.
+12. **Try a value** runs the engine's own modifiers (`traceInputModifiers` in the editor SDK), with the implicit stick
+    dead zone and the action-type coercion, so it matches Play; `smooth` passes the value through (it works over time).
+    Triggers are grouped by their effective type (a chord is implicit by default); a custom trigger's registered
+    default type isn't visible to the editor, so it groups as explicit unless its file says otherwise.
+13. **A note per mapping** is `MappingSpec.note`, editor-only; the evaluator ignores it.
+14. **History** is one tree across every file the dialog edits, kept while the project is open (not saved). Making,
+    naming, duplicating and deleting files are steps; a delete from the dialog asks nothing and is undone from a
+    toast. It leaves scene nodes that name a deleted context as they are (the toast says how many), so Undo restores
+    everything, unlike the Assets panel's Delete. A step whose file changed outside the dialog since can't be moved
+    through.
+15. **Not built:** the two open questions (Convert to asset, per-file action-name types), and from the mock only, a
+    modifier's Turn off (it would need a format field) and live values on the modifier rows.
+
 ## References
 
 - Canvas: `Action Set editor (ADR 0417)`, board 1 (working prototype) and boards 1b to 4
