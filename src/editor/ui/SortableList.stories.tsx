@@ -30,7 +30,7 @@ function Demo(props: { initial: string[] }) {
   );
 }
 
-const names = (c: ReturnType<typeof within>) => c.getAllByRole("listitem").map((li) => li.textContent?.replace("⠿", "").replace(/^\d+/, ""));
+const names = (c: ReturnType<typeof within>) => c.getAllByRole("listitem").map((li: HTMLElement) => li.textContent?.replace("⠿", "").replace(/^\d+/, ""));
 
 export const Reorder: StoryObj = {
   render: () => <Demo initial={["input/player.actions.json", "input/ui.actions.json", "input/vehicle.actions.json"]} />,

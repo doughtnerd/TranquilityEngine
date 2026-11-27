@@ -9,7 +9,7 @@ import { withMember } from "./jsonMember";
 import { uniqueName } from "../engine/core/uniqueName";
 
 /** The top-level keys the shell's own Project panel categories edit (the Worlds panel edits `bootstrap`). */
-const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "autoload", "graphics", "plugins", "build"] as const;
+const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "input", "autoload", "graphics", "plugins", "build"] as const;
 
 /** Keys no settings section may own: `bootstrap` (the Worlds panel's) and `audio`, which moved to `audio.json` (ADR 0344; the Audio Studio edits it). */
 const RESERVED_KEYS: readonly string[] = ["bootstrap", "audio"];

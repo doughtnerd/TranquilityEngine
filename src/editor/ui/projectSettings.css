@@ -92,3 +92,15 @@
 .plugins-name { font-size: 11px; color: var(--muted); font-family: monospace; }
 .plugins-description { flex-basis: 100%; font-size: 12px; color: var(--muted); }
 .plugins-description.plugins-notice { color: var(--warning); }
+
+/* Input page (ADR 0417): the action set rows beside the sortable list's handle. */
+.project-settings-subhead { margin: 14px 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.action-set-list .sortable-row { padding: 2px 4px; border: 1px solid var(--border); background: var(--surface); }
+.action-set-list .sortable-row.invalid { border-color: var(--danger); }
+.action-set-list .sortable-row button.icon { flex: none; width: 22px; height: 22px; padding: 0; line-height: 1; }
+.action-set-index { flex: none; min-width: 14px; font-size: 11px; color: var(--muted); text-align: right; }
+.action-set-info { flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.action-set-problem { flex: 0 1 auto; min-width: 0; font-size: 11px; color: var(--danger); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-settings-actions { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.action-set-code { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.action-set-code li { display: flex; align-items: center; gap: 6px; padding: 2px 4px 2px 24px; font-size: 12px; }
