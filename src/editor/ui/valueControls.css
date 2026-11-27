@@ -5,4 +5,4 @@
 .color-field { display: inline-flex; gap: 6px; align-items: center; min-width: 0; }
 .color-field input[type="color"] { width: 32px; height: 20px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); flex: none; }
 .color-field input[type="number"] { width: 56px; flex: none; }
-.color-field-hex { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.color-field-hex { font-size: var(--fs-sm); color: var(--muted); overflow: hidden; text-overflow: ellipsis; }

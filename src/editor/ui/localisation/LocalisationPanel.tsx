@@ -41,6 +41,7 @@ import {
 } from "./stringsModel";
 import { StringsView } from "./StringsView";
 import "./localisation.css";
+import { EmptyState } from "../EmptyState";
 
 type Tab = "strings" | "report" | "exchange";
 const TABS: readonly { id: Tab; label: string }[] = [
@@ -137,7 +138,7 @@ export function LocalisationPanel() {
       tab.value = "strings";
     }
   }, [opened]);
-  if (!project) return <Panel><p class="empty">No project open</p></Panel>;
+  if (!project) return <Panel><EmptyState compact title="No project open" /></Panel>;
 
   const languages = languagesOf(project);
   const data: ExchangeProject = exchangeProjectOf(languages, stringsFiles(project));

@@ -1,6 +1,7 @@
 import { Audio, GameBehavior, Lobby, Time, UIView, behavior, type LobbyRoom } from "myco";
 import { TEAM_COLORS } from "../data";
 import { ARENAS, BOT_NAMES, MATCH_LENGTHS, SHIP_COUNTS, arenaOf, forgetLeftMatch, leftMatchEarly, shipsOf } from "../lobby";
+import { UI_CLICK } from "../sounds";
 
 const NAME_KEY = "pirates.name";
 const SERVER_KEY = "pirates.server";
@@ -80,7 +81,8 @@ interface MenuState {
  * ways); and `on`, what the buttons do.
  *
  * While a match plays, the lobby pauses this World and the match World takes the screen; when the
- * match ends, this World resumes and shows the room with the results.
+ * match ends, this World resumes and shows the room with the results. Every button is focusable,
+ * so the keyboard and a gamepad drive the menu as well as the mouse (`focusScreen`).
  */
 @behavior("pirates.Menu")
 export class Menu extends GameBehavior {
@@ -97,6 +99,8 @@ export class Menu extends GameBehavior {
   private view!: UIView;
   /** The state last passed to the view, as JSON. */
   private shown = "";
+  /** The screen shown last frame ("home" or "room"), to give the new one focus when it changes. */
+  private screen = "";
 
   start(): void {
     this.view = this.node.getBehavior(UIView)!;
@@ -154,6 +158,22 @@ export class Menu extends GameBehavior {
       this.shown = json;
       this.view.props.menu = menu;
     }
+    this.focusScreen(menu.screen ?? "");
+  }
+
+  /**
+   * Keyboard and gamepad navigation (ADR 0340): when a screen appears, its main button takes focus
+   * (Quick Match, or Ready in a room), so the arrows or the d-pad move from there and Enter or the
+   * south button presses. The focus ring shows only once the player navigates, so the mouse sees
+   * nothing; clicking a field moves focus to it for typing.
+   */
+  private focusScreen(screen: string): void {
+    if (screen === this.screen) return;
+    const main = screen === "home" ? "#quick-match" : screen === "room" ? "#ready" : null;
+    const button = main ? this.view.query(main) : null;
+    if (main && !button) return; // not mounted yet: next frame
+    this.screen = screen;
+    button?.focus();
   }
 
   /** What the menu shows now. */
@@ -306,7 +326,7 @@ export class Menu extends GameBehavior {
   // --- UI helpers ---------------------------------------------------------------------------------
 
   private click(): void {
-    Audio.playOneShot("audio/ui_click.wav", { volume: 0.6 });
+    Audio.play(UI_CLICK);
   }
 }
 

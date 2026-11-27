@@ -67,7 +67,9 @@ test("nodes inside prefab instances can't be moved, and invalid drops change not
   await expect(page.locator(".asset-drag-ghost.invalid")).toContainText("inside itself");
   await page.mouse.up();
 
-  await dragRow(page, "camera", "pipe-pair/bottom", 0.5, false); // into a prefab's insides
+  // Into a prefab's insides (the instance's last row can sit below the fold: show it, and drag a row beside it).
+  await row(page, "pipe-pair/bottom").scrollIntoViewIfNeeded();
+  await dragRow(page, "game", "pipe-pair/bottom", 0.5, false);
   await expect(page.locator(".asset-drag-ghost.invalid")).toContainText("can't move inside a prefab instance");
   await page.keyboard.press("Escape");
   await page.mouse.up();

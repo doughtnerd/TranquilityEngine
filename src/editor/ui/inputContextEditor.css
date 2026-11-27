@@ -8,11 +8,11 @@
   border-radius: 3px;
   padding: 2px 5px;
   font: inherit;
-  font-size: calc(12px * var(--ui-scale));
+  font-size: var(--fs-md);
 }
 .input-context input[type="text"]:focus, .input-context select:focus { outline: none; border-color: var(--accent); }
 .input-context .import-row input[type="text"], .input-context .import-row > select { width: 100%; }
-.input-context .hint { margin: 4px 0 8px; font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
+.input-context .hint { margin: 4px 0 8px; font-size: var(--fs-sm); color: var(--muted); }
 .input-mappings { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .input-mapping { padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); }
 .input-mapping.has-problems { border-color: var(--danger); }
@@ -27,9 +27,9 @@
 .input-control select { width: 34px; flex: none; }
 .input-control button.active { background: var(--accent-soft); border-color: var(--accent); }
 .input-steps { margin: 6px 0 2px; }
-.input-steps-head { display: flex; align-items: center; gap: 8px; font-size: calc(12px * var(--ui-scale)); color: var(--muted); }
+.input-steps-head { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); color: var(--muted); }
 .input-steps-head select { margin-left: auto; }
-.input-step { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 3px 0 0 8px; padding: 3px 0; border-top: 1px solid var(--border); font-size: calc(12px * var(--ui-scale)); }
+.input-step { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 3px 0 0 8px; padding: 3px 0; border-top: 1px solid var(--border); font-size: var(--fs-md); }
 .input-step-name { min-width: 72px; }
 .input-step-params { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; min-width: 0; }
 .input-step-raw { color: var(--muted); font-family: var(--font-code); overflow: hidden; text-overflow: ellipsis; }
@@ -38,5 +38,5 @@
 .input-param input[type="text"] { width: 64px; }
 .input-combo { flex-direction: column; align-items: flex-start; }
 .input-combo-step { display: flex; align-items: center; gap: 4px; }
-.input-mapping-problems { margin: 4px 0 0; padding-left: 18px; font-size: calc(11px * var(--ui-scale)); color: var(--danger); }
+.input-mapping-problems { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-sm); color: var(--danger); }
 .input-add-mapping { margin-top: 2px; }

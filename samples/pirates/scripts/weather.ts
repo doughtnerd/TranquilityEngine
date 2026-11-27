@@ -1,8 +1,9 @@
 // The weather follows the match's replicated storm (rules.ts): the waves grow in every World, so
 // the server's cannonballs splash on the same sea the clients draw; clients also darken the sky
 // and fog, dim the sun, and turn on the rain and its sound. Lightning flashes come as effects.
-import { AudioSource, Camera, Fog, GameObject, Light, ParticleSystem, Time, WaterSurface, defineSystem } from "myco";
+import { Audio, Camera, Fog, GameObject, Light, ParticleSystem, Time, WaterSurface, defineSystem } from "myco";
 import { STORM_WAVES, game } from "./data";
+import { STORM_PARAMETER } from "./sounds";
 
 /** Per World: the storm's strength, eased 0..1, and each thing's calm value. */
 interface Calm {
@@ -12,13 +13,15 @@ interface Calm {
   lights: Map<Light, number>;
   seas: Map<WaterSurface, { deep: [number, number, number]; shallow: [number, number, number] }>;
   flash: number;
+  /** The storm last sent to the mix's `Storm` parameter. */
+  heard: number;
 }
 const calm = new WeakMap<object, Calm>();
 
 function state(world: object): Calm {
   let c = calm.get(world);
   if (!c) {
-    c = { storm: 0, waves: new Map(), fog: new Map(), lights: new Map(), seas: new Map(), flash: 0 };
+    c = { storm: 0, waves: new Map(), fog: new Map(), lights: new Map(), seas: new Map(), flash: 0, heard: -1 };
     calm.set(world, c);
   }
   return c;
@@ -49,7 +52,11 @@ defineSystem({
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const STORM_FOG: [number, number, number] = [0.2, 0.23, 0.28];
 
-/** Darkens the fog and sky, dims the lights, rains, and flashes for lightning. */
+/**
+ * Darkens the fog and sky, dims the lights, rains, and flashes for lightning. The rain's sound
+ * follows the mix's `Storm` parameter (audio.json: the Rain bus's level, the Ambience bus's
+ * brightness), so this only tells the mix how stormy it is.
+ */
 defineSystem({
   name: "pirates.Weather",
   phase: "lateUpdate",
@@ -58,6 +65,10 @@ defineSystem({
     const s = state(ctx.world);
     const k = s.storm;
     s.flash = Math.max(0, s.flash - Time.deltaTime);
+    if (Math.abs(k - s.heard) > 0.005 || (k === 0 && s.heard !== 0)) {
+      s.heard = k < 0.005 ? 0 : k;
+      Audio.setParameter(STORM_PARAMETER, s.heard);
+    }
     for (const fog of GameObject.findObjectsOfType(Fog)) {
       if (!s.fog.has(fog)) s.fog.set(fog, { color: [fog.color.r, fog.color.g, fog.color.b], near: fog.near, far: fog.far });
       const base = s.fog.get(fog)!;
@@ -92,8 +103,6 @@ defineSystem({
       // Rain falls around what the camera looks at.
       const cam = Camera.main?.node.transform?.position;
       if (cam) rain.node.transform!.position.set(cam.x, 24, cam.z - 14);
-      const sound = rain.node.getBehavior(AudioSource);
-      if (sound) sound.volume = 0.6 * k;
     }
   },
 });

@@ -22,7 +22,6 @@
   outline: none;
 }
 .particle-graph.maximized { position: fixed; inset: 0; z-index: 40; box-shadow: 0 0 0 1px var(--border-strong); }
-.particle-graph-empty { padding: 16px; color: var(--muted); }
 .pg-body { flex: 1; display: flex; min-height: 0; position: relative; }
 .pg-spacer { flex: 1; }
 .pg-faint { color: var(--faint); }
@@ -36,7 +35,8 @@
 .pg-problem-list button:hover { background: var(--hover); }
 .pg-problem-list li.error button { color: var(--danger); }
 .pg-notice { margin: 0; padding: 3px 10px; background: var(--warning-soft); color: var(--text); border-bottom: 1px solid var(--warning); font-size: calc(12px * var(--ui-scale)); }
-.pg-canvas-empty { position: absolute; left: 0; right: 0; top: 45%; margin: 0; text-align: center; color: var(--faint); pointer-events: none; }
+/* Where the canvas's empty state sits (the EmptyState itself draws it). */
+.pg-canvas-hint { position: absolute; left: 0; right: 0; top: 45%; display: flex; justify-content: center; pointer-events: none; }
 
 /* --- small buttons and fields --- */
 .particle-graph .pg-fold, .particle-graph .pg-x { padding: 0 4px; background: transparent; border: none; color: var(--muted); line-height: 1; cursor: pointer; font: inherit; }

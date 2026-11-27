@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, Lobby, Replicated, SceneInstance } from "../index";
+import { Assets, Engine, GameObject, Input, Lobby, Replicated, SceneInstance } from "../index";
 import { UIButton, UIPanel, UIText } from "../ui/components";
 import { UIView } from "../../plugins/ui/runtime/UIView";
 import type { UIHostElement } from "../ui/host/UIHost";
@@ -10,7 +10,7 @@ import { readProject } from "../../server/project";
 import { UIPointer } from "./uiPointer";
 import "../../server/websocketServer"; // the Node "websocket" transport, which can listen
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
-import { CLOUD_PREFAB, CLOUD_RADIUS, Cloud, inCloudAmong, FlagState, Game, Phase, Ship, TEAM_COLORS, type CloudView, type FlagView, type GameView, type ShipView } from "../../../samples/pirates/scripts/data";
+import { Battery, CLOUD_PREFAB, CLOUD_RADIUS, Cloud, inCloudAmong, FlagState, Game, Helm, Phase, Ship, TEAM_COLORS, type CloudView, type FlagView, type GameView, type ShipView } from "../../../samples/pirates/scripts/data";
 import "../../../samples/pirates/scripts/systems";
 import "../../../samples/pirates/scripts/client";
 import "../../../samples/pirates/scripts/bots";
@@ -26,6 +26,7 @@ import { Menu } from "../../../samples/pirates/scripts/behaviors/Menu";
 import "../../../samples/pirates/scripts/behaviors/MenuBackdrop";
 import "../../../samples/pirates/scripts/lobby";
 import { Hud } from "../../../samples/pirates/scripts/behaviors/Hud";
+import { STICK_REACH } from "../../../samples/pirates/scripts/controls";
 
 // King of Pirates (samples/pirates) played headless from its own bootstrap: the menu World starts a
 // lobby of its own ("local", ADR 0068); Practice makes a private room and starts it, so the lobby
@@ -407,6 +408,83 @@ describe("the King of Pirates sample", () => {
     expect(shipsIn(server).filter((s) => !s.data.bot).map((s) => s.data.team)).toEqual([anneTeam]);
     expect(engine.findWorld("Match 1")).not.toBeNull();
     expect(anne.state).toBe("match");
+    expect(errors).toEqual([]);
+  });
+
+  it("sails by a gamepad: the stick steers, the trigger fires, the HUD names the pad's buttons, and Menu and B open and close the leave dialog", { timeout: 120_000 }, async () => {
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => void errors.push(args.map(String).join(" ")));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const project = await readProject(SAMPLE);
+    Assets.addSource(project.assets);
+    serveSampleUI(import.meta.glob("../../../samples/pirates/ui/*.svelte", { eager: true }));
+    const engine = await Engine.create({ headless: true, project: project.settings });
+    engines.push(engine);
+    const menu = engine._world("Menu")!;
+    await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
+    await click(menu, at(uiOf(menu._componentsOfType(Menu)[0]), "#practice").as(UIButton));
+    await stepUntil(engine, () => Lobby.state === "match", "the practice match");
+    const server = engine._world("Match 1")!, client = engine._world("Match 1 Client")!;
+    await stepUntil(engine, () => shipsIn(server).some((s) => !s.data.bot) && client._componentsOfType(Hud).length > 0, "the player's ship and the HUD", 1200);
+    const hud = client._componentsOfType(Hud)[0];
+    const ui = uiOf(hud);
+    await ui.ready;
+    const text = (selector: string) => textOf(at(ui, selector));
+    const mine = () => shipsIn(server).find((s) => !s.data.bot)!;
+    // What the server has from the client's helm stream, read in the server World as its systems do.
+    const helm = () => World._runIn(server, () => Helm.of(mine().rep.node))!;
+    const frames = (n: number) => {
+      for (let i = 0; i < n; i++) engine.step(STEP);
+    };
+    frames(2);
+    // On the keyboard and mouse the HUD names the keys.
+    expect(text("#help")).toBe("Mouse: steer   |   A / D: battery   |   Space: fire   |   F: fog cloud (ghost ship)   |   Esc: leave the match");
+
+    const PAD = 41;
+    try {
+      Input.inject.gamepadConnected({ id: PAD, name: "Virtual pad", family: "xbox" });
+      // Left stick east, the right trigger and the left shoulder (the port battery) held.
+      Input.inject.gamepadAxis(PAD, 0, 1);
+      Input.inject.gamepadButton(PAD, 7, 1);
+      Input.inject.gamepadButton(PAD, 4, 1);
+      frames(30);
+      let h = helm();
+      expect(h).toMatchObject({ steer: 1, fire: 1, battery: Battery.port });
+      // The helm's point is ahead of the ship along the stick: east.
+      expect(h.x - mine().x).toBeGreaterThan(STICK_REACH * 0.7);
+      expect(Math.abs(h.z - mine().z)).toBeLessThan(STICK_REACH * 0.3);
+      // The HUD now names the pad's controls.
+      expect(text("#help")).toBe("Left Stick: steer   |   LB / RB: battery   |   RT: fire   |   X: fog cloud (ghost ship)   |   Menu: leave the match");
+      expect(text("#port .battery-label")).toMatch(/^\[LB\] Port/);
+
+      // Let go: the ship holds its course and stops firing; the battery stays picked.
+      Input.inject.gamepadAxis(PAD, 0, 0);
+      Input.inject.gamepadButton(PAD, 7, 0);
+      Input.inject.gamepadButton(PAD, 4, 0);
+      frames(30);
+      h = helm();
+      expect(h).toMatchObject({ steer: 0, fire: 0, battery: Battery.port });
+
+      // Menu opens the leave dialog, with Keep sailing focused for the d-pad; B (the UI's cancel) closes it.
+      Input.inject.gamepadButton(PAD, 9, 1);
+      frames(2);
+      Input.inject.gamepadButton(PAD, 9, 0);
+      frames(2);
+      expect(hud.leaving).toBe(true);
+      expect(shown(at(ui, "#leave"))).toBe(true);
+      expect(at(ui, "#leave-stay").as(UIButton).focused).toBe(true);
+      Input.inject.gamepadButton(PAD, 1, 1);
+      frames(2);
+      Input.inject.gamepadButton(PAD, 1, 0);
+      frames(2);
+      expect(hud.leaving).toBe(false);
+      expect(shown(at(ui, "#leave"))).toBe(false);
+    } finally {
+      Input.inject.gamepadDisconnected(PAD);
+      engine.step(STEP);
+      Input.inject.releaseAll();
+    }
     expect(errors).toEqual([]);
   });
 

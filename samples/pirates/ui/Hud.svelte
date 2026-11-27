@@ -19,6 +19,8 @@
     hull: { label: string; width: string; fill: string; swatch: string | null };
     port: Battery;
     starboard: Battery;
+    /** The controls, named with the player's own bindings for the device they last used. */
+    help: string;
     board: BoardRow[];
     legend: string;
     dots: Record<"land" | "clouds" | "pickups" | "flag-dots" | "ships", Dot[]>;
@@ -89,7 +91,7 @@
         {@render battery("starboard", hud.starboard)}
       </div>
       <!-- The text attribute keeps runs of spaces and line breaks, which text content collapses, as in HTML. -->
-      <span id="help" text={"Mouse: steer   |   A / D: battery   |   Space: fire   |   F: fog cloud (ghost ship)   |   Esc: leave the match"}></span>
+      <span id="help" text={hud.help}></span>
     </div>
   </div>
 
@@ -144,7 +146,7 @@
     </div>
   </div>
 
-  <!-- "Leave the match?" (Escape). -->
+  <!-- "Leave the match?" (the leave action: Escape, Start). While open, Keep sailing has focus. -->
   <div id="leave" class:hidden={!hud.leave.open}>
     <div id="leave-box">
       <span class="title">Leave the match?</span>

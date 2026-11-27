@@ -12,6 +12,7 @@ import { playState, status } from "../state";
 import { HierarchyMenu, hierarchyMenu } from "./HierarchyMenu";
 import { TreeView, renameRow, type TreeRow } from "./TreeView";
 import "./playdebug.css";
+import { EmptyState } from "./EmptyState";
 
 /** The live tree refreshes this often (not every frame). */
 const REFRESH_MS = 300;
@@ -171,12 +172,7 @@ export function RuntimeHierarchy() {
     return (
       <div class="runtime-hierarchy">
         <WorldPicker />
-        <p class="empty">
-          World {name} is gone.{" "}
-          <button class="link-button" onClick={() => inspectWorld(null)}>
-            Show the scene
-          </button>
-        </p>
+        <EmptyState compact title={`World ${name} is gone.`} action={{ label: "Show the scene", run: () => inspectWorld(null) }} />
       </div>
     );
   }
@@ -272,7 +268,7 @@ export function RuntimeHierarchy() {
           +
         </button>
       </div>
-      {top.length === 0 && <p class="empty">This World has no nodes.</p>}
+      {top.length === 0 && <EmptyState compact title="This World has no nodes." />}
       <TreeView tree={LIVE_TREE} label="Live nodes" class="tree live-tree" rows={top} owner={owner} />
       {drag && (
         <div class={`asset-drag-ghost${drag.problem ? " invalid" : ""}`} style={{ left: `${drag.x + 14}px`, top: `${drag.y + 14}px` }} role="status">

@@ -17,6 +17,8 @@ import type { CompiledShaderGraph } from "../render/shaderGraph/compile";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { BabylonParticles, type BabylonParticleHost } from "../render/babylon/particles";
 import { BabylonLights2D } from "../render/babylon/lights2D";
+import { BabylonMaterialLibrary } from "../render/babylon/materialLibrary";
+import { BabylonMaterials2D } from "../render/babylon/materials2D";
 import { LIGHTS_2D_QUALITY } from "../core/graphics";
 import { World } from "../core/World";
 import { Assets, Engine as MycoEngine, GameObject, Light2D, SceneManager } from "../../myco";
@@ -353,7 +355,8 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
       GameObject.create("sun").addComponent(Light2D).type = "global"; // lights every layer
       const rig = new BabylonLights2D({ scene, texture: () => null, textureSize: () => null });
       rig.sync(World.require(), LIGHTS_2D_QUALITY.high);
-      const p = make(false, true, { sortOrder: (layer, order) => ["Back", "Default"].indexOf(layer) * 10000 + order });
+      const materials2D = new BabylonMaterials2D({ scene, library: new BabylonMaterialLibrary(scene) });
+      const p = make(false, true, { sortOrder: (layer, order) => ["Back", "Default"].indexOf(layer) * 10000 + order, materials2D });
       const c = fakeSystem({ emitters: [still("E", {})] }, { sortingLayer: "Default", orderInLayer: 3 });
       frames(p, c, 2);
       const lit = drawn()[0]!;

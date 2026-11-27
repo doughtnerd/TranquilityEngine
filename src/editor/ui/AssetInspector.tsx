@@ -8,6 +8,7 @@ import { readImportSettings, sameSettings, writeImportSettings } from "../assetI
 import { errorStatus } from "../messages";
 import { currentProject, docVersion, status } from "../state";
 import "./assetInspector.css";
+import { EmptyState } from "./EmptyState";
 
 /** One lazy view per loader (ADR 0083): created on first use, so its module loads then. */
 const lazyViews = new WeakMap<LoadComponent<never>, LazyComponent<never>>();
@@ -64,7 +65,7 @@ function ImportInspector(props: { path: string }) {
   const [edited, setEdited] = useState<{ source: string; settings: ImportSettings } | null>(null);
   const draft = edited && edited.source === source ? edited.settings : fresh;
   const setDraft = (settings: ImportSettings) => setEdited({ source, settings });
-  if (!project || !path || !saved || !draft) return <p class="empty">Nothing selected</p>;
+  if (!project || !path || !saved || !draft) return <EmptyState compact title="Nothing selected" />;
   const kind = assetKind(path);
   const views = importViews(kindImportSettings(kind));
   const Preview = views?.preview ?? null;

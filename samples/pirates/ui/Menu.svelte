@@ -169,7 +169,7 @@
 
   <div id="footer">
     <!-- The text attribute keeps runs of spaces and line breaks, which text content collapses, as in HTML. -->
-    <span id="help" text={"Steer with the mouse.  A / D pick a battery.  Space fires.  F drops a ghost ship's fog.  Esc leaves a match."}></span>
+    <span id="help" text={"Steer with the mouse or a gamepad's left stick.  A / D or the shoulder buttons pick a battery.  Space or the right trigger fires.  F drops a ghost ship's fog.  Esc or Start leaves a match."}></span>
     <span id="error" text={menu.error}></span>
   </div>
 </div>

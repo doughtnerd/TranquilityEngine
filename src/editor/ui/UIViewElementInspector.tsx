@@ -8,6 +8,7 @@ import { styleDeclarations } from "../uiEdit/svelteText";
 import { DraftInput, FieldSourceView, MoveToClass } from "./UIFieldSourceView";
 import { UIViewLocalise } from "./localisation/UIViewLocalise";
 import "./ui-element-inspector.css";
+import { EmptyState } from "./EmptyState";
 
 const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
@@ -37,7 +38,7 @@ export function UIViewElementInspector() {
   playState.value;
   const scene = openScene.value, ref = selectedUIViewRef();
   const el = scene && ref ? resolveUIViewElement(scene.sync, ref) : null;
-  if (!scene || !el || !ref) return <p class="empty">{editorTextFiles.busy ? "Updating…" : "The selected UI element is gone (its view changed)."}</p>;
+  if (!scene || !el || !ref) return editorTextFiles.busy ? <p class="kit-note" role="status">Updating…</p> : <EmptyState compact title="The selected UI element is gone (its view changed)." />;
   const where = viewElementSource(scene.sync, ref);
   const viewOnly = whyViewOnly(scene.sync, ref);
   const readOnly = whyNotEditViewElement(scene, ref);

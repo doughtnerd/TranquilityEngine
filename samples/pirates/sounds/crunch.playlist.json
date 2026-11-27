@@ -1,0 +1,31 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "SFX",
+  "note": "A hull grinding on rock or another ship (lower than a hit); the cooldown keeps a long scrape from stacking.",
+  "playback": {
+    "maxInstances": 4,
+    "whenFull": "stealOldest",
+    "cooldown": 0.08,
+    "priority": 170
+  },
+  "volume": 0.0,
+  "pitch": -4.49,
+  "volumeRandom": [
+    -1.5,
+    0
+  ],
+  "pitchRandom": [
+    -1.68,
+    1.68
+  ],
+  "spatial": {
+    "attenuation": "sounds/sea.attenuation.json"
+  },
+  "entries": [
+    {
+      "sample": "audio/wood_crunch.wav",
+      "loop": "off"
+    }
+  ]
+}

@@ -36,7 +36,7 @@ test("the Input Debugger shows a playing World's action values, flags, source an
   await menu(page, "Window", "Input Debugger");
   await expect(tab(page, "Input Debugger")).toHaveClass(/active/);
   const panel = page.locator(".input-debugger");
-  await expect(panel.locator(".input-debugger-empty")).toContainText("Play to see a World's input here");
+  await expect(panel.getByRole("note", { name: "Play to see a World's input here" })).toBeVisible();
 
   await play(page);
   await page.locator("#game-view canvas").first().click(); // focus the game view (the keyboard appears with the first key)
@@ -67,7 +67,7 @@ test("the Input Debugger shows a playing World's action values, flags, source an
 
   await page.getByRole("button", { name: /Stop/ }).click();
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
-  await expect(panel.locator(".input-debugger-empty")).toContainText("Play to see a World's input here");
+  await expect(panel.getByRole("note", { name: "Play to see a World's input here" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

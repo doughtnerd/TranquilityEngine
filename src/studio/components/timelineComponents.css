@@ -3,14 +3,14 @@
 .tl-ruler { position: relative; height: 22px; background: var(--bg-sunken); border-bottom: 1px solid var(--border); cursor: text; overflow: hidden; user-select: none; touch-action: none; }
 .tl-tick { position: absolute; bottom: 0; width: 1px; height: 5px; background: var(--faint); }
 .tl-tick.major { height: 10px; background: var(--muted); }
-.tl-tick-label { position: absolute; left: 3px; bottom: 8px; color: var(--muted); font-size: calc(10px * var(--ui-scale, 1)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tl-tick-label { position: absolute; left: 3px; bottom: 8px; color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .tl-wave { position: relative; min-height: 60px; height: 100%; background: var(--bg-sunken); overflow: hidden; touch-action: none; user-select: none; }
 .tl-wave-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.tl-wave-placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); font-size: calc(11px * var(--ui-scale, 1)); pointer-events: none; }
+.tl-wave-placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); font-size: var(--fs-sm); pointer-events: none; }
 .tl-band { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--band) 16%, transparent); border-left: 1px solid var(--band); border-right: 1px solid var(--band); pointer-events: none; }
 .tl-band.hatched { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--band) 30%, transparent) 0 4px, transparent 4px 8px); }
-.tl-band-label { position: absolute; top: 2px; left: 4px; color: var(--band); font-size: calc(10px * var(--ui-scale, 1)); white-space: nowrap; }
+.tl-band-label { position: absolute; top: 2px; left: 4px; color: var(--band); font-size: var(--fs-xs); white-space: nowrap; }
 
 .tl-playhead { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -0.5px; background: var(--muted); pointer-events: none; z-index: 3; }
 .tl-playhead.playing { background: var(--accent); box-shadow: 0 0 4px var(--accent); }

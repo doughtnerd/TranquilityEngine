@@ -4,7 +4,7 @@
   top: 2px;
   left: 2px;
   padding: 0 4px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   line-height: 16px;
   border-radius: 8px;
   color: var(--text);

@@ -5,10 +5,10 @@
 import { describe, expect, it } from "vitest";
 import { readRecords, RecordWriter, type LinkRecord } from "../../../../engine/debugLink/records";
 import type { DebugSubscription } from "../../../../engine/debugLink/topics";
-import type { TakeLiveFacts, TakeLiveView } from "../capture/take";
-import { TakeRecorder, type TakeRecorderRing } from "../capture/takeRecorder";
-import { AUDIO_SAMPLE_BYTES, AudioLinkRecord, decodeTakeLiveLog, decodeTakeLiveStart, readAudioSubscription } from "./schema";
-import { takeLiveSubscription } from "./takeLive";
+import type { TakeLiveFacts, TakeLiveView } from "../../runtime/capture/take";
+import { TakeRecorder, type TakeRecorderRing } from "../../runtime/capture/takeRecorder";
+import { AUDIO_SAMPLE_BYTES, AudioLinkRecord, decodeTakeLiveLog, decodeTakeLiveStart, readAudioSubscription } from "../../runtime/debugLink/schema";
+import { takeLiveSubscription } from "../../runtime/debugLink/takeLive";
 import { TakeLiveStream } from "./takeLiveStream";
 
 class FakeRing implements TakeRecorderRing {

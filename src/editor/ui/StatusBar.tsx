@@ -5,6 +5,7 @@ import { docVersion, openScene, scriptProblems, status } from "../state";
 import { menuOpen } from "./MenuBar";
 import { DebugLinkBuilds } from "../debugLink/BuildsMenu";
 import { settingsOpen } from "./dialogState";
+import { EmptyState } from "./EmptyState";
 
 /**
  * The status bar: the latest message, any action it offers, and markers for problems. Clicking it
@@ -150,8 +151,8 @@ function MessageLog() {
         </button>
       </header>
       <ol class="message-log-list">
-        {all.length === 0 && <li class="empty">Messages and errors show up here.</li>}
-        {all.length > 0 && entries.length === 0 && <li class="empty">No messages of the kinds shown. Turn on a kind above to see its messages.</li>}
+        {all.length === 0 && <li role="presentation"><EmptyState compact title="Messages and errors show up here." /></li>}
+        {all.length > 0 && entries.length === 0 && <li role="presentation"><EmptyState compact title="No messages of the kinds shown. Turn on a kind above to see its messages." /></li>}
         {[...entries].reverse().map((e) => (
           <Entry key={e.id} entry={e} />
         ))}

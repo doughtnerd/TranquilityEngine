@@ -1,9 +1,9 @@
 /* Play mode's play bar tools (Gizmos, Stats) and the Stats overlay. Theme tokens only. */
 .play-bar { display: flex; align-items: center; gap: 6px; background: var(--panel); border-top: 1px solid var(--border); }
 .play-bar .world-strip { flex: 1; min-width: 0; border-top: none; background: none; }
-.play-tools { flex: none; padding: 4px 6px; font-size: calc(12px * var(--ui-scale)); }
+.play-tools { flex: none; padding: 4px 6px; font-size: var(--fs-md); }
 .play-tools-group { display: flex; align-items: center; gap: 6px; }
-.play-tools button { padding: 1px 8px; font-size: calc(12px * var(--ui-scale)); }
+.play-tools button { padding: 1px 8px; font-size: var(--fs-md); }
 .play-tools button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .gizmos-split { display: inline-flex; }
 .gizmos-split .gizmos-toggle { border-top-right-radius: 0; border-bottom-right-radius: 0; }
@@ -12,7 +12,7 @@
 .gizmos-menu { display: grid; gap: 4px; min-width: 180px; }
 .gizmos-kind { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .gizmos-kind.off { color: var(--muted); }
-.gizmos-note { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+.gizmos-note { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-sm); }
 
 /* The overlay layer: covers the game view but takes no clicks; only the Stats panel's close button does. */
 .play-hud { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
@@ -27,7 +27,7 @@
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
-  font-size: calc(11px * var(--ui-scale));
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
   pointer-events: none;
@@ -40,7 +40,7 @@
   border: none;
   background: none;
   color: var(--muted);
-  font-size: calc(13px * var(--ui-scale));
+  font-size: var(--fs-lg);
   line-height: 1;
   cursor: pointer;
   pointer-events: auto;

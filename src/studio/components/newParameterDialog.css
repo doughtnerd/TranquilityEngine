@@ -3,9 +3,9 @@
 .studio-newparam {
   width: min(360px, calc(100vw - 16px)); box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px;
   background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 12px 32px var(--shadow);
-  font-size: calc(12px * var(--ui-scale));
+  font-size: var(--fs-md);
 }
-.studio-newparam-title { margin: 0; font-size: calc(14px * var(--ui-scale)); font-weight: 600; text-transform: none; letter-spacing: normal; color: var(--text-strong); }
+.studio-newparam-title { margin: 0; font-size: var(--fs-lg); font-weight: 600; text-transform: none; letter-spacing: normal; color: var(--text-strong); }
 .studio-newparam-note { margin: 0; color: var(--muted); }
 .studio-newparam-field { display: flex; align-items: center; gap: 8px; }
 .studio-newparam-field > span:first-child { min-width: 56px; color: var(--muted); }
@@ -16,6 +16,5 @@
 .studio-newparam-range input { width: 100%; min-width: 0; }
 .studio-newparam-radio { display: inline-flex; align-items: center; gap: 4px; }
 /* "+ New parameter…" under the game parameters panel's rows. */
-.studio-params-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .studio-params-new { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin: 4px 8px; }
 .studio-newparam-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }

@@ -1,6 +1,8 @@
-import { Audio, Camera, GameBehavior, GameObject, Input, Replicated, Time, Transform, UIView, Vector3, behavior, defineSystem } from "myco";
+import { Audio, Camera, GameBehavior, GameObject, Replicated, Time, Transform, UICanvas, UIView, Vector3, behavior, defineSystem } from "myco";
 import { chartMarkers, chartPoint, compass, edgeMarker, edgeStatus, flagChartedBy, flagSeenBy, type MapMarker, type SeaShip } from "../awareness";
 import { Battery, CLOUD_RADIUS, Obstacle, Phase, Pickup, PowerUp, RELOAD, RESULTS_SECONDS, SHIP_HP, TEAM_COLORS, cloudSpots, flag, game, inCloudAmong, myShip, ranking, ships, type CloudSpot, type ObstacleView, type PickupView, type ShipInfo } from "../data";
+import { batteryLabels, controlsHelp } from "../controls";
+import { HARBOUR_SNAPSHOT, STORM_PARAMETER, UI_CLICK } from "../sounds";
 import { arenaRadius } from "../systems";
 
 /** A ship's name on the scoreboard. */
@@ -83,6 +85,8 @@ interface HudState {
   hull: { label: string; width: string; fill: string; swatch: string | null };
   port: BatteryView;
   starboard: BatteryView;
+  /** The controls, with the player's own bindings for the device they last used. */
+  help: string;
   board: BoardRow[];
   legend: string;
   dots: Record<Layer, Dot[]>;
@@ -101,7 +105,7 @@ interface HudState {
  * it: a minimap (top right: the arena, its islands, fog clouds, power-ups, the flag and the ships
  * this captain's chart shows), a warning near and past the arena's edge, markers at the screen's
  * edge for the flag and (outside) the way back, a note while this ship hides in fog, and the
- * "Leave the match?" dialog (Escape). It reads this client's ship and the replicated match.
+ * "Leave the match?" dialog (the `leave` action). It reads this client's ship and the replicated match.
  *
  * The screens are a Svelte component (ADR 0423), ui/Hud.svelte, mounted by the node's UIView: each
  * frame the script works out what it shows (texts, the leaderboard, the results, the minimap's dots,
@@ -111,7 +115,7 @@ interface HudState {
 @behavior("pirates.Hud", { worlds: ["client"] })
 export class Hud extends GameBehavior {
   /**
-   * True while the "Leave the match?" dialog is open: Escape opens and closes it. The helm then
+   * True while the "Leave the match?" dialog is open: the `leave` action opens and closes it. The helm then
    * holds its course and doesn't fire (client.ts, `heldHelm`).
    */
   leaving = false;
@@ -129,6 +133,10 @@ export class Hud extends GameBehavior {
   land: readonly { x: number; z: number; r: number }[] = [];
 
   private view: UIView | null = null;
+  /** Whether the dialog was open last frame (focus and the snapshot change when it opens or closes). */
+  private shownLeaving = false;
+  /** This ship's hull last frame, to feel hits on a gamepad. */
+  private lastHp = SHIP_HP;
   /** The state last passed to the view, as JSON. */
   private shown = "";
 
@@ -153,17 +161,49 @@ export class Hud extends GameBehavior {
     };
   }
 
+  /** Leaving the match puts the mix back: no harbour dip, no storm. */
+  onDisable(): void {
+    if (this.shownLeaving) Audio.clearSnapshot(0.4);
+    this.shownLeaving = false;
+    Audio.setParameter(STORM_PARAMETER, 0);
+  }
+
   update(): void {
     if (!this.view) return;
-    if (Input.getKeyDown("escape")) this.leaving = !this.leaving;
+    this.leaveKeys();
     const hud = this.state();
     const json = JSON.stringify(hud);
-    if (json === this.shown) return;
-    this.shown = json;
-    // Changed values only, into the view's reactive state: Svelte redraws just what they show (the dots move every frame).
-    const shown = this.view.props.hud as Record<string, unknown> | undefined;
-    if (shown) patch(shown, hud as unknown as Record<string, unknown>);
-    else this.view.props.hud = hud;
+    if (json !== this.shown) {
+      this.shown = json;
+      // Changed values only, into the view's reactive state: Svelte redraws just what they show (the dots move every frame).
+      const shown = this.view.props.hud as Record<string, unknown> | undefined;
+      if (shown) patch(shown, hud as unknown as Record<string, unknown>);
+      else this.view.props.hud = hud;
+    }
+    this.leaveShown();
+  }
+
+  /**
+   * The "Leave the match?" dialog: the `leave` action (Escape, Start) opens and closes it, as does
+   * Keep sailing; Leave goes back to the room. While it's open, Keep sailing has focus, so the
+   * arrows or the d-pad move between its buttons, Enter or the south button presses one, and the
+   * UI's cancel (Escape, the east button) closes it (ADR 0340).
+   */
+  private leaveKeys(): void {
+    if (this.input.performed("leave")) this.leaving = !this.leaving;
+    else if (this.leaving && this.view?.root?.as(UICanvas).canceled) this.leaving = false;
+  }
+
+  /** When the dialog opens or closes: Keep sailing takes or gives up focus, and the mix dips under it (the `Harbour` snapshot) or comes back. */
+  private leaveShown(): void {
+    if (this.leaving === this.shownLeaving) return;
+    const stay = this.view?.query("#leave-stay");
+    if (!stay) return; // not mounted yet: next frame
+    this.shownLeaving = this.leaving;
+    if (this.leaving) stay.focus();
+    else stay.blur();
+    if (this.leaving) Audio.snapshot(HARBOUR_SNAPSHOT, 0.25);
+    else Audio.clearSnapshot(0.4);
   }
 
   /** What the HUD shows now. */
@@ -172,6 +212,13 @@ export class Hud extends GameBehavior {
     const g = game();
     const names = captainNames?.();
     const hp = ship ? Math.max(0, ship.data.hp) : SHIP_HP;
+
+    // A gamepad feels each hit on this ship.
+    if (ship && hp < this.lastHp && ship.data.sunk <= 0) this.input.rumble(0.35 + 0.4 * Math.min(1, (this.lastHp - hp) / 25), 0.6, 160);
+    this.lastHp = ship ? hp : SHIP_HP;
+
+    // The controls, named with the player's own bindings for the device they last used.
+    const labels = batteryLabels(this.input);
     const battery = ship?.data.battery ?? Battery.starboard;
 
     const powers: string[] = [];
@@ -216,8 +263,9 @@ export class Hud extends GameBehavior {
       middle: withAlpha("#0d1219", lines.length ? 0.85 : 0),
       powers: powers.join("   |   "),
       hull: { label: `Hull ${Math.ceil(hp)}`, width: `${Math.round((hp / SHIP_HP) * 100)}%`, fill: hp > 50 ? "#59cc4d" : hp > 25 ? "#e6a63d" : "#e6403d", swatch: ship ? TEAM_COLORS[ship.data.team] : null },
-      port: this.battery("[A] Port", battery === Battery.port, ship?.data.reloadPort ?? 0),
-      starboard: this.battery("Starboard [D]", battery === Battery.starboard, ship?.data.reloadStarboard ?? 0),
+      port: this.battery(labels.port, battery === Battery.port, ship?.data.reloadPort ?? 0),
+      starboard: this.battery(labels.starboard, battery === Battery.starboard, ship?.data.reloadStarboard ?? 0),
+      help: controlsHelp(this.input),
       board: this.leaderboard(order, seenFlag?.carrier ?? -1, names),
       legend: chartedFlag
         ? chartedFlag.carrier < 0
@@ -250,7 +298,7 @@ export class Hud extends GameBehavior {
   }
 
   private click(): void {
-    Audio.playOneShot("audio/ui_click.wav", { volume: 0.6 });
+    Audio.play(UI_CLICK);
   }
 
   /** The minimap: land, fog clouds, power-ups, the loose flag and the ships this captain can see. */

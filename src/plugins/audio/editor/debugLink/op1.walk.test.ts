@@ -23,8 +23,8 @@ import { releaseCapture } from "../../runtime/capture/capture";
 import { defaultSaveEnv, type SaveEnv } from "../../runtime/capture/save";
 import { openTakeFile } from "../../runtime/capture/takeFile";
 import { keyframeCodecForTests, statusBytes, type CaptureChunkControl } from "../../runtime/capture/testSupport";
-import { AudioRequest, MIX_OP_COMMAND, decodeTakeChunk, mixOpCommand, type TakeStateReply, type TakeUploadReply } from "../../runtime/debugLink/schema";
-import { createTakeReceiver, type TakeReceiveResult } from "./takeReceiver";
+import { AudioRequest, MIX_OP_COMMAND, mixOpCommand, type TakeStateReply } from "../../runtime/debugLink/schema";
+import { audioLinkClient } from "./audioLinkClient";
 
 const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
 vi.mock("../../runtime/capture/recorder", async (real) => (await import("../../runtime/capture/testSupport")).captureRecorderModule(await real(), chunk));
@@ -178,32 +178,13 @@ async function takeAndMix(rig: Rig, peer: DebugLinkPeer): Promise<void> {
   }
   await pause(rig);
 
-  const reply = await answer<TakeUploadReply>(rig, "take.upload", peer.request("audio", AudioRequest.upload));
-  expect(reply.bytes).toBeGreaterThan(0);
-  const rx = createTakeReceiver(reply);
-  let result: TakeReceiveResult | undefined;
-  let error: string | undefined;
-  const sub = peer.subscribe(
-    "audio",
-    { kind: "upload", upload: reply.upload },
-    (records) => {
-      for (const r of records) {
-        const c = decodeTakeChunk(r.payload);
-        if ("refused" in c) error = c.refused;
-        else result = rx.push(c);
-      }
-    },
-    (m) => (error = m),
-  );
-  await until(rig, "the upload", () => result?.status === "done" || error !== undefined);
-  sub.unsubscribe();
-  expect(error).toBeUndefined();
-  expect(result?.status).toBe("done");
+  let total = 0;
+  const got = await answer<Uint8Array>(rig, "take.upload", audioLinkClient(peer).uploadTake({ onProgress: (p) => (total = p.total) }));
+  expect(total).toBeGreaterThan(0);
 
   await Audio.take.save("walk");
   const saved = rig.downloads[0]!.bytes;
-  const got = (result as { bytes: Uint8Array }).bytes;
-  expect(got.byteLength).toBe(reply.bytes);
+  expect(got.byteLength).toBe(total);
   expect(Buffer.compare(got, saved)).toBe(0);
   const opened = await openTakeFile(got); // "open it in Take": the reader the Take view uses
   expect(opened.take.requests.map((q) => q.kind)).toContain("mark");

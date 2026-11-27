@@ -4,6 +4,7 @@ import { errorStatus } from "../messages";
 import { readRenderTexture, writeRenderTexture } from "../renderTextureAssets";
 import { currentProject, docVersion, status } from "../state";
 import "./assetInspector.css";
+import { EmptyState } from "./EmptyState";
 
 const clampSize = (v: number) => Math.min(4096, Math.max(1, Math.round(v)));
 
@@ -12,7 +13,7 @@ export function RenderTextureInspector(props: { path: string }) {
   docVersion.value; // rewritten by this inspector, or on disk
   const { path } = props;
   const project = currentProject.value;
-  if (!project) return <p class="empty">Nothing selected</p>;
+  if (!project) return <EmptyState compact title="Nothing selected" />;
   const { settings, problems } = readRenderTexture(project, path);
   const readOnly = !project.canSave;
 

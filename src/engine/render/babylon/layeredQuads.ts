@@ -21,11 +21,13 @@
  * - the lit variant (ADR 0399, `lightLayeredQuads`): the same material with the 2D light plugin
  *   (`lights2DMaterial.ts`), reading its layer batch's light textures; lit and unlit draws sort alike;
  * - sprite batching (ADR 0108): sprites are sorted by draw order and, within one order, grouped by
- *   texture (an atlas) and lighting; each run is one mesh of thin instances and one draw. Per instance: the world
+ *   material (the 2D materials share one per texture and lighting, `materials2D.ts`, ADR 0418, made with
+ *   `batchedSpriteMaterial`); each run is one mesh of thin instances and one draw. Per instance: the world
  *   matrix (size, pivot, flips and the node), the tint (Babylon's instance colour, which multiplies the
  *   PBR albedo and alpha) and the slice's UV rectangle (`SpriteUvPlugin`, GLSL and WGSL).
  */
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
+import type { Material } from "@babylonjs/core/Materials/material.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import type { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
@@ -170,7 +172,8 @@ export class QuadMaskPlugin extends MycoMaterialPlugin {
 
 /** One sprite to draw this frame. */
 export interface SpriteItem {
-  texture: Texture | null;
+  /** Its batch material (`batchedSpriteMaterial`: the instances' UV rectangles and colours); sprites sharing it share runs. */
+  material: Material;
   /** Draw order: sorting layer index × 10000 + order in layer. */
   order: number;
   /** World matrix, column-major (Babylon's layout). */
@@ -179,8 +182,6 @@ export interface SpriteItem {
   color: [number, number, number, number];
   /** UV rectangle: u0, v0, width, height. */
   uvRect: [number, number, number, number];
-  /** Lit by 2D lights (ADR 0399): its setup and a key for sharing the material; null: unlit. */
-  lit: { key: string; setup: LitQuadSetup } | null;
 }
 
 /** The per-instance UV rectangle's attribute. */
@@ -195,6 +196,11 @@ function spriteUvCode(shaderType: string, language: ShaderLanguage): { [point: s
     // After the UV is read and before it's passed on (both languages declare `uvUpdated` with UV1).
     CUSTOM_VERTEX_UPDATE_POSITION: ["#ifdef UV1", wgsl ? `uvUpdated = vertexInputs.${UV_RECT_ATTRIBUTE}.xy + uvUpdated * vertexInputs.${UV_RECT_ATTRIBUTE}.zw;` : `uvUpdated = ${UV_RECT_ATTRIBUTE}.xy + uvUpdated * ${UV_RECT_ATTRIBUTE}.zw;`, "#endif"].join("\n"),
   };
+}
+
+/** Make a layered quad material a sprite batch's: it reads each instance's UV rectangle (a slice of its atlas). */
+export function batchedSpriteMaterial(material: PBRMaterial): void {
+  new SpriteUvPlugin(material);
 }
 
 /** Reads each instance's UV rectangle: a sprite's slice of its atlas. */
@@ -241,11 +247,10 @@ const IDENTITY = Matrix.Identity();
 /** Draws sprites batched per texture run, in draw order (see the file comment). */
 export class SpriteBatcher {
   private readonly runs: Run[] = [];
-  private readonly materials = new Map<Texture | null, Map<string, PBRMaterial>>();
   private used = 0;
   private readonly order: SpriteItem[] = [];
-  private readonly textureIds = new WeakMap<Texture, number>();
-  private nextTextureId = 1;
+  private readonly materialIds = new WeakMap<Material, number>();
+  private nextMaterialId = 1;
 
   constructor(private readonly scene: Scene) {}
 
@@ -254,9 +259,8 @@ export class SpriteBatcher {
     const sorted = this.order;
     sorted.length = 0;
     for (const it of items) sorted.push(it);
-    const id = (t: Texture | null) => (t ? (this.textureIds.get(t) ?? this.textureIds.set(t, this.nextTextureId++).get(t)!) : 0);
-    const litKey = (it: SpriteItem) => it.lit?.key ?? "";
-    sorted.sort((a, b) => a.order - b.order || id(a.texture) - id(b.texture) || (litKey(a) < litKey(b) ? -1 : litKey(a) > litKey(b) ? 1 : 0));
+    const id = (m: Material) => this.materialIds.get(m) ?? this.materialIds.set(m, this.nextMaterialId++).get(m)!;
+    sorted.sort((a, b) => a.order - b.order || id(a.material) - id(b.material));
     let run = -1;
     let start = 0;
     const flushRun = (end: number) => {
@@ -264,7 +268,7 @@ export class SpriteBatcher {
       this.fill(run, sorted, start, end);
     };
     for (let i = 0; i < sorted.length; i++) {
-      if (i === 0 || sorted[i].texture !== sorted[i - 1].texture || sorted[i].order !== sorted[i - 1].order || litKey(sorted[i]) !== litKey(sorted[i - 1])) {
+      if (i === 0 || sorted[i].material !== sorted[i - 1].material || sorted[i].order !== sorted[i - 1].order) {
         flushRun(i);
         run++;
         start = i;
@@ -275,36 +279,10 @@ export class SpriteBatcher {
     for (let i = this.used; i < this.runs.length; i++) this.runs[i].mesh.setEnabled(false);
   }
 
+  /** Its meshes go; the materials are the caller's (the 2D materials'). */
   dispose(): void {
     for (const r of this.runs) r.mesh.dispose();
-    for (const byLit of this.materials.values()) for (const m of byLit.values()) m.dispose();
     this.runs.length = 0;
-    this.materials.clear();
-  }
-
-  private material(texture: Texture | null, lit: SpriteItem["lit"]): PBRMaterial {
-    let byLit = this.materials.get(texture);
-    if (!byLit) this.materials.set(texture, (byLit = new Map()));
-    const key = lit?.key ?? "";
-    let m = byLit.get(key);
-    if (m) return m;
-    m = layeredQuadMaterial(`sprites:${texture?.name ?? "plain"}${key ? `:${key}` : ""}`, this.scene, texture);
-    new SpriteUvPlugin(m);
-    if (lit) lightLayeredQuads(m, lit.setup);
-    byLit.set(key, m);
-    return m;
-  }
-
-  /** Drop lit materials of an older 2D lighting layout (ADR 0399: their keys carry the rig's version). */
-  forgetLitMaterials(keep: (key: string) => boolean): void {
-    for (const byLit of this.materials.values()) {
-      for (const [key, m] of byLit) {
-        if (!key || keep(key)) continue;
-        if (this.runs.some((r) => r.mesh.material === m)) continue;
-        m.dispose();
-        byLit.delete(key);
-      }
-    }
   }
 
   private fill(index: number, sorted: SpriteItem[], start: number, end: number): void {
@@ -334,8 +312,7 @@ export class SpriteBatcher {
       run.colors.set(it.color, i * 4);
       run.uvs.set(it.uvRect, i * 4);
     }
-    const texture = sorted[start].texture;
-    const material = this.material(texture, sorted[start].lit);
+    const material = sorted[start].material;
     if (run.mesh.material !== material) run.mesh.material = material;
     // Its order, or a step past the previous run when that has the same order (any number: orders aren't
     // only whole ones). The last item of the previous run is the one before this run's first.

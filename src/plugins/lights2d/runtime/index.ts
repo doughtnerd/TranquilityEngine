@@ -1,5 +1,5 @@
 // The Lights 2D plugin's runtime half (ADR 0399): claims the Light2D and ShadowCaster2D components, and registers the
-// lazy render feature drawing light volumes (ADR 0415, `lights2dFeature.ts`). Their drawing (the
+// lazy render feature drawing light volumes (ADR 0415, `volumeRenderer.ts`). Their drawing (the
 // light textures, shadows and the lit 2D material) is the renderer core's lighting rig, which the lit 2D draws of four
 // plugins read whether or not this one is on, as Environment's (ADR 0140): with the plugin off the rig finds no 2D
 // lights, and every 2D draw is unlit. `myco` (`src/myco.ts`) exports the public parts from here.
@@ -19,6 +19,6 @@ export const lights2dRuntimePlugin: RuntimePlugin = {
   manifest: lights2dManifest,
   activate(context) {
     context.registerComponents([Light2D, ShadowCaster2D, CompositeShadowCaster2D]);
-    context.registerRenderFeature({ spec: LIGHTS2D_SPEC, load: () => import("./lights2dFeature").then((m) => m.createLights2DFeature) });
+    context.registerRenderFeature({ spec: LIGHTS2D_SPEC, load: () => import("./volumeRenderer").then((m) => m.createLights2DFeature) });
   },
 };

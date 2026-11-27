@@ -16,9 +16,8 @@ import type { ParticleStats } from "../RenderSurface";
 import type { ParticlePreview } from "../renderPolicy";
 import { srgbToLinear } from "../particles/gpu/kernelMath";
 import { EffectPlayer, EffectResources, type EffectHost, type PlayState } from "./effectPlayer";
-import { lights2DOf } from "./lights2D";
+import type { BabylonMaterials2D } from "./materials2D";
 import type { ParticleLayer2D } from "./particleDraw";
-import { spriteMaterialLit, spriteMaterialProblem } from "../lights2D/spriteMaterial";
 import type { WarmParts } from "./warmUp";
 
 /** What the particle player needs from the render backend: an effect host, plus the World's matrices and rules. */
@@ -35,6 +34,8 @@ export interface BabylonParticleHost extends EffectHost {
   tierScale(): number;
   /** Draw order for a sorting layer and order in layer (ADR 0014, 0415: 2D particles), as sprites have it. Optional: without it, 2D systems draw as 3D. */
   sortOrder?(sortingLayer: string, orderInLayer: number): number;
+  /** The 2D materials (ADR 0418): a 2D system's lighting. Optional: without them, 2D systems draw unlit. */
+  readonly materials2D?: BabylonMaterials2D;
   /** Logs a warning once per key. Optional. */
   warnOnce?(key: string, message: string): void;
 }
@@ -151,19 +152,14 @@ export class BabylonParticles {
     }
   }
 
-  /** A player for `c`'s effect JSON, or null when it's missing or broken (warned once). */
   /** A 2D system's place and lighting (ADR 0415), or null for 3D particles. */
   private layer2D(c: ParticleSystem): ParticleLayer2D | null {
     if (!c.sortingLayer || !this.host.sortOrder) return null;
     const order = this.host.sortOrder(c.sortingLayer, c.orderInLayer);
-    const problem = spriteMaterialProblem(c.material);
-    if (problem) this.host.warnOnce?.(`particlematerial|${c.material}`, problem);
-    const rig = spriteMaterialLit(c.material) ? lights2DOf(this.host.scene) : undefined;
-    const batch = rig?.batchOfLayer(c.sortingLayer) ?? -1;
-    if (!rig || batch < 0) return { order, lit: null, key: "unlit" };
-    return { order, lit: { batch, normal: null, mask: null, greenDown: false }, key: `lit${batch}@${rig.version}` };
+    return { order, lit: this.host.materials2D?.litSetup(c.material, c.sortingLayer) ?? null };
   }
 
+  /** A player for `c`'s effect JSON, or null when it's missing or broken (warned once). */
   private player(c: ParticleSystem, raw: unknown, state: PlayState): EffectPlayer | null {
     const program = this.parse(c, raw);
     return program && new EffectPlayer(this.resources, program, { name: `particles:${c.node.name}`, seed: c.seed, state });

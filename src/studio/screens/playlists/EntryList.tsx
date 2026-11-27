@@ -18,6 +18,7 @@ import { duplicateEntry, moveEntry, setEntryUse, USE_LIMITS, type EditContext } 
 import { entryName } from "./playlistPaths";
 import type { PlaylistFacts } from "./playlistTree";
 import { VoiceButton } from "./VoiceButton";
+import { EmptyState } from "../../../editor/ui/EmptyState";
 
 export type BodyEdit = (b: PlaylistBody) => EditResult<PlaylistBody>;
 
@@ -115,7 +116,7 @@ export function EntryList(props: EntryListProps) {
   const duplicate = (i: number) => writable && body.type !== "clip" && props.onEdit("Duplicate entry", (b) => duplicateEntry(b, i, props.ctx));
 
   if (body.entries.length === 0) {
-    return <div class="pl-empty-box">No entries yet. Drag samples here from the Library, or use + to add one.</div>;
+    return <EmptyState compact title="No entries yet. Drag samples here from the Library, or use + to add one." />;
   }
   if (indices.length === 0) return null;
 

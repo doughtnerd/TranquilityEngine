@@ -11,6 +11,7 @@ import { OfferRoomDialog } from "./OfferRoomDialog";
 import { editorDebugLink } from "./link";
 import { PlayBuildSlot } from "./playBuild";
 import "./debugLink.css";
+import { EmptyState } from "../ui/EmptyState";
 
 export interface BuildsMenuProps {
   readonly builds: readonly BuildEntry[];
@@ -71,7 +72,7 @@ export function BuildsMenu(props: BuildsMenuProps) {
               <div class="debug-link-separator" role="separator" />
             </>
           )}
-          {props.builds.length === 0 && <div class="debug-link-empty">{emptyText(props.listen)}</div>}
+          {props.builds.length === 0 && <EmptyState compact title={emptyText(props.listen)} />}
           {props.builds.map((b) => (
             <div key={b.id} class="debug-link-row">
               <button role="menuitemradio" aria-checked={props.active === b.id} class="debug-link-pick" onClick={() => pick(() => props.onChoose(b.id))}>

@@ -3,23 +3,23 @@
 //
 // - subscription `{ kind: "capture" }`: the live capture feed (`capture.ts`);
 // - subscription `{ kind: "upload", upload }`: an upload's chunks (`upload.ts`);
-// - subscription `{ kind: "take" }`: the take's state as it changes, the tool owning the build's takes, and a backup copy
-//   of each stopped take kept in app data on desktop and Android (`takeState.ts`, ADR 0408);
+// - subscription `{ kind: "take" }`: the take's state as it changes, holding the tool's claim on the build's takes (and
+//   with it a backup copy of each stopped take in app data on desktop and Android) (`takeState.ts`, ADR 0408, take
+//   ownership `capture/takeOwnership.ts`, ADR 0417);
 // - subscription `{ kind: "takeLive" }`: the live take feed, the running (else last) take's facts, emitters and log as it
 //   grows (`takeLive.ts`);
 // - requests `take.start`, `take.stop`, `take.mark` `{ text }`: drive `Audio.take`, answered by the take's state and
 //   seconds after it (start and stop through the build's F10 trigger when installed, so the player sees the same
-//   toasts, `capture/takeControl.ts`); `take.frames` `{ width }`: the next takes' picture width; `take.upload`: makes the take's file bytes into an upload (`upload.ts`); `build.audio` and
+//   toasts, `capture/takeOwnership.ts`); `take.frames` `{ width }`: the next takes' picture width; `take.upload`: makes the take's file bytes into an upload (`upload.ts`); `build.audio` and
 //   `build.file`: the build's audio index and files as uploads, for replays without the project (`buildAudio.ts`, ADR 0410);
 // - command `mix.op`: one live mix op, applied through the mixer at the build's next frame start (`mixCommands.ts`).
 //
 // Loaded only by `import()` from the plugin's registration (`../index.ts`), so release exports hold none of it.
 import { mixer } from "../../../../engine/audio/mixer";
-import { isTauri } from "../../../../engine/platform/FileSystem";
 import type { DebugSubscription, DebugTopic, DebugTopicHost } from "../../../../engine/debugLink/topics";
 import { captureLiveHost } from "../capture/capture";
 import { audioTake, setTakeFrameWidth, takeFileBytes, takeFrameWidth, takeLive } from "../capture/take";
-import { startTakeForTool, stopTakeForTool } from "../capture/takeControl";
+import { takeOwnership } from "../capture/takeOwnership";
 import { captureSubscription } from "./capture";
 import { applyMixOpCommand } from "./mixCommands";
 import { takeLiveSubscription } from "./takeLive";
@@ -27,14 +27,6 @@ import { takeStateSubscription } from "./takeState";
 import { buildAudioIndexBytes, buildFileBytes } from "./buildAudio";
 import { AUDIO_TOPIC_CHANNEL, AudioRequest, BUILD_FILE_UPLOAD_FIRST_ID, MIX_OP_COMMAND, readAudioSubscription, type TakeFramesReply, type TakeStateReply, type TakeUploadParams } from "./schema";
 import { createTakeUploads, type TakeUploads } from "./upload";
-
-/**
- * ADR 0408: the build's own copy of a take it handed to the tool, in case the stream is interrupted: an auto-named
- * `<app data>/recordings/*.sporesample`, in the newest-16 rotation. Desktop and Android only (a browser would download it).
- */
-function backupTake(): void {
-  audioTake.save().catch((err: unknown) => console.warn(`[myco] couldn't keep a copy of the take: ${err instanceof Error ? err.message : String(err)}`));
-}
 
 /** The take after a request. */
 function takeState(): TakeStateReply {
@@ -56,17 +48,17 @@ export function audioTopic(_host: DebugTopicHost): DebugTopic {
       const p = readAudioSubscription(params);
       if ("refused" in p) return p;
       if (p.kind === "capture") return captureSubscription(captureLiveHost);
-      if (p.kind === "take") return takeStateSubscription(takeState, isTauri() ? backupTake : undefined);
+      if (p.kind === "take") return takeStateSubscription(takeState, takeOwnership);
       if (p.kind === "takeLive") return takeLiveSubscription(takeLive);
       return p.upload >= BUILD_FILE_UPLOAD_FIRST_ID ? theFileUploads().subscribe(p.upload) : theUploads().subscribe(p.upload);
     },
     async request(method, params) {
       switch (method) {
         case AudioRequest.start:
-          await startTakeForTool(); // through the F10 trigger when installed: the same toasts (`takeControl.ts`)
+          await takeOwnership.startForTool(); // through the F10 trigger when installed: the same toasts
           return takeState();
         case AudioRequest.stop:
-          stopTakeForTool();
+          takeOwnership.stopForTool();
           return takeState();
         case AudioRequest.mark: {
           const text = params && typeof params === "object" ? (params as Record<string, unknown>).text : undefined;

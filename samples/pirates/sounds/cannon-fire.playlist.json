@@ -1,0 +1,30 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "SFX",
+  "note": "A broadside's gun: a battery fires several at once, so the oldest give way past twelve.",
+  "playback": {
+    "maxInstances": 12,
+    "whenFull": "stealOldest",
+    "priority": 160
+  },
+  "volume": -0.92,
+  "pitch": -0.09,
+  "volumeRandom": [
+    -1.5,
+    0
+  ],
+  "pitchRandom": [
+    -1.73,
+    1.73
+  ],
+  "spatial": {
+    "attenuation": "sounds/sea.attenuation.json"
+  },
+  "entries": [
+    {
+      "sample": "audio/cannon_fire.wav",
+      "loop": "off"
+    }
+  ]
+}

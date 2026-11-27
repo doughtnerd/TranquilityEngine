@@ -10,7 +10,7 @@ import { expandParticleGraph, outputTypeResolved, portRateResolved } from "../..
 import type { ParticleProgram } from "../../../../../engine/scene/particleCompile";
 import type { ContextKind, GraphGroup, GraphNode, GraphProblem, ParticleGraph, Vec2 } from "../../../../../engine/scene/particleGraph";
 import type { PortType } from "../../../../../engine/scene/particleNodes";
-import { usePanelHistory, type UndoHistory, editor, GraphPreviewCard, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, px, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, usePreviewCardSize, type CanvasNode, type Point, type EditorProject } from "../../../../../editor/sdk";
+import { usePanelHistory, type UndoHistory, editor, GraphPreviewCard, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, px, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, usePreviewCardSize, type CanvasNode, type Point, type EditorProject, EmptyState } from "../../../../../editor/sdk";
 import { compileEffectGraph, effectFileMigrated, particleDocument, projectParticleAssets } from "../../particleAssets";
 import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, assetToDoc, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
 import {
@@ -724,7 +724,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
               />
               <WireRefusal draft={draft} hint={wiring.hint} />
             </div>
-            {empty && <p class="pg-canvas-empty">{assetDoc ? "Right-click or press Space to add a node." : "Right-click or press Space to add a system."}</p>}
+            {empty && <div class="pg-canvas-hint"><EmptyState compact title={assetDoc ? "Right-click or press Space to add a node." : "Right-click or press Space to add a system."} /></div>}
             {box && <SelectionBox box={box} />}
             {showMinimap && <Minimap nodes={canvasNodes} view={view} size={paneSize} pane={paneApi} />}
             {showPreview && expansion.program && (

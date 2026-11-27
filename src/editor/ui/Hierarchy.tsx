@@ -25,6 +25,7 @@ import "./hierarchy.css";
 import { liveInspecting } from "../runtimeInspect";
 import { RuntimeHierarchy, WorldPicker } from "./RuntimeHierarchy";
 import { TreeView, renameRow, type TreeRow, type TreeSelect } from "./TreeView";
+import { EmptyState } from "./EmptyState";
 
 /**
  * One Hierarchy panel's view state (ADR 0174): each copy of the panel has its own, so expanding a row or
@@ -132,7 +133,7 @@ export function Hierarchy() {
   if (!scene)
     return (
       <Panel>
-        <p class="empty">No scene open</p>
+        <EmptyState compact title="No scene open" />
       </Panel>
     );
   const filter = view.filter.value;
@@ -170,8 +171,8 @@ export function Hierarchy() {
             </button>
           </div>
           <HierarchySearch />
-          <TreeView tree={HIERARCHY_TREE} label="Scene nodes" rows={sceneRows(view, scene)} owner={view} multiselectable striped />
-          {filter && filter.matches.size === 0 && <p class="empty hierarchy-no-match">No nodes match “{view.query.value.trim()}”</p>}
+          <TreeView tree={HIERARCHY_TREE} label="Scene nodes" rows={sceneRows(view, scene)} owner={view} multiselectable />
+          {filter && filter.matches.size === 0 && <EmptyState compact title={`No nodes match “${view.query.value.trim()}”`} />}
           <HierarchyMenu owner={view} />
           <UIElementDragGhost />
         </div>

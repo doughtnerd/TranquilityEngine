@@ -5,6 +5,7 @@
 // leave the editor the references it owns while it has the project open; `runFileActions.ts`, given `captureFileKind`).
 // The panels call these; the models are elsewhere.
 import { signal } from "@preact/signals";
+import { buildSession } from "../../runtime/buildSession";
 import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles";
 import { currentProject, status } from "../../../editor/state";
 import { CaptureSource } from "../../../plugins/audio/editor/mix/profilerSource";
@@ -15,7 +16,6 @@ import { CaptureRecorder } from "./captureRecorder";
 import { CAPTURES_FOLDER, whyNotCaptureFile } from "./captureTree";
 import { ProfilerStore } from "./profilerStore";
 import { linkReview } from "./reviewLink";
-import type { BuildFollow } from "./remoteLiveHost";
 import { studioBuild } from "../../debugLink/studioLink";
 import type { RunFileKind } from "./runFileActions";
 
@@ -32,9 +32,6 @@ async function readProjectFile(path: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
-/** ADR 0403 (plan U5): the Profiler's live view of the build chosen in `studioBuild`; a build that left keeps it to show why it ended. */
-export const buildFollow = signal<BuildFollow | null>(null);
-
 /** ADR 0408: follow the connected build as soon as the Profiler has it (connecting opens the Profiler live). */
 let followWhenShown = false;
 
@@ -44,9 +41,10 @@ export function followBuildWhenShown(): void {
   startPendingFollow();
 }
 
-/** Start the follow asked for, once the Profiler has the connected build's `BuildFollow`. */
+/** Start the follow asked for, once the connected build's session has its capture follow (`buildSession`, ADR 0417). */
 export function startPendingFollow(): void {
-  const follow = buildFollow.peek();
+  const session = buildSession.peek();
+  const follow = session?.open ? session.follow : null;
   if (!followWhenShown || !follow || !studioBuild.peek() || follow.build.peer !== studioBuild.peek()?.peer) return;
   followWhenShown = false;
   void follow.start();
@@ -58,7 +56,7 @@ export function startPendingFollow(): void {
  */
 export function stopFollowingBuild(): void {
   followWhenShown = false;
-  const follow = buildFollow.peek();
+  const follow = buildSession.peek()?.follow;
   if (follow?.following) follow.stop();
 }
 

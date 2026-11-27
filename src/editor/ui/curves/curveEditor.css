@@ -3,7 +3,7 @@
 /* A floating window (the prototype's): no backdrop; the layer passes the pointer through, so the page behind stays usable. */
 .ce-float { position: fixed; inset: 0; z-index: 35; display: flex; align-items: flex-start; justify-content: center; padding-top: min(110px, 8vh); pointer-events: none; }
 .ce-float > .ce-window { pointer-events: auto; box-shadow: 0 18px 48px var(--shadow); }
-.dialog.ce-window { position: relative; display: flex; flex-direction: column; box-sizing: border-box; width: min(920px, calc(100vw - 16px)); height: min(700px, calc(100vh - 32px)); padding: 0; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; font-size: calc(12px * var(--ui-scale)); }
+.dialog.ce-window { position: relative; display: flex; flex-direction: column; box-sizing: border-box; width: min(920px, calc(100vw - 16px)); height: min(700px, calc(100vh - 32px)); padding: 0; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; font-size: var(--fs-md); }
 .dialog.ce-window[data-kind="parameter"], .dialog.ce-window[data-kind="distance"] { height: min(580px, calc(100vh - 32px)); }
 .ce-window:focus { outline: none; }
 .ce-window *, .ce-window *::before { box-sizing: border-box; }
@@ -29,7 +29,7 @@
 .ce-editor { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow-y: auto; }
 .ce-ph { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); flex: none; }
 .ce-ph-top { border-top: 1px solid var(--border); }
-.ce-cap { font-size: calc(11px * var(--ui-scale)); line-height: 14px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.ce-cap { font-size: var(--fs-sm); line-height: 14px; font-weight: 600; color: var(--muted); }
 .ce-bar { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 10px; border-bottom: 1px solid var(--border); flex: none; flex-wrap: wrap; row-gap: 4px; }
 .ce-vsep { width: 1px; height: 16px; background: var(--border); }
 .ce-drv { display: inline-flex; align-items: center; gap: 6px; }
@@ -43,12 +43,12 @@
 .ce-in:disabled { background: var(--input-bg); opacity: 0.45; }
 .ce-float > .ce-window { max-height: calc(100vh - min(110px, 8vh) - 16px); }
 /* The live value in a property row (spec §5.1: two-line rows so names and values don't truncate). */
-.ce-live { font-size: calc(11px * var(--ui-scale)); color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ce-live { font-size: var(--fs-sm); color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ce-by { color: var(--accent2); }
 /* And by: its bar, the faint other layer, the dashed preview, the Table. */
 .ce-bybar { gap: 10px; }
 .ce-range { width: 90px; accent-color: var(--accent); }
-.ce-toggle { height: 22px; padding: 0 10px; border: 1px solid var(--border); border-radius: 3px; background: var(--button); color: var(--text); font-size: calc(11px * var(--ui-scale)); cursor: pointer; }
+.ce-toggle { height: 22px; padding: 0 10px; border: 1px solid var(--border); border-radius: 3px; background: var(--button); color: var(--text); font-size: var(--fs-sm); cursor: pointer; }
 .ce-toggle:hover { background: var(--button-hover); }
 .ce-toggle.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text-strong); }
 .ce-ghost { fill: none; stroke-width: 1.25; stroke-dasharray: 5 4; opacity: 0.35; }
@@ -56,7 +56,7 @@
 .ce-table { flex: 1 0 200px; padding: 10px 12px; overflow: auto; }
 .ce-table table { border-collapse: collapse; width: 100%; max-width: 420px; }
 .ce-table th, .ce-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); text-align: left; font-weight: 400; }
-.ce-table thead th { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.ce-table thead th { color: var(--muted); font-size: var(--fs-sm); font-weight: 600; }
 .ce-table td { display: flex; align-items: center; gap: 10px; }
 .ce-link { background: none; border: 0; padding: 0; color: var(--link); cursor: pointer; font: inherit; }
 .ce-unit { color: var(--muted); }
@@ -70,7 +70,7 @@
 .ce-prow.on .ce-pn { color: var(--selection-text); }
 .ce-pnt { display: flex; flex-direction: column; min-width: 0; }
 .ce-pnn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ce-kc { font-size: calc(10px * var(--ui-scale)); color: var(--muted); font-variant-numeric: tabular-nums; }
+.ce-kc { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 .ce-prow.byp .ce-pnn { color: var(--muted); text-decoration: line-through; }
 .ce-prow.off .ce-pnn { color: var(--faint); }
 .ce-swatch { width: 12px; height: 3px; border-radius: 2px; flex: none; }
@@ -89,8 +89,8 @@
 /* Plot */
 .ce-plot { flex: 1 0 200px; min-height: 200px; display: grid; grid-template-columns: 64px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 20px; padding: 12px 12px 0 0; user-select: none; }
 .ce-ylabels, .ce-xlabels { position: relative; }
-.ce-ylabels span { position: absolute; left: 0; right: 8px; text-align: right; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); white-space: nowrap; }
-.ce-xlabels span { position: absolute; top: 4px; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); white-space: nowrap; }
+.ce-ylabels span { position: absolute; left: 0; right: 8px; text-align: right; font-size: var(--fs-xs); line-height: 12px; color: var(--muted); white-space: nowrap; }
+.ce-xlabels span { position: absolute; top: 4px; font-size: var(--fs-xs); line-height: 12px; color: var(--muted); white-space: nowrap; }
 .ce-plot-box { position: relative; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 3px; cursor: crosshair; touch-action: none; }
 .ce-plot-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
 .ce-plot-area { position: absolute; inset: 0; }
@@ -112,9 +112,9 @@
 .ce-mark-now { stroke: var(--accent2); stroke-width: 2; }
 .ce-mark-listener { stroke: var(--accent2); stroke-width: 2; stroke-dasharray: 5 3; }
 .ce-mark-minmax { stroke: var(--warning); stroke-width: 1.5; }
-.ce-mark-label { position: absolute; bottom: 4px; font-size: calc(10px * var(--ui-scale)); line-height: 13px; padding: 0 4px; border-radius: 3px; background: var(--panel); white-space: nowrap; pointer-events: none; }
+.ce-mark-label { position: absolute; bottom: 4px; font-size: var(--fs-xs); line-height: 13px; padding: 0 4px; border-radius: 3px; background: var(--panel); white-space: nowrap; pointer-events: none; }
 .ce-label-now { color: var(--accent2); }
-.ce-minmax { position: absolute; top: 0; transform: translateX(-50%); font-size: calc(10px * var(--ui-scale)); line-height: 14px; padding: 1px 6px; border-radius: 0 0 3px 3px; border: 1px solid var(--warning); border-top: 0; background: var(--panel); color: var(--warning); cursor: ew-resize; touch-action: none; z-index: 4; white-space: nowrap; }
+.ce-minmax { position: absolute; top: 0; transform: translateX(-50%); font-size: var(--fs-xs); line-height: 14px; padding: 1px 6px; border-radius: 0 0 3px 3px; border: 1px solid var(--warning); border-top: 0; background: var(--panel); color: var(--warning); cursor: ew-resize; touch-action: none; z-index: 4; white-space: nowrap; }
 .ce-kw { position: absolute; width: 0; height: 0; z-index: 3; }
 .ce-key { position: absolute; left: -6px; top: -6px; width: 12px; height: 12px; padding: 0; transform: rotate(45deg); background: var(--panel); border: 2px solid var(--accent); border-radius: 0; cursor: move; touch-action: none; }
 .ce-key.on { box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -136,7 +136,7 @@
 .ce-pt svg path { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .ce-up { position: relative; display: inline-flex; }
 .ce-up .ce-pt svg path { stroke: var(--accent2); }
-.ce-upx { position: absolute; top: -6px; right: -6px; width: 14px; height: 14px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-sunken); color: var(--muted); font-size: 10px; line-height: 12px; padding: 0; cursor: pointer; display: none; }
+.ce-upx { position: absolute; top: -6px; right: -6px; width: 14px; height: 14px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-sunken); color: var(--muted); font-size: var(--fs-xs); line-height: 12px; padding: 0; cursor: pointer; display: none; }
 .ce-up:hover .ce-upx, .ce-upx:focus-visible { display: block; }
 /* Save as preset: a dashed 46 × 30 box (the prototype's). */
 .ce-presets .ce-ib { width: 46px; height: 30px; border: 1px dashed var(--border-strong); color: var(--muted); }
@@ -149,7 +149,7 @@
 .ce-ruler { position: relative; height: 22px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px 3px 0 0; cursor: text; touch-action: none; }
 .ce-range { position: absolute; top: 0; bottom: 0; background: var(--accent-soft); border-left: 1px solid var(--accent); border-right: 1px solid var(--accent); pointer-events: none; }
 .ce-range-faint { position: absolute; top: 0; bottom: 0; background: var(--accent-faint); pointer-events: none; }
-.ce-tick { position: absolute; top: 3px; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); pointer-events: none; }
+.ce-tick { position: absolute; top: 3px; font-size: var(--fs-xs); line-height: 12px; color: var(--muted); pointer-events: none; }
 .ce-playhead-flag { position: absolute; bottom: 0; width: 0; height: 0; margin-left: -6px; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 9px solid var(--accent); pointer-events: none; }
 .ce-dl-cell { display: flex; align-items: center; min-width: 0; border-bottom: 1px solid var(--border); }
 .ce-dl-cell.heading .ce-dl { color: var(--muted); font-weight: 600; }
@@ -171,7 +171,7 @@
 .ce-bar.on { color: var(--accent-text); }
 .ce-bar-body { position: absolute; inset: 0; display: block; padding: 0 8px; border: 0; border-radius: 2px; background: none; color: inherit; text-align: left; cursor: grab; touch-action: none; overflow: hidden; }
 .ce-bar-body:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.ce-bar-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px * var(--ui-scale)); line-height: 16px; color: var(--text); pointer-events: none; }
+.ce-bar-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); line-height: 16px; color: var(--text); pointer-events: none; }
 .ce-bar.on .ce-bar-label { color: var(--accent-text); }
 .ce-bar-trim { position: absolute; top: 0; bottom: 0; width: 6px; cursor: ew-resize; touch-action: none; z-index: 2; }
 .ce-bar-trim.start { left: -3px; }

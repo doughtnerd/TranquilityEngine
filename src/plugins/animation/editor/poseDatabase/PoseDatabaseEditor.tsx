@@ -5,7 +5,7 @@
 // Every edit is a refused-or-next result of `poseDbLogic.ts` applied to the source's asset document: one labelled undo
 // step each, with Undo and Redo in the frame's head (ADR 0265).
 import { useState } from "preact/hooks";
-import { AssetDocumentFrame, AssetPicker, applyToDocument, editor, openAssetDocument, refuse, type AssetDocument, type EditorProject, type EditResult } from "../../../../editor/sdk";
+import { AssetDocumentFrame, AssetPicker, applyToDocument, editor, openAssetDocument, refuse, type AssetDocument, type EditorProject, type EditResult, EmptyState } from "../../../../editor/sdk";
 import { NORMALISATIONS, type PoseDatabaseSource, type PoseRange } from "../../../../engine/animation/poseDatabase";
 import { BakeCard } from "./BakeCard";
 import { RangeStrip } from "./RangeStrip";
@@ -27,7 +27,7 @@ const select = (e: Event) => e.currentTarget as HTMLSelectElement;
 export function PoseDatabaseEditor(props: { path: string }) {
   editor.project.version; // files change under it
   const project = editor.project.current;
-  if (!project) return <p class="empty">Nothing selected</p>;
+  if (!project) return <EmptyState compact title="Nothing selected" />;
   return <PoseDatabaseDocument path={props.path} project={project} />;
 }
 

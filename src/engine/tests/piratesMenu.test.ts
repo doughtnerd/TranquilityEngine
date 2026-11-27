@@ -102,7 +102,7 @@ describe("the pirates menu (a Svelte component)", () => {
     expect(ui.query("#quick-match span")!.as(UIText).fontWeight).toBe("bold"); // inherited through the button
     expect(ui.query("#left")!.as(UIPanel).width).toBe("430");
     expect(ui.query("#code")!.as(UIInputField).maxLength).toBe(5);
-    expect(ui.query("#help")!.as(UIText).text).toContain("mouse.  A / D"); // an expression keeps its double spaces
+    expect(ui.query("#help")!.as(UIText).text).toContain("left stick.  A / D"); // an expression keeps its double spaces
 
     // Bindings and the home screen.
     expect(textOf(ui.query("#where"))).toBe("Harbour: this computer");
@@ -117,6 +117,8 @@ describe("the pirates menu (a Svelte component)", () => {
     // Screens are hidden with a class (`display: none`), not by deactivating nodes: their nodes stay active.
     expect(ui.query("#room")!.classes.includes("hidden")).toBe(true);
     expect(ui.query("#room")!.node.activeInHierarchy).toBe(true);
+    // Keyboard and gamepad play (ADR 0340): the home screen's main button has focus.
+    expect(quick.focused).toBe(true);
   });
 
   it("creates a room from its button: the crew and settings rows come from list(), and the host steps a setting", { timeout: 60_000 }, async () => {
@@ -128,6 +130,7 @@ describe("the pirates menu (a Svelte component)", () => {
     expect(shown(ui.query("#home"))).toBe(false);
     expect(shown(ui.query("#room"))).toBe(true);
     expect(textOf(ui.query("#room-title"))).toBe(Lobby.room!.name);
+    expect(ui.query("#ready")!.as(UIButton).focused).toBe(true); // the room's main button takes focus
     expect(textOf(ui.query("#room-code"))).toBe(`Room code ${Lobby.room!.code}  -  open to all`);
 
     // Six ships: the player, then five bots.
