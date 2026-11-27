@@ -295,13 +295,16 @@ Load saved bindings with `player.loadBindings()` when the game starts.
 
 ## In the editor
 
-- **New contexts:** the Assets panel's New… menu has **New Input Context**, which writes `New Input Context.input.json` in the folder the panel shows.
-- **Editing a context:** select the file to edit it in the Inspector, or double-click it to open the **Input Context** panel. For each mapping, pick:
-  - the action;
-  - its controls: one control, a d-pad, an axis or a chord. Type a path, pick one from the list by device, or click **Bind** and press it: a key, a mouse button, a touch, a pen button, or a gamepad button or stick. Bind reads the engine's own devices, so every gamepad works, including the desktop editor's (SDL) and controllers opened over WebHID, while editing or playing. Escape, or clicking **Cancel**, cancels.
+- **The Input dialog** (File › Input…, or double-click an `.actions.json` or `.input.json` file) shows every action set and context. The list on the left has the sets (sets from scripts are read-only) and the contexts, A to Z; **+** adds one and leaves its name selected for typing. Right-click an entry, or press F2, to rename, duplicate, copy its id or delete it (`default` and sets from scripts can't be renamed or deleted).
+- **New action sets:** **New Action Set** (the Assets panel's New… menu, or + in the dialog) writes an `*.actions.json` file with one button action and adds it to `project.json`'s `input.actionSets`.
+- **An action set** lists its actions with their type and consume setting, and where each is mapped; click a context to go to the mapping. An action nothing maps is flagged, with **Map it in default**. Changing an action's type converts its controls in every context (a d-pad becomes an axis by keeping left and right, an axis becomes a d-pad, either becomes a single control for a button) and says what changed. **Networking** turns on sending the set to the server and sets the resent ticks and each analog action's precision, with the upload each costs.
+- **A context** shows its name, the nodes whose InputContext turns it on, and its mappings. For each mapping, pick:
+  - the action, from a searchable list grouped by set. Typing a name no set has offers **Create "name" in** each of your sets, or **New set…**: the action is made with a type that suits the mapping's control.
+  - its controls: one control, a d-pad, an axis or a chord. Type a path, pick one from the list by device, or click **Bind** and press it: a key, a mouse button, a touch, a pen button, or a gamepad button or stick. Bind reads the engine's own devices, so every gamepad works, including the desktop editor's (SDL) and controllers opened over WebHID, while editing or playing. Escape, or clicking **Cancel**, cancels. A control that doesn't suit the action's type (a key as a vec2's only control) is flagged.
   - its modifiers, its triggers and their type, and whether it consumes its controls.
 
-  Under each mapping are the problems Play would report: an unknown action, a bad control path, bad parameters. Edits undo like any asset's, and a running game picks up the saved file.
+  Under each mapping are the problems Play would report: an unknown action, a bad control path, bad parameters. `default` also shows the controls scripts give in `defineActions`, read-only.
+- **Undo** in the dialog covers every file it edits, as one history with branches (Undo, Redo and History in its header, or Ctrl+Z / Ctrl+Shift+Z). Edits are saved at once; while the game runs, the footer says **Live**: a running game picks up the saved files.
 - **InputContext's `context` field** lists the project's `*.input.json` files and the contexts your scripts register.
 - **Input Debugger panel** (Window › Input Debugger): while playing, pick a World to see:
   - its devices and players;

@@ -18,9 +18,9 @@
 import type { World } from "../core/World";
 import { _undefineBuiltinSystem, defineBuiltinSystem, type BuiltinSystem } from "../core/systems";
 import type { GameObject } from "../scene/GameObject";
-import { ActionEvents, ActionPhase, actionSets, actionView, type ActionEventPhase, type ActionKind, type ActionPhaseName } from "../input/actions";
+import { ActionEvents, ActionPhase, actionSetClashes, actionSetSource, actionSets, actionView, type ActionEventPhase, type ActionKind, type ActionPhaseName } from "../input/actions";
 import { DEFAULT_CONTEXT, registeredContexts } from "../input/contexts";
-import type { InputContextSpec } from "../input/contextTypes";
+import type { InputContextSpec, MappingSpec } from "../input/contextTypes";
 import { PRESS_POINT, control, namedControlPaths, type DeviceFamily } from "../input/controls";
 import { DEVICE_FAMILIES, DeviceEvents, DeviceKind, InputDevice, deviceNodes, takesLocalInput } from "../input/deviceEntities";
 import { contextProblems, lastEvaluation, playerTable, type CompiledMapping } from "../input/evaluate";
@@ -288,12 +288,40 @@ export function watchInput(world: World, limit = 200): InputLog {
 /** A defined action set and its actions. */
 export interface InputActionSetInfo {
   readonly id: string;
-  readonly actions: readonly { readonly name: string; readonly kind: ActionKind }[];
+  /** Each action, with the controls given inline in `defineActions` (ADR 0336) as mappings naming it: the default context's mappings from a script. */
+  readonly actions: readonly { readonly name: string; readonly kind: ActionKind; readonly consume?: boolean; readonly defaults?: readonly MappingSpec[] }[];
+  /** Where it came from (ADR 0417): `defineActions` in code, or an `*.actions.json` asset. */
+  readonly source?: "code" | "asset";
+  /** Both a script and an asset defined this id (ADR 0417); the asset's set is used. */
+  readonly clash?: boolean;
 }
 
-/** Every action set the engine and the project's scripts define, in definition order. */
+/** Every action set the engine and the project's scripts and set assets define, in definition order. */
 export function inputActionSets(): InputActionSetInfo[] {
-  return actionSets().map((s) => ({ id: s.id, actions: s.actions.map((a) => ({ name: a.name, kind: a.kind })) }));
+  const clashes = actionSetClashes();
+  return actionSets().map((s) => ({
+    id: s.id,
+    actions: s.actions.map((a) => ({
+      name: a.name,
+      kind: a.kind,
+      ...(a.type.options.consume !== undefined ? { consume: a.type.options.consume } : {}),
+      defaults: a.type.defaults.map((d): MappingSpec => (typeof d === "string" ? { action: `${s.id}:${a.name}`, control: d } : { ...d, action: `${s.id}:${a.name}` })),
+    })),
+    source: actionSetSource(s.id)?.source ?? "code",
+    ...(clashes.has(s.id) ? { clash: true } : {}),
+  }));
+}
+
+/**
+ * What a control path reads, for the context editor's warnings and new actions' types (ADR 0417): its components
+ * (1, 2 or 3) and, for one component, whether it's a button (keys, mouse and gamepad buttons, triggers read as
+ * buttons) or an axis (a stick's X or Y). Null if the path names no control.
+ */
+export function inputControlInfo(path: string): { readonly dimensions: 1 | 2 | 3; readonly axis: boolean } | null {
+  const c = control(path);
+  if (!c) return null;
+  const read = (c.source as { read?: string }).read;
+  return { dimensions: c.dimensions, axis: c.dimensions === 1 && read === "axis" };
 }
 
 /** The names of the contexts scripts register with `defineInputContext`, and the default context's. */

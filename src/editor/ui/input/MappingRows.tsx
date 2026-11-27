@@ -1,28 +1,24 @@
-// The input context editor (ADR 0336): a `*.input.json` file's name and mappings. Each mapping names an action (picked
-// from the defined action sets), its controls (a single control, or a composite's parts: typed, picked from a list
-// grouped by device, or captured with Bind, the next press), its modifiers and triggers with their parameters, and
-// whether it consumes its controls. Under each mapping are the problems the evaluator reports for it, the messages Play
-// would log. Shown in the Inspector when the file is selected and in the Input Context panel when it's opened; every
-// edit is one step of the file's asset document (Undo / Redo, Ctrl+Z with the editor focused), written to the file,
-// and a playing World picks the change up.
+// A context's mapping rows (ADR 0336, 0417), shared by the Input dialog's context view: a mapping's action (a slot
+// the dialog fills with its picker), its controls (a single control, or a composite's parts: typed, picked from a list
+// grouped by device, or captured with Bind, the next press), a warning when a control doesn't suit the action's type,
+// its modifiers (run top to bottom) and triggers with their parameters, and whether it consumes its controls. Under
+// each mapping are the problems the evaluator reports for it, the messages Play would log. Split out of the
+// Inspector's context editor, which the dialog replaced.
+import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import type { InputContextSpec, MappingSpec, ModifierSpec, TriggerSpec, TriggerType } from "../../engine";
-import { canonicalControlPath, inputActionSets, inputContextProblems } from "../../engine/editor";
-import { captureControl } from "../controlCapture";
+import type { MappingSpec, ModifierSpec, TriggerSpec, TriggerType } from "../../../engine";
+import { canonicalControlPath } from "../../../engine/editor";
+import { captureControl } from "../../controlCapture";
 import {
   COMPOSITES,
   CONTROL_GROUPS,
   MODIFIERS,
   TRIGGERS,
   TRIGGER_TYPES,
-  actionChoices,
   compositeOf,
-  hasProjectActionSets,
-  contextNotes,
   moveItem,
   newStep,
   partValue,
-  problemsByMapping,
   removeAt,
   replaceAt,
   setComposite,
@@ -39,99 +35,32 @@ import {
   type ParamSpec,
   type StepSpec,
   type TriggerName,
-} from "../inputContextModel";
-import { AssetDocumentFrame, editor, openAssetDocument, Panel, useDraftText } from "../sdk";
-import "./inputContextEditor.css";
+} from "../../inputContextModel";
+import { useDraftText } from "../draftText";
+import "./inputDialog.css";
 
-/** The selected context file in the Inspector. */
-export function InputContextInspector(props: { path: string }) {
-  return <InputContextEditor path={props.path} />;
-}
-
-/** The Input Context panel: the file opened from the Assets panel (double-click). */
-export function InputContextPanel() {
-  const path = editor.assets.openIn("inputContext");
-  const project = editor.project.current;
-  editor.project.version; // the file list changes with it
-  if (!project || !path) return <Panel><p class="empty">Double-click an input context (.input.json) in the Assets panel, or create one with New Input Context.</p></Panel>;
-  if (!project.files.includes(path)) return <Panel><p class="empty">{path} isn't in the project any more.</p></Panel>;
+/** The control suggestions every control box offers (one list per page). */
+export function ControlSuggestions(props: { id: string }) {
   return (
-    <Panel>
-      <InputContextEditor key={path} path={path} />
-    </Panel>
+    <datalist id={props.id}>
+      {CONTROL_GROUPS.flatMap((g) => g.controls.map((c) => <option key={c} value={c} />))}
+    </datalist>
   );
 }
 
-/** Numbers each editor's control suggestions list (the Inspector and the panel may show one at once). */
-let editors = 0;
-
-/** One context file's editor (see the file comment). */
-export function InputContextEditor(props: { path: string }) {
-  editor.project.version; // scripts reloading may define new action sets
-  const listId = useMemo(() => `input-context-controls-${++editors}`, []);
-  const project = editor.project.current;
-  if (!project) return <p class="empty">Nothing selected</p>;
-  const doc = openAssetDocument<InputContextSpec>(project, props.path, "inputContext");
-  const spec = doc.value.value;
-  const readOnly = doc.readOnly;
-  const sets = inputActionSets();
-  const actions = actionChoices(sets);
-  const problems = problemsByMapping(inputContextProblems(spec));
-  const edit = (next: InputContextSpec, label: string) => {
-    if (!readOnly) doc.edit(next, { label });
-  };
-  const setMappings = (mappings: MappingSpec[], label: string) => edit({ ...spec, mappings }, label);
-  const notes = contextNotes(spec);
-
-  return (
-    <AssetDocumentFrame doc={doc} kind="Input Context" class="inspector-body asset-inspector input-context" problems={notes}>
-      <NameRow name={spec.name} readOnly={readOnly} onCommit={(name) => name !== spec.name && edit({ ...spec, name }, "Rename Context")} />
-      {!hasProjectActionSets(sets) && <p class="hint">Your project has no action sets yet, only the engine's own (engine.UIActions, for menus). Declare yours in a script with defineActions; mappings name their actions.</p>}
-      <datalist id={listId}>
-        {CONTROL_GROUPS.flatMap((g) => g.controls.map((c) => <option key={c} value={c} />))}
-      </datalist>
-      <ol class="input-mappings" aria-label="Mappings">
-        {spec.mappings.map((m, i) => (
-          <MappingCard
-            key={i}
-            index={i}
-            count={spec.mappings.length}
-            mapping={m}
-            actions={actions}
-            problems={problems.get(i) ?? []}
-            listId={listId}
-            readOnly={readOnly}
-            onChange={(next, label) => setMappings(replaceAt(spec.mappings, i, next), label)}
-            onMove={(by) => setMappings(moveItem(spec.mappings, i, by), "Move Mapping")}
-            onDuplicate={() => setMappings([...spec.mappings.slice(0, i + 1), structuredClone(m), ...spec.mappings.slice(i + 1)], "Duplicate Mapping")}
-            onRemove={() => setMappings(removeAt(spec.mappings, i), "Remove Mapping")}
-          />
-        ))}
-      </ol>
-      {spec.mappings.length === 0 && <p class="hint">No mappings yet. Add one for each control that drives an action in this context.</p>}
-      <button class="input-add-mapping" disabled={readOnly} onClick={() => setMappings([...spec.mappings, { action: actions[0]?.value ?? "", control: "" }], "Add Mapping")}>
-        Add mapping
-      </button>
-    </AssetDocumentFrame>
-  );
-}
-
-function NameRow(props: { name: string; readOnly: boolean; onCommit: (name: string) => void }) {
-  const draft = useDraftText(props.name, (v) => props.onCommit(v.trim()));
-  return (
-    <label class="import-row">
-      <span>Name</span>
-      <input type="text" aria-label="Context name" disabled={props.readOnly} {...draft.input} />
-    </label>
-  );
-}
-
-interface MappingProps {
+export interface MappingProps {
   index: number;
   count: number;
   mapping: MappingSpec;
+  /** The action's picker, drawn in the card's head. */
+  action: ComponentChildren;
+  /** Actions chord and combo triggers may name. */
   actions: readonly ActionChoice[];
   problems: readonly string[];
+  /** Why the controls don't suit the action's type (`unsuitedControls`). */
+  warnings?: readonly string[];
+  /** A code set's inline default, shown in `default` read-only. */
+  fromScript?: boolean;
   /** The control suggestions' datalist. */
   listId: string;
   readOnly: boolean;
@@ -141,30 +70,24 @@ interface MappingProps {
   onRemove(): void;
 }
 
-function MappingCard(props: MappingProps) {
+export function MappingCard(props: MappingProps) {
   const { mapping: m, readOnly, actions } = props;
   const kind = compositeOf(m);
   const n = props.index + 1;
-  const known = actions.some((a) => a.value === m.action);
   const consume = m.consume === undefined ? "" : String(m.consume);
+  const name = props.fromScript ? `Script mapping ${n}` : `Mapping ${n}`;
   return (
-    <li class={`component input-mapping${props.problems.length ? " has-problems" : ""}`} aria-label={`Mapping ${n}`}>
+    <li class={`input-mapping${props.problems.length ? " has-problems" : ""}${props.fromScript ? " from-script" : ""}`} aria-label={name} data-mapping-index={props.fromScript ? undefined : props.index} tabIndex={-1}>
       <div class="input-mapping-head">
         <span class="input-mapping-number">{n}</span>
-        <select aria-label="Action" disabled={readOnly} value={m.action} onChange={(e) => props.onChange({ ...m, action: e.currentTarget.value }, "Set Action")}>
-          {!known && <option value={m.action}>{m.action ? `${m.action} (not defined)` : "(choose an action)"}</option>}
-          {actions.map((a) => (
-            <option key={a.value} value={a.value}>
-              {a.label}
-            </option>
-          ))}
-        </select>
-        <span class="input-mapping-tools">
+        <span class="input-mapping-action">{props.action}</span>
+        {props.fromScript && <span class="input-tag" title="Given inline in defineActions; change it in the script">from a script</span>}
+        {!props.fromScript && <span class="input-mapping-tools">
           <button disabled={readOnly || props.index === 0} title="Move up" aria-label="Move mapping up" onClick={() => props.onMove(-1)}>↑</button>
           <button disabled={readOnly || props.index === props.count - 1} title="Move down" aria-label="Move mapping down" onClick={() => props.onMove(1)}>↓</button>
           <button disabled={readOnly} title="Duplicate" aria-label="Duplicate mapping" onClick={props.onDuplicate}>⧉</button>
           <button disabled={readOnly} class="danger" title="Remove" aria-label="Remove mapping" onClick={props.onRemove}>✕</button>
-        </span>
+        </span>}
       </div>
       <label class="import-row">
         <span>Controls</span>
@@ -208,8 +131,15 @@ function MappingCard(props: MappingProps) {
           <option value="false">No: lower contexts see them too</option>
         </select>
       </label>
+      {(props.warnings?.length ?? 0) > 0 && (
+        <ul class="input-mapping-warnings" aria-label={`${name} warnings`}>
+          {props.warnings!.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      )}
       {props.problems.length > 0 && (
-        <ul class="input-mapping-problems" aria-label={`Mapping ${n} problems`}>
+        <ul class="input-mapping-problems" aria-label={`${name} problems`}>
           {props.problems.map((p) => (
             <li key={p}>{p}</li>
           ))}
