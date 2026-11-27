@@ -229,6 +229,40 @@ describe("delete into the trash", () => {
   });
 });
 
+describe("delete several files at once", () => {
+  it("is one deletion: one toast naming how many, companions and sidecars too, and one Undo brings every file back byte for byte", async () => {
+    open = TAKE;
+    const lib = studioLibrary(kind());
+    expect(await lib.deleteFiles([TAKE, "sfx/door.wav"])).toBe(true);
+    for (const p of [TAKE, NOTES, "sfx/door.wav", "sfx/door.wav.meta.json"]) expect(project.files).not.toContain(p);
+    expect(onDisk(`.myco/trash/1/${NOTES}`)).toBe('{"markers":[]}');
+    expect(lastToast()).toBe("Deleted 2 takes");
+    expect(toasts.toasts.peek()).toHaveLength(1);
+    expect(calls).toEqual([`closed ${TAKE}`]);
+    undoLastToast();
+    await vi.waitFor(() => expect(calls).toEqual([`closed ${TAKE}`, `open ${TAKE}`]));
+    expect(onDisk(TAKE)).toEqual(new Uint8Array([4, 5]));
+    expect(onDisk(NOTES)).toBe('{"markers":[]}');
+    expect(onDisk("sfx/door.wav.meta.json")).toBe("{}");
+    expect(project.files).toEqual(expect.arrayContaining([TAKE, NOTES, "sfx/door.wav", "sfx/door.wav.meta.json"]));
+  });
+
+  it("is refused whole when one can't go, deleting none", async () => {
+    expect(await studioLibrary(kind()).deleteFiles([TAKE, "recordings/none.take"])).toBe(false);
+    expect(status.value?.text).toBe("Can't delete 2 takes: it's gone already.");
+    expect(project.files).toContain(TAKE);
+    expect(toasts.toasts.peek()).toEqual([]);
+  });
+
+  it("goes ahead with the editor holding the project, leaving it nothing to rewrite (a delete moves no reference)", async () => {
+    await acquireLock(fs, ROOT, "editor", 7);
+    expect(await studioLibrary(kind()).deleteFiles(["music/town.mp3"])).toBe(true);
+    expect(project.files).not.toContain("music/town.mp3");
+    expect(onDisk(".myco/locks/pending-moves.json")).toBeUndefined();
+    expect(onDisk(SCENE)).toBe(sceneText);
+  });
+});
+
 describe("delete a folder, contents up", () => {
   it("says what moves up, numbers a taken name before its extension, keeps the sidecar with its file, and references follow", async () => {
     const lib = studioLibrary(kind());

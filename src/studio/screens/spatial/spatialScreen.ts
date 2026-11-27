@@ -1,14 +1,12 @@
 // The Spatial screen's state and actions over the real page (ADR 0347, 0341, 0349): which test scene is open (mirrored in
 // the route: the file as `asset`), the selection, the tool, the camera, the elevation slab, the clipboard, and the
 // audition (the test scene player in the Studio's runtime World). Scene edits go to the open scene's asset document as
-// one labelled undo step each (`applyEdit`; drags coalesce into one step); scene files are made, renamed, duplicated
-// and deleted through the engine's asset operations; the project settings shown here are edited on `audio.json`
+// one labelled undo step each (`applyEdit`; drags coalesce into one step); scene files are made as asset kinds and
+// renamed, duplicated and deleted through the Studio asset library (ADR 0433); the project settings shown here are edited on `audio.json`
 // through the Mixer's document; "Edit attenuation…" edits the playlist's attenuation on its owning document. The panels
 // read these signals and call these actions; the rules are the pure models beside this file.
 import { computed, effect, signal } from "@preact/signals";
-import { assetDocumentsDeleted, openAssetDocument, readAsset, type AssetDocument } from "../../../editor/assetDocuments";
-import { whyNotDeletable } from "../../../editor/assetDelete";
-import { errorStatus } from "../../../editor/messages";
+import { openAssetDocument, readAsset, type AssetDocument } from "../../../editor/assetDocuments";
 import { createAsset } from "../../../editor/assetKindHost";
 import { studioLibrary } from "../../library/studioLibrary";
 import { assetKinds } from "../../../editor/sdk/contributions";
@@ -635,13 +633,23 @@ export function newFromTake(path: string, scene: AudioTestScene, t: number): voi
   void createScene(name, scene);
 }
 
-/** The Scenes tree's file actions (ADR 0433): a typed name keeps `.audioscene.json`; the open scene follows a move. */
+/**
+ * The Scenes tree's file actions (ADR 0433): a typed name keeps `.audioscene.json`; the open scene follows a move and
+ * closes on a delete (its audition stopped), and Undo reopens it. A scene's pending edit is written before it goes to
+ * the trash, so Undo brings back the scene as it was.
+ */
 export const sceneFiles = studioLibrary({
   noun: "scene",
   extension: () => AUDIO_SCENE_SUFFIX,
   openPaths: () => [openPath.peek()].filter((p): p is string => !!p),
   open: openScene,
   follow: (_from, to) => openScene(to),
+  beforeDelete: (path) => docFor(path)?.flush(),
+  closed: () => {
+    stopAudition();
+    openPath.value = null;
+    selected.value = null;
+  },
 });
 
 /** Rename a scene file (the open path follows). */
@@ -654,46 +662,17 @@ export async function duplicateScene(path: string): Promise<void> {
   await sceneFiles.duplicate([path]);
 }
 
-/** Delete scene files (the engine asks first); an undo toast writes them back. */
 /**
- * Delete test scenes at once, without asking: the toast that follows undoes it by writing them back (D27; the
- * prototype's "Deleted <name> · Undo"), so a "can't be undone" question would be untrue. Nothing refers to a test scene,
- * so there are no references to clean. Refused (read-only, play, gone) with the reason in the status bar.
+ * Delete test scenes at once, without asking, into the project's trash as one deletion (the library's delete, ADR 0433):
+ * the toast's Undo brings them back exactly (D27; the prototype's "Deleted <name> · Undo"), so a "can't be undone"
+ * question would be untrue. Nothing refers to a test scene, so there are no references to clean. Deleting the open scene
+ * opens the next one in the tree (the prototype's). Refused (read-only, play, gone, no project folder) with the reason
+ * in the status bar.
  */
 export async function deleteScenes(paths: readonly string[]): Promise<void> {
-  const p = currentProject.peek();
-  if (!p || paths.length === 0) return;
-  const name = paths.length === 1 ? sceneName(paths[0]!) : `${paths.length} scenes`;
-  const refused = whyNotDeletable(p, paths);
-  if (refused) return void (status.value = { kind: "info", text: `Can't delete ${name}: ${refused}.` });
-  const saved = paths.map((path) => ({ path, value: loadScene(path) })).filter((x): x is { path: string; value: AudioTestScene } => x.value !== null);
-  // Deleting the open scene opens the next one in the tree (the prototype's), once the files are gone.
   const next = paths.includes(openPath.peek() ?? "") ? sceneAfter(sceneEntries.peek(), paths) : null;
-  if (paths.includes(openPath.peek() ?? "")) {
-    stopAudition();
-    openPath.value = null;
-    selected.value = null;
-  }
-  const gone: string[] = [];
-  try {
-    for (const path of paths) {
-      await p.deleteFile(path);
-      gone.push(path);
-    }
-  } catch (err) {
-    status.value = errorStatus(`Couldn't delete ${name}`, err);
-  }
-  await assetDocumentsDeleted(gone); // their open documents go, with their undo (the toast brings the scene back)
-  docVersion.value++;
-  if (gone.length === 0) return;
-  if (next && !gone.includes(next) && openPath.peek() === null) openScene(next);
-  const back = saved.filter((s) => gone.includes(s.path));
-  toasts.show({
-    text: `Deleted ${gone.length === 1 ? sceneName(gone[0]!) : `${gone.length} scenes`}.`,
-    undo: () => {
-      for (const s of back) void createAsset<AudioTestScene>(SCENE_KIND, { folder: folderOfFile(s.path), name: sceneName(s.path), value: s.value });
-    },
-  });
+  if (!(await sceneFiles.deleteFiles(paths))) return;
+  if (next && openPath.peek() === null) openScene(next);
 }
 
 /** Change scenes' `folder` fields: one step on each scene's document. */

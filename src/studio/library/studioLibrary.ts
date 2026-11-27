@@ -7,7 +7,8 @@
 // - **move** files and folders into a folder (a file takes its companions; a folder goes whole; what's inside another
 //   moved folder goes with it), with a toast saying where;
 // - **duplicate** beside themselves ("<name> copy"; companions are copied to the copy's name) and **new folder**;
-// - **delete** a file into the project's trash (`trash.ts`; companions and sidecars too), Undo on the toast;
+// - **delete** files into the project's trash (`trash.ts`; companions and sidecars too), one deletion however many,
+//   Undo on the toast;
 // - **delete a folder, contents up**: what's directly in it moves up a level (a name taken there gets " 2", " 3"…
 //   before its extension; a sidecar travels with its file), then the empty folder goes; refused where the engine's
 //   delete rule refuses it (read-only, play), Undo on the toast puts the folder back and moves them in again;
@@ -50,7 +51,7 @@ export interface LibraryKind {
   closed?(path: string): void;
   /** After each move the library makes (renames, moves, a folder delete's moves and their undo): what else follows. */
   afterMove?(moves: readonly AssetMove[]): Promise<void> | void;
-  /** Before a file goes to the trash, once it may (a sample's pending edit written, its decoded audio dropped). */
+  /** Before a file goes to the trash, once it may (a sample's pending edit written, its decoded audio dropped); each file of a several-file delete in turn. */
   beforeDelete?(path: string): Promise<void> | void;
   /** After it went (a sample's session forgotten). */
   afterDelete?(path: string): void;
@@ -89,6 +90,11 @@ export interface StudioLibrary {
   duplicate(paths: readonly string[]): Promise<string[]>;
   /** Delete a file into the trash, Undo on the toast. */
   deleteFile(path: string): Promise<boolean>;
+  /**
+   * Delete several files into the trash as one deletion: one toast ("Deleted <n> <noun>s"; one file reads as
+   * `deleteFile`'s), one Undo that brings them all back. Refused whole when any one can't go.
+   */
+  deleteFiles(paths: readonly string[]): Promise<boolean>;
   /** What deleting `folder` does: how many items move up, and to which folder ("" = the top level). */
   folderDeletePlan(folder: string): { readonly items: number; readonly to: string };
   /** Delete a folder, its contents moving up a level, Undo on the toast. */
@@ -209,26 +215,31 @@ export function studioLibrary(kind: LibraryKind): StudioLibrary {
     return made;
   }
 
-  async function deleteFile(path: string): Promise<boolean> {
+  /** Delete files (each with its companions and sidecars) into the trash as one deletion; one toast, one Undo. */
+  async function deleteFiles(asked: readonly string[]): Promise<boolean> {
     const project = currentProject.peek();
-    if (!project) return false;
-    const paths = withSidecars(project, companions(project.files, path));
+    const targets = [...new Set(asked)];
+    if (!project || targets.length === 0) return false;
+    const label = targets.length === 1 ? nameOf(targets[0]!) : `${targets.length} ${kind.noun}s`;
+    const paths = withSidecars(project, targets.flatMap((path) => companions(project.files, path)));
     const why = whyNotTrashable(project, paths);
-    if (why) return (fail(`Can't delete ${nameOf(path)}: ${why}.`), false);
-    const text = kind.deletedText?.(path) ?? `Deleted ${title(path)}`;
-    const wasOpen = (kind.openPaths?.() ?? []).includes(path);
-    const r = await Promise.resolve(kind.beforeDelete?.(path))
-      .then(() => trashFiles(project, paths))
-      .catch((err: unknown) => ({ refused: err instanceof Error ? err.message : String(err) }));
-    if ("refused" in r) return (fail(`Can't delete ${nameOf(path)}: ${r.refused}.`), false);
-    kind.afterDelete?.(path);
-    if (wasOpen) kind.closed?.(path);
+    if (why) return (fail(`Can't delete ${label}: ${why}.`), false);
+    const text = targets.length === 1 ? (kind.deletedText?.(targets[0]!) ?? `Deleted ${title(targets[0]!)}`) : `Deleted ${label}`;
+    const open = kind.openPaths?.() ?? [];
+    const wasOpen = targets.filter((path) => open.includes(path));
+    const r = await (async () => {
+      for (const path of targets) await kind.beforeDelete?.(path);
+      return trashFiles(project, paths);
+    })().catch((err: unknown) => ({ refused: err instanceof Error ? err.message : String(err) }));
+    if ("refused" in r) return (fail(`Can't delete ${label}: ${r.refused}.`), false);
+    for (const path of targets) kind.afterDelete?.(path);
+    for (const path of wasOpen) kind.closed?.(path);
     toasts.show({
       text,
       undo: () =>
         void restoreFiles(project, r.trashed).then((back) => {
-          if ("refused" in back) fail(`Can't bring ${nameOf(path)} back: ${back.refused}.`);
-          else if (wasOpen) kind.open?.(path);
+          if ("refused" in back) fail(`Can't bring ${label} back: ${back.refused}.`);
+          else for (const path of wasOpen) kind.open?.(path);
         }),
     });
     return true;
@@ -297,7 +308,8 @@ export function studioLibrary(kind: LibraryKind): StudioLibrary {
     renameFolder,
     newFolder,
     duplicate,
-    deleteFile,
+    deleteFile: (path) => deleteFiles([path]),
+    deleteFiles,
     folderDeletePlan,
     deleteFolder,
     importFiles: importInto,
@@ -308,7 +320,7 @@ export function studioLibrary(kind: LibraryKind): StudioLibrary {
       onRenameFolder: (folder, name) => void renameFolder(folder, name),
       onMove: (items, folder) => void move(items, folder),
       onDuplicate: (path) => void duplicate([path]),
-      onDelete: (path) => void deleteFile(path),
+      onDelete: (path) => void deleteFiles([path]),
       onDeleteFolder: (folder) => void deleteFolder(folder),
     },
   };

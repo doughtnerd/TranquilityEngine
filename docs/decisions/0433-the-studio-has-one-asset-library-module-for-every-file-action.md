@@ -105,8 +105,10 @@ a screen offers, and route every Studio move through `moveStudioAssets`.
 
 ## Open questions
 
-- Spatial test scenes' delete writes documents back on Undo rather than using the trash; moving it onto the library's
-  delete would make Undo exact but changes its multi-scene toast.
+- ~~Spatial test scenes' delete writes documents back on Undo rather than using the trash; moving it onto the library's
+  delete would make Undo exact but changes its multi-scene toast.~~ Resolved (2026-11-27): moved onto the library. The
+  library gained `deleteFiles` (several files as one deletion), so the multi-scene toast stays one toast; see the
+  follow-up under As built.
 
 ## References
 
@@ -134,3 +136,41 @@ a screen offers, and route every Studio move through `moveStudioAssets`.
   `samples/sampleFiles.test.ts` replaces `sampleTrash.test.ts` (a pending edit written before the delete, the open
   sample following and closing). The moves cases left `boot/studioBoot.test.ts`; `profiler/runFiles.test.ts`'s moves and
   trash cases and `playlistDeletes.test.ts`'s folder move-up cases moved to the library suite.
+
+### Follow-up (2026-11-27)
+
+- **Several files, one deletion.** `StudioLibrary.deleteFiles(paths)`: every file with its companions and sidecars goes
+  into one trash entry; the kind's `beforeDelete`/`afterDelete` run for each file in turn and `closed` for each open
+  one; one toast, "Deleted <n> <noun>s" (one file reads as `deleteFile`'s, which is now `deleteFiles([path])`); one
+  Undo brings all of them back and reopens the open ones; refused whole when any one can't go ("Can't delete 2
+  scenes: …").
+- **Spatial scene delete on the library** (the open question). `deleteScenes` calls `sceneFiles.deleteFiles` and then
+  opens the next scene in the tree when the open one went, as before. The kind gained `beforeDelete` (the scene's
+  document flushed, so a pending coalesced edit is in the trash and Undo brings it back) and `closed` (audition stopped,
+  selection cleared). The screen's delete-and-write-back path (`whyNotDeletable`, `p.deleteFile`, `createAsset` on
+  Undo) is gone. Behaviour changes: Undo is exact (the file's bytes, not the document re-serialised) and reopens the
+  scene that was open; the toast loses its full stop and matches the library's ("Deleted canyon_run", "Deleted 2
+  scenes"); a refusal names the file with its extension ("Can't delete nope.audioscene.json: …"); like every library
+  delete (samples, takes, captures), it needs a project folder to hold the trash.
+- **Playlist file delete stays in the screen.** Its delete is a transaction over other files: per-call choices from the
+  confirmation (children up or with it; links unlinked or removed), new playlist files made, link edits on other
+  playlists' documents, and references removed from scenes, all undone together. The library's delete is a file
+  transaction whose Undo is exact because nothing else changes. Taking it would need a per-call options bag through
+  `deleteFile` and a `beforeDelete` that returns an undo, so the library would only sequence screen code: a shallower
+  interface, not a deeper one.
+- **A sample's Duplicate stays in the panel.** It writes a derived `*.sample.json` (`deriveSample("duplicate", …)`,
+  named `<stem>_copy`), into a chosen folder too (Paste here), with its own toast; the library's duplicate is a file copy
+  beside itself named "<name> copy". A `duplicate` hook would replace everything the library's duplicate does, leaving
+  only `open` around it: a pass-through.
+- **Take still imports the Profiler's store, and that is fine.** What Take uses (`profilerStore().openPath`,
+  `profilerRecorder().start`, `stopFollowingBuild`, `refuseWhileLive` in `profilerScreen.ts`) are requests for the
+  Profiler to act: show the same recording (ADR 0408), record this replay, stop following the build. ADR 0408 makes
+  Take the driver, so the dependency points the way the design does, and there is no cycle (the Profiler reaches Take
+  only through `ProfilerTakeLink`). `screens/run/` isn't a natural home: `ProfilerStore` is built on the Profiler's own
+  models (`profilerData`, `voiceModel`, `cursorReadout`, `cursorKeys`) and its recorder writes into the Captures tree's
+  folder. Inverting it would mean handing the lazily made `takeScreen()` singleton a link at composition time, a
+  page-wide setter, which is worse than a one-way import.
+- **Tests:** `library/studioLibrary.test.ts` +3 (several files as one deletion with byte-exact Undo, refused whole, a
+  delete with the editor holding the project leaves no pending moves); `spatial/spatialSceneFiles.test.ts` rewritten
+  around the library delete (5 cases: exact Undo reopening the scene and the next scene opening, a pending edit kept,
+  several scenes in one toast, lock held, refusals).
