@@ -80,6 +80,13 @@ export interface TileStamp {
   name: string;
   size: [number, number];
   layers: TileStampLayer[];
+  /**
+   * ADR 0442: where the stamp was copied on a staggered or hexagonal map: the map's stagger axis, and whether the
+   * stamp's bottom-left row (axis y) or column (axis x) is a shifted one. With it the stamp keeps its shape wherever it
+   * is placed (its cells move by the grid's lattice); without it (stamps from square and isometric maps, and stamps
+   * saved before ADR 0442) its cells land cell for cell in offset coordinates.
+   */
+  stagger?: { axis: "x" | "y"; shifted: boolean };
 }
 
 /** A neighbour pattern for auto-tiling: 8 characters, N NE E SE S SW W NW, each `1` (same terrain), `0` (not) or `*` (either). */
@@ -229,7 +236,10 @@ function parseStamp(raw: unknown): TileStamp | null {
     for (const [k, v] of Object.entries(l.palette)) if (typeof v === "string") palette[k] = v;
     layers.push({ name: l.name, palette, cells: l.cells });
   }
-  return { name: raw.name, size: [raw.size[0] as number, raw.size[1] as number], layers };
+  const stamp: TileStamp = { name: raw.name, size: [raw.size[0] as number, raw.size[1] as number], layers };
+  const st = raw.stagger;
+  if (isObject(st) && (st.axis === "x" || st.axis === "y") && typeof st.shifted === "boolean") stamp.stagger = { axis: st.axis, shifted: st.shifted };
+  return stamp;
 }
 
 /**

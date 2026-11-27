@@ -34,7 +34,7 @@ import {
   type Footprint,
 } from "./brush";
 import { beginPrefabStroke, commitPrefabStroke, paintsPrefabs, type PrefabStroke } from "./prefabBrush";
-import { cellKey, keyCell, type CellSelection } from "./selectionLogic";
+import { cellKey, keyCell, movedSelection, type CellSelection } from "./selectionLogic";
 import { clearTileSelection, copyTiles, cutTiles, deleteTiles, moveTiles, selectAllUsed, selectCells, selectionOf, tileSelection, transformTiles } from "./tileSelection";
 import { type ViewportToolContribution, editor } from "../../../editor/sdk";
 
@@ -203,7 +203,7 @@ export const paintTool: ViewportToolContribution<BrushTool> = {
             end() {
               const m = state.moving;
               state.moving = null;
-              if (m) moveTiles(m.to[0] - m.from[0], m.to[1] - m.from[1], m.copy);
+              if (m) moveTiles(m.to[0] - m.from[0], m.to[1] - m.from[1], m.copy, m.from);
             },
             cancel: () => void (state.moving = null),
           });
@@ -302,7 +302,7 @@ function paintOverlay(state: PaintState): EditorOverlay {
   const selected = selectionOf(map);
   if (selected.size > 0) {
     const m = state.moving;
-    selectionOverlay(overlay, map, selected, m ? m.to[0] - m.from[0] : 0, m ? m.to[1] - m.from[1] : 0);
+    selectionOverlay(overlay, map, m ? movedSelection(map, selected, m.to[0] - m.from[0], m.to[1] - m.from[1], m.from) : selected);
   }
   const hover = state.hover;
   if (!hover) return overlay;
@@ -338,14 +338,15 @@ function paintOverlay(state: PaintState): EditorOverlay {
 const TRACE_LIMIT = 16_384;
 
 /**
- * The selection's outline (ADR 0440), shifted by `(dx, dy)` cells while it is being moved: its cells' outlines traced as
- * shapes on the map's grid (squares, diamonds, hexagons). A large selection is traced by its edge cells only.
+ * The selection's outline (ADR 0440), where it would land while it is being moved (ADR 0442: keeping its shape): its
+ * cells' outlines traced as shapes on the map's grid (squares, diamonds, hexagons). A large selection is traced by its
+ * edge cells only.
  */
-function selectionOverlay(overlay: EditorOverlay, map: Tilemap, selected: CellSelection, dx: number, dy: number): void {
+function selectionOverlay(overlay: EditorOverlay, map: Tilemap, selected: CellSelection): void {
   let cells = [...selected].map(keyCell);
   const all = cells.length <= TRACE_LIMIT;
   if (!all) cells = cells.filter(([x, y]) => !(selected.has(cellKey(x + 1, y)) && selected.has(cellKey(x - 1, y)) && selected.has(cellKey(x, y + 1)) && selected.has(cellKey(x, y - 1))));
-  const outline = (x: number, y: number) => map.cellOutline(x + dx, y + dy).map((p): [number, number] => [p.x, p.y]);
+  const outline = (x: number, y: number) => map.cellOutline(x, y).map((p): [number, number] => [p.x, p.y]);
   for (const loop of traceCellOutlines(cells, outline)) if (all || area(loop) > 0) overlay.lines.push({ points: loop.map((p) => toWorld(map, p)), closed: true, color: SELECTION });
 }
 
@@ -353,7 +354,8 @@ function selectionOverlay(overlay: EditorOverlay, map: Tilemap, selected: CellSe
  * The overlay on a non-square grid (ADR 0435): each cell's outline around the pointer, and the footprint's cells
  * outlined as one shape.
  */
-function gridOverlay(overlay: EditorOverlay, map: Tilemap, [hx, hy]: Cell, { x0, y0, x1, y1 }: Footprint, color: number): EditorOverlay {
+function gridOverlay(overlay: EditorOverlay, map: Tilemap, [hx, hy]: Cell, footprint: Footprint, color: number): EditorOverlay {
+  const { x0, y0, x1, y1 } = footprint;
   const w = (p: readonly [number, number]) => toWorld(map, p);
   const segs: number[] = [];
   for (let y = hy - GRID_REACH; y <= hy + GRID_REACH; y++) {
@@ -363,12 +365,20 @@ function gridOverlay(overlay: EditorOverlay, map: Tilemap, [hx, hy]: Cell, { x0,
     }
   }
   overlay.segments = [{ positions: new Float32Array(segs), color: GRID }];
-  const cells: Cell[] = [];
-  const all = (x1 - x0) * (y1 - y0) <= TRACE_LIMIT;
-  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (all || y === y0 || y === y1 - 1 || x === x0 || x === x1 - 1) cells.push([x, y]);
+  // A stamp that keeps its shape (ADR 0442) lists the cells it lands on; otherwise the footprint is its rectangle.
+  const all = footprint.cells ? footprint.cells.length <= TRACE_LIMIT : (x1 - x0) * (y1 - y0) <= TRACE_LIMIT;
+  let cells: Cell[] = [];
+  if (footprint.cells) cells = all ? footprint.cells : edgeCells(footprint.cells);
+  else for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (all || y === y0 || y === y1 - 1 || x === x0 || x === x1 - 1) cells.push([x, y]);
   const outline = (x: number, y: number) => map.cellOutline(x, y).map((p): [number, number] => [p.x, p.y]);
   for (const loop of traceCellOutlines(cells, outline)) if (all || area(loop) > 0) overlay.lines.push({ points: loop.map(w), closed: true, color });
   return overlay;
+}
+
+/** The cells of `cells` with a neighbour (in offset coordinates) outside them: what a large footprint is traced by. */
+function edgeCells(cells: readonly Cell[]): Cell[] {
+  const keys = new Set(cells.map(([x, y]) => cellKey(x, y)));
+  return cells.filter(([x, y]) => !(keys.has(cellKey(x + 1, y)) && keys.has(cellKey(x - 1, y)) && keys.has(cellKey(x, y + 1)) && keys.has(cellKey(x, y - 1))));
 }
 
 /** Twice a loop's signed area (positive counter-clockwise: an outer outline, not a hole). */

@@ -1,10 +1,13 @@
 // Stamps with named layers (ADR 0440): what the selection tool copies, the editor's tile clipboard and the stamps saved
 // in a tileset. A `StampBlock` holds tileset ids (with flip flags) of one tileset; saved stamps (`TileStamp`) name
 // tiles by uuid through a palette per layer, in the layer encoding of `format.ts` (run-length cells, row by row from
-// the bottom-left), so they travel with the tileset. Moving a block to another tileset matches tiles by uuid. Pure.
+// the bottom-left), so they travel with the tileset. Moving a block to another tileset matches tiles by uuid. A block
+// copied on a staggered or hexagonal map keeps its frame (ADR 0442), saved as the stamp's `stagger`, so it keeps its
+// shape wherever it's placed. Pure.
 import type { Stamp } from "../runtime/brushes";
 import { cellValue, decodeRuns, encodeChunk, flagsOf, tileIdOf } from "../runtime/format";
 import type { Tileset, TileStamp, TileStampLayer, TilesetData } from "../runtime/tileset";
+import type { StampFrame } from "./stampLattice";
 
 /** One named layer of a block: `width × height` cell values (tileset id plus flips; 0 leaves the map's cell alone), row 0 at the bottom. */
 export interface StampBlockLayer {
@@ -17,11 +20,18 @@ export interface StampBlock {
   width: number;
   height: number;
   layers: StampBlockLayer[];
+  /**
+   * ADR 0442: where the block was laid out on a staggered or hexagonal map, so it keeps its shape wherever it's placed
+   * (`stampLattice.ts`). Absent: its cells land cell for cell.
+   */
+  frame?: StampFrame;
 }
 
-/** A one-layer stamp as a block whose layer is called `name`. */
-export function blockOfStamp(stamp: Stamp, name = ""): StampBlock {
-  return { width: stamp.width, height: stamp.height, layers: [{ name, values: [...stamp.values] }] };
+/** A one-layer stamp as a block whose layer is called `name`, laid out in `frame` (absent: cell for cell). */
+export function blockOfStamp(stamp: Stamp, name = "", frame?: StampFrame | null): StampBlock {
+  const block: StampBlock = { width: stamp.width, height: stamp.height, layers: [{ name, values: [...stamp.values] }] };
+  if (frame) block.frame = frame;
+  return block;
 }
 
 /** The block's layer called `name`, else its first layer with a tile, as a stamp (all empty: its first layer). */
@@ -54,7 +64,7 @@ export function retargetBlock(block: StampBlock, from: Tileset, to: Tileset): { 
       return cellValue(tile.id, flagsOf(v));
     }),
   }));
-  return { block: { width: block.width, height: block.height, layers }, missing };
+  return { block: { ...block, layers }, missing };
 }
 
 /** The block saved as stamp `name` of `tileset` (the tileset its ids are of): each layer's tiles numbered in a palette of uuids, its cells run-length encoded. */
@@ -75,7 +85,9 @@ export function encodeStamp(name: string, block: StampBlock, tileset: Tileset): 
     });
     return { name: l.name, palette, cells: encodeChunk(cells) };
   });
-  return { name, size: [block.width, block.height], layers };
+  const stamp: TileStamp = { name, size: [block.width, block.height], layers };
+  if (block.frame) stamp.stagger = { axis: block.frame.axis, shifted: block.frame.shifted };
+  return stamp;
 }
 
 /**
@@ -98,7 +110,9 @@ export function decodeStamp(stamp: TileStamp, tileset: Tileset): { block: StampB
       return cellValue(tile.id, flagsOf(v));
     }),
   }));
-  return { block: { width, height, layers }, missing };
+  const block: StampBlock = { width, height, layers };
+  if (stamp.stagger) block.frame = { axis: stamp.stagger.axis, shifted: stamp.stagger.shifted };
+  return { block, missing };
 }
 
 /** `base`, or `base 2`, `base 3`… : the first name no stamp of `data` has. */

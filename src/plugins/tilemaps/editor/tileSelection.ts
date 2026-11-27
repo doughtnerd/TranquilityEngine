@@ -116,13 +116,14 @@ export function transformTiles(axis: "x" | "y" | "rotate"): boolean {
 }
 
 /**
- * Move the selected cells by `(dx, dy)` (with `copy`, copy them), the selection following, written as `label` (inside
- * the scene view's gesture, its undo step).
+ * Move the selected cells so that cell `from` (default: the selection's bottom-left corner; a drag's grabbed cell)
+ * moves by `(dx, dy)` (with `copy`, copy them), the selection following and keeping its shape (ADR 0442), written as
+ * `label` (inside the scene view's gesture, its undo step).
  */
-export function moveTiles(dx: number, dy: number, copy: boolean): boolean {
+export function moveTiles(dx: number, dy: number, copy: boolean, from?: Cell): boolean {
   const t = target();
   if (!t || (dx === 0 && dy === 0)) return false;
-  setSelection(t.map, moveSelection(t.map, t.cells, t.layers, dx, dy, copy));
+  setSelection(t.map, moveSelection(t.map, t.cells, t.layers, dx, dy, copy, from));
   commitTilemap(t.scene, t.path, t.map, copy ? "Copy tiles" : "Move tiles");
   return true;
 }

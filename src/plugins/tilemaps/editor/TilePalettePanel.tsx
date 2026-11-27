@@ -14,6 +14,7 @@ import {
   activeLayer,
   BRUSH_TOOLS,
   brushFlags,
+  brushFrame,
   brushLayers,
   brushPrefabs,
   brushRandom,
@@ -426,7 +427,7 @@ function TileGridView(props: { tiles: readonly TileDef[]; tileset: Tileset; proj
 
 /** The brush's stamp as a block of `tileset`'s tiles, the one layer named `layerName` (null when it has no tile). */
 function brushBlockOf(tileset: Tileset, layerName: string): StampBlock | null {
-  let block = brushLayers.value ?? blockOfStamp(brushStamp.value, layerName);
+  let block = brushLayers.value ?? blockOfStamp(brushStamp.value, layerName, brushFrame.value);
   const from = brushSource.value;
   if (from && from.data !== tileset.data) block = retargetBlock(block, from, tileset).block;
   return blockIsEmpty(block) ? null : block;
