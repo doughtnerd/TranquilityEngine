@@ -303,3 +303,35 @@ fn removing_a_node_with_calc_values_and_reusing_its_handle_is_safe() {
     l.compute(root, 100.0, 100.0, |_, _| Measured::size(0.0, 0.0));
     assert_eq!(boxed(&l, b)[2], 0.0);
 }
+
+#[test]
+fn a_node_cannot_become_a_child_of_its_own_descendant() {
+    // An ancestor as a child would make a cycle, and layout would recurse without end (a stack overflow, a trap in wasm).
+    let mut l = UiLayout::new();
+    let root = l.create(false);
+    let a = l.create(false);
+    let b = l.create(false);
+    l.set_children(root, &[a]);
+    l.set_children(a, &[b]);
+    l.set_children(b, &[root, a, b]);
+    assert_eq!(l.child_count(b), 0);
+    assert_eq!((l.child_count(root), l.child_count(a)), (1, 1));
+    l.compute(root, 100.0, 100.0, |_, _| Measured::size(0.0, 0.0));
+}
+
+#[test]
+fn a_repeated_child_keeps_its_first_place() {
+    let mut l = UiLayout::new();
+    let root = l.create(false);
+    px(&mut l, root, prop_length::WIDTH, 100.0);
+    let a = l.create(false);
+    let b = l.create(false);
+    for k in [a, b] {
+        px(&mut l, k, prop_length::WIDTH, 30.0);
+    }
+    l.set_children(root, &[a, b, a]);
+    assert_eq!(l.child_count(root), 2);
+    l.compute(root, 100.0, 100.0, |_, _| Measured::size(0.0, 0.0));
+    assert_eq!(boxed(&l, a)[0], 0.0);
+    assert_eq!(boxed(&l, b)[0], 30.0);
+}

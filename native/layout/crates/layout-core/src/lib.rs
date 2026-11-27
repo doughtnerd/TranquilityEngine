@@ -336,12 +336,26 @@ impl UiLayout {
         self.free.push(h);
     }
 
-    /// The node's children, in order (each detached from any earlier parent). Unknown handles are skipped.
+    /// The node's children, in order (each detached from any earlier parent). Unknown handles, the node itself, its
+    /// ancestors and repeated handles are skipped.
     pub fn set_children(&mut self, h: u32, children: &[u32]) {
         if self.nodes.get(h).is_none() {
             return;
         }
-        let kids: Vec<u32> = children.iter().copied().filter(|&c| c != h && self.nodes.get(c).is_some()).collect();
+        // Skipped: unknown handles, the node itself and its ancestors (a cycle would recurse without end in layout), and
+        // repeats (a node has one place: the first).
+        let mut ancestors = Vec::new();
+        let mut at = self.nodes.get(h).and_then(|n| n.parent);
+        while let Some(p) = at {
+            ancestors.push(p);
+            at = self.nodes.get(p).and_then(|n| n.parent);
+        }
+        let mut kids: Vec<u32> = Vec::with_capacity(children.len());
+        for &c in children {
+            if c != h && !ancestors.contains(&c) && !kids.contains(&c) && self.nodes.get(c).is_some() {
+                kids.push(c);
+            }
+        }
         // The old children leave; the new ones leave any other parent.
         let old = std::mem::take(&mut self.nodes.get_mut(h).unwrap().children);
         for c in old {

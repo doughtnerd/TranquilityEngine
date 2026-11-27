@@ -275,7 +275,7 @@ export class LayoutNode {
   /** The room `overflow: scroll` reserves for a scrollbar (0 by default). */
   setScrollbarWidth(v: number): void { this.tree.raw.setNumber(this.handle, N.scrollbarWidth, v); }
 
-  /** Makes `children` this node's children, in order (each leaves any earlier parent). */
+  /** Makes `children` this node's children, in order (each leaves any earlier parent); the node itself, its ancestors and repeats are skipped. */
   setChildren(children: readonly LayoutNode[]): void {
     this.tree.raw.setChildren(this.handle, Uint32Array.from(children, (c) => c.handle));
   }
