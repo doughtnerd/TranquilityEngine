@@ -3,7 +3,7 @@ import { assetsMenu, menu } from "./menus";
 import { showTab } from "./tabs";
 
 // The input system in the editor (ADR 0336, 0337; docs/wiki/guide/input.md): the Input Debugger panel follows a playing
-// World's actions and events, and the Input Context editor writes mappings (with Bind capturing the next key press)
+// World's actions and events, and the Input dialog (ADR 0433) writes mappings (with Bind capturing the next key press)
 // that the InputContext component's `context` dropdown offers. The debugger's Record saves a fake controller's raw input as a
 // fixture file, and its Overlay shows players over the game view. The UIControlMapper's real drawing and rebinding are in
 // input-mapper.spec.ts; keyboard navigation of game UI in ui-navigation.spec.ts.
@@ -71,50 +71,64 @@ test("the Input Debugger shows a playing World's action values, flags, source an
   expect(errors).toEqual([]);
 });
 
-test("New Input Context: a mapping bound with a key press is saved, and InputContext's context dropdown lists the file", async ({ page }) => {
+test("New Input Context: a mapping bound with a key press in the Input dialog is saved, and InputContext's context dropdown lists the file", async ({ page }) => {
   const errors = trackErrors(page);
-  await page.setViewportSize({ width: 1600, height: 1000 }); // the Input Context panel sits in the right dock
+  await page.setViewportSize({ width: 1600, height: 1000 });
   await openEditor(page, { files: { "scripts/testActions.ts": ACTIONS } });
 
-  // Create › Input › Input Context (right-click in the Assets panel) writes a context in the folder the panel shows, here the root.
+  // Create › Input › Input Context (right-click in the Assets panel) at the project root writes it in the kind's folder,
+  // input/, which every project has since it holds the default context (ADR 0433).
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   const list = (await assets(page).locator(".asset-items").boundingBox())!;
   await page.mouse.click(list.x + list.width - 10, list.y + list.height - 10, { button: "right" });
   await assetsMenu(page, "Create", "Input", "Input Context");
-  const path = "New Input Context.input.json";
+  const path = "input/New Input Context.input.json";
   await expect.poll(async () => JSON.parse((await read(page, path)) ?? "null")).toEqual({ name: "New Input Context", mappings: [] });
+  await tile(page, "input").dblclick();
   await expect(tile(page, "New Input Context.input.json")).toHaveCount(1);
 
-  // Double-click opens the Input Context panel.
+  // Double-click opens the Input dialog on it (ADR 0433), listed with the default context.
   await tile(page, "New Input Context.input.json").dblclick();
-  await expect(tab(page, "Input Context")).toHaveClass(/active/);
-  const editor = page.locator(".panel .input-context").filter({ has: page.getByRole("button", { name: "Add mapping" }) }).last();
+  const dialog = page.getByRole("dialog", { name: "Input" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("list", { name: "Contexts" }).getByRole("button")).toHaveText([/^default/, /^New Input Context/]);
+  const editor = dialog.getByRole("region", { name: "Context New Input Context" });
   await expect(editor).toBeVisible();
 
-  // Add a mapping, choose the action, then Bind and press K.
+  // Add a mapping, pick the action from the searchable picker, then Bind and press K.
   await editor.getByRole("button", { name: "Add mapping" }).click();
   const mapping = editor.getByRole("listitem", { name: "Mapping 1" });
   await expect(mapping).toBeVisible();
-  const action = mapping.getByRole("combobox", { name: "Action" });
-  // The project's actions, and the engine's UI actions (ADR 0340), which a game may bind in its own contexts too.
-  const options = await action.locator("option").allTextContents();
-  expect(options.filter((o) => o.includes("game.TestActions"))).toEqual([expect.stringMatching(/^jump/), expect.stringMatching(/^fire/)]);
-  expect(options.filter((o) => o.includes("engine.UIActions")).map((o) => o.split(" ")[0])).toEqual(["navigate", "submit", "cancel", "next", "previous"]);
-  await action.selectOption({ label: (await action.locator("option", { hasText: "fire" }).textContent())! });
-  await expect.poll(async () => JSON.parse((await read(page, path)) ?? "null")?.mappings?.[0]?.action).toMatch(/fire$/);
+  await mapping.getByRole("button", { name: "Action" }).click();
+  const actions = dialog.getByRole("listbox", { name: "Actions" });
+  // The project's set, A to Z; the engine's UI actions (ADR 0340) are there too, folded at first.
+  await expect(actions.getByRole("group", { name: "game.TestActions" }).getByRole("option")).toHaveText([/^fire/, /^jump/]);
+  await expect(actions.getByRole("group", { name: "engine.UIActions" })).toHaveCount(0);
+  await dialog.getByRole("combobox", { name: "Search actions" }).fill("fire");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => JSON.parse((await read(page, path)) ?? "null")?.mappings?.[0]?.action).toBe("fire");
   await mapping.getByRole("button", { name: "Bind" }).click();
   await expect(mapping.getByRole("button", { name: "Cancel" })).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("k");
   await expect(mapping.getByRole("button", { name: "Bind" })).toBeVisible();
   await expect(mapping.getByRole("combobox", { name: "Control", exact: true })).toHaveValue("<Keyboard>/k");
 
-  // The file on disk has the mapping.
-  await expect.poll(async () => JSON.parse((await read(page, path)) ?? "null")?.mappings).toEqual([{ action: expect.stringMatching(/fire$/), control: "<Keyboard>/k" }]);
+  // The file on disk has the mapping, and the footer says it's saved.
+  await expect.poll(async () => JSON.parse((await read(page, path)) ?? "null")?.mappings).toEqual([{ action: "fire", control: "<Keyboard>/k" }]);
   await expect(mapping.getByRole("list", { name: "Mapping 1 problems" })).toHaveCount(0);
+  await expect(dialog.locator(".input-dialog-status")).toHaveText("Saved");
+
+  // Undo in the dialog takes the binding back; Redo brings it again.
+  await dialog.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => JSON.parse((await read(page, path)) ?? "null")?.mappings?.[0]?.control).toBe("");
+  await dialog.getByRole("button", { name: "Redo" }).click();
+  await expect.poll(async () => JSON.parse((await read(page, path)) ?? "null")?.mappings?.[0]?.control).toBe("<Keyboard>/k");
+  await dialog.locator(".input-dialog-foot").getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toHaveCount(0);
 
   // A node's InputContext component offers the file in its context dropdown.
   await page.locator('.tree .row[data-key="ceiling"]').click();
-  await showTab(page, "Inspector"); // the Input Context panel opened in front of it
+  await showTab(page, "Inspector");
   await page.getByRole("button", { name: "Add Component" }).click();
   await page.getByRole("searchbox", { name: "Search components" }).fill("InputContext");
   await page.getByRole("dialog", { name: "Add component" }).getByRole("option", { name: /^InputContext/ }).click();
@@ -223,5 +237,56 @@ test("Overlay shows each player's action values, phases and recent presses over 
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(overlay).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("File › Input…: a new action set is a file listed in project.json, and Map it in default binds it in input/default.input.json (ADR 0433)", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openEditor(page, { files: {} });
+  await menu(page, "File", "Input…");
+  const dialog = page.getByRole("dialog", { name: "Input" });
+  await expect(dialog).toBeVisible();
+
+  await dialog.getByRole("button", { name: "New action set" }).click();
+  const name = dialog.getByRole("textbox", { name: /^Rename / });
+  await expect(name).toBeFocused();
+  await name.fill("game.Ship");
+  await name.press("Enter");
+
+  const listed = async () => (JSON.parse((await read(page, "project.json")) ?? "{}").input?.actionSets ?? []) as string[];
+  await expect.poll(async () => (await listed()).length).toBe(1);
+  const [file] = await listed();
+  expect(file).toMatch(/^input\/.+\.actions\.json$/);
+  await expect.poll(async () => JSON.parse((await read(page, file)) ?? "null")?.id).toBe("game.Ship");
+
+  await dialog.getByRole("button", { name: "Map it in default" }).first().click();
+  await expect.poll(async () => JSON.parse((await read(page, "input/default.input.json")) ?? "null")?.mappings?.length).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("while playing, the Input dialog's modifier stack shows a mapping's live value through each modifier (ADR 0433)", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  const context = { name: "drive", mappings: [{ action: "jump", control: "<Keyboard>/j", modifiers: [{ scale: 0.5 }, { scale: 3, off: true }] }] };
+  await openEditor(page, { files: { "scripts/testActions.ts": ACTIONS, "input/drive.input.json": JSON.stringify(context) } });
+  await play(page);
+  await page.locator("#game-view canvas").first().click(); // the keyboard appears with the first key
+
+  await menu(page, "File", "Input…");
+  const dialog = page.getByRole("dialog", { name: "Input" });
+  await dialog.getByRole("list", { name: "Contexts" }).getByRole("button", { name: /drive/ }).click();
+  const live = dialog.getByRole("group", { name: "Live value" });
+  await expect(live).toBeVisible();
+  await expect(live.locator("output")).toHaveText("0.00");
+
+  await page.keyboard.down("j");
+  await expect(live.locator("output")).toHaveText("1.00");
+  const stack = dialog.getByRole("group", { name: "Modifiers" });
+  await expect(stack.getByLabel("Scale gives").first()).toContainText("0.50");
+  await expect(stack.getByLabel("Scale gives").nth(1)).toHaveText("off"); // turned off: skipped
+  await expect(stack.getByLabel("The action gets")).toHaveText("0.50");
+  await page.keyboard.up("j");
+  await expect(live.locator("output")).toHaveText("0.00");
   expect(errors).toEqual([]);
 });

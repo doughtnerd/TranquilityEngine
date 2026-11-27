@@ -54,7 +54,8 @@ export { t, tHtml } from "./localisation/t";
 
 export { Input } from "./input/Input";
 export { ActionEvents, ActionPhase, axis, axisOf, button, chordOf, defineActions, dpad, vec2, vec3, type ActionEvent, type ActionEventPhase, type ActionOptions, type ActionReader, type ActionSetDef, type ActionSetOptions, type ActionSetView, type ActionType, type BindingSpec } from "./input/actions";
-export { DEFAULT_CONTEXT, InputContext, defineInputContext, type InputContextSpec, type MappingSpec, type ModifierSpec, type TriggerSpec, type TriggerType } from "./input/contexts";
+export { DEFAULT_CONTEXT, DEFAULT_CONTEXT_PATH, InputContext, defineInputContext, type InputContextSpec, type MappingSpec, type ModifierSpec, type TriggerSpec, type TriggerType } from "./input/contexts";
+export { ACTION_SET_EXTENSION, actionSetFromData, actionSetProblems, defineActionsFromData, type ActionSetFile, type ActionSetFileAction, type ActionSetProblem } from "./input/actionAssets";
 export type { CustomTriggerSpec } from "./input/contextTypes";
 export { TriggerState, defineTrigger, type CustomTrigger, type TriggerFactory, type TriggerStateValue, type TriggerWorld } from "./input/triggers";
 export { ConnectionPlayer } from "./input/inputNet";

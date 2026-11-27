@@ -299,6 +299,18 @@ export function _writeSyntheticInput(world: World, id: string, values: Readonly<
   return true;
 }
 
+/**
+ * @internal Define `id` again in place of its stream, outside the editor's script reload: an action set asset whose
+ * file changed (ADR 0433) redefines its networked set's stream.
+ */
+export function _redefineInput<S extends Schema>(id: string, schema: S, options: InputOptions = {}): InputDef<S> {
+  if (!_isReplacingRegistrations()) {
+    streams.delete(id);
+    defs.delete(id);
+  }
+  return defineInput(id, schema, options);
+}
+
 /** @internal Editor: forget a stream a project script defined (the script was deleted, or another project opened). */
 export function _undefineInput(id: string): void {
   defs.delete(id);

@@ -255,7 +255,7 @@ describe("the Create submenu (ADR 0383)", () => {
       assetKinds.register({ id: "t.glow", extensions: [".glow.json"], label: "Glow", icon: "", create: { label: "New Glow", category: "Rendering", create: async () => null } }),
     ];
     try {
-      expect(shape(assetCreateItems(on()))).toEqual(["Folder", "Scene", "Script…", "-", "Input: Input Context", "Localisation: String Table", "Rendering: Glow, Render Texture", "Other: Zap"]);
+      expect(shape(assetCreateItems(on()))).toEqual(["Folder", "Scene", "Script…", "-", "Input: Action Set, Input Context", "Localisation: String Table", "Rendering: Glow, Render Texture", "Other: Zap"]);
     } finally {
       for (const u of undo) u();
     }

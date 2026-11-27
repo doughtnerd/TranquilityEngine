@@ -17,6 +17,7 @@ import { isWithin, type EditorProject } from "./projects";
 import { reloadScripts } from "./session";
 import { currentProject, docVersion, openScene, openScenes, scriptsVersion, status } from "./state";
 import { whyNotEdit } from "./editGate";
+import { DEFAULT_CONTEXT_PATH } from "../engine/input/contexts";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { beginUndoStep } from "./undoStep";
 
@@ -33,11 +34,17 @@ function openPaths(openPath: string | readonly string[] | null): string[] {
   return typeof openPath === "string" ? [openPath] : [...openPath];
 }
 
+/** Why `path` is the project's default input context, which stays where it is (ADR 0433); null for any other path. */
+const defaultContextReason = (path: string): string | null =>
+  path === DEFAULT_CONTEXT_PATH ? `${DEFAULT_CONTEXT_PATH} is the project's default input context; it can't be moved, renamed or deleted` : null;
+
 /** Why `path` can't be deleted from `project` right now, or null if it can. */
 export function whyNotDeletableAsset(project: EditorProject, path: string, openPath: string | readonly string[] | null): string | null {
   const gate = whyNotEdit({ kind: "project-files", project, removes: true }, "delete files"); // read-only, play (ADR 0247)
   if (gate) return gate;
   if (path === "project.json") return "project.json defines the project";
+  const fixed = defaultContextReason(path);
+  if (fixed) return fixed;
   const [active, ...others] = openPaths(openPath);
   if (path === active) return "it's the scene open now; open another scene first";
   if (others.includes(path)) return "it's open in another scene tab; close that tab first";
@@ -55,6 +62,7 @@ export function whyNotDeletableFolder(project: EditorProject, path: string, open
   const gate = whyNotEdit({ kind: "project-files", project, removes: true }, "delete files"); // read-only, play (ADR 0247)
   if (gate) return gate;
   if (path === "") return "it's the project folder";
+  if (isWithin(DEFAULT_CONTEXT_PATH, path)) return `it holds ${DEFAULT_CONTEXT_PATH}, the project's default input context, which can't be moved, renamed or deleted`;
   const [active, ...others] = openPaths(openPath);
   if (active && isWithin(active, path)) return `it holds the scene open now (${active}); open another scene first`;
   const tab = others.find((p) => isWithin(p, path));

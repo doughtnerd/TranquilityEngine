@@ -25,7 +25,7 @@ import { isEditable } from "../shortcuts";
 import { currentProject, docVersion, openScene, selectedKeys, selectedUIElement } from "../state";
 import { whyNotEdit } from "../editGate";
 import { aboutOpen } from "./AboutDialog";
-import { exportOpen, settingsOpen } from "./dialogState";
+import { exportOpen, openInputDialog, settingsOpen } from "./dialogState";
 import { createMenuItems } from "./HierarchyMenu";
 import { openNewProjectDialog } from "./NewProjectDialog";
 import { usePopover } from "./popover";
@@ -113,6 +113,7 @@ const ACTIONS: MenuActions = {
   newScene: () => void createAsset("scene"),
   reloadScripts: () => void reloadScripts(),
   exportBuild: () => (exportOpen.value = true),
+  openInput: () => openInputDialog(),
   showPanel,
   addPanel: () => requestAddPanel(),
   resetLayout: applyDefaultLayout,
