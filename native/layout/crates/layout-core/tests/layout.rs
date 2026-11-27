@@ -17,7 +17,7 @@ fn column(l: &mut UiLayout) -> u32 {
     h
 }
 
-/// The King of Pirates HUD case (ADR 0433): Yoga skips laying out the children of a fit-content node with
+/// The King of Pirates HUD case (ADR 0434): Yoga skips laying out the children of a fit-content node with
 /// no room across and gives `#lines` the whole height (684), pushing the bottom bar to 760. A browser,
 /// and Taffy, give 24 and 640.
 #[test]

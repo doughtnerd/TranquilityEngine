@@ -1,6 +1,6 @@
 [package]
 name = "layout-wasm"
-description = "The WebAssembly boundary of Myco's UI layout engine (ADR 0433)."
+description = "The WebAssembly boundary of Myco's UI layout engine (ADR 0434)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,4 +1,4 @@
-//! The WebAssembly boundary of Myco's UI layout engine (ADR 0433): `LayoutTree` over layout-core's `UiLayout`.
+//! The WebAssembly boundary of Myco's UI layout engine (ADR 0434): `LayoutTree` over layout-core's `UiLayout`.
 //! Only numbers cross it. Computed boxes are written to a buffer in the module's memory (`outPtr`), which the
 //! TypeScript adapter reads through a `Float32Array` view, so reading a box costs one call and no allocation.
 //! A measured leaf's size comes from the JS function passed to `compute`, called as

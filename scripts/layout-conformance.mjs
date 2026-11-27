@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `npm run conformance:layout` (ADR 0433): lays out every case in src/engine/tests/layoutConformance/cases.json in
+// `npm run conformance:layout` (ADR 0434): lays out every case in src/engine/tests/layoutConformance/cases.json in
 // Chromium (Playwright) and writes each node's border box, relative to its parent's border box, to chromium.json beside
 // it. taffyConformance.test.ts compares the UI core's layout engine with those boxes. Rerun it after adding a case.
 //

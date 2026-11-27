@@ -3,7 +3,7 @@ import { LayoutTree, loadLayoutEngine, type LayoutContent, type LayoutDisplay, t
 import cases from "./layoutConformance/cases.json";
 import chromium from "./layoutConformance/chromium.json";
 
-// ADR 0433: the UI core's layout engine against Chromium's boxes for the flex cases the UI core uses.
+// ADR 0434: the UI core's layout engine against Chromium's boxes for the flex cases the UI core uses.
 // `npm run conformance:layout` (scripts/layout-conformance.mjs) records chromium.json from cases.json; that script
 // says how a case is built in the browser.
 

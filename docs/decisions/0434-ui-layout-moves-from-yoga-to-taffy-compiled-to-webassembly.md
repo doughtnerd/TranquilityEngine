@@ -1,8 +1,9 @@
-# 0433. UI layout moves from Yoga to Taffy, compiled to WebAssembly in `native/layout`
+# 0434. UI layout moves from Yoga to Taffy, compiled to WebAssembly in `native/layout`
 
 - **Status:** Accepted
 - **Date:** 2026-11-27
 - **Deciders:** Chris Carlson
+- **Numbering:** written as 0433 on its branch; renumbered 0434 when `master`'s 0433 (action sets as assets) landed first
 - **Supersedes:** 0076 in part (Yoga as the UI core's layout engine; Babylon GUI drawing and input routing stand)
 - **Related:** 0076, 0422, 0427, 0428, 0429, 0432 (the UI features layout carries), 0065 and 0424 (Rust crates compiled to committed wasm)
 

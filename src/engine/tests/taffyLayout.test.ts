@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { LayoutTree, layoutEngineLoaded, loadLayoutEngine, type LayoutNode, type MeasureInput } from "../ui/taffy/layoutTree";
 
-// ADR 0433: the UI core's layout engine (Taffy in WebAssembly), through the adapter's own interface.
+// ADR 0434: the UI core's layout engine (Taffy in WebAssembly), through the adapter's own interface.
 
 beforeAll(async () => {
   await loadLayoutEngine();

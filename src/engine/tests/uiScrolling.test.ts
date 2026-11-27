@@ -79,7 +79,7 @@ describe("layout and drawing (ADR 0427)", () => {
     const scrolled = p.core.rectOf(doc.query("#t5")!.component)!;
     const squeezed = p.core.rectOf(doc.query("#h5")!.component)!;
     expect(scrolled.height).toBeCloseTo(24, 0); // 20 px at line height 1.2
-    // ADR 0433: under overflow: hidden too, as in CSS: a flex item doesn't shrink below its content (its automatic
+    // ADR 0434: under overflow: hidden too, as in CSS: a flex item doesn't shrink below its content (its automatic
     // minimum size); the rows overflow and are clipped. (Yoga squeezed them.)
     expect(squeezed.height).toBeCloseTo(24, 0);
     expect(doc.query("#list")!.scrollHeight).toBeCloseTo(144, 0);

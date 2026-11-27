@@ -1,5 +1,5 @@
 /**
- * The renderer-neutral UI core (ADR 0076): mirrors a World's UI components into a layout tree (Taffy, ADR 0433), lays it
+ * The renderer-neutral UI core (ADR 0076): mirrors a World's UI components into a layout tree (Taffy, ADR 0434), lays it
  * out, routes the pointer and keyboard to UI before game scripts run, and takes input fields' typing
  * through a hidden DOM `<input>`. A backend's drawing layer draws what `canvases()` and `elements()`
  * report, including each text element's resolved text run (ADR 0271), which is what it measured.
@@ -123,7 +123,7 @@ interface Entry {
   /** ADR 0428: what else a measured element's size depends on (a select's option labels, a text area's rows). */
   measureKey?: string;
   /**
-   * ADR 0433: its text's sizes by wrap width since it was last marked dirty: the layout engine asks a text for several sizes
+   * ADR 0434: its text's sizes by wrap width since it was last marked dirty: the layout engine asks a text for several sizes
    * (min-content, max-content, its room), and the same width shouldn't reach the host's text measuring twice.
    */
   measured?: Map<number, MeasuredText>;
@@ -375,7 +375,7 @@ export class UICore implements UICoreLike {
   readonly ready: Promise<void>;
   layoutVersion = 0;
 
-  /** ADR 0433: the core's layout tree (every canvas, select list and inline atom is a root in it), once the engine has loaded. */
+  /** ADR 0434: the core's layout tree (every canvas, select list and inline atom is a root in it), once the engine has loaded. */
   private tree: LayoutTree | null = null;
   private readonly entries = new Map<UIComponentType, Entry>();
   private readonly canvasEntries = new Map<UICanvas, CanvasEntry>();
@@ -553,7 +553,7 @@ export class UICore implements UICoreLike {
     const canvases = [...this.canvasEntries.values()].sort((a, b) => a.comp.sortOrder - b.comp.sortOrder);
     for (const canvas of canvases) {
       this.applyCanvas(canvas);
-      // `calc()` mixing % and px (ADR 0422 wave 5) resolves in the layout engine, against this layout's sizes (0433).
+      // `calc()` mixing % and px (ADR 0422 wave 5) resolves in the layout engine, against this layout's sizes (0434).
       tree.compute(canvas.node, canvas.width, canvas.height);
       this.readLayout(canvas);
     }
@@ -841,7 +841,7 @@ export class UICore implements UICoreLike {
       if (put(i === 0 ? 6 : 19 + i, mar[i])) n.setMargin(edge, mar[i]);
       if (put(i === 0 ? 16 : 22 + i, bor[i])) n.setBorder(edge, bor[i]);
     }
-    // ADR 0422 wave 5: a length mixing % and px is a `{ px, percent }` the layout engine resolves (0433); its slot holds a
+    // ADR 0422 wave 5: a length mixing % and px is a `{ px, percent }` the layout engine resolves (0434); its slot holds a
     // key, so an unchanged one isn't set again.
     const L = (slot: number, value: LengthValue, set: (v: LengthValue) => void) => {
       if (put(slot, lengthKey(value))) set(value);
@@ -857,7 +857,7 @@ export class UICore implements UICoreLike {
     // Null: the kind's (text wraps to what's left; other boxes keep their size).
     // ADR 0427: in a parent the player scrolls along its main axis, content lays out unconstrained: a kind's default shrink is 0 there.
     if (put(15, (v = c.flexShrink === null || c.flexShrink === undefined ? (scrollsMainAxis(entry.parent) ? 0 : flexShrinkOf(entry.kind)) : finite(c.flexShrink)))) n.setFlexShrink(v as number);
-    // ADR 0433: an unset min size is CSS's `auto` (the content-based minimum), an unset max size `none`.
+    // ADR 0434: an unset min size is CSS's `auto` (the content-based minimum), an unset max size `none`.
     L(26, uiLimit(c.minWidth), (x) => n.setMinWidth(x));
     L(27, uiLimit(c.maxWidth), (x) => n.setMaxWidth(x));
     L(28, uiLimit(c.minHeight), (x) => n.setMinHeight(x));
@@ -868,7 +868,7 @@ export class UICore implements UICoreLike {
     L(33, uiLength(c.flexBasis) ?? "auto", (x) => n.setFlexBasis(x));
     if (put(34, (v = Number.isFinite(c.aspectRatio) && c.aspectRatio > 0 ? c.aspectRatio : undefined))) n.setAspectRatio(v as number | undefined);
     if (put(35, (v = isUserScroller(c) ? "scroll" : clipsChildren(c) ? "hidden" : "visible"))) n.setOverflow(v as "scroll" | "hidden" | "visible");
-    // ADR 0432: `direction` (null inherits from the nearest element that sets it, else LTR); Taffy doesn't inherit it (0433).
+    // ADR 0432: `direction` (null inherits from the nearest element that sets it, else LTR); Taffy doesn't inherit it (0434).
     if (put(36, (v = directionOf(entry)))) n.setDirection(v as "ltr" | "rtl");
 
     if (entry.run) this.updateRun(entry);
@@ -977,7 +977,7 @@ export class UICore implements UICoreLike {
 
 
   /**
-   * ADR 0433: a measured leaf's size for the layout engine. A known width is kept (the text wraps to it); otherwise the text
+   * ADR 0434: a measured leaf's size for the layout engine. A known width is kept (the text wraps to it); otherwise the text
    * wraps to the room (none under a max-content constraint, every chance under a min-content one) and its width is CSS's
    * shrink-to-fit width, min(max-content, max(min-content, room)): text that wrapped takes the whole room, not its widest line.
    */
@@ -999,7 +999,7 @@ export class UICore implements UICoreLike {
 
   /**
    * Measure the entry's text run, wrapped to `maxWidth` unless it doesn't wrap, with its first line's baseline down from
-   * its content box's top (ADR 0433: what `align-items: baseline` lines up). An empty plain text has no line, so none.
+   * its content box's top (ADR 0434: what `align-items: baseline` lines up). An empty plain text has no line, so none.
    */
   private measure(entry: Entry, maxWidth: number): MeasuredText {
     const run = entry.run;
@@ -2210,7 +2210,7 @@ export class UICore implements UICoreLike {
   }
 }
 
-// ADR 0433: the keywords each layout property takes (anything else is its initial value).
+// ADR 0434: the keywords each layout property takes (anything else is its initial value).
 const FLEX_DIRECTIONS: readonly string[] = ["row", "column", "row-reverse", "column-reverse"];
 const JUSTIFY: readonly string[] = ["flex-start", "center", "flex-end", "space-between", "space-around", "space-evenly"];
 const ALIGN_ITEMS: readonly string[] = ["flex-start", "center", "flex-end", "stretch", "baseline"];

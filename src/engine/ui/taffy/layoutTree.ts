@@ -1,5 +1,5 @@
 /**
- * The UI core's layout engine (ADR 0433): Taffy, the Rust CSS flexbox / grid / block engine, compiled to WebAssembly
+ * The UI core's layout engine (ADR 0434): Taffy, the Rust CSS flexbox / grid / block engine, compiled to WebAssembly
  * (`native/layout`, committed in `./wasm/`). A `LayoutTree` holds `LayoutNode`s set with CSS keywords and lengths; a
  * measured leaf (text, a replaced element) gets its content size from its `MeasureFunction`; `compute` lays a root out
  * and each node's `layout()` reads its box. Boxes aren't rounded: they are exact in UI pixels.

@@ -1,4 +1,4 @@
-//! The node store Taffy lays out (ADR 0433 follow-up): a vector of nodes indexed by handle, with parent links for dirty
+//! The node store Taffy lays out (ADR 0434 follow-up): a vector of nodes indexed by handle, with parent links for dirty
 //! propagation, implementing Taffy's low-level tree traits. It mirrors `TaffyTree`'s own view (`taffy_tree.rs`: dispatch
 //! by display, hidden subtrees, out-of-flow boxes, block formatting contexts) and adds what `TaffyTree` can't: `calc()`
 //! lengths. Each mixed length (`calc(50% + -12px)`) is a `CalcValue` the node owns, boxed so its address is stable; the

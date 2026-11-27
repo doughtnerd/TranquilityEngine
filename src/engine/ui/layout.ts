@@ -1,5 +1,5 @@
 /**
- * Layout helpers for the UI core (ADR 0076; the layout engine itself is `taffy/layoutTree.ts`, ADR 0433): reading length
+ * Layout helpers for the UI core (ADR 0076; the layout engine itself is `taffy/layoutTree.ts`, ADR 0434): reading length
  * fields, the canvas scale, and text measuring. No renderer is involved, so all of it runs in Node. Nothing here is public API.
  */
 import type { UILength } from "./components";
@@ -17,7 +17,7 @@ export function canvasScale(canvasWidth: number, canvasHeight: number, refWidth:
   return 2 ** (lw + (lh - lw) * m);
 }
 
-/** A `calc()` mixing a percentage and pixels (ADR 0422 wave 5), as the layout engine resolves it during layout (0433). */
+/** A `calc()` mixing a percentage and pixels (ADR 0422 wave 5), as the layout engine resolves it during layout (0434). */
 export interface UICalcLength {
   readonly px: number;
   readonly percent: number;
@@ -25,7 +25,7 @@ export interface UICalcLength {
 
 /**
  * A length field as the layout engine takes it: pixels, a percentage, a `calc()` mixing % and px (`calc(50% + -12px)`,
- * ADR 0422 wave 5) as `{ px, percent }`, resolved against the property's CSS basis during layout (ADR 0433), `"auto"`,
+ * ADR 0422 wave 5) as `{ px, percent }`, resolved against the property's CSS basis during layout (ADR 0434), `"auto"`,
  * or undefined when empty or unreadable.
  */
 export function uiLength(v: UILength | null | undefined): number | `${number}%` | UICalcLength | "auto" | undefined {

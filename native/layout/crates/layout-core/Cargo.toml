@@ -1,6 +1,6 @@
 [package]
 name = "layout-core"
-description = "Myco's UI layout tree over Taffy (ADR 0433): handles, numeric style setters, a measure callback, computed boxes."
+description = "Myco's UI layout tree over Taffy (ADR 0434): handles, numeric style setters, a measure callback, computed boxes."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

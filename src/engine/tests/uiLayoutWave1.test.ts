@@ -344,7 +344,7 @@ describe("content sizes where Yoga's shortcuts differ from CSS", () => {
   });
 });
 
-describe("baseline alignment (ADR 0433)", () => {
+describe("baseline alignment (ADR 0434)", () => {
   it("lines texts of different sizes up on their first lines' baselines, padding included, as CSS does", async () => {
     const doc = buildUI(`<Canvas><div id="row"><span id="small">Ahoy</span><span id="big">Ahoy</span><span id="padded">Ahoy</span><div id="box" width="30" height="10"/></div></Canvas>`, {
       css: `#row { align-items: baseline } span { line-height: 1.2 } #small { font-size: 20px } #big { font-size: 40px } #padded { font-size: 20px; padding-top: 10px }`,
@@ -370,7 +370,7 @@ describe("baseline alignment (ADR 0433)", () => {
   });
 });
 
-describe("calc() mixing % and px (ADR 0422 wave 5, resolved in the layout engine by 0433)", () => {
+describe("calc() mixing % and px (ADR 0422 wave 5, resolved in the layout engine by 0434)", () => {
   it("resolves nested calc() lengths against this layout's sizes, in one layout", async () => {
     const doc = buildUI(`<Canvas><div id="outer"><div id="mid"><div id="inner"/></div><div id="abs"/></div></Canvas>`, {
       css: `#outer { width: 400px; height: 300px; align-items: flex-start }

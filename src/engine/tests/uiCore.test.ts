@@ -11,7 +11,7 @@ import { DomInput, FakeCanvas } from "./domInput";
 import { loadUITestSupport, uiElement } from "./uiMarkup";
 import { UI_FONT_FAMILY, fontEpoch, fontFamilyOf, loadBundledFont, onFontLoaded } from "../ui/fonts";
 
-// ADR 0076: the renderer-neutral UI core: layout (Taffy, ADR 0433) and UI-first routing, no renderer, no GPU.
+// ADR 0076: the renderer-neutral UI core: layout (Taffy, ADR 0434) and UI-first routing, no renderer, no GPU.
 
 const DT = 1 / 60;
 let engine: Engine;

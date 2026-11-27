@@ -1,4 +1,4 @@
-//! Myco's UI layout tree (ADR 0433): Taffy's layout algorithms over our own node store (`tree.rs`, which resolves
+//! Myco's UI layout tree (ADR 0434): Taffy's layout algorithms over our own node store (`tree.rs`, which resolves
 //! `calc()`), behind small numeric handles and four style setters (enums, lengths, `calc()` lengths, numbers), so the
 //! WebAssembly boundary passes only numbers. A measured leaf
 //! (text, a replaced element) asks a callback for its size; everything else is laid out by Taffy's CSS

@@ -770,7 +770,7 @@ export const MenuActions = defineActions("game.MenuActions", {
         { timeout: 60_000 },
       )
       .toBe(true);
-    // ADR 0433: afloat, with the middle panel's lines empty, the bottom bar (batteries, hull bar) is laid out on the screen.
+    // ADR 0434: afloat, with the middle panel's lines empty, the bottom bar (batteries, hull bar) is laid out on the screen.
     // Yoga gave the empty lines the whole height and pushed it below the screen.
     const bars = await inLiveWorld(page, MATCH, (w, { myco, componentsOf }) => {
       type Rect = { x: number; y: number; width: number; height: number } | null;

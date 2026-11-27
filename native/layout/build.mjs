@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `npm run build:layout` (ADR 0433): compiles native/layout (Taffy behind layout-core and the layout-wasm boundary)
+// `npm run build:layout` (ADR 0434): compiles native/layout (Taffy behind layout-core and the layout-wasm boundary)
 // to WebAssembly and writes the module and its wasm-bindgen glue to src/engine/ui/taffy/wasm/, which is committed, so
 // the engine builds without Rust. Paths are remapped as the other native builds do (ADR 0432), so any checkout builds
 // the same bytes. Needs `rustup target add wasm32-unknown-unknown` and wasm-bindgen-cli at the version pinned in
@@ -15,10 +15,10 @@ const out = fileURLToPath(new URL("../../src/engine/ui/taffy/wasm/", import.meta
 const TARGET = "wasm32-unknown-unknown";
 const OUT_NAME = "myco_layout";
 /**
- * The wasm's size tripwire (ADR 0433): a guard against accidental growth, not a design limit (CLAUDE.md). Set from the
+ * The wasm's size tripwire (ADR 0434): a guard against accidental growth, not a design limit (CLAUDE.md). Set from the
  * first build (flexbox, grid and block layout at opt-level 3: 369,315 bytes, 124 KB gzip, 2026-11-27) plus 20%, rounded
  * up. Yoga 3.2.1, which it replaces, was 71,736 bytes (28.8 KB gzip). Raise it with a line in
- * docs/architecture/implementation-status.md's 0433 row saying why; never cut a feature to stay under it.
+ * docs/architecture/implementation-status.md's 0434 row saying why; never cut a feature to stay under it.
  */
 const SIZE_LIMIT = 440 * 1024;
 
