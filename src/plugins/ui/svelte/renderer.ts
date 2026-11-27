@@ -1505,32 +1505,26 @@ function bindMedia(node: UIRenderElement, name: string, get: () => unknown, set:
   };
 }
 
-/** ADR 0425: an inline run: a node whose parent is a text element or a run (below the mount). */
+/**
+ * ADR 0425: an inline run: a node whose parent is a text element or a text run (below the mount). ADR 0428: inside an
+ * atomic inline box (a button, a control, a panel in a text) a node is that box's content again, not a run.
+ */
 function isRun(node: UINode): boolean {
   const p = node._parent;
-  return p instanceof UIRenderElement && !p._tree && !OWN_KIND_IN_TEXT.has(p._uiTag) && (isTextKind(p) || isRun(p));
+  return isTextKind(p) && !p._tree;
+}
+
+/** ADR 0425: an element whose content is text and runs: a text element or a text run. */
+function holdsText(n: UINode | UIParent | null): n is UIRenderElement {
+  return isTextKind(n) && !n._tree;
 }
 
 /**
- * ADR 0425: elements that stay what they are inside a text element (not drawn there yet: an <svg>'s shapes are its
- * document). Form controls too: an `<input>` in a `<p>` keeps its value, checked state and focus as a control, which a
- * text run would drop.
+ * The UI element a node makes: its own kind, inside a text too (ADR 0425: a phrasing element is a run; ADR 0428: any
+ * other element there is an atomic inline box, laid out on the text's lines by the UI core, as `display: inline-block`).
  */
-const OWN_KIND_IN_TEXT: ReadonlySet<UITag> = new Set(["Svg", "Video", "Audio", "InputField", "TextArea", "Toggle", "Radio", "Slider", "Select", "Progress", "Meter"]);
-
-/** ADR 0425: an element whose content is text and runs: a text element, or a run that isn't an image. */
-function holdsText(n: UINode | UIParent | null): n is UIRenderElement {
-  return n instanceof UIRenderElement && !n._tree && (n._uiTag === "Text" || (isRun(n) && n._uiTag !== "Image" && !OWN_KIND_IN_TEXT.has(n._uiTag)));
-}
-
-/** ADR 0425: the UI element a node makes: a run is a Text (an image stays an Image), others their own. */
 function hostedTag(el: UIRenderElement): UITag {
-  if (!isRun(el)) return el._uiTag;
-  if (OWN_KIND_IN_TEXT.has(el._uiTag)) {
-    warnOnce(`<${el.localName}> inside a text element isn't drawn yet; put it beside the text.`);
-    return el._uiTag;
-  }
-  return el._uiTag === "Image" ? "Image" : "Text";
+  return el._uiTag;
 }
 
 /** ADR 0425: the text element a run belongs to (the outermost), or the element itself. */
@@ -1544,11 +1538,6 @@ function rootText(el: UIRenderElement): UIRenderElement {
 function isEditable(el: UIRenderElement): boolean {
   const v = rootText(el).getAttribute("contenteditable");
   return v !== null && v !== "false";
-}
-
-/** ADR 0425: text inside a run with its whitespace collapsed (spaces at its ends stay, one each: the text's layout joins runs). */
-function collapseInner(text: string): string {
-  return text.replace(/[ \t\n\r\f]+/g, " ");
 }
 
 /** The hosted element `parent`'s children attach to (null: the canvas, for the mount container); undefined: children aren't built there. */
@@ -1740,16 +1729,15 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
     if (!node.data.trim()) return null;
     const label = tree.create("#text", "Text", hp, hostedBefore(node), new Map(), { synthetic: true });
     node._hosted = label;
-    tree.setText(label, collapse(node.data));
+    tree.setText(label, node.data); // ADR 0428: white space is the UI core's (by the text's `white-space`)
     return label;
   }
   if (parent instanceof UIRenderElement && isLeafKind(parent)) {
     warnOnce(`<${node.localName}> inside <${parent.localName}> isn't shown: a <${parent.localName}> has no children.`);
     return null;
   }
-  // ADR 0425: an element inside a text element is an inline run of it (a Text, or an inline image).
+  // ADR 0425: a phrasing element inside a text element is an inline run of it; ADR 0428: any other element, an atomic inline box.
   const uiTag = hostedTag(node);
-  if (uiTag !== node._uiTag) warnOnce(`<${node.localName}> inside a text element (<${rootText(node).localName}>) is drawn as inline text; only phrasing elements and images belong there.`);
   const made = tree.create(node.localName, uiTag, hp, hostedBefore(node), hostAttributes(node), { source: sourceOf(node), written: writtenAttributes(node) });
   node._hosted = made;
   node._dispatchers = new Map();
@@ -1840,14 +1828,13 @@ function refreshText(el: UIRenderElement | null): void {
   if (!el?._hosted) return;
   const tree = el._hosted.tree;
   if (el.localName.toLowerCase() === "br") return tree.setText(el._hosted, "\n");
-  // An empty Text with a `text` attribute shows the attribute, as written (spaces and line breaks kept).
+  // An empty Text with a `text` attribute shows the attribute (its white space as the text's `white-space` says, ADR 0428).
   if (el._children.length === 0 && el.hasAttribute("text")) return;
-  const editable = isEditable(el);
   if (el._children.some((c) => c instanceof UIRenderElement)) {
     tree.setText(el._hosted, "");
     for (const c of el._children) {
       if (!(c instanceof UIRenderText)) continue;
-      const t = editable ? c.data : collapseInner(c.data);
+      const t = c.data; // ADR 0428: as written; the UI core applies `white-space` (an editable text keeps it as typed)
       if (!c._hosted) {
         if (t === "") continue;
         c._hosted = tree.create("#text", "Text", el._hosted, hostedBefore(c), new Map(), { synthetic: true });
@@ -1864,7 +1851,7 @@ function refreshText(el: UIRenderElement | null): void {
     }
   }
   const flat = el.textContent;
-  tree.setText(el._hosted, editable ? flat : isRun(el) ? collapseInner(flat) : collapse(flat));
+  tree.setText(el._hosted, flat);
 }
 
 /**
@@ -2301,7 +2288,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     if (!tree || !node._parent) return;
     const blank = !text.trim();
     if (node._hosted && blank) dematerialize(node, tree);
-    else if (node._hosted) tree.setText(node._hosted, collapse(text));
+    else if (node._hosted) tree.setText(node._hosted, text);
     else if (!blank) {
       const made = materialize(node, tree);
       if (made) tree.restyle(made);

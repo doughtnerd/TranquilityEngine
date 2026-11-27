@@ -16,7 +16,7 @@
  * moved by a press). `dispatchUIEvents` takes them with `nextRecord`.
  */
 import type { World } from "../core/World";
-import type { UIButton, UICanvas, UIFocusableElement, UIForm, UIInputField } from "./components";
+import type { UIButton, UICanvas, UIComponentType, UIFocusableElement, UIForm, UIInputField } from "./components";
 import type { UILaidOutCanvas, UILaidOutElement } from "./uiCoreTypes";
 import type { UIEventRecord } from "./events";
 
@@ -38,6 +38,9 @@ export interface UIPointerState {
   readonly hovered: UIButton | null;
   readonly pressed: UIButton | null;
   readonly clicked: UIButton | null;
+  /** ADR 0428: the text elements and inline runs under the pointer (`:hover`) and pressed in while a button is held (`:active`): the target's and its ancestors'. */
+  readonly hoveredText?: ReadonlySet<UIComponentType>;
+  readonly pressedText?: ReadonlySet<UIComponentType>;
 }
 
 /** The UI core's last layout, which navigation searches (ADR 0340). */
@@ -50,9 +53,14 @@ export interface UILayoutSource {
   relayout?(): void;
 }
 
+/** No elements. */
+const NONE: ReadonlySet<UIComponentType> = new Set();
+
 export class UIInteractions {
   private hoveredButton: UIButton | null = null;
   private pressedButton: UIButton | null = null;
+  private hoveredText: ReadonlySet<UIComponentType> = NONE;
+  private pressedText: ReadonlySet<UIComponentType> = NONE;
   private focusedElement: UIFocusableElement | null = null;
   /** The focused element is an input field taking the keyboard. */
   private typingNow = false;
@@ -123,6 +131,8 @@ export class UIInteractions {
     if (pointer.hovered && pointer.hovered !== this.hoveredButton) this.pending.push({ type: "hover", target: pointer.hovered });
     this.hoveredButton = pointer.hovered;
     this.pressedButton = pointer.pressed;
+    this.hoveredText = pointer.hoveredText ?? NONE;
+    this.pressedText = pointer.pressedText ?? NONE;
     this.stamp(this.world.time.frameCount + 1);
     // ADR 0422: the routing's records first (keys and the pointer), then what was recorded since the last routing.
     this.records.push(...records, ...this.pendingRecords);
@@ -171,6 +181,7 @@ export class UIInteractions {
   idle(): void {
     this.hoveredButton = null;
     this.pressedButton = null;
+    this.hoveredText = this.pressedText = NONE;
     this.pending = [];
     this.pendingRecords = [];
     this.requests = [];
@@ -223,6 +234,16 @@ export class UIInteractions {
 
   isPressed(button: UIButton): boolean {
     return this.pressedButton === button;
+  }
+
+  /** ADR 0428: a text element or inline run is under the pointer (its `:hover`): the pointer's target or one it's inside. */
+  isTextHovered(c: UIComponentType): boolean {
+    return this.hoveredText.has(c);
+  }
+
+  /** ADR 0428: a text element or inline run was pressed in and the button is still held (its `:active`). */
+  isTextPressed(c: UIComponentType): boolean {
+    return this.pressedText.has(c);
   }
 
   isFocused(target: UIFocusableElement): boolean {

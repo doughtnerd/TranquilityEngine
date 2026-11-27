@@ -17,17 +17,17 @@ import { devices, type InputClaim, type PointerFrame } from "../input/devices";
 import { UIButton, UICanvas, UIImage, UIInputField, UIOption, UISelect, UISlider, UIText, UITextArea, isFocusableUI, type UIComponentType, type UIFocusableElement } from "./components";
 import { uiClickRecord, controlChanged, formOf, optionsOf, rememberDefaults, selectLabels, setSelectOpen, sliderValue, stepNumberField, submitForm } from "./formControls";
 import { formPartsOf, partsKey } from "./formParts";
-import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInteractiveKind, isLeafKind, isRaycastTarget, isUserScroller, overflowAxes, sameTextMeasure, sameTextRun, textRunOf, uiKindOf, userScrollsAxis } from "./elementKinds";
+import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInlineAtom, isInteractiveKind, isLeafKind, isRaycastTarget, isUserScroller, overflowAxes, sameTextMeasure, sameTextRun, textRunOf, uiKindOf, userScrollsAxis, type UIInlineAtomSizes } from "./elementKinds";
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
 import { canvasScale, estimateText, inRect, intersectRect, isMixedLength, loadYogaOnce, loadedYoga, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
-import type { UIInlineEditing, UIInlineRun, TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPart, UIPickRay, UIScrollbar, UIScrollInfo, UIScrollSnap, UIScrollSnapArea } from "./uiCoreTypes";
+import type { UIInlineAtomSize, UIInlineEditing, UIInlineRun, TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPart, UIPickRay, UIScrollbar, UIScrollInfo, UIScrollSnap, UIScrollSnapArea } from "./uiCoreTypes";
 import { fireUIEvent, uiDomCode, uiDomKey, uiEventRecord, UIDataTransfer, type UIEventData, type UIEventRecord } from "./events";
 import { advanceUIScrolling, canMove, uiEndScrollGesture, uiResnap, uiScrollBy, uiScrollMoving, uiScrollTo, uiStopScrolling, uiWheelScroll, type UIScrollable } from "./scrolling";
 import { applyAffine, boundsOf, compose, invert, localTransform, multiply, transformRect, type UIAffine, type UITransformFields } from "./transform2d";
 import { filterStepsOf, transformFilterSteps, type UIFilterFields, type UIFilterStep } from "./filters";
-import { caretAt, indexAt, inlineFont, layoutInline, selectionRects, type RunMeasure, type UIInlineLayout } from "./text/inlineLayout";
+import { INLINE_ASCENT, INLINE_DESCENT, caretAt, indexAt, inlineFont, layoutInline, selectionRects, type RunMeasure, type UIInlineLayout } from "./text/inlineLayout";
 import { applyInlineEdit } from "./text/inlineEdit";
 
 export { canvasScale, uiLength } from "./layout";
@@ -135,6 +135,11 @@ interface Entry {
   inlineFor?: { run: UITextRun; width: number; inset: string };
   /** ADR 0425: its runs' fragments in canvas UI pixels (layout space): what hit-testing resolves a point on the text to. */
   inlineHits?: { x: number; y: number; width: number; height: number; owner: Entry | null }[];
+  /** ADR 0428: an atomic inline box: the text whose lines it's on (null otherwise), and its margin box's size and baseline at its last layout. */
+  atomOf?: Entry | null;
+  atomSize?: UIInlineAtomSize | null;
+  /** ADR 0428: a text's atomic inline boxes (inside its runs too), from the last sync. */
+  atoms?: Entry[];
   /** ADR 0425: a text's inline runs (every inline descendant), from the last sync. */
   inlineRuns?: Entry[];
 }
@@ -153,6 +158,14 @@ interface EditState {
   shownFor: UIInlineLayout | null;
   shownAnchor: number;
   shownFocus: number;
+}
+
+/** What a sync's walk of a canvas's nodes carries (`UICore.collect`). */
+interface CollectWalk {
+  readonly canvas: CanvasEntry;
+  readonly byNode: Map<number, UIComponentType>;
+  readonly placed: Set<Entry>;
+  readonly desired: Map<Entry, Entry[]>;
 }
 
 /** ADR 0425: the element events go up to from `e`: an inline run's text or inline element, else its Yoga parent. */
@@ -205,7 +218,7 @@ function paintOrder(root: Entry): Entry[] {
   const group = (g: Entry) => {
     const members: Entry[] = [];
     const gather = (p: Entry) => {
-      for (const c of p.children) {
+      for (const c of p.atoms?.length ? [...p.children, ...p.atoms] : p.children) {
         members.push(c);
         if (!stacks(c)) gather(c);
       }
@@ -300,6 +313,13 @@ function openSelectAbove(e: Entry): Entry | null {
 function pathOf(e: Entry): Entry[] {
   const out: Entry[] = [];
   for (let at: Entry | null = e; at && at.kind !== "canvas"; at = up(at)) out.push(at);
+  return out;
+}
+
+/** ADR 0428: the text elements and inline runs at or above `e` (what `:hover` and `:active` apply to). */
+function textsOn(e: Entry | null): ReadonlySet<UIComponentType> | undefined {
+  let out: Set<UIComponentType> | undefined;
+  for (let at = e; at && at.kind !== "canvas"; at = up(at)) if (at.kind === "text") (out ??= new Set()).add(at.comp);
   return out;
 }
 
@@ -531,7 +551,9 @@ export class UICore implements UICoreLike {
     this.attach(desired);
 
     // Properties and layout.
-    for (const entry of this.entries.values()) if (entry.canvas && !entry.inlineIn) this.applyProperties(yoga, entry);
+    // ADR 0428: an atomic inline box is laid out (it's a run of its text only by its size).
+    for (const entry of this.entries.values()) if (entry.canvas && (!entry.inlineIn || entry.atomOf)) this.applyProperties(yoga, entry);
+    this.layoutAtoms(yoga);
     const canvases = [...this.canvasEntries.values()].sort((a, b) => a.comp.sortOrder - b.comp.sortOrder);
     for (const canvas of canvases) {
       this.applyCanvas(canvas);
@@ -667,66 +689,92 @@ export class UICore implements UICoreLike {
   private collect(node: GameObject, parent: Entry, canvas: CanvasEntry, byNode: Map<number, UIComponentType>, placed: Set<Entry>, desired: Map<Entry, Entry[]>): void {
     const root: Entry[] = [];
     desired.set(parent, root);
-    const walk = (n: GameObject, into: Entry, list: Entry[], leaf?: Entry) => {
-      for (const child of n.children) {
-        if (child.isComponentNode) continue; // its component counts as its owner's (ADR 0009)
-        const c = byNode.get(child.entity);
-        if (!c) {
-          walk(child, into, list, leaf);
+    this.walkUI({ canvas, byNode, placed, desired }, node, root);
+  }
+
+  /**
+   * Walk `n`'s descendants in order into `list` (their Yoga parent's children), skipping nodes without a UI component;
+   * `leaf` is the leaf element they're under (its children join its parent's list), if any.
+   */
+  private walkUI(w: CollectWalk, n: GameObject, list: Entry[], leaf?: Entry): void {
+    for (const child of n.children) {
+      if (child.isComponentNode) continue; // its component counts as its owner's (ADR 0009)
+      const c = w.byNode.get(child.entity);
+      if (!c) {
+        this.walkUI(w, child, list, leaf);
+        continue;
+      }
+      if (c instanceof UICanvas) continue; // a nested canvas is a root of its own
+      const entry = this.entries.get(c)!;
+      entry.canvas = w.canvas;
+      w.placed.add(entry);
+      entry.inlineIn = null;
+      entry.atomOf = null;
+      if (leaf?.kind === "text") {
+        // ADR 0428: an inline block, a control, an SVG or media element in a text is an atomic inline box of it.
+        if (isInlineAtom(c)) {
+          this.collectAtom(w, child, entry, leaf, leaf);
           continue;
         }
-        if (c instanceof UICanvas) continue; // a nested canvas is a root of its own
-        const entry = this.entries.get(c)!;
-        entry.canvas = canvas;
-        placed.add(entry);
-        entry.inlineIn = null;
         // ADR 0425: a text's inline children (texts and images, nested ones too) are its runs: no boxes of their own.
-        if (leaf?.kind === "text" && (c instanceof UIText || c instanceof UIImage)) {
-          this.collectInline(child, entry, leaf, leaf, canvas, byNode, placed, desired);
+        if (c instanceof UIText || c instanceof UIImage) {
+          this.collectInline(w, child, entry, leaf, leaf);
           continue;
-        }
-        if (leaf) {
-          this.warnOnce(`leaf|${child.entity}`, `UI element "${child.name}" is under a ${leaf.comp.constructor.name}, which can't have children; it lays out beside it instead.`);
-        }
-        list.push(entry);
-        if (isLeafKind(entry.kind)) {
-          desired.set(entry, []);
-          entry.inlineRuns = [];
-          walk(child, into, list, entry); // children of a leaf join its parent
-        } else {
-          const own: Entry[] = [];
-          desired.set(entry, own);
-          walk(child, entry, own);
         }
       }
-    };
-    walk(node, parent, root);
+      if (leaf) {
+        this.warnOnce(`leaf|${child.entity}`, `UI element "${child.name}" is under a ${leaf.comp.constructor.name}, which can't have children; it lays out beside it instead.`);
+      }
+      list.push(entry);
+      this.collectChildren(w, child, entry, list);
+    }
+  }
+
+  /** An element's own children: a leaf's join `list` (its parent's), a container's are its own. */
+  private collectChildren(w: CollectWalk, node: GameObject, entry: Entry, list: Entry[]): void {
+    if (isLeafKind(entry.kind)) {
+      w.desired.set(entry, []);
+      entry.inlineRuns = [];
+      entry.atoms = [];
+      this.walkUI(w, node, list, entry); // children of a leaf join its parent
+    } else {
+      const own: Entry[] = [];
+      w.desired.set(entry, own);
+      this.walkUI(w, node, own);
+    }
+  }
+
+  /**
+   * ADR 0428: an atomic inline box `entry` (on `node`) inside `within` (its text or an inline element) on `text`'s lines:
+   * events go up through `within`; its Yoga node is a root of its own, its subtree laid out in it, and its size a run of the text.
+   */
+  private collectAtom(w: CollectWalk, node: GameObject, entry: Entry, within: Entry, text: Entry): void {
+    entry.inlineIn = within;
+    entry.atomOf = text;
+    (text.atoms ??= []).push(entry);
+    this.collectChildren(w, node, entry, []);
   }
 
   /** ADR 0425: an inline run `entry` (on `node`) inside `within` (its text or an inline element), and its own inline descendants. */
-  private collectInline(node: GameObject, entry: Entry, within: Entry, text: Entry, canvas: CanvasEntry, byNode: Map<number, UIComponentType>, placed: Set<Entry>, desired: Map<Entry, Entry[]>): void {
+  private collectInline(w: CollectWalk, node: GameObject, entry: Entry, within: Entry, text: Entry): void {
     entry.inlineIn = within;
     (text.inlineRuns ??= []).push(entry);
-    desired.set(entry, []);
+    w.desired.set(entry, []);
     const walk = (n: GameObject) => {
       for (const child of n.children) {
         if (child.isComponentNode) continue;
-        const c = byNode.get(child.entity);
+        const c = w.byNode.get(child.entity);
         if (!c) {
           walk(child);
           continue;
         }
         if (c instanceof UICanvas) continue;
         const e = this.entries.get(c)!;
-        e.canvas = canvas;
-        placed.add(e);
-        if (c instanceof UIText || c instanceof UIImage) this.collectInline(child, e, entry, text, canvas, byNode, placed, desired);
-        else {
-          e.inlineIn = null;
-          desired.set(e, []);
-          this.warnOnce(`inline|${child.entity}`, `UI element "${child.name}" is inside a text run; only text and images are runs, so it isn't shown.`);
-          e.canvas = null;
-        }
+        e.canvas = w.canvas;
+        w.placed.add(e);
+        e.atomOf = null;
+        if (isInlineAtom(c)) this.collectAtom(w, child, e, entry, text);
+        else this.collectInline(w, child, e, entry, text);
       }
     };
     walk(node);
@@ -846,22 +894,92 @@ export class UICore implements UICoreLike {
     // ADR 0428: `direction` (null inherits, Yoga's own inheritance from the canvas's LTR).
     if (put(36, (v = c.direction === "rtl" ? yoga.DIRECTION_RTL : c.direction === "ltr" ? yoga.DIRECTION_LTR : yoga.DIRECTION_INHERIT))) n.setDirection(v as never);
 
-    // The text run is the measure's dirty signature: a changed run, or a font arriving (which changes
-    // every text's size), measures again. An unchanged run keeps its object, so `elements()` compare it by identity.
-    if (entry.run) {
-      const run = textRunOf(c)!;
-      const epoch = fontEpoch();
-      // ADR 0424: a select's size follows every option's label, a text area's its rows.
-      const key = entry.kind === "select" ? selectLabels(c as UISelect).join("\u0000") : entry.kind === "textarea" ? String((c as UITextArea).rows) : undefined;
-      if (!sameTextRun(run, entry.run) || epoch !== entry.measuredEpoch || key !== entry.measureKey) {
-        // ADR 0425: runs that changed only colour, decoration or background (a link's hover) are drawn again, not measured.
-        const remeasure = !sameTextMeasure(run, entry.run) || epoch !== entry.measuredEpoch || key !== entry.measureKey;
-        entry.run = run;
-        entry.measuredEpoch = epoch;
-        entry.measureKey = key;
-        if (remeasure) n.markDirty();
-      }
+    if (entry.run) this.updateRun(entry);
+  }
+
+  /**
+   * The text run is the measure's dirty signature: a changed run, or a font arriving (which changes every text's size),
+   * measures again. An unchanged run keeps its object, so `elements()` compare it by identity.
+   */
+  private updateRun(entry: Entry): void {
+    const c = entry.comp;
+    const run = textRunOf(c, this.atomSizes)!;
+    const epoch = fontEpoch();
+    // ADR 0424: a select's size follows every option's label, a text area's its rows.
+    const key = entry.kind === "select" ? selectLabels(c as UISelect).join("\u0000") : entry.kind === "textarea" ? String((c as UITextArea).rows) : undefined;
+    if (!sameTextRun(run, entry.run) || epoch !== entry.measuredEpoch || key !== entry.measureKey) {
+      // ADR 0425: runs that changed only colour, decoration or background (a link's hover) are drawn again, not measured.
+      const remeasure = !sameTextMeasure(run, entry.run) || epoch !== entry.measuredEpoch || key !== entry.measureKey;
+      entry.run = run;
+      entry.measuredEpoch = epoch;
+      entry.measureKey = key;
+      if (remeasure) entry.node.markDirty();
     }
+  }
+
+  /** ADR 0428: atomic inline boxes' sizes, from their own layouts, for their texts' runs. */
+  private readonly atomSizes: UIInlineAtomSizes = (c) => this.entries.get(c)?.atomSize ?? null;
+
+  /**
+   * ADR 0428: lay every atomic inline box out in its own Yoga tree at its content's size (CSS's shrink-to-fit with room to
+   * spare), innermost first, each text holding atoms taking their sizes into its runs before the box it's in is laid out.
+   */
+  private layoutAtoms(yoga: Yoga): void {
+    const items: { e: Entry; depth: number }[] = [];
+    const depthOf = (e: Entry) => {
+      let d = 0;
+      for (let at: Entry | null = e; at && at.kind !== "canvas"; at = up(at)) d++;
+      return d;
+    };
+    for (const e of this.entries.values()) {
+      if (!e.canvas) continue;
+      if (e.atomOf) items.push({ e, depth: depthOf(e) });
+      else if (e.kind === "text" && e.atoms?.length && e.run) items.push({ e, depth: depthOf(e) });
+    }
+    if (!items.length) return;
+    items.sort((a, b) => b.depth - a.depth);
+    for (const { e } of items) {
+      if (!e.atomOf) {
+        this.updateRun(e);
+        continue;
+      }
+      const n = e.node;
+      n.calculateLayout(undefined, undefined, yoga.DIRECTION_LTR);
+      const margin = (edge: number) => (Number.isFinite(n.getComputedMargin(edge)) ? n.getComputedMargin(edge) : 0);
+      const ml = margin(yoga.EDGE_LEFT), mr = margin(yoga.EDGE_RIGHT), mt = margin(yoga.EDGE_TOP), mb = margin(yoga.EDGE_BOTTOM);
+      const w = n.getComputedWidth(), h = n.getComputedHeight();
+      const shown = e.comp.isActiveAndEnabled && (e.comp as { display?: string }).display !== "none";
+      const size = shown ? { width: w + ml + mr, height: h + mt + mb, baseline: mt + this.atomBaseline(e, h, mb) } : { width: 0, height: 0, baseline: 0 };
+      const was = e.atomSize;
+      if (!was || was.width !== size.width || was.height !== size.height || was.baseline !== size.baseline) e.atomSize = size;
+    }
+  }
+
+  /**
+   * ADR 0428: an atomic inline box's baseline, down from its border box's top: its last line of text's (a text, a
+   * button's label, a field's value: the last such element in it), or its bottom margin edge when it has none or doesn't
+   * show its overflow (as CSS's inline blocks; an image, an SVG, a video, a checkbox).
+   */
+  private atomBaseline(atom: Entry, height: number, marginBottom: number): number {
+    const yoga = this.yoga!;
+    const bottom = height + marginBottom;
+    if (clipsChildren(atom.comp)) return bottom;
+    const find = (e: Entry, oy: number): number | null => {
+      for (let i = e.children.length - 1; i >= 0; i--) {
+        const ch = e.children[i];
+        if (!ch.comp.isActiveAndEnabled || (ch.comp as { display?: string }).display === "none") continue;
+        const found = find(ch, oy + ch.node.getComputedTop());
+        if (found !== null) return found;
+      }
+      const run = e.run;
+      if (!run) return null;
+      const n = e.node;
+      const side = (edge: number) => (Number.isFinite(n.getComputedPadding(edge)) ? n.getComputedPadding(edge) : 0) + (Number.isFinite(n.getComputedBorder(edge)) ? n.getComputedBorder(edge) : 0);
+      const fs = run.fontSize, lh = fs * run.lineHeight;
+      const contentBottom = n.getComputedHeight() - side(yoga.EDGE_BOTTOM);
+      return oy + contentBottom - (lh - (INLINE_ASCENT + INLINE_DESCENT) * fs) / 2 - INLINE_DESCENT * fs;
+    };
+    return find(atom, 0) ?? bottom;
   }
 
   /** ADR 0425: a string's width in a run's font: the host's exact measure, else an estimate (Node). */
@@ -875,7 +993,7 @@ export class UICore implements UICoreLike {
 
   /** ADR 0425: a text run with inline runs laid out at `maxWidth` (and aligned in `alignWidth`). */
   private layoutRuns(run: UITextRun, maxWidth: number, alignWidth?: number): UIInlineLayout {
-    return layoutInline(run.runs!, { maxWidth: run.wrap === "none" ? Infinity : maxWidth, alignWidth, wrap: run.wrap, lineHeight: run.lineHeight, align: run.align, direction: run.direction, fontSize: run.fontSize, keepTrailingBreak: !!run.editable }, this.runWidth);
+    return layoutInline(run.runs!, { maxWidth: run.wrap === "none" ? Infinity : maxWidth, alignWidth, wrap: run.wrap, lineHeight: run.lineHeight, align: run.align, direction: run.direction, fontSize: run.fontSize, keepTrailingBreak: !!run.editable, boxes: run.boxes }, this.runWidth);
   }
 
   /** An entry's content box size at its last layout (a canvas's own size): what its children's percentages are of. */
@@ -925,11 +1043,15 @@ export class UICore implements UICoreLike {
     const cv = canvas.comp.isActiveAndEnabled;
     canvas.box = { x: 0, y: 0, width: canvas.width, height: canvas.height, visible: cv, opacity: 1 };
     const yoga = this.yoga!;
-    const walk = (parent: Entry, ox: number, oy: number, visible: boolean, opacity: number, clip: UIRect | null, clipper: Entry | null, clips: readonly ClipStep[], reachClips: readonly ClipStep[], parentTransform: UIAffine | null, parentFilter: readonly UIFilterStep[] | null) => {
-      for (const e of parent.children) {
+    type Walk = (visible: boolean, opacity: number, clip: UIRect | null, clipper: Entry | null, clips: readonly ClipStep[], reachClips: readonly ClipStep[], parentTransform: UIAffine | null, parentFilter: readonly UIFilterStep[] | null) => void;
+    const walk = (parent: Entry, ox: number, oy: number, ...rest: Parameters<Walk>) => {
+      for (const e of parent.children) visit(e, ox + e.node.getComputedLeft(), oy + e.node.getComputedTop(), ...rest);
+    };
+    /** One element, its border box at `x`, `y` (canvas UI pixels, layout space), then its children. */
+    const visit = (e: Entry, x: number, y: number, ...[visible, opacity, clip, clipper, clips, reachClips, parentTransform, parentFilter]: Parameters<Walk>): void => {
+      {
         const c = e.comp as Exclude<UIComponentType, UICanvas>;
         const n = e.node;
-        const x = ox + n.getComputedLeft(), y = oy + n.getComputedTop();
         const v = visible && c.isActiveAndEnabled && c.visible && c.display !== "none";
         const o = opacity * c.opacity;
         const width = n.getComputedWidth(), height = n.getComputedHeight();
@@ -962,13 +1084,19 @@ export class UICore implements UICoreLike {
           const below = y + height;
           const top = below + lh > canvas.height && y - lh >= 0 ? y - lh : below;
           walk(e, x - list.getComputedLeft(), top - list.getComputedTop(), v && (c as UISelect).open, o, null, null, [], [], transform, filter);
-          continue;
+          return;
         }
         // ADR 0423: its children are drawn moved by its scroll; only a clip that doesn't scroll keeps navigation out.
         const sx = scroll?.x ?? 0, sy = scroll?.y ?? 0;
         const nextClips = childClip ? withClip(clips, childClip, transform, inverse) : clips;
         const nextReach = childClip && !isUserScroller(c) ? withClip(reachClips, childClip, transform, inverse) : reachClips;
-        walk(e, x - sx, y - sy, v, o, childClip ? intersectRect(childClip, clip) : clip, childClip ? e : clipper, nextClips, nextReach, transform, filter);
+        const inner: Parameters<Walk> = [v, o, childClip ? intersectRect(childClip, clip) : clip, childClip ? e : clipper, nextClips, nextReach, transform, filter];
+        // ADR 0428: a text's atomic inline boxes, where its lines put them (each its own laid-out subtree), as its children.
+        for (const atom of e.kind === "text" ? (e.atoms ?? []) : []) {
+          const at = this.atomPlace(e, atom);
+          if (at) visit(atom, at.x, at.y, ...inner);
+        }
+        walk(e, x - sx, y - sy, ...inner);
       }
     };
     walk(canvas, 0, 0, cv, 1, null, null, [], [], null, null);
@@ -978,6 +1106,23 @@ export class UICore implements UICoreLike {
     if (lists.length) canvas.painted = [...canvas.painted.filter((e) => !lists.includes(e)), ...lists];
     canvas.painted.forEach((e, i) => (e.place.order = i));
     canvas.hitOrder = hitOrderOf(canvas.painted);
+  }
+
+  /** ADR 0428: where an atomic inline box's border box goes on its text's lines (canvas UI pixels), or null when it's on none. */
+  private atomPlace(text: Entry, atom: Entry): { x: number; y: number } | null {
+    const laid = text.inline, runs = text.run?.runs;
+    if (!laid || !runs) return null;
+    const yoga = this.yoga!;
+    const inset = laid.inset ?? { x: 0, y: 0 };
+    for (const line of laid.lines) {
+      for (const f of line.fragments) {
+        if (runs[f.run].owner !== atom.comp || !runs[f.run].atom) continue;
+        const n = atom.node;
+        const margin = (edge: number) => (Number.isFinite(n.getComputedMargin(edge)) ? n.getComputedMargin(edge) : 0);
+        return { x: text.box.x + inset.x + f.x + margin(yoga.EDGE_LEFT), y: text.box.y + inset.y + f.top + margin(yoga.EDGE_TOP) };
+      }
+    }
+    return null;
   }
 
   /**
@@ -1021,6 +1166,22 @@ export class UICore implements UICoreLike {
         }
       }
     }
+    // ADR 0428: an inline box's parts (its padding and border, past its glyphs) are its element's too, hit after the
+    // fragments inside them (inner boxes before the boxes they're in).
+    const boxHits: (typeof hits)[number][] = [];
+    for (const line of laid.lines) {
+      for (const part of line.boxes ?? []) {
+        const owner = this.entries.get(run.boxes![part.box].owner) ?? null;
+        if (!owner) continue;
+        const rect = { x: ox + part.x, y: oy + part.top, width: part.width, height: part.height };
+        boxHits.push({ ...rect, owner });
+        for (let at: Entry | null = owner; at && at !== e; at = at.inlineIn ?? null) {
+          const b = boxes.get(at);
+          boxes.set(at, b ? unionRect(b, rect) : rect);
+        }
+      }
+    }
+    for (let i = boxHits.length - 1; i >= 0; i--) hits.push(boxHits[i]);
     e.inlineHits = hits;
     for (const re of e.inlineRuns ?? []) {
       const rect = boxes.get(re) ?? { x: ox, y: oy, width: 0, height: 0 };
@@ -1675,7 +1836,9 @@ export class UICore implements UICoreLike {
       }
     }
 
-    log.route({ hovered: usable(hit) ? (hit.comp as UIButton) : null, pressed: (this.pressed?.comp as UIButton | undefined) ?? null, clicked }, records);
+    // ADR 0428: text elements and runs on the hovered path are `:hover`; on the pressed path while held, `:active`.
+    const heldOn = raw.held(0) ? live(this.pressTarget) : null;
+    log.route({ hovered: usable(hit) ? (hit.comp as UIButton) : null, pressed: (this.pressed?.comp as UIButton | undefined) ?? null, clicked, hoveredText: textsOn(live(this.hoverTarget)), pressedText: textsOn(heldOn) }, records);
 
     const focused = log.focused;
     const typing = focused instanceof UIInputField && focused.typing;

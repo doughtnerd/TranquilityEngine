@@ -293,8 +293,8 @@ describe("UICore layout", () => {
   it("warns once about children of a leaf and lays them out beside it", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const canvas = node("Canvas", null, UICanvas);
-    const text = node("Label", canvas.node, UIText, { text: "Hi", width: 40, height: 20 } as Partial<UIText>);
-    // A text's children are its inline runs when rendered (ADR 0425); a script moving a panel's node under it makes one.
+    const text = node("Label", canvas.node, UIImage, { width: 40, height: 20 } as Partial<UIImage>);
+    // An image has no children (ADR 0428: under a text, a panel would be an atomic inline box of it); a script moving a panel under one makes one.
     const child = node("Child", canvas.node, UIPanel, { width: 30, height: 30 } as Partial<UIPanel>);
     child.node.setParent(text.node);
     const c = await core();
@@ -467,7 +467,11 @@ describe("UICore text", () => {
     text.text = "abcdefgh";
     sync(c);
     expect(c.rectOf(text)!.width).toBeCloseTo(0.55 * 10 * 8);
+    // ADR 0428: a line break shows only where `white-space` keeps it (HTML's default collapses it to a space).
     text.text = "ab\ncd";
+    sync(c);
+    expect(c.rectOf(text)!.height).toBeCloseTo(12);
+    text.whiteSpaceCollapse = "preserve-breaks";
     sync(c);
     expect(c.rectOf(text)!.height).toBeCloseTo(24);
   });

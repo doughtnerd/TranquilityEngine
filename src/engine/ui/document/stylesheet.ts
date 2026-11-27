@@ -186,7 +186,7 @@ const READ_AS_TEXT: ReadonlySet<string> = new Set([
   "has",
 ]);
 
-const SUPPORTED = ":hover, :pressed, :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), the -of-type forms, :empty, :root and :has()";
+const SUPPORTED = ":hover, :pressed (or :active), :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), the -of-type forms, :empty, :root and :has()";
 
 function parseSelector(sel: CssSelector, source: string, report: Report): Selector | null {
   const parts: { selector: SimpleSelector; combinator: Combinator | null }[] = [];
@@ -242,6 +242,7 @@ function parseSelector(sel: CssSelector, source: string, report: Report): Select
       case "PseudoClassSelector": {
         const name = n.name.toLowerCase();
         if (PSEUDO.has(name)) compound().pseudo.push(name as UIPseudo);
+        else if (name === "active") compound().pseudo.push("pressed"); // ADR 0428: CSS's name for the engine's `:pressed`
         else if (READ_AS_TEXT.has(name)) readText(s, e);
         else if (name === "is" || name === "where") {
           const group = parseSelectorGroup(n, source, report);

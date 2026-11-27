@@ -62,7 +62,7 @@ import { fontEpoch, onFontLoaded } from "../../ui/fonts";
 import { uiInteractions } from "../../ui/interactions";
 import { uiBorderEdges, uiEdges } from "../../ui/layout";
 import { wrapLine, wrapText, type LineBreakMode } from "../../ui/text/lineBreak";
-import type { TextMeasureRequest, UICoreLike, UIInlineEditing, UIInlineRun, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
+import type { TextMeasureRequest, UICoreLike, UIInlineBox, UIInlineEditing, UIInlineRun, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
 import { INLINE_ASCENT, inlineFont, type UIInlineLayout } from "../../ui/text/inlineLayout";
 import { flipRows, redrawnPixels, type PixelRect } from "../pixelRegions";
 import { linearGradientLine, parseBackgroundImage, radialGradientCircle, type PaintBox, type UIBackgroundImage } from "../../ui/document/paintValues";
@@ -414,16 +414,18 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
    * ADR 0425: inline runs to draw instead of the block's own text: the core's layout (lines and fragments, from the content
    * box's corner `inset`), the runs, and an editable text's caret and selection. Null: plain text, drawn by Babylon.
    */
-  inline: { layout: UIInlineLayout; runs: readonly UIInlineRun[]; editing: UIInlineEditing | null } | null = null;
+  inline: { layout: UIInlineLayout; runs: readonly UIInlineRun[]; boxes: readonly UIInlineBox[]; editing: UIInlineEditing | null } | null = null;
   /** ADR 0425: an inline image's picture by texture path (null while it loads). */
   inlineImage: (src: string) => CanvasImageSource | null = () => null;
+  /** ADR 0428: the element's own border (widths top, right, bottom, left in UI pixels), its colour and corner radius; null: none. */
+  boxBorder: { readonly widths: readonly [number, number, number, number]; readonly color: string } | null = null;
+  boxRadius = 0;
 
   override _draw(context: ICanvasRenderingContext): void {
-    if (this.boxBackground) {
+    if (this.boxBackground || this.boxBorder) {
       const m = this._currentMeasure;
       context.save();
-      context.fillStyle = this.boxBackground;
-      context.fillRect(m.left, m.top, m.width, m.height);
+      paintInlineBox(context, m.left, m.top, m.width, m.height, this.boxBackground, this.boxBorder?.widths ?? NO_BORDER, this.boxBorder?.color ?? "", this.boxRadius, true, true);
       context.restore();
     }
     if (!this.inline) return super._draw(context);
@@ -442,6 +444,13 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
     const m = this._currentMeasure;
     const { layout, runs, editing } = inline;
     const ox = m.left + (layout.inset?.x ?? 0), oy = m.top + (layout.inset?.y ?? 0);
+    // ADR 0428: inline boxes (outer ones first), each line's part with its sides where the box starts and ends.
+    for (const line of layout.lines) {
+      for (const part of line.boxes ?? []) {
+        const b = inline.boxes[part.box];
+        if (b) paintInlineBox(context, ox + part.x, oy + part.top, part.width, part.height, b.background, b.border, b.borderColor, b.radius, part.left, part.right);
+      }
+    }
     for (const r of editing?.selection ?? []) {
       context.fillStyle = SELECTION_COLOR;
       context.fillRect(ox + r.x, oy + r.y, r.width, r.height);
@@ -471,6 +480,7 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
           if (picture) context.drawImage(picture, x, oy + f.top, f.width, f.height);
           continue;
         }
+        if (r.atom) continue; // ADR 0428: an atomic inline box is an element of its own, drawn as itself
         context.font = inlineFont(r);
         context.fillStyle = r.color;
         if (this.outlineWidth) context.strokeText(f.text, x, oy + f.baseline);
@@ -496,6 +506,60 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
 
 /** ADR 0425: an editable text's selection, painted under its glyphs. */
 const SELECTION_COLOR = "rgba(80, 140, 255, 0.45)";
+
+const NO_BORDER = [0, 0, 0, 0] as const;
+const NO_BOXES: readonly UIInlineBox[] = [];
+
+/** A rectangle's outline with each corner's radius (clockwise from the top left), as a path. */
+function roundedPath(context: ICanvasRenderingContext, x: number, y: number, w: number, h: number, r: readonly [number, number, number, number]): void {
+  const ctx = context as unknown as CanvasRenderingContext2D;
+  const max = Math.min(w, h) / 2;
+  const [tl, tr, br, bl] = r.map((v) => Math.max(0, Math.min(v, max)));
+  ctx.beginPath();
+  ctx.moveTo(x + tl, y);
+  ctx.lineTo(x + w - tr, y);
+  if (tr) ctx.arcTo(x + w, y, x + w, y + tr, tr);
+  ctx.lineTo(x + w, y + h - br);
+  if (br) ctx.arcTo(x + w, y + h, x + w - br, y + h, br);
+  ctx.lineTo(x + bl, y + h);
+  if (bl) ctx.arcTo(x, y + h, x, y + h - bl, bl);
+  ctx.lineTo(x, y + tl);
+  if (tl) ctx.arcTo(x, y, x + tl, y, tl);
+  ctx.closePath();
+}
+
+/**
+ * ADR 0428: a box's background and border in its border box: a text's own, or one line's part of an inline box, whose
+ * left and right sides (and their corners) are drawn only where `left`/`right` say (a box broken across lines is sliced).
+ * Borders are filled per side; with rounded corners and one width all round, the border is stroked along the curve.
+ */
+function paintInlineBox(ctx: ICanvasRenderingContext, x: number, y: number, w: number, h: number, background: string | null, border: readonly [number, number, number, number], color: string, radius: number, left: boolean, right: boolean): void {
+  const [bt, br, bb, bl] = [border[0], right ? border[1] : 0, border[2], left ? border[3] : 0];
+  const corners: [number, number, number, number] = [left ? radius : 0, right ? radius : 0, right ? radius : 0, left ? radius : 0];
+  const rounded = radius > 0;
+  if (background) {
+    ctx.fillStyle = background;
+    if (rounded) {
+      roundedPath(ctx, x, y, w, h, corners);
+      ctx.fill();
+    } else ctx.fillRect(x, y, w, h);
+  }
+  if (!(bt || br || bb || bl) || !color) return;
+  const widths = [bt, br, bb, bl].filter((v) => v > 0);
+  if (rounded && widths.length === 4 && widths.every((v) => v === widths[0])) {
+    const half = widths[0] / 2;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = widths[0];
+    roundedPath(ctx, x + half, y + half, w - 2 * half, h - 2 * half, corners.map((c) => Math.max(0, c - half)) as [number, number, number, number]);
+    ctx.stroke();
+    return;
+  }
+  ctx.fillStyle = color;
+  if (bt) ctx.fillRect(x, y, w, bt);
+  if (bb) ctx.fillRect(x, y + h - bb, w, bb);
+  if (bl) ctx.fillRect(x, y + bt, bl, h - bt - bb);
+  if (br) ctx.fillRect(x + w - br, y + bt, br, h - bt - bb);
+}
 
 /**
  * A panel's rectangle with the paint of ADR 0418 wave 2. A Babylon gradient is placed in the texture's pixels, not the
@@ -1243,10 +1307,19 @@ export class BabylonUI {
       t.boxBackground = bg;
       t._markAsDirty();
     }
+    // ADR 0428: its own border and rounded corners.
+    const widths = uiBorderEdges(c);
+    const border = widths.some((w) => w > 0) && c.borderColor && c.borderColor.a > 0 ? { widths, color: c.borderColor.toCss() } : null;
+    if (put(t, "boxBorder", border ? `${widths.join(",")}|${border.color}|${c.borderRadius}` : `-|${c.borderRadius}`)) {
+      t.boxBorder = border;
+      t.boxRadius = Math.max(0, c.borderRadius || 0);
+      t._markAsDirty();
+    }
     const layout = el.inline ?? null, runs = el.text?.runs ?? null, editing = el.editing ?? null;
+    const boxes = el.text?.boxes ?? NO_BOXES;
     const changed = put(t, "inline", layout);
-    if (put(t, "runs", runs) || put(t, "editing", editing) || changed) {
-      t.inline = layout && runs ? { layout, runs, editing } : null;
+    if (put(t, "runs", runs) || put(t, "editing", editing) || put(t, "boxes", boxes) || changed) {
+      t.inline = layout && runs ? { layout, runs, boxes, editing } : null;
       t.inlineImage = (src) => this.inlineImageOf(src, t);
       t._markAsDirty();
     }
