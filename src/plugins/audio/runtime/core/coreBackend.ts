@@ -58,7 +58,7 @@
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioCodecs, AudioGenerators, AudioOutputDevice, AudioPacks, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioCodecs, AudioGenerators, AudioOutputDevice, AudioPacks, AudioWorldViews, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { BUS_LP_OFF_HZ, FX_MEMORY_SECONDS, readStatus, type BusConfigBuses } from "../wire.generated";
@@ -207,7 +207,7 @@ const mixerOwners = new WeakMap<Mixer, CoreBackend>();
  * (`core/assembly.ts`) through `createCoreBackend`, so no caller builds it over a hand-made host or without its clip
  * registry and background controller.
  */
-class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, AudioOutputDevice, AudioCodecs, StagedFrameHost {
+class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, AudioOutputDevice, AudioCodecs, AudioWorldViews, StagedFrameHost {
   readonly name = "core";
   /** ADR 0351 A4 (`AudioCodecs`): IMA ADPCM clips held compressed in the arena, decoded per voice (clip format 6, ABI 4.12). */
   readonly adpcmCompressed = true;
@@ -232,6 +232,10 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     return this;
   }
   get codecs(): AudioCodecs {
+    return this;
+  }
+  /** ADR 0434: which Worlds have the view (`setWorldAudible`). */
+  get worldViews(): AudioWorldViews {
     return this;
   }
   /** ADR 0351 §7 (W12): packages in the decoder, their sounds committed to the arena at load (`packHost.ts`). */

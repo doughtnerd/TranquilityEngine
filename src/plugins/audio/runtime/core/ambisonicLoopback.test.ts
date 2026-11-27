@@ -74,15 +74,14 @@ async function rig(where: Where, files: Record<string, ArrayBuffer>) {
     },
   });
   if (!audio) throw new Error("the loopback core did not load");
-  const { backend, mixer } = audio;
+  const { backend } = audio;
   const clips = backend.clips;
   const loop = audio;
   const left: number[] = [];
   const right: number[] = [];
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      audio.tick(0.003);
+      audio.mainFrame(0.003);
       const out = audio.render(4);
       left.push(...out.left);
       right.push(...out.right);

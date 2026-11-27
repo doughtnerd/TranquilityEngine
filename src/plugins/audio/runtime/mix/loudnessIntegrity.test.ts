@@ -75,8 +75,7 @@ async function rig() {
   /** `quanta` rendered with main running: frames of 4 quanta, the page's update before each render. */
   const step = async (quanta: number) => {
     for (let q = 0; q < quanta; q += 4) {
-      mixer.update(0.01);
-      audio.tick(0.01);
+      audio.mainFrame(0.01);
       audio.render(Math.min(4, quanta - q));
       await audio.settle();
     }

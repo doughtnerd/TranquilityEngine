@@ -51,13 +51,10 @@ it("a quantised volume lane moves on the beat's sample, not before (loopback)", 
     decode: () => ({ channelData: [dc] }), recovery: { now: () => 0, warn: () => {} },
   });
   if (!loop) return ctx.skip();
-  const { mixer } = loop;
   const out: number[] = [];
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
-      playlistHost().update(0.0107);
-      mixer.update(0.0107);
-      loop.tick(0.0107);
+      loop.mainFrame(0.0107);
       for (const s of loop.render(4).left) out.push(s);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }
@@ -125,14 +122,11 @@ it("a quantised pan lane moves on the beat, within one quantum (loopback)", { ti
     decode: () => ({ channelData: [dc] }), recovery: { now: () => 0, warn: () => {} },
   });
   if (!loop) return ctx.skip();
-  const { mixer } = loop;
   const left: number[] = [];
   const right: number[] = [];
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
-      playlistHost().update(0.0107);
-      mixer.update(0.0107);
-      loop.tick(0.0107);
+      loop.mainFrame(0.0107);
       const o = loop.render(4);
       for (const s of o.left) left.push(s);
       for (const s of o.right) right.push(s);

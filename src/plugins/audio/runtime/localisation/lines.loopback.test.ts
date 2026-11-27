@@ -3,7 +3,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { Assets, Audio, Engine, SceneManager } from "../../../../myco";
 import { parseLanguages } from "../../../../engine/localisation/languages";
-import { playlistHost } from "../playlists/host";
 import { closeLoopbackAudio, endAudioSession, loopbackAudio } from "../testing";
 
 const RATE = 48_000;
@@ -37,13 +36,10 @@ it("a line heard in French renders the French file, in English the English one (
   });
   expect(loop).not.toBeNull();
   if (!loop) return;
-  const { mixer } = loop;
   const render = async (n: number): Promise<number> => {
     let peak = 0;
     for (let f = 0; f < n; f++) {
-      playlistHost().update(0.0107);
-      mixer.update(0.0107);
-      loop.tick(0.0107);
+      loop.mainFrame(0.0107);
       for (const s of loop.render(4).left) peak = Math.max(peak, Math.abs(s));
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }

@@ -22,7 +22,7 @@ describe("loop programs on the core (ADR 0342)", () => {
   it("plays a ping-pong loop for its count, parks nowhere, and lets a held loop go at the key-off", async () => {
     const loop0 = await loopbackAudio({ mixer: "own", preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 }, decode: () => ({ channelData: [ramp] }) });
     if (!loop0) return; // the wasm isn't built here
-    const { backend, mixer } = loop0;
+    const { backend } = loop0;
     const voice = backend.play({ path: "ramp.wav", url: "", loop: false, stream: false, bus: "SFX", volume: 1, pitch: 1 })!;
     // 64 frames apart: a ping-pong loop played twice (forward to 192, back to 128, forward to 192 again), then a held loop.
     backend.automation!.setLoops(voice, 0, [
@@ -32,8 +32,7 @@ describe("loop programs on the core (ADR 0342)", () => {
     const out: number[] = [];
     let started = false;
     for (let n = 0; n < 200 && out.length < 40 * Q; n++) {
-      mixer.update(Q / RATE);
-      loop0.tick(Q / RATE);
+      loop0.mainFrame(Q / RATE);
       const q = loop0.render(1).left;
       for (let k = 0; k < 4; k++) await Promise.resolve();
       if (!started && !q.some((s) => s !== 0)) continue;
@@ -55,8 +54,7 @@ describe("loop programs on the core (ADR 0342)", () => {
     backend.automation!.setLoop(voice, 0, 0, false);
     const after: number[] = [];
     for (let n = 0; n < 12; n++) {
-      mixer.update(Q / RATE);
-      loop0.tick(Q / RATE);
+      loop0.mainFrame(Q / RATE);
       after.push(...loop0.render(1).left);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }

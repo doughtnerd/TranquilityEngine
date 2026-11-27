@@ -76,8 +76,7 @@ async function clipRig(points: { start: number; end: number } | null) {
   const out: number[] = [];
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
-      loop.mixer.update(0.003);
-      loop.tick(0.003);
+      loop.mainFrame(0.003);
       for (const s of loop.render(4).left) out.push(s);
       await Promise.resolve();
     }

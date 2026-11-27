@@ -39,8 +39,7 @@ async function rig(ducking: DuckingRule[] = []) {
     const out: number[] = [];
     const probes: { time: number; value: T }[] = [];
     for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      audio.tick(0.003);
+      audio.mainFrame(0.003);
       if (probe) probes.push({ time: mixer.time, value: probe() });
       const { left } = audio.render(4);
       for (const v of left) out.push(v);

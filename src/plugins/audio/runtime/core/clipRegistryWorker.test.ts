@@ -374,12 +374,11 @@ describe("worker-sourced clips play on the loopback host (B5)", () => {
       clipRegistry: { fetchBytes: async () => fixture(file), decodeWorker: client, nextQuantum: (cb) => void setTimeout(cb, 0) },
     });
     if (!loop) return null;
-    const { backend, mixer } = loop;
+    const { backend } = loop;
     const out: number[] = [];
     const step = async (n: number) => {
       for (let f = 0; f < n; f++) {
-        mixer.update(0.003);
-        loop.tick(0.003);
+        loop.mainFrame(0.003);
         const { left } = loop.render(4);
         for (const s of left) out.push(s);
         await new Promise((r) => setTimeout(r, 1));

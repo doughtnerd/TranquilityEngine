@@ -14,7 +14,6 @@ import { setAudioBackend, type AudioEventHandle } from "../backend";
 import { Audio } from "../index";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
-import { playlistHost } from "./host";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab/", import.meta.url));
 const RATE = 48_000;
@@ -86,8 +85,7 @@ async function render(assets: Record<string, unknown>, playlist: string, frames:
     for (let f = 0; f < frames; f++) {
       if (f === 0) h = Audio.play(playlist, { bus: "Engine" });
       if (f === releaseAt) h.release();
-      playlistHost().update(FRAME_SECONDS);
-      loop.tick(FRAME_SECONDS);
+      loop.mainFrame(FRAME_SECONDS);
       const out = loop.render(FRAME_QUANTA);
       for (let q = 0; q < FRAME_QUANTA; q++) {
         let s = 0;

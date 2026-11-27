@@ -61,7 +61,7 @@ import { assembleCore } from "./core/assembly";
 import { setAudioBackend as registerBackend } from "./backend";
 import { makeStatusBlock } from "./core/statusFixtures";
 import { ListenerFrame } from "./core/spatial";
-import { runAudioFrame } from "./audioFrame";
+import { runAudioFrame, stepAudioFrame, type AudioFrameParts, type PlaylistFrame } from "./audioFrame";
 import type { World } from "../../../engine/core/World";
 import { DecoderWasm } from "./decoder/wasm";
 import type { SpatialPrepare } from "./core/hrir";
@@ -1132,14 +1132,19 @@ export interface LoopbackAudio {
   /** Renders `quanta` quanta with no main-thread frame. */
   render(quanta: number): LoopbackOutput;
   /**
-   * ADR 0270: the backend's frame, as the audio system runs it (`runAudioFrame`: every stage, main's passes and the music
-   * plan), with the rig's listener frame (no World, no listener) and its mixer's settings; `dt` defaults to `dt`. Nothing
-   * else: no `mixer.update`, no render.
+   * ADR 0270: the backend's frame alone (`runAudioFrame`: every stage and main's passes), with the rig's listener frame (no
+   * World, no listener) and its mixer's settings; `dt` defaults to `dt`. Nothing else: no `mixer.update`, no playlists, no
+   * render. A test that drives the mixer itself uses it; one that wants the game's frame uses `mainFrame`.
    */
   tick(dt?: number): void;
   /**
-   * `frames` main-thread frames (default 1), each `mixer.update`, `tick` and, on the page mixer, the playlist runtime's
-   * `update`, then `quantaPerFrame` quanta and a few microtask turns. Returns what all of them rendered.
+   * ADR 0434: one main-thread audio frame as the audio system runs it (`stepAudioFrame`: `mixer.update`, `tick`, then, on the
+   * page mixer, the playlist runtime), with no render; `dt` defaults to `dt`.
+   */
+  mainFrame(dt?: number): void;
+  /**
+   * `frames` main-thread frames (default 1), each `mainFrame`, then `quantaPerFrame` quanta and a few microtask turns.
+   * Returns what all of them rendered.
    */
   step(frames?: number): Promise<LoopbackOutput>;
   /** A few microtask turns (clip loads, the host's promises). */
@@ -1172,18 +1177,31 @@ export interface LoopbackAudio {
   close(): Promise<void>;
 }
 
-/**
- * ADR 0270: drives `backend` one main-thread frame at a time as the audio system does (`runAudioFrame`: every stage, main's
- * passes, the music plan), with a listener frame of its own (no World and no listener, so the listener-bound passes are
- * inert) and `mixer`'s settings. Nothing else runs: no `mixer.update`, no render. The rigs' `tick` is this; a test that
- * builds its own host over `createLoopbackHost` uses it directly.
- */
-export function audioFrameDriver(backend: AudioBackend, mixer: Mixer): (dt: number) => void {
-  const frame = new ListenerFrame();
-  return (dt) => {
-    frame.set(null, 0, null, null, dt);
-    runAudioFrame(backend, frame, dt, mixer.audioSettings);
+/** A rig's two frame entries over one listener frame of its own (no World and no listener: the listener-bound passes are inert). */
+function frameDriver(backend: AudioBackend, mixer: Mixer, playlists: PlaylistFrame | null) {
+  const parts: AudioFrameParts = { mixer, playlists, backend, frame: new ListenerFrame() };
+  return {
+    /** ADR 0434: the main-thread audio frame (`stepAudioFrame`: `mixer.update`, the backend frame, the playlists). */
+    frame(dt: number): void {
+      parts.frame.set(null, 0, null, null, dt);
+      stepAudioFrame(parts, dt);
+    },
+    /** ADR 0270: the backend frame alone (`runAudioFrame`), for a test that drives the mixer itself. */
+    tick(dt: number): void {
+      parts.frame.set(null, 0, null, null, dt);
+      runAudioFrame(backend, parts.frame, dt, mixer.audioSettings);
+    },
   };
+}
+
+/**
+ * ADR 0434: drives `backend` one main-thread frame at a time as the audio system does (`stepAudioFrame`: `mixer.update`, the
+ * backend frame of ADR 0270 with every stage and main's passes, then `playlists` when given), with a listener frame of its
+ * own (no World and no listener, so the listener-bound passes are inert). No render. A test that builds its own host over
+ * `createLoopbackHost` uses it; the rigs' `mainFrame` is the same step.
+ */
+export function audioFrameDriver(backend: AudioBackend, mixer: Mixer, playlists: PlaylistFrame | null = null): (dt: number) => void {
+  return frameDriver(backend, mixer, playlists).frame;
 }
 
 /** Every loopback audio not yet closed (`closeLoopbackAudio`). */
@@ -1363,7 +1381,8 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
   };
   const quantaPerFrame = options.quantaPerFrame ?? 4;
   const dtOf = () => options.dt ?? (quantaPerFrame * QUANTUM_FRAMES) / loop.sampleRate;
-  const tick = audioFrameDriver(backend, rigMixer);
+  // ADR 0434: on the page's mixer the playlist runtime runs in the frame, as in a game; a rig on its own mixer has none.
+  const driver = frameDriver(backend, rigMixer, own ? null : { update: (dt) => playlistHost().update(dt) });
   let closed = false;
   /** Whether this rig's host is the page's and the World service was registered again to load it (`startWorld`). */
   let servesWorlds = false;
@@ -1401,15 +1420,13 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
       return dtOf();
     },
     render: (quanta) => renderQuanta(quanta),
-    tick: (dt = dtOf()) => tick(dt),
+    tick: (dt = dtOf()) => driver.tick(dt),
+    mainFrame: (dt = dtOf()) => driver.frame(dt),
     async step(frames = 1) {
       const left = new Float32Array(frames * quantaPerFrame * QUANTUM_FRAMES);
       const right = new Float32Array(left.length);
       for (let f = 0; f < frames; f++) {
-        const dt = dtOf();
-        rigMixer.update(dt);
-        tick(dt);
-        if (!own) playlistHost().update(dt);
+        driver.frame(dtOf());
         const out = renderQuanta(quantaPerFrame);
         left.set(out.left, f * out.left.length);
         right.set(out.right, f * out.right.length);
@@ -1588,7 +1605,7 @@ export interface RecordingAudio<C extends ClipRegistry = FakeClipRegistry> {
   watch(): BatchWatch;
   /** The core's STATUS reaching main: a block with every field 0 but `fields` (`makeStatusBlock`), through the link as the port delivers it. */
   status(fields?: Partial<StatusBlock>): void;
-  /** ADR 0270: the backend's frame as the audio system runs it (`runAudioFrame`, as `loopbackAudio`'s `tick`); the clock stays. */
+  /** ADR 0270: the backend's frame alone (`runAudioFrame`, as `loopbackAudio`'s `tick`); the clock stays. */
   tick(dt: number): void;
   /** One main-thread frame: the clock moves `dt` seconds (default 0.016), then `tick(dt)`. */
   frame(dt?: number): void;
@@ -1735,7 +1752,7 @@ export function recordingAudio<C extends ClipRegistry = FakeClipRegistry>(option
     endAudioSession();
     registerBackend(backend);
   }
-  const tick = audioFrameDriver(backend, rigMixer);
+  const { tick } = frameDriver(backend, rigMixer, null);
   let closed = false;
   const rig: RecordingAudio<C> = {
     backend,

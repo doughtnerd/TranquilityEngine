@@ -79,11 +79,10 @@ async function coreRig() {
     decode: (path) => ({ channelData: [CLIPS[path.replace(".wav", "") as ClipKind]] }),
   });
   if (!loop) return null;
-  const { backend, mixer } = loop;
+  const { backend } = loop;
   /** One quantum: the backend's frame work, then the core's render; the left channel. */
   const quantum = async (): Promise<Float32Array> => {
-    mixer.update(DT);
-    loop.tick(DT);
+    loop.mainFrame(DT);
     const out = loop.render(1).left;
     for (let k = 0; k < 4; k++) await Promise.resolve();
     return out;

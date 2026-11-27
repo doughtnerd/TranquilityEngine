@@ -16,7 +16,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { deflateRawSync } from "node:zlib";
-import { mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings, type BusSettings } from "../../../../engine/audio/settings";
 import type { CoreBackend } from "../core/coreBackend";
 import { loopbackAudio, type LoopbackAudio } from "../testing";
@@ -127,8 +126,7 @@ export async function s3Rig(scene: S3Scene, seed = 1): Promise<S3Rig | null> {
       return audioSeconds;
     },
     async frame(afterMain) {
-      mixer.update(FRAME_SECONDS);
-      audio.tick(FRAME_SECONDS);
+      audio.mainFrame(FRAME_SECONDS); // ADR 0434: the frame a game runs
       for (let i = 0; i < capacity; i++) {
         if (deadline[i]! <= audioSeconds) {
           handles[i]?.stop(0.005);

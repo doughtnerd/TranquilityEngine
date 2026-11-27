@@ -7,7 +7,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { Audio } from "../index";
-import { playlistHost } from "./host";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 import { embed, pl, pla, sample } from "./testKit";
 
@@ -51,9 +50,7 @@ async function rig(files: Record<string, unknown>) {
   const out: number[] = [];
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
-      playlistHost().update(FRAME);
-      loop.mixer.update(FRAME);
-      loop.tick(FRAME);
+      loop.mainFrame(FRAME);
       for (const s of loop.render(4).left) out.push(s);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }
