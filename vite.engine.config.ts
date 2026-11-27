@@ -10,6 +10,7 @@ import { typescriptTranspile } from "./vite.shared.ts";
 const BESIDE_BUNDLE = [
   { module: "src/engine/nav/loader.ts", path: "./wasm/myco_nav_bg.wasm" }, // ADR 0065
   { module: "src/engine/ui/fonts.ts", path: "./fonts/Inter-latin-wght.woff2" }, // ADR 0076
+  { module: "src/engine/ui/taffy/layoutTree.ts", path: "./wasm/myco_layout_bg.wasm" }, // ADR 0434 (345 KB, not inlined as base64)
   { module: "src/plugins/audio/runtime/core/loader.ts", path: "../wasm/myco_audio.wasm" }, // ADR 0157
   { module: "src/plugins/audio/runtime/core/hrir.ts", path: "../wasm/myco_hrir.bin" }, // ADR 0157
   { module: "src/plugins/audio/runtime/core/hrir.ts", path: "../../../../engine/audio/magls-o3.bin" }, // ADR 0162 (A3)
