@@ -18,8 +18,7 @@ import { setScriptAssetRefs, withScriptRegistrations } from "../engine/editor";
 import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder } from "../engine/scene/projectFiles";
 import { isUISourcePath } from "../projectCode/uiModules";
 import { nodePackageSource } from "./packages";
-import { LEGACY_AUDIO_MESSAGE, projectWithAudio } from "../engine/audio/project/load";
-import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
+import { launchSettings } from "../engine/launchSettings";
 import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudioEvent";
 import * as engine from "../myco";
 import { isScriptPath } from "../editor/projectPaths";
@@ -40,7 +39,7 @@ export class ServerError extends Error {
 export interface ServerProject {
   /** The folder, absolute. */
   readonly root: string;
-  /** `project.json`, parsed, with `audio` set to `audio.json`'s runtime view (ADR 0344). */
+  /** The launch settings (`launchSettings`, ADR 0435): `project.json`, parsed, with `audio` set to `audio.json`'s runtime view (ADR 0344). */
   readonly settings: ProjectSettingsInput;
   /**
    * Every project file by project-relative path, as its asset value (ADR 0254): parsed JSON, a
@@ -86,14 +85,12 @@ export async function readProject(dir: string): Promise<ServerProject> {
   const json = new Map([...texts].filter(([path]) => projectFileKind(path) === "json"));
   const ui = new Map([...texts].filter(([path]) => isUISourcePath(path) || path.endsWith(".css")));
 
-  const settings = values.get("project.json");
-  if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw new ServerError(`${join(root, "project.json")} must hold an object of project settings.`);
-  // The mix lives in audio.json (ADR 0344); an old project.json audio section is refused, not read.
-  const withAudio = projectWithAudio(settings, values.get(AUDIO_PROJECT_FILE));
-  if (withAudio.legacyAudio) throw new ServerError(`${join(root, "project.json")}: ${LEGACY_AUDIO_MESSAGE}`);
+  // The launch settings (ADR 0435): project.json with audio.json's mix (ADR 0344); an old audio section is refused, not read.
+  const launch = launchSettings(values);
+  if (launch.refusal !== undefined) throw new ServerError(`${join(root, "project.json")}: ${launch.refusal}`);
   return {
     root,
-    settings: withAudio.project, // a headless server plays no sound: audio.json's warnings aren't its to report
+    settings: launch.project, // a headless server plays no sound: audio.json's notices aren't its to report
     assets: { has: (p) => values.has(p), get: (p) => values.get(p) },
     json,
     scripts,
