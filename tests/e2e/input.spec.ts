@@ -264,3 +264,29 @@ test("File › Input…: a new action set is a file listed in project.json, and 
   await expect.poll(async () => JSON.parse((await read(page, "input/default.input.json")) ?? "null")?.mappings?.length).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test("while playing, the Input dialog's modifier stack shows a mapping's live value through each modifier (ADR 0417)", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  const context = { name: "drive", mappings: [{ action: "jump", control: "<Keyboard>/j", modifiers: [{ scale: 0.5 }, { scale: 3, off: true }] }] };
+  await openEditor(page, { files: { "scripts/testActions.ts": ACTIONS, "input/drive.input.json": JSON.stringify(context) } });
+  await play(page);
+  await page.locator("#game-view canvas").first().click(); // the keyboard appears with the first key
+
+  await menu(page, "File", "Input…");
+  const dialog = page.getByRole("dialog", { name: "Input" });
+  await dialog.getByRole("list", { name: "Contexts" }).getByRole("button", { name: /drive/ }).click();
+  const live = dialog.getByRole("group", { name: "Live value" });
+  await expect(live).toBeVisible();
+  await expect(live.locator("output")).toHaveText("0.00");
+
+  await page.keyboard.down("j");
+  await expect(live.locator("output")).toHaveText("1.00");
+  const stack = dialog.getByRole("group", { name: "Modifiers" });
+  await expect(stack.getByLabel("Scale gives").first()).toContainText("0.50");
+  await expect(stack.getByLabel("Scale gives").nth(1)).toHaveText("off"); // turned off: skipped
+  await expect(stack.getByLabel("The action gets")).toHaveText("0.50");
+  await page.keyboard.up("j");
+  await expect(live.locator("output")).toHaveText("0.00");
+  expect(errors).toEqual([]);
+});

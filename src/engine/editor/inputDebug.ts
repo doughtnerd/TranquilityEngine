@@ -24,7 +24,7 @@ import type { InputContextSpec, MappingSpec, ModifierSpec } from "../input/conte
 import { compileModifier } from "../input/modifiers";
 import { PRESS_POINT, control, namedControlPaths, type DeviceFamily } from "../input/controls";
 import { DEVICE_FAMILIES, DeviceEvents, DeviceKind, InputDevice, deviceNodes, takesLocalInput } from "../input/deviceEntities";
-import { DEFAULT_STICK_DEADZONE, contextProblems, lastEvaluation, playerTable, type CompiledMapping } from "../input/evaluate";
+import { DEFAULT_STICK_DEADZONE, contextProblems, lastEvaluation, mappingSourceValue, playerTable, type CompiledMapping } from "../input/evaluate";
 import { ControlledBy, InputPlayer, PlayerJoined, PlayerLeft, playerNodes } from "../input/players";
 import { RebindResults, pendingRebind, type PendingRebind } from "../input/rebind";
 import { Input } from "../input/Input";
@@ -402,6 +402,15 @@ export function traceInputModifiers(modifiers: readonly ModifierSpec[], input: r
   const out = Float32Array.from(v);
   if (options.kind === "button") out[0] = Math.min(1, Math.sqrt(out[0] * out[0] + (dims > 1 ? out[1] * out[1] : 0) + (dims > 2 ? out[2] * out[2] : 0)));
   return { dims, steps, out: Array.from(out.subarray(0, options.kind ? KIND_DIMS[options.kind] : dims), round) };
+}
+
+/**
+ * What a mapping's controls read now in a playing `world` for player `player` (default 0), combined and before its
+ * modifiers: feed it to `traceInputModifiers` for live values on each modifier row (ADR 0417). Null when the mapping
+ * doesn't compile. The World's devices are read as the evaluator sees them this frame; consumption isn't applied.
+ */
+export function inputMappingValue(world: World, mapping: MappingSpec, player = 0): number[] | null {
+  return mappingSourceValue(world, player, mapping);
 }
 
 /** The problems the evaluator reports for a context, each with its mapping's index: the messages Play would log. */

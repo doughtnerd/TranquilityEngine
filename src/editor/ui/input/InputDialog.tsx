@@ -13,6 +13,7 @@
 // step; Delete asks nothing and shows a toast whose Undo brings the file (and its entry) back. Mapping cards fold to
 // their heads; the folds last while the dialog is open.
 import { useMemo, useRef, useState } from "preact/hooks";
+import { Input } from "../../../engine/input/Input";
 import { inputActionSets } from "../../../engine/editor";
 import { ACTION_SET_EXTENSION, type ActionSetFile } from "../../../engine/input/actionAssets";
 import type { ActionKind } from "../../../engine/input/actions";
@@ -378,6 +379,9 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
     // Undo and redo go on to the editor's shortcuts, which act on this dialog's history (registered above).
     if (mod && (key === "z" || key === "y")) return;
     e.stopPropagation(); // keep the editor's other shortcuts away from the scene
+    // While the game plays, a plain key (not typed into a field, no Ctrl, Cmd or Alt) also reaches it, so a mapping's
+    // live values can be watched with the dialog open (ADR 0417). The key's release bubbles to the game as usual.
+    if (playState.value === "playing" && !inField && !mod && !e.altKey && !e.repeat && typeof e.key === "string") Input.inject.keyDown(e.key);
   };
 
   // --- what the right pane shows ----------------------------------------------------------------------------------

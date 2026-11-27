@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, InputContext, InputPlayers, button, defineActions, defineInputContext, dpad, vec2 } from "../index";
-import { canonicalControlPath, inputActionSets, inputContextNames, inputContextProblems, inputControlInfo, inputState, traceInputModifiers, watchInput, watchRawPresses, unregisterScripts, withScriptRegistrations, type RawPress } from "../editor";
+import { canonicalControlPath, inputActionSets, inputContextNames, inputContextProblems, inputControlInfo, inputMappingValue, inputState, traceInputModifiers, watchInput, watchRawPresses, unregisterScripts, withScriptRegistrations, type RawPress } from "../editor";
 
 // The editor's view of the input system (ADR 0336, 0337): what the Input debugger panel and the context asset editor
 // read through the editor SDK, driven through Input.inject as real adapters drive it.
@@ -158,6 +158,20 @@ describe("a mapping's note (ADR 0417)", () => {
     ];
     expect(inputContextProblems({ name: "n", mappings: mappings.map((m) => ({ ...m, note: "why it's here" })) })).toEqual(inputContextProblems({ name: "n", mappings }));
     expect(inputContextProblems({ name: "n", mappings: [{ action: "fire", control: "<Keyboard>/f", note: "Space is taken by the menu" }] })).toEqual([]);
+  });
+});
+
+describe("inputMappingValue (ADR 0417: live values)", () => {
+  it("reads a mapping's controls now, combined and before its modifiers; null for one that doesn't compile", () => {
+    const mapping = { action: "move", composite: "dpad" as const, up: "<Keyboard>/i", down: "<Keyboard>/k", left: "<Keyboard>/j", right: "<Keyboard>/l", modifiers: [{ scale: 5 }] };
+    step();
+    expect(inputMappingValue(engine.world, mapping)).toEqual([0, 0]);
+    Input.inject.keyDown("i");
+    Input.inject.keyDown("l");
+    step();
+    expect(inputMappingValue(engine.world, mapping)).toEqual([1, 1]);
+    expect(inputMappingValue(engine.world, { action: "nothing", control: "<Keyboard>/i" })).toBeNull();
+    expect(inputMappingValue(engine.world, { action: "fire", control: "<Nowhere>/x" })).toBeNull();
   });
 });
 

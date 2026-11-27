@@ -11,6 +11,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { MappingSpec, ModifierSpec, TriggerSpec, TriggerType } from "../../../engine";
 import { canonicalControlPath, traceInputModifiers } from "../../../engine/editor";
+import { useLiveMappingValue } from "./liveMappingValue";
 import type { ActionKind } from "../../../engine/input/actions";
 import { captureControl } from "../../controlCapture";
 import {
@@ -258,7 +259,8 @@ const startValue = (dims: number): number[] => (dims === 1 ? [0.5] : dims === 2 
 /**
  * A mapping's modifiers as an ordered stack: one numbered row each with its parameters, the value it hands on, and a ⋯
  * menu (Move up, Move down, Turn off / on, Duplicate, Remove); rows reorder by their handle, by drag or Space, arrows, Space. Above
- * them "Try a value", tried through the chain with the engine's modifiers; below, what the action gets.
+ * them "Try a value", tried through the chain with the engine's modifiers (while the game plays, the mapping's live
+ * value instead); below, what the action gets.
  */
 function ModifierStack(props: { mapping: MappingSpec; kind: ActionKind; actions: readonly ActionChoice[]; readOnly: boolean; onChange: (steps: ModifierSpec[], label: string) => void }) {
   const { readOnly } = props;
@@ -266,7 +268,10 @@ function ModifierStack(props: { mapping: MappingSpec; kind: ActionKind; actions:
   const controls = mappingControls(props.mapping);
   const dims = Math.max(KIND_DIMS[props.kind], KIND_DIMS[typeForMapping(props.mapping)]);
   const [tried, setTried] = useState<number[]>(() => startValue(dims));
-  const input = tried.length === dims ? tried : startValue(dims);
+  // While the game plays, the mapping's live value (its controls now, before modifiers) replaces the tried one.
+  const live = useLiveMappingValue(props.mapping);
+  const liveInput = live ? Array.from({ length: dims }, (_, i) => live[i] ?? 0) : null;
+  const input = liveInput ?? (tried.length === dims ? tried : startValue(dims));
   const trace = useMemo(() => traceInputModifiers(steps, input, { kind: props.kind, controls }), [steps, input.join(","), props.kind, controls.join(",")]);
   const implicit = trace.steps[0]?.implicit ? trace.steps[0] : null;
   const traced = implicit ? trace.steps.slice(1) : trace.steps;
@@ -296,14 +301,27 @@ function ModifierStack(props: { mapping: MappingSpec; kind: ActionKind; actions:
           ))}
         </select>
       </div>
-      <div class="input-try" role="group" aria-label="Try a value">
-        <span>Try a value</span>
-        {input.map((v, i) => (
-          <label key={i} class="input-param">
-            {dims > 1 && AXES[i]}
-            <TryNumber label={dims > 1 ? `Try ${AXES[i]}` : "Try a value"} value={v} onCommit={(x) => setTried(replaceAt(input, i, x))} />
-          </label>
-        ))}
+      <div class={`input-try${liveInput ? " is-live" : ""}`} role="group" aria-label={liveInput ? "Live value" : "Try a value"}>
+        {liveInput ? (
+          <>
+            <span class="input-live-badge" title="The game is playing: the mapping's controls now (player 0), before its modifiers">
+              Live
+            </span>
+            <output class="input-trace" aria-label="Controls read">
+              {shownValue(liveInput)}
+            </output>
+          </>
+        ) : (
+          <>
+            <span>Try a value</span>
+            {input.map((v, i) => (
+              <label key={i} class="input-param">
+                {dims > 1 && AXES[i]}
+                <TryNumber label={dims > 1 ? `Try ${AXES[i]}` : "Try a value"} value={v} onCommit={(x) => setTried(replaceAt(input, i, x))} />
+              </label>
+            ))}
+          </>
+        )}
         {implicit && (
           <span class="input-muted" title="A stick's mapping with no dead zone gets the engine's (0.15, or the player's own setting) before its modifiers">
             stick dead zone first → <output class="input-trace">{shownValue(implicit.value)}</output>

@@ -814,6 +814,7 @@ export {
   inputContextProblems,
   inputControlInfo,
   traceInputModifiers,
+  inputMappingValue,
   type ModifierTrace,
   type ModifierTraceStep,
   inputControlPaths,

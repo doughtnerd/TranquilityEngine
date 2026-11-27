@@ -182,3 +182,6 @@
 .input-modifier.is-off .input-step-name { text-decoration: line-through; color: var(--muted); }
 .input-modifier.is-off .input-param,
 .input-modifier.is-off .input-step-raw { opacity: 0.6; }
+
+/* Live values while the game plays (ADR 0417): the badge replaces Try a value's fields. */
+.input-live-badge { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 3px; background: var(--success-soft); color: var(--success); border: 1px solid var(--success); }

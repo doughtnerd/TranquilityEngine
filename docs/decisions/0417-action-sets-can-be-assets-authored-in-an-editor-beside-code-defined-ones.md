@@ -200,8 +200,16 @@ Built as decided, except where noted here.
     toast. It leaves scene nodes that name a deleted context as they are (the toast says how many), so Undo restores
     everything, unlike the Assets panel's Delete. A step whose file changed outside the dialog since can't be moved
     through.
-15. **Not built:** the two open questions (Convert to asset, per-file action-name types), and from the mock only, a
-    modifier's Turn off (it would need a format field) and live values on the modifier rows.
+15. **A modifier can be turned off:** `off: true` on a modifier spec (in a mapping or on an action) keeps it in the
+    stack and skips it, as if it weren't there; so a turned-off dead zone on a stick brings back the default one. The
+    stack's ⋯ menu has Turn off / Turn on, a turned-off row is struck through and its output reads "off".
+16. **Live values:** while the game plays, the modifier stack replaces Try a value with the mapping's live value
+    (`inputMappingValue` in the editor SDK: its controls now for player 0, combined, before modifiers, consumption not
+    applied) from the World the Input Debugger follows, sampled every frame, and each row shows its live output. Since
+    the dialog keeps keys from the editor's shortcuts, it passes plain keys pressed in it (outside text fields, without
+    Ctrl, Cmd or Alt) to the game through `Input.inject` while playing, so a keyboard mapping can be watched with the
+    dialog open.
+17. **Not built:** the two open questions (Convert to asset, per-file action-name types).
 
 ## References
 

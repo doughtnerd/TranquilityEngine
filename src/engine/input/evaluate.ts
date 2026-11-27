@@ -381,6 +381,27 @@ export function lastEvaluation(world: World, player: GameObject): EvaluationTrac
   };
 }
 
+const livePaired: Paired = { keyboard: false, keyboardFamily: 0, pointer: false, pointerFamily: 1, touch: null, touchFamily: 6, pen: null, penFamily: 7, pads: [] };
+const liveOut = new Float32Array(3);
+const NOTHING_CONSUMED: ReadonlySet<number> = new Set();
+
+/**
+ * @internal What a mapping's controls read now for player `index`, combined (a D-pad's vector, an Axis's -1..1, a
+ * chord's control while its modifiers are held), before its modifiers: the Input dialog's live values (ADR 0417).
+ * Consumption isn't applied. Null when the mapping doesn't compile (an unknown action, a control that names nothing).
+ */
+export function mappingSourceValue(world: World, index: number, spec: MappingSpec): number[] | null {
+  let m: CompiledMapping | null;
+  try {
+    m = compileMapping({ ...spec, modifiers: [], triggers: [] }, "live", 0, -1, {}, []);
+  } catch {
+    return null;
+  }
+  if (!m) return null;
+  readSource(m, pairedDevices(world, index, livePaired), NOTHING_CONSUMED, liveOut);
+  return Array.from(liveOut.subarray(0, sourceDims(m)));
+}
+
 /**
  * @internal The problems the evaluator reports for a context (unknown actions, control paths that name no control,
  * bad modifier and trigger parameters), each with its mapping's index, as the editor's context asset editor lists them.
