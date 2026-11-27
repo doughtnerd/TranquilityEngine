@@ -257,7 +257,7 @@ export class Hud extends GameBehavior {
     return {
       clock: g ? clock(g.phase === Phase.playing ? g.timeLeft : 0) : "",
       status,
-      // Always eight lines (empty ones too), so the middle keeps its size and place.
+      // Always eight lines, so the view keeps its elements; empty ones take no room (an empty text is 0 × 0, as in CSS).
       lines: Array.from({ length: BOARD_ROWS }, (_, i) => lines[i] ?? ""),
       next,
       middle: withAlpha("#0d1219", lines.length ? 0.85 : 0),
