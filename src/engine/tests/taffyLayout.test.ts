@@ -213,6 +213,27 @@ describe("layout engine", () => {
     t.free();
   });
 
+  it("resolves { px, percent } calc() lengths against the property's basis, and plain px or % when one part is 0", () => {
+    const t = tree();
+    const root = t.create();
+    root.setWidth(400);
+    root.setHeight(200);
+    root.setAlignItems("flex-start");
+    const a = t.create();
+    a.setWidth({ px: -12, percent: 50 });
+    a.setHeight({ px: 0, percent: 25 });
+    a.setMargin("left", { px: 4, percent: 0 });
+    a.setPadding("top", { px: 1, percent: 1 });
+    root.setChildren([a]);
+    t.compute(root, 400, 200);
+    expect(rect(a)).toEqual([4, 0, 188, 50]);
+    expect(a.layout().padding.top).toBe(5);
+    root.setWidth(600);
+    t.compute(root, 600, 200);
+    expect(rect(a)[2]).toBe(288);
+    t.free();
+  });
+
   it("sizes to content under max-content room", () => {
     const t = tree();
     const root = t.create();

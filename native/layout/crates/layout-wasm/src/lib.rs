@@ -80,6 +80,12 @@ impl LayoutTree {
         self.inner.set_length(handle, prop, kind, value)
     }
 
+    /// A length property as `calc(px + percent%)`, resolved against the property's CSS basis during layout.
+    #[wasm_bindgen(js_name = setCalc)]
+    pub fn set_calc(&mut self, handle: u32, prop: u8, px: f32, percent: f32) -> bool {
+        self.inner.set_calc(handle, prop, px, percent)
+    }
+
     #[wasm_bindgen(js_name = setNumber)]
     pub fn set_number(&mut self, handle: u32, prop: u8, value: f32) -> bool {
         self.inner.set_number(handle, prop, value)

@@ -17,12 +17,18 @@ export function canvasScale(canvasWidth: number, canvasHeight: number, refWidth:
   return 2 ** (lw + (lh - lw) * m);
 }
 
+/** A `calc()` mixing a percentage and pixels (ADR 0422 wave 5), as the layout engine resolves it during layout (0433). */
+export interface UICalcLength {
+  readonly px: number;
+  readonly percent: number;
+}
+
 /**
- * A length field as the layout engine takes it: pixels, a percentage, `"auto"`, or undefined when empty or unreadable. A `calc()`
- * mixing % and px (ADR 0422 wave 5, `calc(50% + -12px)`) becomes pixels against `basis`, the size its percentages are
- * of (the parent's content box along the field's axis); 0 when it isn't known yet.
+ * A length field as the layout engine takes it: pixels, a percentage, a `calc()` mixing % and px (`calc(50% + -12px)`,
+ * ADR 0422 wave 5) as `{ px, percent }`, resolved against the property's CSS basis during layout (ADR 0433), `"auto"`,
+ * or undefined when empty or unreadable.
  */
-export function uiLength(v: UILength | null | undefined, basis?: number): number | `${number}%` | "auto" | undefined {
+export function uiLength(v: UILength | null | undefined): number | `${number}%` | UICalcLength | "auto" | undefined {
   if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
   if (typeof v !== "string") return undefined;
   const s = v.trim();
@@ -30,7 +36,7 @@ export function uiLength(v: UILength | null | undefined, basis?: number): number
   if (s === "auto") return "auto";
   if (/^-?\d+(\.\d+)?%$/.test(s)) return s as `${number}%`;
   const mixed = linearLength(s);
-  if (mixed) return mixed.px + (mixed.percent / 100) * (basis ?? 0);
+  if (mixed) return { px: mixed.px, percent: mixed.percent };
   const px = s.replace(/px$/, "");
   const n = Number(px);
   return px !== "" && Number.isFinite(n) ? n : undefined;
@@ -57,15 +63,10 @@ export function uiBorderEdges(c: object): [number, number, number, number] {
   return uiEdges(p.borderWidth, p.borderTopWidth ?? null, p.borderRightWidth ?? null, p.borderBottomWidth ?? null, p.borderLeftWidth ?? null).map((v) => Math.max(0, v)) as [number, number, number, number];
 }
 
-/** A min/max length as the layout engine takes it: pixels or a percentage; `"auto"`, `"none"` and unreadable values are unset. `basis` as for `uiLength`. */
-export function uiLimit(v: UILength | null | undefined, basis?: number): number | `${number}%` | undefined {
-  const l = uiLength(v, basis);
+/** A min/max length as the layout engine takes it: pixels, a percentage or a `calc()`; `"auto"`, `"none"` and unreadable values are unset. */
+export function uiLimit(v: UILength | null | undefined): number | `${number}%` | UICalcLength | undefined {
+  const l = uiLength(v);
   return l === "auto" ? undefined : l;
-}
-
-/** True for a length that mixes % and px (`calc()`, ADR 0422 wave 5): it resolves against the parent's size at layout. */
-export function isMixedLength(v: UILength | null | undefined): boolean {
-  return typeof v === "string" && linearLength(v) !== null;
 }
 
 /** A rectangle in a canvas's UI pixels. */

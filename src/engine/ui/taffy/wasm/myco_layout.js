@@ -69,6 +69,18 @@ export class LayoutTree {
         wasm.layouttree_remove(this.__wbg_ptr, handle);
     }
     /**
+     * A length property as `calc(px + percent%)`, resolved against the property's CSS basis during layout.
+     * @param {number} handle
+     * @param {number} prop
+     * @param {number} px
+     * @param {number} percent
+     * @returns {boolean}
+     */
+    setCalc(handle, prop, px, percent) {
+        const ret = wasm.layouttree_setCalc(this.__wbg_ptr, handle, prop, px, percent);
+        return ret !== 0;
+    }
+    /**
      * @param {number} handle
      * @param {Uint32Array | number[]} children
      */

@@ -1,5 +1,6 @@
-//! Myco's UI layout tree (ADR 0433): Taffy's `TaffyTree` behind small numeric handles and three style
-//! setters (enums, lengths, numbers), so the WebAssembly boundary passes only numbers. A measured leaf
+//! Myco's UI layout tree (ADR 0433): Taffy's layout algorithms over our own node store (`tree.rs`, which resolves
+//! `calc()`), behind small numeric handles and four style setters (enums, lengths, `calc()` lengths, numbers), so the
+//! WebAssembly boundary passes only numbers. A measured leaf
 //! (text, a replaced element) asks a callback for its size; everything else is laid out by Taffy's CSS
 //! flexbox, grid and block algorithms. Rounding is off: boxes are exact in UI pixels.
 //!
@@ -10,9 +11,9 @@ use taffy::prelude::*;
 /// What a measured leaf is told about the room on an axis.
 pub use taffy::style::AvailableSpace;
 use taffy::style::{AlignContent, AlignItems, BoxSizing, Direction, Overflow};
-use taffy::tree::{LayoutInput, RunMode};
-use taffy::util::ResolveOrZero;
-use taffy::{compute_leaf_layout, Baselines, LayoutOutput};
+
+mod tree;
+use tree::{CalcValue, Node, Nodes, CALC_SLOTS};
 
 /// Enum properties (`set_enum`).
 pub mod prop_enum {
@@ -95,7 +96,8 @@ pub mod prop_length {
     pub const ROW_GAP: u8 = 24;
 }
 
-/// Length kinds (`set_length`). `AUTO` on padding, border and gap (which have no auto) sets 0.
+/// Length kinds (`set_length`). `AUTO` on padding, border and gap (which have no auto) sets 0. A `calc()` length
+/// mixing pixels and a percentage is set with `set_calc`.
 pub mod kind {
     /// `auto` for sizes, margins and insets; `none` for max sizes; `auto` (content-based) for min sizes.
     pub const AUTO: u8 = 0;
@@ -158,16 +160,10 @@ impl Measured {
 }
 
 /// A layout tree whose nodes are named by `u32` handles (reused after `remove`).
+#[derive(Default)]
 pub struct UiLayout {
-    tree: TaffyTree<u32>,
-    nodes: Vec<Option<NodeId>>,
+    nodes: Nodes,
     free: Vec<u32>,
-}
-
-impl Default for UiLayout {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 fn items_value(v: u8) -> Option<AlignItems> {
@@ -260,69 +256,136 @@ fn initial_style() -> Style {
     Style { position: Position::Relative, display: Display::Flex, ..Style::default() }
 }
 
-impl UiLayout {
-    /// An empty tree, rounding off.
-    pub fn new() -> Self {
-        let mut tree = TaffyTree::new();
-        tree.disable_rounding();
-        Self { tree, nodes: Vec::new(), free: Vec::new() }
-    }
 
-    fn id(&self, h: u32) -> Option<NodeId> {
-        self.nodes.get(h as usize).copied().flatten()
+/// A length property's new value: plain (a kind and number) or a `calc()` handle.
+#[derive(Clone, Copy)]
+enum Length {
+    Plain(u8, f32),
+    Calc(taffy::CalcHandle),
+}
+
+fn apply_length(s: &mut Style, prop: u8, value: Length) {
+    let l = |_: u8| match value {
+        Length::Plain(k, v) => lpa(k, v),
+        Length::Calc(c) => LengthPercentageAuto::calc(c),
+    };
+    let p = || match value {
+        Length::Plain(k, v) => lp(k, v),
+        Length::Calc(c) => LengthPercentage::calc(c),
+    };
+    let d = || match value {
+        Length::Plain(k, v) => dim(k, v),
+        Length::Calc(c) => Dimension::calc(c),
+    };
+    match prop {
+        prop_length::WIDTH => s.size.width = d(),
+        prop_length::HEIGHT => s.size.height = d(),
+        prop_length::MIN_WIDTH => s.min_size.width = l(0),
+        prop_length::MIN_HEIGHT => s.min_size.height = l(0),
+        prop_length::MAX_WIDTH => s.max_size.width = l(0),
+        prop_length::MAX_HEIGHT => s.max_size.height = l(0),
+        prop_length::FLEX_BASIS => s.flex_basis = d(),
+        p_ @ prop_length::MARGIN_TOP..=10 => *side(&mut s.margin, p_ - prop_length::MARGIN_TOP) = l(0),
+        p_ @ prop_length::PADDING_TOP..=14 => *side_lp(&mut s.padding, p_ - prop_length::PADDING_TOP) = p(),
+        p_ @ prop_length::BORDER_TOP..=18 => *side_lp(&mut s.border, p_ - prop_length::BORDER_TOP) = p(),
+        p_ @ prop_length::INSET_TOP..=22 => *side(&mut s.inset, p_ - prop_length::INSET_TOP) = l(0),
+        prop_length::COLUMN_GAP => s.gap.width = p(),
+        prop_length::ROW_GAP => s.gap.height = p(),
+        _ => {}
+    }
+}
+
+impl UiLayout {
+    /// An empty tree. Boxes aren't rounded: they are exact in UI pixels.
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// A new node with the initial style; `measured` leaves ask the measure callback for their size.
     pub fn create(&mut self, measured: bool) -> u32 {
-        let h = self.free.pop().unwrap_or(self.nodes.len() as u32);
-        let style = initial_style();
-        let id = if measured { self.tree.new_leaf_with_context(style, h) } else { self.tree.new_leaf(style) };
-        let id = match id {
-            Ok(id) => id,
-            Err(_) => return u32::MAX,
-        };
-        if h as usize == self.nodes.len() {
-            self.nodes.push(Some(id));
-        } else {
-            self.nodes[h as usize] = Some(id);
+        let node = Some(Node::new(initial_style(), measured));
+        match self.free.pop() {
+            Some(h) => {
+                self.nodes.slots[h as usize] = node;
+                h
+            }
+            None => {
+                self.nodes.slots.push(node);
+                (self.nodes.slots.len() - 1) as u32
+            }
         }
-        h
     }
 
     /// Removes a node (detaching it from its parent and its children from it); its handle may be reused.
     pub fn remove(&mut self, h: u32) {
-        if let Some(id) = self.id(h) {
-            let _ = self.tree.remove(id);
-            self.nodes[h as usize] = None;
-            self.free.push(h);
+        let Some(node) = self.nodes.slots.get_mut(h as usize).and_then(|n| n.take()) else { return };
+        if let Some(p) = node.parent {
+            if let Some(parent) = self.nodes.get_mut(p) {
+                parent.children.retain(|c| usize::from(*c) != h as usize);
+            }
+            self.nodes.mark_dirty(p);
         }
+        for c in node.children {
+            if let Some(child) = self.nodes.get_mut(usize::from(c) as u32) {
+                child.parent = None;
+            }
+        }
+        self.free.push(h);
     }
 
     /// The node's children, in order (each detached from any earlier parent). Unknown handles are skipped.
     pub fn set_children(&mut self, h: u32, children: &[u32]) {
-        let Some(id) = self.id(h) else { return };
-        let ids: Vec<NodeId> = children.iter().filter_map(|&c| self.id(c)).collect();
-        for &c in &ids {
-            if let Some(p) = self.tree.parent(c) {
-                if p != id {
-                    let _ = self.tree.remove_child(p, c);
+        if self.nodes.get(h).is_none() {
+            return;
+        }
+        let kids: Vec<u32> = children.iter().copied().filter(|&c| c != h && self.nodes.get(c).is_some()).collect();
+        // The old children leave; the new ones leave any other parent.
+        let old = std::mem::take(&mut self.nodes.get_mut(h).unwrap().children);
+        for c in old {
+            if let Some(child) = self.nodes.get_mut(usize::from(c) as u32) {
+                if child.parent == Some(h) {
+                    child.parent = None;
                 }
             }
         }
-        let _ = self.tree.set_children(id, &ids);
+        for &c in &kids {
+            let former = self.nodes.get(c).unwrap().parent;
+            if let Some(p) = former.filter(|&p| p != h) {
+                if let Some(parent) = self.nodes.get_mut(p) {
+                    parent.children.retain(|x| usize::from(*x) != c as usize);
+                }
+                self.nodes.mark_dirty(p);
+            }
+            self.nodes.get_mut(c).unwrap().parent = Some(h);
+        }
+        self.nodes.get_mut(h).unwrap().children = kids.iter().map(|&c| NodeId::from(c as usize)).collect();
+        self.nodes.mark_dirty(h);
     }
 
     /// How many children the node has.
     pub fn child_count(&self, h: u32) -> usize {
-        self.id(h).map(|id| self.tree.child_count(id)).unwrap_or(0)
+        self.nodes.get(h).map(|n| n.children.len()).unwrap_or(0)
     }
 
+    /// Changes the node's style in place and marks it (and its ancestors) for layout.
     fn edit(&mut self, h: u32, f: impl FnOnce(&mut Style)) -> bool {
-        let Some(id) = self.id(h) else { return false };
-        let Ok(style) = self.tree.style(id) else { return false };
-        let mut style = style.clone();
-        f(&mut style);
-        self.tree.set_style(id, style).is_ok()
+        let Some(node) = self.nodes.get_mut(h) else { return false };
+        f(&mut node.style);
+        self.nodes.mark_dirty(h);
+        true
+    }
+
+    /// Sets a length property, dropping any `calc()` value it held.
+    fn put_length(&mut self, h: u32, prop: u8, value: Length) -> bool {
+        let Some(node) = self.nodes.get_mut(h) else { return false };
+        if (prop as usize) < CALC_SLOTS {
+            // The style's old handle (if any) is replaced in this same call, before the box it points at goes.
+            let old = node.calcs[prop as usize].take();
+            apply_length(&mut node.style, prop, value);
+            drop(old);
+        }
+        self.nodes.mark_dirty(h);
+        true
     }
 
     /// Sets an enum property (`prop_enum`) to a value code; false for an unknown handle.
@@ -374,22 +437,22 @@ impl UiLayout {
 
     /// Sets a length property (`prop_length`): `kind::AUTO`, a pixel value, or a percentage (0–100).
     pub fn set_length(&mut self, h: u32, prop: u8, k: u8, v: f32) -> bool {
-        self.edit(h, |s| match prop {
-            prop_length::WIDTH => s.size.width = dim(k, v),
-            prop_length::HEIGHT => s.size.height = dim(k, v),
-            prop_length::MIN_WIDTH => s.min_size.width = lpa(k, v),
-            prop_length::MIN_HEIGHT => s.min_size.height = lpa(k, v),
-            prop_length::MAX_WIDTH => s.max_size.width = lpa(k, v),
-            prop_length::MAX_HEIGHT => s.max_size.height = lpa(k, v),
-            prop_length::FLEX_BASIS => s.flex_basis = dim(k, v),
-            p @ prop_length::MARGIN_TOP..=10 => *side(&mut s.margin, p - prop_length::MARGIN_TOP) = lpa(k, v),
-            p @ prop_length::PADDING_TOP..=14 => *side_lp(&mut s.padding, p - prop_length::PADDING_TOP) = lp(k, v),
-            p @ prop_length::BORDER_TOP..=18 => *side_lp(&mut s.border, p - prop_length::BORDER_TOP) = lp(k, v),
-            p @ prop_length::INSET_TOP..=22 => *side(&mut s.inset, p - prop_length::INSET_TOP) = lpa(k, v),
-            prop_length::COLUMN_GAP => s.gap.width = lp(k, v),
-            prop_length::ROW_GAP => s.gap.height = lp(k, v),
-            _ => {}
-        })
+        self.put_length(h, prop, Length::Plain(k, v))
+    }
+
+    /// Sets a length property to `calc(px + percent%)`, its percentage resolved against the property's CSS basis at
+    /// layout (the containing block's width for widths, margins and padding, its height for heights, and so on).
+    pub fn set_calc(&mut self, h: u32, prop: u8, px: f32, percent: f32) -> bool {
+        if (prop as usize) >= CALC_SLOTS || !px.is_finite() || !percent.is_finite() {
+            return self.put_length(h, prop, Length::Plain(kind::AUTO, 0.0));
+        }
+        let Some(node) = self.nodes.get_mut(h) else { return false };
+        let (value, handle) = CalcValue::boxed(px, percent / 100.0);
+        let old = node.calcs[prop as usize].replace(value);
+        apply_length(&mut node.style, prop, Length::Calc(handle));
+        drop(old);
+        self.nodes.mark_dirty(h);
+        true
     }
 
     /// Sets a number property (`prop_number`).
@@ -405,15 +468,12 @@ impl UiLayout {
 
     /// Marks a measured leaf's content as changed, so it is measured again at the next `compute`.
     pub fn mark_dirty(&mut self, h: u32) {
-        if let Some(id) = self.id(h) {
-            let _ = self.tree.mark_dirty(id);
-        }
+        self.nodes.mark_dirty(h);
     }
 
     /// Lays out the tree under `root` in the given space (a finite size is definite; `+inf` or NaN is
     /// max-content, `-inf` min-content). Measured leaves get their size (and first baseline) from `measure(handle, input)`.
     pub fn compute(&mut self, root: u32, width: f32, height: f32, mut measure: impl FnMut(u32, MeasureInput) -> Measured) {
-        let Some(id) = self.id(root) else { return };
         let space = |v: f32| {
             if v.is_finite() {
                 AvailableSpace::Definite(v)
@@ -423,36 +483,7 @@ impl UiLayout {
                 AvailableSpace::MaxContent
             }
         };
-        let available = Size { width: space(width), height: space(height) };
-        let _ = self.tree.compute_layout_with_measure(id, available, |inputs: LayoutInput, _node, ctx: Option<&mut u32>, style: &Style| -> LayoutOutput {
-            match ctx {
-                Some(h) => {
-                    let h = *h;
-                    let mut baseline: Option<Option<f32>> = None;
-                    let mut output = compute_leaf_layout(inputs, style, |_, _| 0.0, |known, avail| {
-                        let m = measure(h, MeasureInput { known_width: known.width, known_height: known.height, available_width: avail.width, available_height: avail.height });
-                        baseline = Some(m.baseline.filter(|b| b.is_finite()));
-                        Size { width: known.width.unwrap_or(finite_or_0(m.width)), height: known.height.unwrap_or(finite_or_0(m.height)) }
-                    });
-                    let padding = style.padding.resolve_or_zero(inputs.parent_size.width, |_, _| 0.0);
-                    let border = style.border.resolve_or_zero(inputs.parent_size.width, |_, _| 0.0);
-                    // With both sizes known the leaf isn't measured; a full layout (which baseline alignment asks for)
-                    // still needs its baseline, so it's asked at its content size.
-                    if baseline.is_none() && inputs.run_mode == RunMode::PerformLayout {
-                        let inner = |v: f32, edges: f32| AvailableSpace::Definite((v - edges).max(0.0));
-                        let (w, hh) = (output.size.width, output.size.height);
-                        let (ew, eh) = (padding.left + padding.right + border.left + border.right, padding.top + padding.bottom + border.top + border.bottom);
-                        let m = measure(h, MeasureInput { known_width: Some((w - ew).max(0.0)), known_height: Some((hh - eh).max(0.0)), available_width: inner(w, ew), available_height: inner(hh, eh) });
-                        baseline = Some(m.baseline.filter(|b| b.is_finite()));
-                    }
-                    if let Some(Some(b)) = baseline {
-                        output.baselines = Baselines::from_first(Some(padding.top + border.top + b));
-                    }
-                    output
-                }
-                None => compute_leaf_layout(inputs, style, |_, _| 0.0, |_, _| Size::ZERO),
-            }
-        });
+        self.nodes.compute(root, Size { width: space(width), height: space(height) }, &mut measure);
     }
 
     /// Writes the node's computed box (`out::LEN` floats, laid out as `out` says) into `dst`; zeros for an
@@ -461,11 +492,11 @@ impl UiLayout {
         if dst.len() < out::LEN {
             return false;
         }
-        let Some(id) = self.id(h) else {
+        let Some(node) = self.nodes.get(h) else {
             dst[..out::LEN].fill(0.0);
             return false;
         };
-        let l = self.tree.unrounded_layout(id);
+        let l = &node.layout;
         let o = l.scrollable_overflow_rect.rect();
         let v = [
             l.location.x, l.location.y, l.size.width, l.size.height,

@@ -228,3 +228,78 @@ fn baseline_alignment_uses_measured_first_baselines() {
     assert_eq!(boxed(&l, b)[1], 0.0);
     assert_eq!(boxed(&l, boxed_)[1], 20.0);
 }
+
+#[test]
+fn calc_lengths_resolve_against_their_css_basis_during_layout() {
+    // calc(50% + -12px) wide, calc(100% - 20px) tall, padding calc(10% + 2px) (of the width), in a 400 x 300 box.
+    let mut l = UiLayout::new();
+    let root = l.create(false);
+    px(&mut l, root, prop_length::WIDTH, 400.0);
+    px(&mut l, root, prop_length::HEIGHT, 300.0);
+    l.set_enum(root, prop_enum::ALIGN_ITEMS, items::FLEX_START);
+    let a = l.create(false);
+    assert!(l.set_calc(a, prop_length::WIDTH, -12.0, 50.0));
+    assert!(l.set_calc(a, prop_length::HEIGHT, -20.0, 100.0));
+    assert!(l.set_calc(a, prop_length::PADDING_TOP + 3, 2.0, 10.0));
+    let b = l.create(false);
+    assert!(l.set_calc(b, prop_length::MARGIN_TOP + 3, 5.0, 25.0));
+    px(&mut l, b, prop_length::WIDTH, 10.0);
+    px(&mut l, b, prop_length::HEIGHT, 10.0);
+    l.set_children(root, &[a, b]);
+    l.compute(root, 400.0, 300.0, |_, _| Measured::size(0.0, 0.0));
+    assert_eq!(boxed(&l, a), [0.0, 0.0, 188.0, 280.0]);
+    let mut o = [0.0; out::LEN];
+    l.layout(a, &mut o);
+    assert_eq!(o[out::PADDING + 3], 42.0);
+    assert_eq!(boxed(&l, b)[0], 188.0 + 105.0);
+    // The parent grows: the same calc() follows it in one layout.
+    px(&mut l, root, prop_length::WIDTH, 600.0);
+    l.compute(root, 600.0, 300.0, |_, _| Measured::size(0.0, 0.0));
+    assert_eq!(boxed(&l, a)[2], 288.0);
+    // A plain length replaces the calc() (its value is dropped), and back again.
+    px(&mut l, a, prop_length::PADDING_TOP + 3, 0.0);
+    px(&mut l, a, prop_length::WIDTH, 50.0);
+    l.compute(root, 600.0, 300.0, |_, _| Measured::size(0.0, 0.0));
+    assert_eq!(boxed(&l, a)[2], 50.0);
+    l.set_calc(a, prop_length::WIDTH, 0.0, 10.0);
+    l.compute(root, 600.0, 300.0, |_, _| Measured::size(0.0, 0.0));
+    assert_eq!(boxed(&l, a)[2], 60.0);
+}
+
+#[test]
+fn calc_in_nested_percentages_needs_no_second_pass() {
+    // Each level is calc(50% + 10px) of the one above: 400 -> 210 -> 115 -> 67.5, in one compute.
+    let mut l = UiLayout::new();
+    let root = l.create(false);
+    px(&mut l, root, prop_length::WIDTH, 400.0);
+    px(&mut l, root, prop_length::HEIGHT, 100.0);
+    let mut parent = root;
+    let mut levels = Vec::new();
+    for _ in 0..3 {
+        let n = l.create(false);
+        l.set_calc(n, prop_length::WIDTH, 10.0, 50.0);
+        l.set_children(parent, &[n]);
+        levels.push(n);
+        parent = n;
+    }
+    l.compute(root, 400.0, 100.0, |_, _| Measured::size(0.0, 0.0));
+    let widths: Vec<f32> = levels.iter().map(|&n| boxed(&l, n)[2]).collect();
+    assert_eq!(widths, vec![210.0, 115.0, 67.5]);
+}
+
+#[test]
+fn removing_a_node_with_calc_values_and_reusing_its_handle_is_safe() {
+    let mut l = UiLayout::new();
+    let root = l.create(false);
+    px(&mut l, root, prop_length::WIDTH, 100.0);
+    let a = l.create(false);
+    l.set_calc(a, prop_length::WIDTH, 1.0, 50.0);
+    l.set_children(root, &[a]);
+    l.compute(root, 100.0, 100.0, |_, _| Measured::size(0.0, 0.0));
+    l.remove(a);
+    let b = l.create(false);
+    assert_eq!(b, a);
+    l.set_children(root, &[b]);
+    l.compute(root, 100.0, 100.0, |_, _| Measured::size(0.0, 0.0));
+    assert_eq!(boxed(&l, b)[2], 0.0);
+}

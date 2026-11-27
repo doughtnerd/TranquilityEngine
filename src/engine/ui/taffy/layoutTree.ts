@@ -13,8 +13,17 @@
  */
 import type { LayoutTree as WasmTree } from "./wasm/myco_layout.js";
 
-/** A size, margin or inset: pixels, a percentage of the containing block, `"auto"`, or undefined (`auto`). */
-export type LayoutLength = number | `${number}%` | "auto" | undefined;
+/**
+ * A size, margin or inset: pixels, a percentage of the containing block, `calc(px + percent%)` as `{ px, percent }`
+ * (resolved against the property's CSS basis during layout), `"auto"`, or undefined (`auto`).
+ */
+export type LayoutLength = number | `${number}%` | LayoutCalc | "auto" | undefined;
+
+/** A linear `calc()` length: pixels plus a percentage (0–100) of the property's basis. */
+export interface LayoutCalc {
+  readonly px: number;
+  readonly percent: number;
+}
 export type LayoutEdge = "top" | "right" | "bottom" | "left";
 export type LayoutDisplay = "flex" | "none" | "block" | "grid";
 export type LayoutFlexDirection = "row" | "column" | "row-reverse" | "column-reverse";
@@ -117,7 +126,7 @@ export function layoutEngineLoaded(): boolean {
   return loaded !== null;
 }
 
-function length(v: LayoutLength): [number, number] {
+function length(v: Exclude<LayoutLength, LayoutCalc>): [number, number] {
   if (typeof v === "number") return Number.isFinite(v) ? [KIND_PX, v] : [KIND_AUTO, 0];
   if (typeof v === "string" && v.endsWith("%")) {
     const n = Number(v.slice(0, -1));
@@ -209,6 +218,12 @@ export class LayoutNode {
   }
 
   private l(prop: number, v: LayoutLength): void {
+    if (typeof v === "object") {
+      if (v.percent === 0) this.tree.raw.setLength(this.handle, prop, KIND_PX, v.px);
+      else if (v.px === 0) this.tree.raw.setLength(this.handle, prop, KIND_PERCENT, v.percent);
+      else this.tree.raw.setCalc(this.handle, prop, v.px, v.percent);
+      return;
+    }
     const [kind, n] = length(v);
     this.tree.raw.setLength(this.handle, prop, kind, n);
   }

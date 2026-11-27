@@ -39,7 +39,8 @@ We will replace Yoga with **Taffy** (DioxusLabs, MIT), the Rust CSS layout engin
 Chrome's layouts, compiled to WebAssembly in `native/layout/` and committed, as navigation (0065) and tweening (0424)
 are.
 
-**Taffy 0.16.0** (pinned `=0.16.0`), features `std`, `taffy_tree`, `flexbox`, `grid`, `block_layout`, `content_size`.
+**Taffy 0.16.0** (pinned `=0.16.0`), features `std`, `taffy_tree`, `flexbox`, `grid`, `block_layout`, `content_size`
+(since the `calc()` follow-up: `calc` in place of `taffy_tree`).
 That's flexbox, CSS grid and block layout (so `display: grid` and `display: block` are a style setting away when the UI
 cascade grows them, without a rebuild), automatic minimum sizes, `box-sizing`, `direction`, per-axis overflow, aspect
 ratio, absolute positioning against the containing block, gaps, and measure functions for leaves (text, replaced
@@ -169,8 +170,8 @@ positions, `display: none`, aspect ratio, overflow and automatic minimums, wrapp
 
 ## Open questions
 
-- `calc()` inside Taffy: a custom tree over Taffy's low-level API (with the `calc` feature) would resolve mixed lengths
-  during layout and remove the UI core's second pass. Worth it when a case needs it.
+- ~~`calc()` inside Taffy: a custom tree over Taffy's low-level API would resolve mixed lengths during layout and remove
+  the UI core's second pass.~~ Done: see Follow-ups.
 - ~~Text baselines: layout-core could take a first baseline from the measure callback.~~ Done: see Follow-ups.
 - `display: grid` and `display: block` in UI documents: a record of their own.
 - Whether `scrollbar-gutter` should use Taffy's scrollbar room instead of widening the border. Decided no for now: see
@@ -195,6 +196,19 @@ the special case.
 **2026-11-27, the layout-call test.** `uiCore.test.ts`'s check that only changed properties reach the layout engine
 read a private field to patch node methods; it now spies on the adapter's `LayoutNode` methods, every setter. The wider
 net found the canvas root's four setters called on every sync; `applyCanvas` now sends only changes too.
+
+**2026-11-27, `calc()` in the layout engine.** layout-core no longer uses `TaffyTree`: `tree.rs` is our own node store
+(a vector by handle, parent links for dirty propagation) implementing Taffy's low-level traits, mirroring `TaffyView`
+(dispatch by display, hidden subtrees, out-of-flow boxes, block formatting contexts), with Taffy's `calc` feature on.
+`set_calc(handle, prop, px, percent)` stores a mixed length as an 8-aligned boxed `(px, fraction)` the node owns, and
+the style holds a `CalcHandle` pointing at it; `resolve_calc_value` returns `px + fraction * basis`, so a percentage
+resolves against the property's CSS basis in the same layout. The adapter takes `{ px, percent }` lengths; the UI core
+passes `calc()` lengths straight through (`uiLength` returns them) and its stale-size second pass and `calcBasis` are
+gone. Style edits now happen in place (no style clone per setter). The wasm shrank to 353,546 bytes (118.7 KB gzip)
+without `TaffyTree` and its slotmap; first layouts are a little faster (1.23 ms at 350 nodes, 9.9 ms at 3,501). Five
+`calc()` cases joined the conformance set (sizes, padding and margins, absolute insets, nested percentages,
+`flex-basis` and min/max; 58 in all, all match Chromium); `cargo test` and `uiLayoutWave1.test.ts` check nested
+`calc()` in one layout. When upgrading Taffy, re-read `TaffyView` in `taffy_tree.rs` against `tree.rs`.
 
 ## References
 

@@ -369,3 +369,23 @@ describe("baseline alignment (ADR 0433)", () => {
     expect(box(core, byId(doc, "big", UIText))[1]).toBeCloseTo(0, 3);
   });
 });
+
+describe("calc() mixing % and px (ADR 0422 wave 5, resolved in the layout engine by 0433)", () => {
+  it("resolves nested calc() lengths against this layout's sizes, in one layout", async () => {
+    const doc = buildUI(`<Canvas><div id="outer"><div id="mid"><div id="inner"/></div><div id="abs"/></div></Canvas>`, {
+      css: `#outer { width: 400px; height: 300px; align-items: flex-start }
+            #mid { width: calc(50% + 10px); height: calc(100% - 20px); align-items: flex-start }
+            #inner { width: calc(50% + 10px); height: calc(50% - 5px) }
+            #abs { position: absolute; left: calc(25% + 4px); top: calc(50% - 10px); width: 10px; height: 10px }`,
+    });
+    const core = await laidOut();
+    expect(box(core, panel(doc, "mid"))).toEqual([0, 0, 210, 280]);
+    expect(box(core, panel(doc, "inner"))).toEqual([0, 0, 115, 135]);
+    expect(box(core, panel(doc, "abs")).slice(0, 2)).toEqual([104, 140]);
+    // The outer box grows: every calc() follows in the next layout.
+    panel(doc, "outer").width = 600 as never;
+    engine.step(DT);
+    core.sync(engine.world, 1280, 720);
+    expect(box(core, panel(doc, "inner"))[2]).toBe(165);
+  });
+});

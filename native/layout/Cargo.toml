@@ -15,9 +15,9 @@ publish = false
 
 [workspace.dependencies]
 layout-core = { path = "crates/layout-core" }
-# Flexbox, grid and block layout with the TaffyTree container; no calc (the UI core resolves its
-# linear calc() lengths itself, ADR 0433), no float layout, no detailed grid info, no serde.
-taffy = { version = "=0.16.0", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size"] }
+# Flexbox, grid and block layout over our own node store (layout-core/src/tree.rs), with calc() resolved
+# there; no TaffyTree, float layout, detailed grid info or serde.
+taffy = { version = "=0.16.0", default-features = false, features = ["std", "flexbox", "grid", "block_layout", "content_size", "calc"] }
 # The pin native/nav and native/tween use (build.mjs checks wasm-bindgen-cli against it).
 wasm-bindgen = "=0.2.130"
 

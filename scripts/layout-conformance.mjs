@@ -4,7 +4,7 @@
 // it. taffyConformance.test.ts compares the UI core's layout engine with those boxes. Rerun it after adding a case.
 //
 // A case node is a div with the UI core's initial values (display: flex, position: relative, border-box sizing) and
-// its `style` (camelCase CSS; numbers are pixels; `padding`, `margin`, `border` set all four sides). A node with
+// its `style` (camelCase CSS; numbers are pixels, `{ calc: [px, percent] }` a calc(); `padding`, `margin`, `border` set all four sides). A node with
 // `words: [count, width, lineHeight]` is a measured leaf: `count` inline boxes of `width` x `lineHeight`, which wrap
 // like words of text (the test's measure function models the same).
 import { chromium } from "playwright";
@@ -20,7 +20,8 @@ const browser = await chromium.launch(chromiumPath ? { executablePath: chromiumP
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
 await page.setContent("<!doctype html><html><body style='margin:0'></body></html>");
 const results = await page.evaluate((cases) => {
-  const px = (v) => (typeof v === "number" ? `${v}px` : v);
+  // A number is pixels; `{ calc: [px, percent] }` is `calc(percent% + px)`.
+  const px = (v) => (typeof v === "number" ? `${v}px` : v && typeof v === "object" ? `calc(${v.calc[1]}% + ${v.calc[0]}px)` : v);
   function build(spec) {
     const el = document.createElement("div");
     const s = el.style;

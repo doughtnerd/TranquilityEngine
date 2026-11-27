@@ -21,7 +21,7 @@ import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInlineAtom, isInteractive
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
-import { canvasScale, estimateText, inRect, intersectRect, isMixedLength, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
+import { canvasScale, estimateText, inRect, intersectRect, uiBorderEdges, uiEdges, uiLength, uiLimit, type UICalcLength, type UIRect } from "./layout";
 import type { UIInlineAtomSize, UIInlineEditing, UIInlineRun, TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPart, UIPickRay, UIScrollbar, UIScrollInfo, UIScrollSnap, UIScrollSnapArea } from "./uiCoreTypes";
 import { fireUIEvent, uiDomCode, uiDomKey, uiEventRecord, UIDataTransfer, type UIEventData, type UIEventRecord } from "./events";
 import { advanceUIScrolling, canMove, uiEndScrollGesture, uiResnap, uiScrollBy, uiScrollMoving, uiScrollTo, uiStopScrolling, uiWheelScroll, type UIScrollable } from "./scrolling";
@@ -113,11 +113,6 @@ interface Entry {
   /** Clip and draw order from the last layout (ADR 0422). */
   place: Placement;
   /**
-   * ADR 0422 wave 5: the parent's content size its lengths mixing % and px (`calc()`) were last resolved against, or
-   * absent when it has none. Layout runs again once when the parent's size turns out different.
-   */
-  calcBasis?: { width: number; height: number };
-  /**
    * ADR 0428: a select's list: a layout root of its own that its options lay out in (the select's node is measured, for
    * its label, and has no children), placed below the select when it's read.
    */
@@ -205,13 +200,6 @@ function stacks(e: Entry): boolean {
 function zOf(e: Entry): number {
   const z = (e.comp as { zIndex?: number }).zIndex;
   return typeof z === "number" && Number.isFinite(z) ? z : 0;
-}
-
-/** The length fields that may hold a `calc()` mixing % and px (ADR 0422 wave 5). */
-const MIXED_FIELDS = ["width", "height", "top", "right", "bottom", "left", "minWidth", "maxWidth", "minHeight", "maxHeight", "flexBasis"] as const;
-
-function sameSize(a: { width: number; height: number }, b: { width: number; height: number }): boolean {
-  return Math.abs(a.width - b.width) < 1e-4 && Math.abs(a.height - b.height) < 1e-4;
 }
 
 /**
@@ -565,15 +553,9 @@ export class UICore implements UICoreLike {
     const canvases = [...this.canvasEntries.values()].sort((a, b) => a.comp.sortOrder - b.comp.sortOrder);
     for (const canvas of canvases) {
       this.applyCanvas(canvas);
+      // `calc()` mixing % and px (ADR 0422 wave 5) resolves in the layout engine, against this layout's sizes (0433).
       tree.compute(canvas.node, canvas.width, canvas.height);
       this.readLayout(canvas);
-      // `calc()` mixing % and px (ADR 0422 wave 5) resolved against last frame's parent sizes: once more where they changed.
-      const stale = canvas.elements.filter((e) => e.calcBasis && e.parent && !sameSize(e.calcBasis, this.contentSize(e.parent)));
-      if (stale.length) {
-        for (const e of stale) this.applyProperties(e);
-        tree.compute(canvas.node, canvas.width, canvas.height);
-        this.readLayout(canvas);
-      }
     }
     this.collectResults(world, canvases);
     if (!this.passive && !this.relayingOut) this.noteScrolls(world);
@@ -859,31 +841,31 @@ export class UICore implements UICoreLike {
       if (put(i === 0 ? 6 : 19 + i, mar[i])) n.setMargin(edge, mar[i]);
       if (put(i === 0 ? 16 : 22 + i, bor[i])) n.setBorder(edge, bor[i]);
     }
-    // ADR 0422 wave 5: lengths mixing % and px resolve in pixels against the parent's content size (last layout's).
-    const basis = MIXED_FIELDS.some((f) => isMixedLength(c[f])) && entry.parent ? this.contentSize(entry.parent) : undefined;
-    entry.calcBasis = basis;
-    const bw = basis?.width, bh = basis?.height;
-    if (put(7, (v = uiLength(c.width, bw)))) n.setWidth(v as never);
-    if (put(8, (v = uiLength(c.height, bh)))) n.setHeight(v as never);
+    // ADR 0422 wave 5: a length mixing % and px is a `{ px, percent }` the layout engine resolves (0433); its slot holds a
+    // key, so an unchanged one isn't set again.
+    const L = (slot: number, value: LengthValue, set: (v: LengthValue) => void) => {
+      if (put(slot, lengthKey(value))) set(value);
+    };
+    L(7, uiLength(c.width), (x) => n.setWidth(x));
+    L(8, uiLength(c.height), (x) => n.setHeight(x));
     if (put(9, (v = c.positionType === "absolute" ? "absolute" : "relative"))) n.setPosition(v as "absolute" | "relative");
-    if (put(10, (v = uiLength(c.top, bh)))) n.setInset("top", v as LengthValue);
-    if (put(11, (v = uiLength(c.right, bw)))) n.setInset("right", v as LengthValue);
-    if (put(12, (v = uiLength(c.bottom, bh)))) n.setInset("bottom", v as LengthValue);
-    if (put(13, (v = uiLength(c.left, bw)))) n.setInset("left", v as LengthValue);
+    L(10, uiLength(c.top), (x) => n.setInset("top", x));
+    L(11, uiLength(c.right), (x) => n.setInset("right", x));
+    L(12, uiLength(c.bottom), (x) => n.setInset("bottom", x));
+    L(13, uiLength(c.left), (x) => n.setInset("left", x));
     if (put(14, (v = finite(c.flexGrow)))) n.setFlexGrow(v as number);
     // Null: the kind's (text wraps to what's left; other boxes keep their size).
     // ADR 0427: in a parent the player scrolls along its main axis, content lays out unconstrained: a kind's default shrink is 0 there.
     if (put(15, (v = c.flexShrink === null || c.flexShrink === undefined ? (scrollsMainAxis(entry.parent) ? 0 : flexShrinkOf(entry.kind)) : finite(c.flexShrink)))) n.setFlexShrink(v as number);
     // ADR 0433: an unset min size is CSS's `auto` (the content-based minimum), an unset max size `none`.
-    if (put(26, (v = uiLimit(c.minWidth, bw)))) n.setMinWidth(v as LengthValue);
-    if (put(27, (v = uiLimit(c.maxWidth, bw)))) n.setMaxWidth(v as LengthValue);
-    if (put(28, (v = uiLimit(c.minHeight, bh)))) n.setMinHeight(v as LengthValue);
-    if (put(29, (v = uiLimit(c.maxHeight, bh)))) n.setMaxHeight(v as LengthValue);
+    L(26, uiLimit(c.minWidth), (x) => n.setMinWidth(x));
+    L(27, uiLimit(c.maxWidth), (x) => n.setMaxWidth(x));
+    L(28, uiLimit(c.minHeight), (x) => n.setMinHeight(x));
+    L(29, uiLimit(c.maxHeight), (x) => n.setMaxHeight(x));
     if (put(30, (v = oneOf(c.flexWrap, WRAPS, "nowrap")))) n.setFlexWrap(v as LayoutWrap);
     if (put(31, (v = oneOf(c.alignSelf, ALIGN_SELF, "auto")))) n.setAlignSelf(v as LayoutItems | "auto");
     if (put(32, (v = oneOf(c.alignContent, ALIGN_CONTENT, "stretch")))) n.setAlignContent(v as LayoutContent);
-    const rowParent = entry.parent?.kind === "canvas" || /^row/.test((entry.parent?.comp as { flexDirection?: string } | undefined)?.flexDirection ?? "");
-    if (put(33, (v = uiLength(c.flexBasis, rowParent ? bw : bh) ?? "auto"))) n.setFlexBasis(v as LengthValue);
+    L(33, uiLength(c.flexBasis) ?? "auto", (x) => n.setFlexBasis(x));
     if (put(34, (v = Number.isFinite(c.aspectRatio) && c.aspectRatio > 0 ? c.aspectRatio : undefined))) n.setAspectRatio(v as number | undefined);
     if (put(35, (v = isUserScroller(c) ? "scroll" : clipsChildren(c) ? "hidden" : "visible"))) n.setOverflow(v as "scroll" | "hidden" | "visible");
     // ADR 0432: `direction` (null inherits from the nearest element that sets it, else LTR); Taffy doesn't inherit it (0433).
@@ -992,15 +974,7 @@ export class UICore implements UICoreLike {
     return layoutInline(run.runs!, { maxWidth: run.wrap === "none" ? Infinity : maxWidth, alignWidth, wrap: run.wrap, lineHeight: run.lineHeight, align: run.align, direction: run.direction, fontSize: run.fontSize, keepTrailingBreak: !!run.editable, boxes: run.boxes }, this.runWidth);
   }
 
-  /** An entry's content box size at its last layout (a canvas's own size): what its children's percentages are of. */
-  private contentSize(e: Entry): { width: number; height: number } {
-    if (e.kind === "canvas") return { width: (e as CanvasEntry).width, height: (e as CanvasEntry).height };
-    const b = e.node.layout();
-    return {
-      width: Math.max(0, fin(b.width) - insetOf(b, "left") - insetOf(b, "right")),
-      height: Math.max(0, fin(b.height) - insetOf(b, "top") - insetOf(b, "bottom")),
-    };
-  }
+
 
   /**
    * ADR 0433: a measured leaf's size for the layout engine. A known width is kept (the text wraps to it); otherwise the text
@@ -2244,7 +2218,12 @@ const ALIGN_SELF: readonly string[] = ["auto", ...ALIGN_ITEMS];
 const ALIGN_CONTENT: readonly string[] = ["flex-start", "center", "flex-end", "stretch", "space-between", "space-around", "space-evenly"];
 const WRAPS: readonly string[] = ["nowrap", "wrap", "wrap-reverse"];
 const EDGES: readonly LayoutEdge[] = ["top", "right", "bottom", "left"];
-type LengthValue = number | `${number}%` | "auto" | undefined;
+type LengthValue = number | `${number}%` | UICalcLength | "auto" | undefined;
+
+/** A length as a value `applyProperties` can compare with what it last set (a `calc()` by its two numbers). */
+function lengthKey(v: LengthValue): string | number | undefined {
+  return typeof v === "object" ? `calc(${v.percent}% + ${v.px}px)` : v;
+}
 
 /** `v` when it's one of `allowed`, else `fallback`. */
 function oneOf(v: string | null | undefined, allowed: readonly string[], fallback: string): string {

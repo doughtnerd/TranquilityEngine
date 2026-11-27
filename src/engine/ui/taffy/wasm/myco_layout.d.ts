@@ -26,6 +26,10 @@ export class LayoutTree {
      */
     outPtr(): number;
     remove(handle: number): void;
+    /**
+     * A length property as `calc(px + percent%)`, resolved against the property's CSS basis during layout.
+     */
+    setCalc(handle: number, prop: number, px: number, percent: number): boolean;
     setChildren(handle: number, children: Uint32Array | number[]): void;
     setEnum(handle: number, prop: number, value: number): boolean;
     setLength(handle: number, prop: number, kind: number, value: number): boolean;
@@ -49,6 +53,7 @@ export interface InitOutput {
     readonly layouttree_new: () => number;
     readonly layouttree_outPtr: (a: number) => number;
     readonly layouttree_remove: (a: number, b: number) => void;
+    readonly layouttree_setCalc: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly layouttree_setChildren: (a: number, b: number, c: number, d: number) => void;
     readonly layouttree_setEnum: (a: number, b: number, c: number, d: number) => number;
     readonly layouttree_setLength: (a: number, b: number, c: number, d: number, e: number) => number;

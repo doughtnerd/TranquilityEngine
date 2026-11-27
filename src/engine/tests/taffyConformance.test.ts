@@ -7,8 +7,11 @@ import chromium from "./layoutConformance/chromium.json";
 // `npm run conformance:layout` (scripts/layout-conformance.mjs) records chromium.json from cases.json; that script
 // says how a case is built in the browser.
 
+/** A style value: pixels, a keyword or percentage, `{ calc: [px, percent] }`, or null (unset). */
+type CaseValue = number | string | null | { calc: [number, number] };
+
 interface CaseNode {
-  style: Record<string, number | string | null>;
+  style: Record<string, CaseValue>;
   children?: CaseNode[];
   /** A measured leaf: `count` words of `width` x `lineHeight`. */
   words?: [number, number, number];
@@ -37,7 +40,7 @@ function build(t: LayoutTree, spec: CaseNode, out: LayoutNode[]): LayoutNode {
   const n = t.create(spec.words ? words(spec.words) : undefined);
   out.push(n);
   const s = spec.style;
-  const len = (v: number | string | null | undefined) => (v === null ? undefined : (v as LayoutLength));
+  const len = (v: CaseValue | undefined): LayoutLength => (v === null || v === undefined ? undefined : typeof v === "object" ? { px: v.calc[0], percent: v.calc[1] } : (v as LayoutLength));
   for (const [k, v] of Object.entries(s)) {
     if (v === null) continue;
     switch (k) {
@@ -87,7 +90,7 @@ function build(t: LayoutTree, spec: CaseNode, out: LayoutNode[]): LayoutNode {
 }
 
 /** A child spec with its parent's direction when it sets none. */
-function inherit(spec: CaseNode, direction: number | string | null | undefined): CaseNode {
+function inherit(spec: CaseNode, direction: CaseValue | undefined): CaseNode {
   return direction && spec.style.direction === undefined ? { ...spec, style: { ...spec.style, direction } } : spec;
 }
 
