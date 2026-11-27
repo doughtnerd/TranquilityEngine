@@ -16,6 +16,8 @@
     text-outline-color: rgb(23%, 17%, 10%);
     /* Labels over the game let the pointer through to it (ADR 0385). */
     raycast-target: false;
+    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0428 white-space). */
+    white-space: pre-wrap;
   }
 
   #score {

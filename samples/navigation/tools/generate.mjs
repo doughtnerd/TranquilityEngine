@@ -140,6 +140,8 @@ const HUD_SVELTE = `<script lang="ts">
     text-outline-width: 3px;
     /* A label over the game lets the pointer through to it (ADR 0385). */
     raycast-target: false;
+    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0428 white-space). */
+    white-space: pre-wrap;
   }
 </style>
 `;

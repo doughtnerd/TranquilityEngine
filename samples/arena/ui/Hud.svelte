@@ -33,5 +33,7 @@
   /* Labels over the game let the pointer through to it (ADR 0385). */
   span {
     raycast-target: false;
+    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0428 white-space). */
+    white-space: pre-wrap;
   }
 </style>
