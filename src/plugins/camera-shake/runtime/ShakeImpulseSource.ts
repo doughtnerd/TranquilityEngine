@@ -1,5 +1,5 @@
 /**
- * Sends camera shake impulses from where its node is (ADR 0435), like Cinemachine's Impulse Source: cameras with a
+ * Sends camera shake impulses from where its node is (ADR 0436), like Cinemachine's Impulse Source: cameras with a
  * `CameraShake` within reach shake. An impulse starts from a script (`generateImpulse()`), from a clip or timeline
  * (key `fire` false → true) or on its own (`trigger`: on start, on an interval, on a collision or trigger contact).
  */

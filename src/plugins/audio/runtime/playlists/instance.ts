@@ -29,6 +29,7 @@ import { defaultAttenuation, stretchAttenuation } from "../../../../engine/audio
 import type { Attenuation as CurveAttenuation } from "../../../../engine/audio/attenuation/types";
 import { World } from "../../../../engine/core/World";
 import { GameBehavior, type Component } from "../../../../engine/core/Component";
+import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { MusicEventHandle } from "../../../../engine/audio/musicTypes";
 import { Camera } from "../../../../engine/render/components";
 import { AudioListener, listenerPose } from "../AudioListener";
@@ -77,6 +78,10 @@ export interface HeardLine {
 export interface PlaylistOptions extends EventOptions {
   /** @internal The node that plays it (debug rows' Source column, the test-scene readout). */
   owner?: string;
+  /** @internal ADR 0435: the request the capture's "Why it played" names ("AudioSource", "AudioZone"; absent: "Audio.play"). */
+  trigger?: string;
+  /** @internal ADR 0435: the node the request is for (a component's, a line's), for the capture; absent: the running behaviour's. */
+  triggerNode?: GameObject | null;
   /** @internal ADR 0347: an `AudioZone` plays it, so it has the built-in local parameter `zoneDepth` (0..1). */
   zone?: boolean;
   /**

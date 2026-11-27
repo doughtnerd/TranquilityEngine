@@ -2,7 +2,7 @@
 // (GAME, PLAYLIST · SW…, SAMPLE, BUS) with a warning or error state, joined by arrows, in a row when there is room or a
 // column when not, on a dot grid you can pan (drag, the wheel, the arrow keys) and zoom (Ctrl+wheel at the pointer, + and
 // −, 1 for 100%, 0 to fit, the toolbar). It fits itself to a new voice and to a resize until you pan or zoom. A node
-// whose asset has a screen is a link to it. A view over props (`whyGraphModel.ts` has the geometry).
+// whose asset has a screen is a link to it; a node's detail (the game step's trigger and source, ADR 0435) is its tooltip. A view over props (`whyGraphModel.ts` has the geometry).
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ScreenId } from "../../shell/screens";
 import { Icon } from "../../components/Icon";
@@ -118,6 +118,7 @@ export function WhyGraph(props: WhyGraphProps) {
                 <span class="pf-wn-kind">{s.label}</span>
                 <span class="pf-wn-name">{s.name}</span>
                 {s.why && <span class="pf-wn-why">{s.why}</span>}
+                {s.detail && <span class="kit-sr-only">{s.detail}</span>}
               </>
             );
             return (
@@ -137,7 +138,7 @@ export function WhyGraph(props: WhyGraphProps) {
                     {body}
                   </button>
                 ) : (
-                  <div class={`pf-wn${s.severity === "warning" ? " bad" : s.severity === "error" ? " err" : ""}`} data-kind={s.kind} title={s.kind === "game" ? "Game trigger" : undefined}>
+                  <div class={`pf-wn${s.severity === "warning" ? " bad" : s.severity === "error" ? " err" : ""}`} data-kind={s.kind} title={s.detail ?? (s.kind === "game" ? "Game trigger" : undefined)}>
                     {body}
                   </div>
                 )}

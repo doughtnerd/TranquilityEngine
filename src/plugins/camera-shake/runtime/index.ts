@@ -1,4 +1,4 @@
-// The Camera Shake plugin's runtime half (ADR 0435): the CameraShake and ShakeImpulseSource components, the
+// The Camera Shake plugin's runtime half (ADR 0436): the CameraShake and ShakeImpulseSource components, the
 // ShakeImpulses buffer and the two engine systems that turn impulses and noise into each camera's CameraViewOffset,
 // which the renderer core adds to the drawn view. `myco` (`src/myco.ts`) exports this module's public parts.
 // Runtime code: never imports from `src/editor/` or the plugin's `editor/` folder; never imports Babylon.

@@ -4,7 +4,7 @@ import { SHIP_HP, myShip } from "../data";
 /**
  * Follows this client's ship from above and behind, always facing north (-Z), so the mouse's
  * point on the water is a steady target. Before the ship exists it looks at the middle. When the ship takes a hit,
- * its `CameraShake` (ADR 0435) gives the view a jolt that grows with the damage: a bump for a cannonball or a ram, an
+ * its `CameraShake` (ADR 0436) gives the view a jolt that grows with the damage: a bump for a cannonball or a ram, an
  * explosion for a lightning strike. Only the drawn view shakes; the follow position and the aim ray stay steady.
  */
 @behavior("pirates.FollowCamera", { worlds: ["client"] })

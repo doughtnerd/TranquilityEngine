@@ -1,4 +1,4 @@
-// ADR 0435: camera shake is game-visible state (`CameraShake.offsetPosition` / `offsetRotation`, the camera's
+// ADR 0436: camera shake is game-visible state (`CameraShake.offsetPosition` / `offsetRotation`, the camera's
 // `CameraViewOffset`), computed by the plugin's systems in every World, so it's read here in a headless World through
 // the components' and the buffer's own interfaces.
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,7 +28,7 @@ function camera(projection: "perspective" | "orthographic" = "perspective", shak
 
 const size = (s: CameraShake): number => s.offsetPosition.length + s.offsetRotation.length;
 
-describe("camera shake (ADR 0435)", () => {
+describe("camera shake (ADR 0436)", () => {
   it("shake() moves only the drawn view, for the preset's duration, then stops", async () => {
     const engine = await headless();
     const { node, shake } = camera();

@@ -1,4 +1,4 @@
-// What the Camera Shake Inspector sections show (ADR 0435 "Editor"): an impulse preset's envelope as plot points and
+// What the Camera Shake Inspector sections show (ADR 0436 "Editor"): an impulse preset's envelope as plot points and
 // its duration, and a one-line summary of a continuous noise profile. Pure: the views in `ShakeSections.tsx` draw it.
 import { evalCurve } from "../../../engine/core/curve";
 import { IMPULSE_SHAPES, NOISE_PROFILES, SHAKE_IMPULSE_PRESETS, CAMERA_NOISE_PRESETS, type CameraNoisePreset, type ShakeImpulsePreset } from "../runtime/presets";

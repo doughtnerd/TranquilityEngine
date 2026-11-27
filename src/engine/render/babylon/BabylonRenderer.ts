@@ -94,7 +94,7 @@ const offsetPos = new Vector3();
 const offsetQuat = new Quaternion();
 
 /**
- * Add the camera's `CameraViewOffset` (ADR 0435), if it has one, to its pose: the position in the camera's own space,
+ * Add the camera's `CameraViewOffset` (ADR 0436), if it has one, to its pose: the position in the camera's own space,
  * the rotation (degrees: yaw Y, pitch X, roll Z) after the camera's. Only the drawn view moves.
  */
 function applyViewOffset(world: World, e: number, rotation: Quaternion, position: Vector3): void {
@@ -735,7 +735,7 @@ export class BabylonRenderer {
     const e = c.node.entity;
     Matrix.FromArrayToRef(world.worldMatrix(e) as unknown as ArrayLike<number> as number[], e * 16, tmpMatrix);
     tmpMatrix.decompose(tmpScale, tmpQuat, tmpPos);
-    applyViewOffset(world, e, tmpQuat, tmpPos); // camera shake and other view-only offsets (ADR 0435), before snapping
+    applyViewOffset(world, e, tmpQuat, tmpPos); // camera shake and other view-only offsets (ADR 0436), before snapping
     const snap = c._pixelSnap();
     if (snap) {
       // On the view's device-pixel grid (half a pixel off for an odd number of pixels, so pixel centres line up).

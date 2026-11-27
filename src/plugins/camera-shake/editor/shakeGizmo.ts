@@ -1,4 +1,4 @@
-// The Camera Shake plugin's viewport tool `myco.camera-shake.reach` (ADR 0138, 0435 "Editor"): each selected node's
+// The Camera Shake plugin's viewport tool `myco.camera-shake.reach` (ADR 0138, 0436 "Editor"): each selected node's
 // ShakeImpulseSources draw their reach around the node, `radius` in the theme's accent and `radius +
 // dissipationDistance` in the camera gizmo colour; circles in the XY plane while the scene view is 2D (its grid lies in
 // XY), spheres as three great circles in 3D. Display only: it never becomes active and takes no presses.

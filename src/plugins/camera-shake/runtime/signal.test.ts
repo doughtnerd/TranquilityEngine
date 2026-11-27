@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { IMPULSE_SHAPES } from "./presets";
 import { addImpulse, strengthAt, zero6 } from "./signal";
 
-describe("camera shake signal (ADR 0435)", () => {
+describe("camera shake signal (ADR 0436)", () => {
   it("is full strength within the radius and fades smoothly to zero over the dissipation distance", () => {
     expect(strengthAt(5, 10, 20)).toBe(1);
     expect(strengthAt(20, 10, 20)).toBeCloseTo(0.5);

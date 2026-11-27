@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { noise1 } from "./noise";
 
-describe("noise1 (ADR 0435)", () => {
+describe("noise1 (ADR 0436)", () => {
   it("is deterministic, zero on lattice points, bounded and continuous", () => {
     expect(noise1(7, 3.25)).toBe(noise1(7, 3.25));
     expect(noise1(7, 3.25)).not.toBe(noise1(8, 3.25));

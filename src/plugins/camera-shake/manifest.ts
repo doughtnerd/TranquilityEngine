@@ -1,4 +1,4 @@
-// The Camera Shake plugin's manifest (ADR 0435), shared by its runtime and editor halves.
+// The Camera Shake plugin's manifest (ADR 0436), shared by its runtime and editor halves.
 import type { PluginManifest } from "../manifest";
 
 export const cameraShakeManifest: PluginManifest = {

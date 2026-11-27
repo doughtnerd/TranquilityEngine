@@ -1,5 +1,5 @@
 /**
- * Shakes a camera's view (ADR 0435): put it on a camera node. It hears the impulses `ShakeImpulseSource`s, scripts and
+ * Shakes a camera's view (ADR 0436): put it on a camera node. It hears the impulses `ShakeImpulseSource`s, scripts and
  * systems send (`ShakeImpulses`) that reach it, adds its own continuous noise, and moves only the drawn view (through
  * `CameraViewOffset`): the camera's Transform, the audio listener and camera rays keep the node's pose. Like
  * Cinemachine's Impulse Listener with Basic Multi-Channel Perlin noise.

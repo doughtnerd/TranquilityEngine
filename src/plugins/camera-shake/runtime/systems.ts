@@ -1,5 +1,5 @@
 /**
- * Camera shake's engine systems (ADR 0435), both in `lateUpdate` after `lateUpdate()` scripts, so follow scripts have
+ * Camera shake's engine systems (ADR 0436), both in `lateUpdate` after `lateUpdate()` scripts, so follow scripts have
  * placed their cameras and animation has written keyed fields:
  *
  * - `cameraShake.Sources` sends the impulses `ShakeImpulseSource`s' triggers call for (`fire` edges, `onStart`,
@@ -255,7 +255,7 @@ export const LISTEN_SYSTEM: BuiltinSystem = {
       const ps = shake.positionScale, rs = shake.rotationScale;
       o6[0] *= ps.x; o6[1] *= ps.y; o6[2] *= ps.z;
       o6[3] *= rs.x; o6[4] *= rs.y; o6[5] *= rs.z;
-      // Orthographic views show only movement across the screen and roll as shake (ADR 0435).
+      // Orthographic views show only movement across the screen and roll as shake (ADR 0436).
       if (shake.node.getBehavior(Camera)?.projection === "orthographic") o6[2] = o6[3] = o6[4] = 0;
       for (let i = 0; i < 6; i++) shake._offset[i] = o6[i]!;
       if (!store.present[e]) store.add(e);

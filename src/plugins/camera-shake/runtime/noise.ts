@@ -1,5 +1,5 @@
 /**
- * Smooth, seeded 1D gradient noise (Perlin's, in one dimension): what camera shake's noise channels sample (ADR 0435).
+ * Smooth, seeded 1D gradient noise (Perlin's, in one dimension): what camera shake's noise channels sample (ADR 0436).
  * Pure and deterministic: the same seed and time give the same value on every machine, so recorded runs replay.
  */
 

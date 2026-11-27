@@ -1,4 +1,4 @@
-# 0435. Camera shake is a plugin of impulse sources and camera listeners on the ECS, offsetting only the rendered view
+# 0436. Camera shake is a plugin of impulse sources and camera listeners on the ECS, offsetting only the rendered view
 
 - **Status:** Accepted
 - **Date:** 2026-11-27

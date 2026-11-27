@@ -48,7 +48,7 @@ export const FIRST_PARTY = {
   environment: environmentManifest,
   lights2d: lights2dManifest,
   "post-processing": postProcessingManifest,
-  // After physics, its optional dependency (ADR 0435).
+  // After physics, its optional dependency (ADR 0436).
   "camera-shake": cameraShakeManifest,
   audio: audioManifest,
   // After audio and UI, which it needs (ADR 0357 §5).

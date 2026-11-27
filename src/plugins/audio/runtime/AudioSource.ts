@@ -140,7 +140,7 @@ export class AudioSource extends Component {
     if (isPlaylistPath(path) || isAudioEventPath(path)) {
       this.playlist = playlists().play(path, {
         pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined, position: this.node.transform?.worldPosition,
-        ...this.eventSpatialOptions(), ...this.distanceOverrides(), owner: this.node.name,
+        ...this.eventSpatialOptions(), ...this.distanceOverrides(), owner: this.node.name, trigger: "AudioSource", triggerNode: this.owner,
       }, worldKeyOf(this._world));
       this.applied = "";
       this.appliedPitch = this.pitch;

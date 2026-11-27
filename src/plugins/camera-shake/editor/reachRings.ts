@@ -1,4 +1,4 @@
-// A shake impulse source's reach as wire rings (ADR 0435 "Editor"): full strength inside `radius`, fading to nothing at
+// A shake impulse source's reach as wire rings (ADR 0436 "Editor"): full strength inside `radius`, fading to nothing at
 // `radius + dissipationDistance`. Rings are world-space distances (the runtime measures from the node's world position,
 // unscaled): circles in the XY plane for a 2D view, spheres as three great circles otherwise.
 import { shapeKit3d } from "../../../editor/sdk";

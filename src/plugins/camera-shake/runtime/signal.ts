@@ -1,5 +1,5 @@
 /**
- * Camera shake's signal model (ADR 0435): how strong an impulse is at a distance, what an impulse shape and a noise
+ * Camera shake's signal model (ADR 0436): how strong an impulse is at a distance, what an impulse shape and a noise
  * profile give at a moment, as six channels (position x, y, z in world units; rotation x, y, z in degrees). Pure
  * functions over the preset tables; the systems (`systems.ts`) decide when and where to sample them.
  */

@@ -1,4 +1,4 @@
-/* The Camera Shake plugin's Inspector sections (ADR 0435). Theme tokens only (src/editor/theme.ts). */
+/* The Camera Shake plugin's Inspector sections (ADR 0436). Theme tokens only (src/editor/theme.ts). */
 .camera-shake-section { margin: 6px 0 4px; }
 .camera-shake-envelope { margin: 0 0 4px; }
 .camera-shake-envelope figcaption, .camera-shake-note { margin: 0 0 2px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }

@@ -127,9 +127,9 @@ describe("the system catalog (T2)", () => {
     // UI navigation (ADR 0340) does nothing without a focused element or laid-out UI.
     expect(engine.world.scheduler.order("input")).toEqual(["engine.InputDevices", "engine.InputPairing", "engine.InputRebind", "engine.InputEvaluate", "engine.UINavigation", "engine.InputEventScripts"]);
     expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.CameraViewOffsets", "engine.UIEventDispatch", "engine.InputFrame", "engine.UIHostEvents", "engine.UIHostFrame", "engine.UIControlMapper", "engine.UpdateScripts", "test.cat.Default"]);
-    // Camera view offsets are zeroed before the update scripts (ADR 0435).
+    // Camera view offsets are zeroed before the update scripts (ADR 0436).
     // The Lines plugin samples trails, the Decals plugin ages spawned decals and the Camera Shake plugin sends and
-    // sums impulses after late scripts (ADR 0395, 0396, 0435).
+    // sums impulses after late scripts (ADR 0395, 0396, 0436).
     expect(engine.world.scheduler.order("lateUpdate")).toEqual(["animation.Timeline", "animation.Gather", "animation.Evaluate", "animation.Apply", "engine.LateUpdateScripts", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.UIHostFlush", "engine.UIHostSync", "engine.UIMedia", "engine.UIAnimation", "lines.Trails", "decals.Pool", "cameraShake.Sources", "cameraShake.Listen", "engine.AudioZones", "engine.Audio"]);
     engine.dispose();
   });

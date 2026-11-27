@@ -168,7 +168,7 @@ export class AudioZone extends Component {
     const at = { x: box.cx, y: (box.bottom + box.top) / 2, z: box.cz };
     if (isPlaylistPath(path)) {
       // Placed and levelled in the same frame (`_sync` goes on after this), before the frame's commands go out.
-      this.instance = playlists().play(path, { position: at, owner: this.node.name, zone: true, zoneInside: this.heard === "inside" }, worldKeyOf(this._world));
+      this.instance = playlists().play(path, { position: at, owner: this.node.name, trigger: "AudioZone", triggerNode: this.owner, zone: true, zoneInside: this.heard === "inside" }, worldKeyOf(this._world));
       return;
     }
     try {

@@ -1,5 +1,5 @@
 /**
- * Camera shake presets (ADR 0435), as data in one format so custom presets later are the same shapes in an asset.
+ * Camera shake presets (ADR 0436), as data in one format so custom presets later are the same shapes in an asset.
  *
  * - An impulse shape is an envelope over normalised time (a core `Curve`, 0..1 → 0..1) times a signal that mixes the
  *   impulse's direction (`noise` 0) with six-channel noise (`noise` 1), with its default duration.

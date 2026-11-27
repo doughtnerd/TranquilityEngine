@@ -1,5 +1,5 @@
 /**
- * A camera's view offset (ADR 0435): a camera-space position (world units) and rotation (degrees, applied yaw Y,
+ * A camera's view offset (ADR 0436): a camera-space position (world units) and rotation (degrees, applied yaw Y,
  * pitch X, roll Z) the renderer adds to the camera's view this frame, after reading its node's world matrix and
  * before pixel snapping. Only the drawn view moves: the camera's Transform, physics, the audio listener and camera rays
  * (ADR 0073) keep the node's pose.

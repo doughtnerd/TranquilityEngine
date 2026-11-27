@@ -1,4 +1,4 @@
-// The Camera Shake Inspector sections (ADR 0435 "Editor"), under a ShakeImpulseSource's and a CameraShake's fields:
+// The Camera Shake Inspector sections (ADR 0436 "Editor"), under a ShakeImpulseSource's and a CameraShake's fields:
 // the source's preset envelope as a small plot labelled with its duration, the camera's noise profile in one line,
 // and on both a Test button that, while the game plays, fires the selected node's impulse (`generateImpulse()`) or
 // shakes its camera (`shake("bump")`) in the running game. Nothing is saved: it acts on the play session's live node,

@@ -1,4 +1,4 @@
-// Collision and trigger impulses (ADR 0435) read the Physics plugin's contact buffers and bodies. Physics is an optional
+// Collision and trigger impulses (ADR 0436) read the Physics plugin's contact buffers and bodies. Physics is an optional
 // dependency, so its module is loaded with `import()` when it is active for this activation (as the Animation plugin's
 // grounder does, ADR 0374), and dropped when it isn't. Until it has loaded, and without physics, those triggers send
 // nothing.
