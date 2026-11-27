@@ -1,6 +1,6 @@
 # 0435. Camera shake is a plugin of impulse sources and camera listeners on the ECS, offsetting only the rendered view
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-27
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -101,8 +101,10 @@ Method: `generateImpulse(force?: number | Vector3)` — a number scales `force`,
   distance, arrival time) plus its noise, and adds the result to the camera's `CameraViewOffset`.
 - **`CameraViewOffset`** (`defineComponent("engine.CameraViewOffset", { px, py, pz, rx, ry, rz: f32 })`, engine core,
   public): a camera-space position and rotation (degrees) the renderer adds to a camera's view this frame. Writers
-  *add* to it; the renderer zeroes it after the camera sync. This is the seam: shake is its first writer, and head
-  bob or recoil kick can be later ones without touching the renderer.
+  *add* to it; the engine system `engine.CameraViewOffsets` zeroes every offset at the start of each frame's `update`
+  phase, before the update scripts, so it is cleared in every World (headless ones too) whether or not a renderer
+  reads it. This is the seam: shake is its first writer, and head bob or recoil kick can be later ones without
+  touching the renderer.
 
 All systems are registered with `registerEngineSystems`, so the System catalogue and Worlds panel show them.
 
@@ -110,8 +112,8 @@ All systems are registered with `registerEngineSystems`, so the System catalogue
 
 - In the camera sync, after reading the node's world matrix and **before** pixel snapping, the renderer applies
   `CameraViewOffset` in camera space. A pixel-perfect camera's shake therefore lands on its pixel grid (no shimmer).
-- **Orthographic cameras** take position X/Y and roll only; Z position, pitch and yaw don't read as shake in
-  orthographic and are ignored.
+- **Orthographic cameras** get position X/Y and roll only from `cameraShake.Listen`; Z position, pitch and yaw don't
+  read as shake in orthographic and are left out. The renderer applies whatever `CameraViewOffset` holds.
 - **Nothing else moves:** the camera's `Transform`, physics, the audio listener and camera rays and screen points
   (`screenPointToRay`, `worldToScreenPoint`, 0073) use the unshaken pose, so aim, picking and UI anchors stay steady.
 
@@ -139,6 +141,18 @@ asset, not new machinery.
 
 Custom presets (curve and noise assets), shaking anything but cameras, replication (shake is cosmetic: each peer's
 own scripts and triggers make it), and a timeline track type of its own (keyed `fire` covers it).
+
+### As built (2026-11-27)
+
+- `ShakeImpulses` has the id `cameraShake.Impulses`. An impulse taken in a frame counts as starting when that frame
+  began, so the frame that hears it already shows it.
+- `generateImpulse()` pushes into its own World's buffer, whichever World is current (the editor's Test button calls
+  it from outside the play World).
+- `"collision"`: by the time systems read a contact the solver has stopped the body, so the impact speed is the
+  source body's velocity when `cameraShake.Sources` last looked, less the other body's velocity now. Physics is loaded
+  with `import()` while the Physics plugin is on (as the Animation plugin's grounder does); without it, collision and
+  trigger sources send nothing.
+- `duration` 0 means the preset's own duration.
 
 ## Alternatives considered
 

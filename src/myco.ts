@@ -70,6 +70,7 @@ export { MeshRenderer } from "./plugins/meshes/runtime";
 export { Water, WaterSurface, type WaterSample } from "./plugins/water/runtime";
 
 // The Lines plugin (ADR 0396).
+export { CameraShake, ShakeImpulseSource, ShakeImpulses, CAMERA_NOISE_PRESETS, SHAKE_IMPULSE_PRESETS, type CameraNoisePreset, type ShakeImpulse, type ShakeImpulsePreset, type ShakeImpulseTrigger } from "./plugins/camera-shake/runtime";
 export { LineRenderer, TrailRenderer, type RibbonAlignment, type RibbonMode, type RibbonTextureMode } from "./plugins/lines/runtime";
 
 // The Decals plugin (ADR 0395).

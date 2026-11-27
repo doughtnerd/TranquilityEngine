@@ -44,6 +44,7 @@ import type { BabylonEditorViewport } from "./editorViewport";
 import type { Component } from "../../core/Component";
 import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
+import { CameraViewOffset } from "../cameraViewOffset";
 import type { GameObject } from "../../scene/GameObject";
 import type { Color } from "../../core/math";
 import type { GraphShared } from "./graphMaterial";
@@ -89,6 +90,23 @@ const tmpMatrix = new Matrix();
 const tmpScale = new Vector3();
 const tmpQuat = new Quaternion();
 const tmpPos = new Vector3();
+const offsetPos = new Vector3();
+const offsetQuat = new Quaternion();
+
+/**
+ * Add the camera's `CameraViewOffset` (ADR 0435), if it has one, to its pose: the position in the camera's own space,
+ * the rotation (degrees: yaw Y, pitch X, roll Z) after the camera's. Only the drawn view moves.
+ */
+function applyViewOffset(world: World, e: number, rotation: Quaternion, position: Vector3): void {
+  const store = world._dataStore(CameraViewOffset);
+  if (!store.present[e]) return;
+  const a = store.arrays;
+  const deg = Math.PI / 180;
+  offsetPos.set(a.px![e]!, a.py![e]!, a.pz![e]!).applyRotationQuaternionInPlace(rotation);
+  position.addInPlace(offsetPos);
+  Quaternion.RotationYawPitchRollToRef(a.ry![e]! * deg, a.rx![e]! * deg, a.rz![e]! * deg, offsetQuat);
+  rotation.multiplyInPlace(offsetQuat);
+}
 
 
 /** The whole camera texture (each camera renders into a texture its rectangle's size, frameGraph.ts). */
@@ -717,6 +735,7 @@ export class BabylonRenderer {
     const e = c.node.entity;
     Matrix.FromArrayToRef(world.worldMatrix(e) as unknown as ArrayLike<number> as number[], e * 16, tmpMatrix);
     tmpMatrix.decompose(tmpScale, tmpQuat, tmpPos);
+    applyViewOffset(world, e, tmpQuat, tmpPos); // camera shake and other view-only offsets (ADR 0435), before snapping
     const snap = c._pixelSnap();
     if (snap) {
       // On the view's device-pixel grid (half a pixel off for an odd number of pixels, so pixel centres line up).
