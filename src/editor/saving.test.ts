@@ -45,6 +45,7 @@ describe("saving (ADR 0026)", () => {
     Input.reset();
     fs = demoFolder();
     project = await openFolderProject(fs, ROOT);
+    fs.writes.length = 0; // opening wrote the missing default input context (ADR 0417)
     useProjectAssets(project);
     currentProject.value = project;
     const engine = await Engine.create({ headless: true, kind: "editor", project: editorSettings(project) });

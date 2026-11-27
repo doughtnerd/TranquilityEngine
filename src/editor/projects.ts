@@ -12,6 +12,7 @@ import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder, textFile
 import { isScriptPath, isTextAsset, joinPath } from "./projectPaths";
 import { readOnlyMessage } from "./readOnly";
 import { migrateLegacyAudio, settingsWithAudio } from "./audioProjectFile";
+import { ensureDefaultInputContext } from "./defaultInputContext";
 import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
 
 export { isTextAsset, joinPath };
@@ -515,6 +516,8 @@ export async function openFolderProject(fs: FileSystem, root: string, options: {
   }
   // ADR 0344: an `audio` section still in project.json moves to audio.json before anything reads the files.
   if (!options.readOnly) await migrateLegacyAudio(fs, root);
+  // ADR 0417: every project has a default input context file.
+  if (!options.readOnly) await ensureDefaultInputContext(fs, root);
   const folders = new Set<string>();
   const sizes = new Map<string, number>();
   const { values, texts, problems } = await loadProjectFiles(await listFiles(fs, root, "", isProjectFile, folders), {

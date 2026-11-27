@@ -19,7 +19,7 @@
  * true in exactly one tick, and read in `update` in exactly one frame.
  */
 import { Vector2, Vector3 } from "../core/math";
-import { _onComponentUndefined, defineBuffer, defineComponent, f32, i32, type DataComponentDef, type DataView, type Schema } from "../core/data";
+import { _onComponentUndefined, _redefineComponent, defineBuffer, defineComponent, f32, i32, type DataComponentDef, type DataView, type Schema } from "../core/data";
 import type { GameObject } from "../scene/GameObject";
 import type { ModifierSpec, TriggerSpec, MappingSpec } from "./contextTypes";
 
@@ -181,6 +181,9 @@ export interface ActionSetDef<Spec extends ActionSpec = ActionSpec> extends Data
 }
 
 const sets = new Map<string, ActionSetDef>();
+/** Where each set came from: `defineActions` in code, or an `*.actions.json` asset (ADR 0417). */
+export type ActionSetSource = "code" | "asset";
+const sources = new Map<string, ActionSetSource>();
 /** Bumped whenever an action set is (re)defined, so compiled tables rebuild. */
 let setsVersion = 0;
 
@@ -198,13 +201,24 @@ export function actionSetsVersion(): number {
 // old project's, ADR 0030), so a leftover set can't keep winning bare action names.
 _onComponentUndefined((id, restored) => {
   if (!sets.has(id)) return;
-  if (restored && isActionSet(restored)) sets.set(id, restored);
-  else sets.delete(id);
+  if (restored && isActionSet(restored)) {
+    sets.set(id, restored);
+    sources.set(id, "code");
+  } else {
+    sets.delete(id);
+    sources.delete(id);
+  }
   setsVersion++;
 });
 
 /** Listeners told when a networked set is defined (the net bridge defines its stream). */
 const definedListeners: ((def: ActionSetDef) => void)[] = [];
+
+/** @internal The set `id` and where it came from, or undefined. */
+export function actionSetSource(id: string): { readonly def: ActionSetDef; readonly source: ActionSetSource } | undefined {
+  const def = sets.get(id);
+  return def ? { def, source: sources.get(id) ?? "code" } : undefined;
+}
 
 /** @internal */
 export function onActionSetDefined(listener: (def: ActionSetDef) => void): void {
@@ -219,6 +233,21 @@ const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * Players get every defined set; pawns get their player's (ADR 0337).
  */
 export function defineActions<Spec extends ActionSpec>(id: string, spec: Spec, options: ActionSetOptions = {}): ActionSetDef<Spec> {
+  return _defineActionSet(id, spec, options, "code");
+}
+
+/**
+ * @internal `defineActions`, saying where the set comes from. An id an asset and code both define is the asset's
+ * (ADR 0417: it's what the editor shows): code defining it gets the asset's set back, with a warning; an asset
+ * defining a code set's id replaces it, with a warning. An asset defining its own id again replaces it (its file changed).
+ */
+export function _defineActionSet<Spec extends ActionSpec>(id: string, spec: Spec, options: ActionSetOptions, source: ActionSetSource): ActionSetDef<Spec> {
+  const before = sources.get(id);
+  if (before === "asset" && source === "code") {
+    console.warn(`[myco] defineActions("${id}"): an action set asset defines "${id}" too; the asset's set is used. Delete one of them.`);
+    return sets.get(id) as unknown as ActionSetDef<Spec>;
+  }
+  if (before === "code" && source === "asset") console.warn(`[myco] An action set asset defines "${id}", which a script defines with defineActions too; the asset's set is used. Delete one of them.`);
   const schema: Schema = {};
   const actions: ActionInfo[] = [];
   for (const [name, type] of Object.entries(spec)) {
@@ -230,7 +259,8 @@ export function defineActions<Spec extends ActionSpec>(id: string, spec: Spec, o
     schema[`${name}$time`] = f32;
     actions.push({ name, kind: type.kind, index: actions.length, valueFields, phaseField: `${name}$phase`, timeField: `${name}$time`, type });
   }
-  const base = defineComponent(id, schema, options.key ? { key: options.key } : {});
+  const keyed = options.key ? { key: options.key } : {};
+  const base = before !== undefined && source === "asset" ? _redefineComponent(id, schema, keyed) : defineComponent(id, schema, keyed);
   const byName = new Map(actions.map((a) => [a.name, a]));
   const info = (action: string): ActionInfo => {
     const a = byName.get(action);
@@ -279,6 +309,7 @@ export function defineActions<Spec extends ActionSpec>(id: string, spec: Spec, o
   for (const m of ["value", "vector2", "vector3", "phase", "elapsed", ...Object.keys(ActionPhase)]) Object.defineProperty(proto, m, { enumerable: false });
   const def = Object.assign(base, { actions, options, _actionSet: true as const }) as unknown as ActionSetDef<Spec>;
   sets.set(id, def as unknown as ActionSetDef);
+  sources.set(id, source);
   setsVersion++;
   for (const listener of definedListeners) listener(def as unknown as ActionSetDef);
   return def;

@@ -242,3 +242,20 @@ describe("load order", () => {
     expect(problem("scripts/e.ts")).toMatch(/imports scripts\/c\.ts/);
   });
 });
+
+describe("action set imports (ADR 0417)", () => {
+  const code = new Map([["scripts/system.ts", `import PlayerActions from "../input/player.actions.json";\nexport const id = PlayerActions.id;\nexport const names = PlayerActions.actions.map((a) => a.name);\n`]]);
+  const json = new Map([["input/player.actions.json", JSON.stringify({ id: "test.linker.PlayerActions", actions: [{ name: "jump", type: "button" }] })]]);
+
+  it("gives a script the defined set, not the file's JSON, in both targets", async () => {
+    const { memory, build, target } = await both({ code, json });
+    expect(memory.problems).toEqual([]);
+    expect(build.problems).toEqual([]);
+    const module = await target.scriptModule("scripts/system.ts");
+    expect(module.id).toBe("test.linker.PlayerActions");
+    expect(module.names).toEqual(["jump"]);
+    const wrapper = build.output.get("code/input/player.actions.json.set.js")!;
+    expect(wrapper).toContain(`actionSetFromData("input/player.actions.json", data)`);
+    expect(build.output.get("code/scripts/system.js")).toContain(`from "../input/player.actions.json.set.js"`);
+  });
+});

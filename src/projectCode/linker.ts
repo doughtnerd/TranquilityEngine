@@ -16,6 +16,9 @@ import { isScriptPath } from "../editor/projectPaths";
 import { compileScript, EDITOR_MODULE, isEngineModule, resolveScript, type CompiledScript, type ScriptProblem } from "./compile";
 import { loadOrder } from "./loadOrder";
 
+/** Action set assets (ADR 0417): a script importing one gets the defined set, not the file's JSON. */
+const ACTION_SET_FILE = ".actions.json";
+
 /** What to link: a host's selection of a project's code. */
 export interface LinkInput {
   /** Scripts' and plugin files' source by project path (`planPluginCode`'s `code`); other paths are ignored. */
@@ -129,6 +132,7 @@ export async function link<Output>(input: LinkInput, target: LinkTarget<Output>)
 
   const known = new Set([...compiled.keys(), ...json.keys()]);
   const jsonAddresses = new Map<string, string>();
+  const actionSetModules = new Map<string, string>();
   const addresses = new Map<string, string>();
   const loaded: string[] = [];
   for (const path of plan.order) {
@@ -137,6 +141,20 @@ export async function link<Output>(input: LinkInput, target: LinkTarget<Output>)
       continue;
     }
     const s = compiled.get(path)!;
+    // An `*.actions.json` import (ADR 0417) is a module that defines the file's set (or returns it, defined already).
+    for (const { specifier: spec } of s.imports) {
+      if (isEngineModule(spec) || spec === EDITOR_MODULE || isPackageSpecifier(spec)) continue;
+      const target = resolveScript(path, spec, known);
+      if (!target || !target.endsWith(ACTION_SET_FILE) || !parsed.has(target) || actionSetModules.has(target)) continue;
+      if (!jsonAddresses.has(target)) jsonAddresses.set(target, out.json(target, parsed.get(target)));
+      const module = `${target}.set.ts`;
+      const code = `import { actionSetFromData } from ${JSON.stringify(out.specifier(module, { engine: true }))};\nimport data from ${JSON.stringify(out.specifier(module, { address: jsonAddresses.get(target)! }))};\nexport default actionSetFromData(${JSON.stringify(target)}, data);\n`;
+      try {
+        actionSetModules.set(target, await out.script(module, code));
+      } catch (err) {
+        problems.push({ path: target, message: (err as Error).message });
+      }
+    }
     const rewritten = rewriteImports(s.code, s.imports, (spec) => {
       if (isEngineModule(spec)) return out.specifier(path, { engine: true });
       if (spec === EDITOR_MODULE) return out.specifier(path, { editorSdk: true });
@@ -144,6 +162,7 @@ export async function link<Output>(input: LinkInput, target: LinkTarget<Output>)
       const target = resolveScript(path, spec, known)!;
       if (!parsed.has(target)) return out.specifier(path, { address: addresses.get(target)! });
       if (!jsonAddresses.has(target)) jsonAddresses.set(target, out.json(target, parsed.get(target)));
+      if (actionSetModules.has(target)) return out.specifier(path, { address: actionSetModules.get(target)! });
       return out.specifier(path, { address: jsonAddresses.get(target)! });
     });
     try {

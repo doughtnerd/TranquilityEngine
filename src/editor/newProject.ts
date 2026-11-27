@@ -2,6 +2,7 @@
 // and the scripting files external code editors need (ADR 0030).
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { joinPath } from "./projectPaths";
+import { ensureDefaultInputContext } from "./defaultInputContext";
 import { writeScriptingFiles } from "./scriptingSetup";
 
 export type ProjectTemplate = "2d" | "3d";
@@ -32,6 +33,7 @@ function newProjectJson(name: string, template: ProjectTemplate): string {
     time: { fixedDeltaTime: 1 / 60, maxSubSteps: 5, maxFrameTime: 0.25 },
     physics: { gravity: [0, -9.81], layers: ["Default"] },
     render: { sortingLayers: ["Default"], pixelsPerUnit: 100 },
+    input: { join: "single", maxPlayers: 4, actionSets: [] },
     autoload: [],
   });
 }
@@ -93,5 +95,6 @@ export async function scaffoldProject(
   await fs.writeText(joinPath(root, "project.json"), newProjectJson(options.name, options.template));
   await fs.writeText(joinPath(root, "scenes/main.scene.json"), newMainScene(options.template));
   await fs.writeText(joinPath(root, ".gitignore"), GITIGNORE);
+  await ensureDefaultInputContext(fs, root);
   if (options.declarations) await writeScriptingFiles(fs, root, options.declarations);
 }

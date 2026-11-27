@@ -20,7 +20,7 @@
 import type { World } from "../core/World";
 import { defineComponent, i32, type DataComponentDef, type Schema } from "../core/data";
 import { defineBuiltinSystem } from "../core/systems";
-import { defineInput } from "../net/input";
+import { _redefineInput, defineInput } from "../net/input";
 import type { InputDef } from "../net/messages";
 import { Replicated } from "../net/Replicated";
 import { netSession } from "../net/session";
@@ -53,14 +53,16 @@ function wireSchema(def: ActionSetDef): Schema {
 
 onActionSetDefined((def) => {
   if (!def.options.networked) return;
-  for (const old of streams.keys()) if (old.id === def.id) streams.delete(old);
+  let redefined = false;
+  for (const old of streams.keys()) if (old.id === def.id) redefined = streams.delete(old);
   const encoding: Record<string, { quantize?: number }> = {};
   for (const [name, enc] of Object.entries(def.options.encoding ?? {})) {
     const a = def.actions.find((x) => x.name === name);
     if (!a) throw new Error(`defineActions("${def.id}"): encoding names "${name}", which isn't an action.`);
     if (enc?.quantize !== undefined) for (const f of a.valueFields) encoding[f] = { quantize: enc.quantize };
   }
-  streams.set(def, defineInput(def.id, wireSchema(def), { encoding, redundancy: def.options.redundancy }));
+  const define = redefined ? _redefineInput : defineInput;
+  streams.set(def, define(def.id, wireSchema(def), { encoding, redundancy: def.options.redundancy }));
 });
 
 function send(world: World): void {

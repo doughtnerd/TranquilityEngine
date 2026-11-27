@@ -42,7 +42,8 @@ describe("new projects", () => {
     const project = await openFolderProject(fs, ROOT);
     expect(project.name).toBe("My Game");
     expect(project.mainScene).toBe("scenes/main.scene.json");
-    expect(project.files).toEqual(["project.json", "scenes/main.scene.json", "tsconfig.json"]);
+    expect(project.files).toEqual(["input/default.input.json", "project.json", "scenes/main.scene.json", "tsconfig.json"]);
+    expect(JSON.parse(fs.files.get(joinPath(ROOT, "input/default.input.json")) as string)).toEqual({ name: "default", mappings: [] }); // ADR 0417
   });
 
   it.each(["2d", "3d"] as const)("the %s template's main scene opens in the editor with its camera", async (template) => {
@@ -85,6 +86,6 @@ describe("new projects", () => {
     const fs = new MemoryFileSystem();
     await scaffoldProject(fs, ROOT, { name: "X", template: "3d" });
     const json = JSON.parse(fs.files.get(joinPath(ROOT, "project.json")) as string);
-    expect(Object.keys(json)).toEqual(["name", "display", "time", "physics", "render", "autoload"]);
+    expect(Object.keys(json)).toEqual(["name", "display", "time", "physics", "render", "input", "autoload"]);
   });
 });
