@@ -1,6 +1,5 @@
-// The shapes of the marks rain and ships leave on the sea (seaMarks.ts draws them on the waves): how
-// strongly a ship's speed churns the water, a raindrop ripple's size and fade over its life, a bow
-// wave's V and a stern wake's path. Plain maths: no engine state, no World.
+// The shapes of the marks ships leave on the sea (seaMarks.ts draws them on the waves): how strongly
+// a ship's speed churns the water, a bow wave's V and a stern wake's path. Plain maths: no engine state, no World.
 
 /** Below this speed (m/s) a ship is at rest and leaves no wake or bow wave. */
 export const REST_SPEED = 0.5;
@@ -14,25 +13,6 @@ export function wakeStrength(speed: number, full: number, rest = REST_SPEED): nu
   if (!(speed > rest) || !(full > rest)) return 0;
   const t = Math.min(1, (speed - rest) / (full - rest));
   return t * (2 - t);
-}
-
-/** A raindrop's ripple at one moment: its outer radius (m) and how strongly it shows (0..1). */
-export interface RippleLook {
-  radius: number;
-  alpha: number;
-}
-
-/**
- * A raindrop's ripple `t` of the way through its life (0..1): it spreads fast and then slower from a
- * tenth of `maxRadius` to `maxRadius`, shows at once (up to `peakAlpha` within its first tenth) and
- * fades out as it spreads, to nothing at the end.
- */
-export function rippleAt(t: number, maxRadius: number, peakAlpha: number, out: RippleLook = { radius: 0, alpha: 0 }): RippleLook {
-  const k = Math.max(0, Math.min(1, t));
-  const spread = 1 - (1 - k) * (1 - k);
-  out.radius = maxRadius * (0.1 + 0.9 * spread);
-  out.alpha = peakAlpha * Math.min(1, k * 10) * (1 - k) * (1 - k);
-  return out;
 }
 
 /** A point of a stern wake on the water and its age in seconds. */

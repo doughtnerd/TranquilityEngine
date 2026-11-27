@@ -348,11 +348,6 @@ describe("the King of Pirates sample", () => {
     place(0.3 * radius, 0.3 * radius, 0);
     await stepUntil(engine, () => !banner(), "the warning gone", 120);
 
-    // A storm's rain rings the water where it falls, on the client only.
-    World._runIn(server, () => void Object.assign(dataIn(server, null, (n) => n.getData(Game) as GameView | null)!, { storm: 30, stormTeam: -1 }));
-    await stepUntil(engine, () => marks(client, "Ripple 1").length + marks(client, "Ripple 2").length > 0, "rain ripples", 600);
-    expect(client._componentsOfType(LineRenderer).filter((l) => l.node.name.startsWith("Ripple") && l.isActiveAndEnabled).length).toBeGreaterThan(2);
-    expect(server._componentsOfType(LineRenderer).filter((l) => l.node.name.startsWith("Ripple"))).toEqual([]);
     expect(errors).toEqual([]);
   });
 

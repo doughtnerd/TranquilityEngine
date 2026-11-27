@@ -1,139 +1,22 @@
-// The marks rain and ships leave on the sea, drawn where the game is drawn (client Worlds, and the
-// menu's own World for its backdrop ships), never on the server: they're only for the eye.
-// - Rain: faint rings spread where drops land, as many as the rain is heavy (the `Rain` particle
-//   system's emission, which weather.ts eases with the storm), none in calm weather.
-// - Ships: a bow wave (a V of churned water from the stem) and a stern wake (a widening band along
+// The marks ships leave on the sea, drawn where the game is drawn (client Worlds, and the
+// menu's own World for its backdrop ships), never on the server: they're only for the eye. (Rain
+// rings the water in its own effect, effects/rain.particles.json: drops die where they meet the
+// scene's depth, and some deaths spawn a flat ring there.)
+// - a bow wave (a V of churned water from the stem) and a stern wake (a widening band along
 //   the path the stern took), both as strong as the ship is fast and gone when it stops.
 // Every mark lies on the waves: each frame its points take the sea's height (`Water.sample`). The
 // shapes and the speed-to-strength curve are in seaMarkShapes.ts.
-import { Color, GameObject, LineRenderer, ParticleSystem, Quaternion, Replicated, Water, defineSystem, type Curve, type Gradient } from "myco";
+import { Color, GameObject, LineRenderer, Quaternion, Replicated, Water, defineSystem, type Curve, type Gradient } from "myco";
 import { HULL_HALF_LENGTH, SHIP_SPEED, cloudSpots, inCloudAmong, myShip, ships } from "./data";
 import { MenuBackdrop } from "./behaviors/MenuBackdrop";
-import { WakePath, bowWave, rippleAt, wakeStrength, type RippleLook } from "./seaMarkShapes";
+import { WakePath, bowWave, wakeStrength } from "./seaMarkShapes";
 
-const RIPPLE_TEXTURE = "asset:textures/ripple.png";
 const WAKE_TEXTURE = "asset:textures/wake.png";
 
 /** How far above the sampled surface marks float, so the waves don't swallow them. */
 const LIFT = 0.06;
 /** A flat mark faces +Z: this turns a node's +Z to world up. */
 const FACE_UP = Quaternion.lookRotation([0, 1, 0], [0, 0, 1]);
-
-// --- rain ripples ------------------------------------------------------------------------------------
-
-/** Ripples at most at once (the pool). */
-const RIPPLE_POOL = 48;
-/** Ripples a second in full rain (they live `RIPPLE_LIFE`, so about 40 show at once). */
-const RIPPLE_RATE = 70;
-const RIPPLE_LIFE = 0.6;
-const RIPPLE_RADIUS = 0.55;
-const RIPPLE_ALPHA = 0.35;
-/** Metres around the rain's middle (the point the camera looks at) where ripples show. */
-const RIPPLE_SPREAD = 22;
-
-interface Ripple {
-  node: GameObject;
-  line: LineRenderer;
-  x: number;
-  z: number;
-  age: number;
-  alive: boolean;
-}
-interface Rain {
-  root: GameObject;
-  ripples: Ripple[];
-  /** Ripples owed, carried between frames. */
-  due: number;
-  /** Seed of this World's ripple placement. */
-  seed: number;
-}
-const rains = new WeakMap<object, Rain>();
-
-function buildRain(): Rain {
-  const root = GameObject.create("Rain Ripples");
-  const ripples: Ripple[] = [];
-  for (let i = 0; i < RIPPLE_POOL; i++) {
-    const node = GameObject.create(`Ripple ${i + 1}`, { parent: root });
-    const line = node.addComponent(LineRenderer, { texture: RIPPLE_TEXTURE, alignment: "transformZ", textureMode: "stretch", castShadows: false, receiveShadows: false });
-    node.setActive(false);
-    ripples.push({ node, line, x: 0, z: 0, age: 0, alive: false });
-  }
-  return { root, ripples, due: 0, seed: 1 };
-}
-
-/** A cheap repeatable random number in [0, 1) (each World's ripples follow their own sequence). */
-function next(rain: Rain): number {
-  rain.seed = (Math.imul(rain.seed, 1664525) + 1013904223) >>> 0;
-  return rain.seed / 4294967296;
-}
-
-const look: RippleLook = { radius: 0, alpha: 0 };
-
-/**
- * Lays one quad per ripple on the waves, facing along the surface's normal: two points across it,
- * as wide as it is long, showing the ring texture at the ripple's size and fade.
- */
-function drawRipple(r: Ripple): void {
-  rippleAt(r.age / RIPPLE_LIFE, RIPPLE_RADIUS, RIPPLE_ALPHA, look);
-  const sea = Water.sample(r.x, r.z);
-  const y = (sea?.height ?? 0) + LIFT * 0.5;
-  const n = sea?.normal ?? { x: 0, y: 1, z: 0 };
-  // A direction along the surface: world Z crossed with the normal (never parallel: the sea faces up).
-  const tl = Math.hypot(n.y, n.x) || 1;
-  const tx = -n.y / tl, ty = n.x / tl;
-  const s = look.radius;
-  r.node.transform!.rotation = Quaternion.lookRotation([n.x, n.y, n.z], [0, 0, 1]);
-  r.line.width = s * 2;
-  r.line.setPositions([
-    [r.x - tx * s, y - ty * s, r.z],
-    [r.x + tx * s, y + ty * s, r.z],
-  ]);
-  r.line.color = new Color(1, 1, 1, look.alpha);
-}
-
-/** Spreads ripples under the rain, as many as it is heavy, and grows and fades them on the waves. */
-defineSystem({
-  name: "pirates.RainRipples",
-  phase: "lateUpdate",
-  worlds: ["client", "local"],
-  after: ["pirates.Weather"],
-  run(_rows, ctx) {
-    const source = GameObject.findObjectsOfType(ParticleSystem).find((p) => p.node.name === "Rain");
-    let rain = rains.get(ctx.world);
-    if (!source || !Water.surface) {
-      if (rain?.root.isValid) for (const r of rain.ripples) if (r.alive) (r.alive = false), r.node.setActive(false);
-      return;
-    }
-    if (!rain || !rain.root.isValid) {
-      rain = buildRain();
-      rains.set(ctx.world, rain);
-    }
-    const heavy = Math.max(0, Math.min(1, source.emissionScale));
-    const at = source.node.transform!.position;
-    rain.due = heavy > 0.01 ? rain.due + RIPPLE_RATE * heavy * ctx.dt : 0;
-    for (const r of rain.ripples) {
-      if (r.alive) {
-        r.age += ctx.dt;
-        if (r.age >= RIPPLE_LIFE) {
-          r.alive = false;
-          r.node.setActive(false);
-        }
-      }
-      if (!r.alive && rain.due >= 1) {
-        rain.due -= 1;
-        // Even over the disc: the radius goes as the square root of a uniform number.
-        const d = Math.sqrt(next(rain)) * RIPPLE_SPREAD, a = next(rain) * Math.PI * 2;
-        r.x = at.x + Math.cos(a) * d;
-        r.z = at.z + Math.sin(a) * d;
-        r.age = next(rain) * ctx.dt; // drops land through the frame, not all at its start
-        r.alive = true;
-        r.node.setActive(true);
-      }
-      if (r.alive) drawRipple(r);
-    }
-    rain.due = Math.min(rain.due, 1); // a full pool drops the rest rather than queueing them
-  },
-});
 
 // --- bow waves and stern wakes -------------------------------------------------------------------
 

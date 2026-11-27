@@ -36,7 +36,7 @@ Files: `lib.mjs` (RNG, PNG and WAV encoders, OBJ mesh builder), `models.mjs`, `t
 
 ## Textures (PNG, 128x128 RGBA)
 
-`wood`, `sail`, `rock`, `sand`, `palm`, `flag`, `foam` (tileable, alpha, for scrolling over water), `smoke` (a soft billowing puff with alpha, the fog cloud's particle texture), `ripple` (a raindrop's rings on the sea), `wake` (churned water across a ribbon, for wakes and bow waves; it varies only across, so it never slides), UI icons `icon_wind`, `icon_ghost`, `icon_storm`, `icon_cannon`, `icon_flag`. Wood, sail, rock, sand, palm and foam tile.
+`wood`, `sail`, `rock`, `sand`, `palm`, `flag`, `foam` (tileable, alpha, for scrolling over water), `smoke` (a soft billowing puff with alpha, the fog cloud's particle texture), `ripple` (a raindrop's rings on the sea, the rain effect's ring particle texture), `wake` (churned water across a ribbon, for wakes and bow waves; it varies only across, so it never slides), UI icons `icon_wind`, `icon_ghost`, `icon_storm`, `icon_cannon`, `icon_flag`. Wood, sail, rock, sand, palm and foam tile.
 
 ## Audio (WAV, mono 16-bit 22.05 kHz)
 

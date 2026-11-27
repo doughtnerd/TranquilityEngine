@@ -1,8 +1,12 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { REST_SPEED, WakePath, bowWave, rippleAt, wakeStrength } from "../../../samples/pirates/scripts/seaMarkShapes";
+import { parseParticleGraph } from "../scene/particleGraphFormat";
+import { compileParticleKernels } from "../scene/particleKernel";
+import { REST_SPEED, WakePath, bowWave, wakeStrength } from "../../../samples/pirates/scripts/seaMarkShapes";
 
 // King of Pirates' marks on the sea (samples/pirates/scripts/seaMarkShapes.ts, drawn by seaMarks.ts): how strongly
-// a ship's speed churns the water, a raindrop ripple's life, a stern wake's path and a bow wave's V.
+// a ship's speed churns the water, a stern wake's path and a bow wave's V.
 
 describe("King of Pirates: a ship's wake strength", () => {
   it("is nothing at rest and at or below the rest speed", () => {
@@ -24,24 +28,6 @@ describe("King of Pirates: a ship's wake strength", () => {
     // Barely under way still shows a little; half speed shows well.
     expect(wakeStrength(1.5, 9)).toBeGreaterThan(0.1);
     expect(wakeStrength(4.5, 9)).toBeGreaterThan(0.6);
-  });
-});
-
-describe("King of Pirates: a raindrop's ripple", () => {
-  it("spreads from a tenth of its size to its full size, fast and then slower", () => {
-    expect(rippleAt(0, 0.5, 0.4).radius).toBeCloseTo(0.05);
-    expect(rippleAt(1, 0.5, 0.4).radius).toBeCloseTo(0.5);
-    const early = rippleAt(0.25, 1, 1).radius - rippleAt(0, 1, 1).radius;
-    const late = rippleAt(1, 1, 1).radius - rippleAt(0.75, 1, 1).radius;
-    expect(early).toBeGreaterThan(late);
-  });
-
-  it("shows at once, no stronger than its peak, and has faded to nothing at the end", () => {
-    expect(rippleAt(0, 0.5, 0.4).alpha).toBe(0);
-    expect(rippleAt(0.1, 0.5, 0.4).alpha).toBeGreaterThan(0.25);
-    for (let t = 0; t <= 1; t += 0.05) expect(rippleAt(t, 0.5, 0.4).alpha).toBeLessThanOrEqual(0.4);
-    expect(rippleAt(1, 0.5, 0.4).alpha).toBe(0);
-    expect(rippleAt(1.5, 0.5, 0.4).alpha).toBe(0);
   });
 });
 
@@ -106,5 +92,41 @@ describe("King of Pirates: a bow wave", () => {
     // The arm wavers by a few per cent sideways only.
     expect(Math.abs(tip.x / (shape.length * Math.sin(Math.PI / 6)) - 1)).toBeLessThan(0.07);
     expect(bowWave({ ...shape, length: 1 }, 0)[8]!.z).toBeGreaterThan(tip.z);
+  });
+});
+
+describe("King of Pirates: rain rings the water where drops land", () => {
+  const raw = JSON.parse(readFileSync(fileURLToPath(new URL("../../../samples/pirates/effects/rain.particles.json", import.meta.url)), "utf8"));
+  const { graph, problems } = parseParticleGraph(raw, "rain.particles.json");
+  const rain = graph.systems.find((s) => s.name === "Rain")!;
+  const ripples = graph.systems.find((s) => s.name === "Ripples")!;
+
+  it("kills each drop where it meets the scene's depth (the waves, a deck) and spawns a ring from some of those deaths", () => {
+    expect(problems).toEqual([]);
+    expect(rain.update.blocks.find((b) => b.type === "update.collisionDepth")?.inputs).toMatchObject({ kill: true, bounce: 0 });
+    const kernels = compileParticleKernels(graph);
+    expect(kernels.problems).toEqual([]);
+    const child = kernels.systems[graph.systems.indexOf(ripples)];
+    expect(child.event).toMatchObject({ parent: graph.systems.indexOf(rain), trigger: "death", inheritVelocity: false });
+    expect(child.event!.probability).toBeGreaterThan(0);
+    expect(child.event!.probability).toBeLessThan(1);
+  });
+
+  it("has a ring slot for every drop, and the rings lie flat, grow and fade", () => {
+    // A GPU event child has capacity / parent capacity slots per parent: at least one.
+    expect(ripples.settings.capacity).toBeGreaterThanOrEqual(rain.settings.capacity);
+    expect(ripples.output.type).toBe("horizontal");
+    expect(ripples.output.settings.texture).toBe("asset:textures/ripple.png");
+    const alphas = (ripples.update.blocks.find((b) => b.type === "update.colorOverLife")!.inputs.color as { gradient: { alphas: [number, number][] } }).gradient.alphas;
+    expect(alphas[0][1]).toBe(0);
+    expect(alphas[alphas.length - 1][1]).toBe(0);
+    expect(Math.max(...alphas.map((a) => a[1]))).toBeLessThanOrEqual(0.4); // faint
+  });
+
+  it("lets every drop live long enough to fall from the rain's height to the sea", () => {
+    // weather.ts keeps the rain 24 m up; a drop that hits nothing on screen dies under the water.
+    const life = rain.initialize.blocks.find((b) => b.type === "init.lifetime")!.inputs.lifetime as { random: [number, number] };
+    const speed = rain.initialize.blocks.find((b) => b.type === "init.velocity")!.inputs.speed as { random: [number, number] };
+    expect(life.random[0] * speed.random[0]).toBeGreaterThan(24 + 3);
   });
 });
