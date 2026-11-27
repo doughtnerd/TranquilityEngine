@@ -44,6 +44,7 @@
   <wangset name="Mix" type="edge" tile="-1">
    <wangcolor name="Sand" color="#ffeeaa" tile="-1" probability="1"/>
    <wangcolor name="Water" color="#2255ff" tile="-1" probability="1"/>
+   <wangcolor name="Rock" color="#888888" tile="-1" probability="1"/>
    <wangtile tileid="6" wangid="1,0,1,0,0,0,0,0"/>
    <wangtile tileid="7" wangid="1,0,2,0,1,0,2,0"/>
   </wangset>

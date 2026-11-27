@@ -92,7 +92,7 @@ describe("writeTiledMap: tilesets and sidecar slices", () => {
     expect(t1.weight).toBe(0.25);
     expect(t1.animation).toEqual({ frames: [{ sprite: "asset:images/terrain.png#terrain_1", duration: 0.1 }, { sprite: "asset:images/terrain.png#terrain_2", duration: 0.25 }] });
     expect(terrain.terrains.map((t) => t.name)).toEqual(["Grass", "Sand"]);
-    expect([terrain.tiles[5]!.terrain, terrain.tiles[5]!.pattern]).toEqual(["Grass", "01110000"]);
+    expect([terrain.tiles[5]!.terrain, terrain.tiles[5]!.pattern]).toEqual(["Grass", "111110*0"]);
     expect(terrain.anchor).toBeUndefined();
     expect(res.warnings.some((w) => w.includes('"terrain"') && w.includes("anchor"))).toBe(true);
   });
@@ -267,6 +267,112 @@ describe("Wang patterns in the grid's neighbour order", () => {
     expect(patternOn("hexagonal", "y", "00100010")).toBe("001001");
     // Flat-top: N NE SE S SW NW.
     expect(patternOn("hexagonal", "x", "00010001")).toBe("100100");
+  });
+});
+
+describe("two-colour corner sets painted as Tiled paints them (ADR 0442)", () => {
+  type Orientation = "orthogonal" | "isometric" | "staggered";
+  interface Case {
+    orientation: Orientation;
+    staggeraxis?: "x" | "y";
+    staggerindex?: "odd" | "even";
+    width: number;
+    height: number;
+  }
+  type Point = [number, number];
+
+  /** Tile i is water at the corners whose bit is set (1 top-right, 2 bottom-right, 4 bottom-left, 8 top-left); tile 16 is a second all-grass tile, so water has fewer full tiles. */
+  const wangid = (i: number) => {
+    const c = (bit: number) => (i !== 16 && i & bit ? 2 : 1);
+    return [0, c(1), 0, c(2), 0, c(4), 0, c(8)];
+  };
+
+  /** Tiled's `HexagonalRenderer` neighbours, which its staggered maps use too (staggerindex odd = 0, even = 1). */
+  const shiftedLine = (c: Case, x: number, y: number) => (((c.staggeraxis === "x" ? x : y) & 1) ^ (c.staggerindex === "even" ? 1 : 0)) === 1;
+  const bottomLeft = (c: Case, [x, y]: Point): Point =>
+    c.staggeraxis === "x" ? (shiftedLine(c, x, y) ? [x - 1, y + 1] : [x - 1, y]) : shiftedLine(c, x, y) ? [x, y + 1] : [x - 1, y + 1];
+  const bottomRight = (c: Case, [x, y]: Point): Point =>
+    c.staggeraxis === "x" ? (shiftedLine(c, x, y) ? [x + 1, y + 1] : [x + 1, y]) : shiftedLine(c, x, y) ? [x + 1, y + 1] : [x, y + 1];
+
+  /**
+   * The vertices of Tiled cell (x, y) as Tiled's Wang brush shares them (`WangFiller::setCorner`), in Wang id order:
+   * top-right, bottom-right, bottom-left, top-left. Orthogonal and isometric maps name a vertex by the cell it is the
+   * top-left corner of, as do staggered ones, whose neighbours are the hexagonal renderer's: vertex v is the top-right
+   * corner of topLeft(v), the bottom-left of topRight(v) and the bottom-right of topRight(topLeft(v)).
+   */
+  const verticesOf = (c: Case, x: number, y: number): Point[] =>
+    c.orientation === "staggered"
+      ? [bottomRight(c, [x, y]), bottomRight(c, bottomLeft(c, [x, y])), bottomLeft(c, [x, y]), [x, y]]
+      : [[x + 1, y], [x + 1, y + 1], [x, y + 1], [x, y]];
+
+  /** Where a vertex is, roughly in cells, for drawing a round pond. */
+  const vertexAt = (c: Case, [x, y]: Point): Point => {
+    if (c.orientation !== "staggered") return [x, y];
+    const s = shiftedLine(c, x, y) ? 0.5 : 0;
+    return c.staggeraxis === "x" ? [x / 2, y + s] : [x + s, y / 2];
+  };
+
+  /** A map of `c` with a round pond painted as Tiled's corner brush paints it, as TMJ. */
+  function pondMap(c: Case, centre: Point, radius: number): { text: string; gids: number[] } {
+    const water = (v: Point) => {
+      const [px, py] = vertexAt(c, v);
+      return (px - centre[0]) ** 2 + (py - centre[1]) ** 2 <= radius * radius;
+    };
+    const gids: number[] = [];
+    for (let y = 0; y < c.height; y++)
+      for (let x = 0; x < c.width; x++) {
+        const [tr, br, bl, tl] = verticesOf(c, x, y).map(water);
+        const index = (tr ? 1 : 0) | (br ? 2 : 0) | (bl ? 4 : 0) | (tl ? 8 : 0);
+        gids.push(index === 0 && (x + y) % 3 === 0 ? 17 : index + 1);
+      }
+    const tileset = {
+      firstgid: 1, name: "gw", tilewidth: 32, tileheight: 16, tilecount: 17, columns: 17, image: "gw.png", imagewidth: 544, imageheight: 16,
+      wangsets: [{ name: "Ground", type: "corner", tile: -1, colors: [{ name: "Grass", color: "#00ff00", probability: 1, tile: -1 }, { name: "Water", color: "#0000ff", probability: 1, tile: -1 }], wangtiles: Array.from({ length: 17 }, (_, tileid) => ({ tileid, wangid: wangid(tileid) })) }],
+    };
+    const map = {
+      type: "map", orientation: c.orientation, ...(c.staggeraxis ? { staggeraxis: c.staggeraxis, staggerindex: c.staggerindex } : {}),
+      width: c.width, height: c.height, tilewidth: 32, tileheight: 16, infinite: false, tilesets: [tileset],
+      layers: [{ id: 1, name: "Ground", type: "tilelayer", x: 0, y: 0, width: c.width, height: c.height, opacity: 1, visible: true, data: gids }],
+    };
+    return { text: JSON.stringify(map), gids };
+  }
+
+  const cases: [string, Case, Point, number][] = [
+    ["orthogonal", { orientation: "orthogonal", width: 9, height: 9 }, [4.5, 4], 2.6],
+    ["isometric", { orientation: "isometric", width: 9, height: 9 }, [4, 4.5], 2.6],
+    ["staggered (axis y, odd)", { orientation: "staggered", staggeraxis: "y", staggerindex: "odd", width: 8, height: 16 }, [3.5, 4], 2.3],
+    ["staggered (axis x, even)", { orientation: "staggered", staggeraxis: "x", staggerindex: "even", width: 16, height: 8 }, [4, 3.5], 2.3],
+  ];
+
+  it.each(cases)("%s: re-painting the pond's terrain gives back the tiles Tiled placed", async (_name, c, centre, radius) => {
+    const { text, gids } = pondMap(c, centre, radius);
+    // Every transition shape the pond needs is there, not only the full tiles.
+    expect(new Set(gids).size).toBeGreaterThanOrEqual(10);
+    const res = writeTiledMap(await parseTiledMap(text, "gw.tmj", async () => null), OUT, none, uuids());
+    const ts = tileset(res, "out/gw.tileset.json");
+    expect(ts.terrains.map((t) => t.name)).toEqual(["Water"]);
+    // Water at the top-right corner only, in the grid's neighbour order (Tiled's top is an isometric map's east).
+    expect(ts.tiles[1]!.pattern).toBe(c.orientation === "orthogonal" ? "1110*0*0" : "*01110*0");
+    expect([ts.tiles[0]!.terrain, ts.tiles[16]!.terrain]).toEqual([undefined, undefined]);
+
+    const node = prefab(res, "out/gw.prefab.json").find((n) => n.components?.some((k) => k.type === "engine.Tilemap"))!;
+    const map = await liveTilemap(res, node);
+    const b = map.cellBounds()!;
+    const painted = new Map<string, number>();
+    const pond: [number, number][] = [];
+    for (let y = b.minY; y <= b.maxY; y++)
+      for (let x = b.minX; x <= b.maxX; x++) {
+        painted.set(`${x},${y}`, map.getTile(x, y));
+        if (map.getTileDef(x, y)?.terrain === "Water") pond.push([x, y]);
+      }
+    expect(pond.length).toBeGreaterThan(12);
+    // The auto-tiler already agrees with every tile Tiled placed…
+    expect(map.retileTerrain()).toEqual([]);
+    // …and painting the pond's cells again from nothing places the same tiles.
+    map.paintTerrain(pond, null);
+    expect(pond.every(([x, y]) => map.getTile(x, y) === 0)).toBe(true);
+    map.paintTerrain(pond, "Water");
+    for (const [key, id] of painted) expect([key, map.getTile(...(key.split(",").map(Number) as [number, number]))]).toEqual([key, id]);
   });
 });
 

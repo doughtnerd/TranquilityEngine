@@ -154,10 +154,17 @@ function ellipsePoints(cx: number, cy: number, rx: number, ry: number, n = 16): 
  *
  * - square: the same (Tiled's top is the cell above, Myco's N).
  * - isometric and staggered: Tiled's top is the neighbour up-right on screen, which is Myco's E (`tiledCellToCell`
- *   swaps and negates the axes), so the order turns by two.
+ *   swaps and negates the axes), so the order turns by two. Tiled's staggered maps take its Wang neighbours from the
+ *   hexagonal renderer (top up-right, top-right the cell to the right, …), the same screen directions as isometric
+ *   maps, on either stagger axis.
  * - hexagonal: Tiled's edge indices name the diagonal neighbours (up-right, down-right, down-left, up-left) and two of
  *   its corner indices the cells straight across the remaining sides (right and left on pointy-top maps, below and
- *   above on flat-top ones); Myco's 6 neighbours are clockwise from the first side at or after north.
+ *   above on flat-top ones); Myco's 6 neighbours are clockwise from the first side at or after north. The other two
+ *   corner indices name cells two rows (columns) away, which aren't neighbours, so corner sets lose those corners.
+ *
+ * Checked against maps painted by Tiled (ADR 0442): its isometric and staggered grass-and-water examples and its
+ * orthogonal desert, where every tile shares its corners with its neighbours in this order and no other. No Tiled map
+ * with a hexagonal Wang set was at hand; that order follows Tiled's `WangFiller`.
  */
 function patternForGrid(pattern: string, grid: Pick<GridParams, "shape" | "staggerAxis">): string {
   if (pattern.length !== 8) return pattern;
