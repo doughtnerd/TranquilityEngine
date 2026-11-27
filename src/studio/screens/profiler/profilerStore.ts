@@ -9,7 +9,7 @@ import { captureErrorMessage } from "../../../plugins/audio/editor/mix/openSaveF
 import type { ProfileSource } from "../../../plugins/audio/editor/mix/profilerSource";
 import type { CaptureReplayOf } from "../../../plugins/audio/runtime/capture/format";
 import { CaptureError, captureNames, type CaptureSeekState } from "../../../plugins/audio/runtime/capture/reader";
-import { captureTitle } from "./captureTree";
+import { captureTitle } from "../run/captureTree";
 import { runCursorKey, type CursorKeyAction } from "./cursorKeys";
 import { busReadouts, type BusReadout } from "./cursorReadout";
 import { ProfilerDataReader, type ProfilerData } from "./profilerData";

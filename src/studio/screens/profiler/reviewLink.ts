@@ -7,7 +7,7 @@
 // each clamped to its own length. Pure over signals: the page links the real stores (`profilerScreen.ts`), tests fakes.
 import { effect, type ReadonlySignal } from "@preact/signals";
 import type { CaptureReplayOf } from "../../../plugins/audio/runtime/capture/format";
-import { isTakePath } from "./captureTree";
+import { isTakePath } from "../run/captureTree";
 
 /** What the link reads of the Profiler's open capture (`ProfilerStore.state`'s open form). */
 export type ReviewCapture =

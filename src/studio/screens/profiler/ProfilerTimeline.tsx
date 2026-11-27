@@ -14,7 +14,7 @@
 import { createContext, Fragment, type ComponentChildren, type JSX } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { heatByKey, heatText, type Heat } from "../../components/heatmapModel";
-import { RunPlayhead, RunRuler } from "./RunRuler";
+import { RunPlayhead, RunRuler } from "../run/RunRuler";
 import { Filmstrip } from "../../components/Filmstrip";
 import type { TimeSpan } from "../../components/timeRulerModel";
 import { TimelineZoomStrip } from "../../components/TimelineZoomStrip";

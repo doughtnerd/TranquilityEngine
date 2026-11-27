@@ -1,8 +1,7 @@
 // The Profiler screen's services over the real page (ADR 0348): its one store and recorder, made on first use over the
 // open project, the capture Worker and the Studio's audio runtime (`audioHost().audio.capture`, the public API, and the
 // recorder's live ring through the `LiveHost` seam the editor's Profiler panel uses), and the captures' file actions
-// through the engine's asset operations (import, delete) and the Studio's moves (rename, move: studioAssetMoves.ts, which
-// leave the editor the references it owns while it has the project open; `runFileActions.ts`, given `captureFileKind`).
+// (`captureLibrary`: the Studio asset library given what is special about captures, ADR 0433).
 // The panels call these; the models are elsewhere.
 import { signal } from "@preact/signals";
 import { buildSession } from "../../runtime/buildSession";
@@ -13,11 +12,11 @@ import { captureFileBytes, captureLiveHost, setCaptureReplayOf } from "../../../
 import { replayStore } from "../../shell/replay";
 import { audioHost, openRoute } from "../../shell/studioServices";
 import { CaptureRecorder } from "./captureRecorder";
-import { CAPTURES_FOLDER, whyNotCaptureFile } from "./captureTree";
+import { CAPTURES_FOLDER, recordingExtension, whyNotCaptureFile } from "../run/captureTree";
 import { ProfilerStore } from "./profilerStore";
 import { linkReview } from "./reviewLink";
 import { studioBuild } from "../../debugLink/studioLink";
-import type { RunFileKind } from "./runFileActions";
+import { studioLibrary } from "../../library/studioLibrary";
 
 let store: ProfilerStore | null = null;
 let recorder: CaptureRecorder | null = null;
@@ -134,20 +133,19 @@ export const openCapture = (path: string): void => {
 /** The Captures tree's selected folder: where Open capture file…, New folder and a new recording go (null: `recordings/`). */
 export const captureFolder = signal<string | null>(null);
 
-/** Captures for the Captures tree's actions: the open capture follows a move and closes on a delete. */
-export const captureFileKind: RunFileKind = {
+/** The Captures tree's file actions: the open capture follows a move and closes on a delete. */
+export const captureLibrary = studioLibrary({
   noun: "capture",
-  defaultFolder: CAPTURES_FOLDER,
-  whyNotFile: whyNotCaptureFile,
-  companions: (_files, path) => [path],
-  openPath: () => {
+  imports: { defaultFolder: CAPTURES_FOLDER, whyNotFile: whyNotCaptureFile },
+  extension: recordingExtension,
+  openPaths: () => {
     const s = profilerStore().state.peek();
-    return s.kind === "open" || s.kind === "failed" || s.kind === "opening" ? s.path : null;
+    return (s.kind === "open" || s.kind === "failed" || s.kind === "opening") && s.path ? [s.path] : [];
   },
   open: openCapture,
-  moved: (from, to) => followMove(from, to),
+  follow: (from, to) => followMove(from, to),
   closed: () => profilerStore().close(),
-};
+});
 
 function followMove(from: string, to: string): void {
   const s = profilerStore().state.peek();

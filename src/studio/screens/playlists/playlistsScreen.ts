@@ -1,22 +1,21 @@
 // The Playlists screen's state and actions over the real page (ADR 0343, 0341, 0349): which playlist is open (its path,
 // mirrored in the route: the file as `asset`, the embedded entry's indices as `select`), the selected entry, the test
 // parameter values, the audition and its voice log. Edits go to the open file's asset document as one labelled undo
-// step each (`applyEdit`; drags coalesce); refusals go to the status bar. File actions (new, rename, duplicate, move,
-// delete, make shared) go through the engine's asset operations, so references follow. The panels read the signals and
+// step each (`applyEdit`; drags coalesce); refusals go to the status bar. File actions (rename, duplicate, move, new
+// folder, delete a folder) are the Studio asset library's (`playlistFiles`, ADR 0433), so references follow; new, make
+// shared and deleting a playlist (its links and children) are the screen's own, through the engine's asset operations. The panels read the signals and
 // call these; the rules are the pure models beside this file.
 import { audioProject } from "../../shell/audioProject";
 import { computed, effect, signal } from "@preact/signals";
 import { currentAudioProject } from "../../../editor/audioProjectFile";
 import { assetDocumentsDeleted, openAssetDocument, readAsset, type AssetDocument } from "../../../editor/assetDocuments";
 import { deleteAssets, whyNotDeletable } from "../../../editor/assetDelete";
-import { folderEntry } from "../../../editor/assetEntry";
 import { assetUsers, removeReferences } from "../../../editor/assetReferences";
-import { splitExtension } from "../../../editor/freePath";
 import { errorStatus } from "../../../editor/messages";
 import { createAsset } from "../../../editor/assetKindHost";
-import { duplicateAssets, moveAssets, moveAssetsTo, newFolder, renameAsset } from "../../../editor/assetOps";
+import { studioLibrary } from "../../library/studioLibrary";
 import { docVersion, status } from "../../../editor/state";
-import { isSidecarPath, parseImportSettings, sidecarAsset, sidecarPath } from "../../../engine/scene/importSettings";
+import { parseImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
 import { parseDerivedSample } from "../../../engine/audio/sample/format";
 import type { ParameterDef } from "../../../engine/audio/parameters";
 import { emptyPlaylist, emptyPlaylistBody, isPlaylistPath } from "../../../engine/audio/playlist/format";
@@ -32,7 +31,7 @@ import { bodyAt, canonical, editAt, effectiveOutput, entryName, filePath, indice
 import { ancestorsOf, auditionAsset, auditionPathOf, serveAudition } from "./auditionSource";
 import { linkedByIndex } from "./playlistTree";
 import { clipsPlaylist } from "./clipsPlaylist";
-import { childrenToKeep, deleteEntry, folderContentsUp, moveAcrossFiles, moveWithinFile, insertEntries, planDelete, replaceLinks, takeEntry, type ChildrenChoice, type DeletePlan, type DeleteTarget, type LinksChoice } from "./structureEdits";
+import { childrenToKeep, deleteEntry, moveAcrossFiles, moveWithinFile, insertEntries, planDelete, replaceLinks, takeEntry, type ChildrenChoice, type DeletePlan, type DeleteTarget, type LinksChoice } from "./structureEdits";
 import type { DropPlan } from "./treeDrop";
 import { markTrigger, triggerRows, triggerSpan, updateLog, voicesNow, type DebugSnapshot, type LogRow, type TriggerMark } from "./voiceLog";
 import { busPath } from "../mixer/busTree";
@@ -245,7 +244,7 @@ export async function newSequence(folder: string | null): Promise<void> {
   if (path) openPlaylist(filePath(path));
 }
 
-export const newPlaylistFolder = (parent: string): Promise<string | null> => newFolder(parent);
+export const newPlaylistFolder = (parent: string): Promise<string | null> => playlistFiles.newFolder(parent);
 
 function entryNameOfOpen(): string {
   const path = openPath.peek();
@@ -258,26 +257,33 @@ function entryNameOfOpen(): string {
   return e ? entryName(e, i) : "";
 }
 
+/**
+ * The Playlists tree's file actions: a typed name keeps `.playlist.json`; every file the open path names (the file and
+ * the linked playlists it went into) follows a move; one duplicate opens.
+ */
+export const playlistFiles = studioLibrary({
+  noun: "playlist",
+  extension: (path) => path.match(/\.playlist\.json$/i)?.[0] ?? "",
+  openPaths: () => (openPath.peek() ?? []).flatMap((s) => ("file" in s ? [s.file] : [])),
+  open: (path) => openPlaylist(filePath(path)),
+  follow: (from, to) => followMove(from, to),
+});
+
 /** Rename a playlist file (references follow); the open path follows. */
 export async function renamePlaylistFile(path: string, name: string): Promise<void> {
-  const clean = name.trim().replace(/\.playlist\.json$/i, "");
-  if (!clean) return;
-  const next = `${folderOf(path) ? `${folderOf(path)}/` : ""}${clean}.playlist.json`;
-  if (await renameAsset(path, `${clean}.playlist.json`)) followMove(path, next);
+  await playlistFiles.renameFile(path, name);
 }
 
 export async function renameFolder(path: string, name: string): Promise<void> {
-  if (name.trim() && name !== path.slice(path.lastIndexOf("/") + 1)) await renameAsset(path, name.trim());
+  await playlistFiles.renameFolder(path, name);
 }
 
 export async function moveToFolder(paths: readonly string[], folder: string): Promise<void> {
-  const before = paths.map((p) => [p, `${folder ? `${folder}/` : ""}${p.slice(p.lastIndexOf("/") + 1)}`] as const);
-  if (await moveAssetsTo(paths, folder)) for (const [from, to] of before) followMove(from, to);
+  await playlistFiles.move(paths, folder);
 }
 
 export async function duplicatePlaylistFiles(paths: readonly string[]): Promise<void> {
-  const made = await duplicateAssets(paths);
-  if (made.length === 1) openPlaylist(filePath(made[0]!));
+  await playlistFiles.duplicate(paths);
 }
 
 function followMove(from: string, to: string): void {
@@ -417,65 +423,19 @@ async function restoreDeleted(path: string, text: string, side: string | undefin
 /** The folder delete's confirmation: the folder, how many items move up and where to (null: closed). */
 export const deletingFolder = signal<{ readonly path: string; readonly items: number; readonly to: string } | null>(null);
 
-/** What deleting `folder` moves up a level, in the open project. */
-function contentsUp(folder: string): [string, string][] {
-  const p = audioProject.peek();
-  if (!p) return [];
-  return folderContentsUp(folder, { files: [...p.files, ...p.scripts.keys()], folders: p.folders }, splitExtension, (f) => (isSidecarPath(f) ? sidecarAsset(f) : null));
-}
-
 /** Delete folder…: ask first, saying how many items move up and where. */
 export function askDeleteFolder(folder: string): void {
-  deletingFolder.value = { path: folder, items: contentsUp(folder).length, to: folderOf(folder) };
+  deletingFolder.value = { path: folder, ...playlistFiles.folderDeletePlan(folder) };
 }
 
 /**
  * Delete a folder, keeping what's inside: its files and folders move up to its parent (references follow, names taken
- * there get a number), then the empty folder goes. The toast's Undo puts the folder back and moves them into it again.
+ * there get a number), then the empty folder goes; the toast's Undo puts it back (the library's folder delete).
  * Resolves to whether it was deleted.
  */
-export async function deleteFolderKeepingContents(folder: string): Promise<boolean> {
+export function deleteFolderKeepingContents(folder: string): Promise<boolean> {
   deletingFolder.value = null;
-  const p = audioProject.peek();
-  if (!p) return false;
-  const refused = whyNotDeletable(p, [folderEntry(folder)]);
-  if (refused) {
-    status.value = { kind: "info", text: `Can't delete ${folder}: ${refused}.` };
-    return false;
-  }
-  const moves = contentsUp(folder);
-  if (moves.length && !(await moveAssets(moves))) return false;
-  for (const [from, to] of moves) followMove(from, to);
-  try {
-    await p.deleteFolder(folder);
-  } catch (err) {
-    status.value = errorStatus(`Moved what was in ${folder} up, but couldn't delete the folder`, err);
-    docVersion.value++;
-    return false;
-  }
-  docVersion.value++;
-  const where = folderOf(folder) || "the top level";
-  status.value = { kind: "info", text: `Deleted ${folder}.` };
-  toasts.show({
-    text: `Deleted folder ${folder.slice(folder.lastIndexOf("/") + 1)}${moves.length ? `; ${moves.length === 1 ? "1 item" : `${moves.length} items`} moved to ${where}` : ""}.`,
-    undo: () => void restoreFolder(folder, moves),
-  });
-  return true;
-}
-
-/** Undo a folder delete: the folder back, and what moved up moved into it again. */
-async function restoreFolder(folder: string, moves: readonly (readonly [string, string])[]): Promise<void> {
-  const p = audioProject.peek();
-  if (!p) return;
-  try {
-    await p.createFolder(folder);
-  } catch (err) {
-    status.value = errorStatus(`Couldn't bring ${folder} back`, err);
-    return;
-  }
-  const back = moves.map(([from, to]) => [to, from] as const);
-  if (back.length && (await moveAssets(back, "Moved back"))) for (const [from, to] of back) followMove(from, to);
-  docVersion.value++;
+  return playlistFiles.deleteFolder(folder);
 }
 
 /** Carry out a tree drop's plan (its refusal goes to the status bar). */
@@ -486,7 +446,7 @@ export async function runDrop(plan: DropPlan, label: string): Promise<void> {
       status.value = { kind: "info", text: `Can't ${label.charAt(0).toLowerCase()}${label.slice(1)}: ${plan.reason}.` };
       return;
     case "moveFolder":
-      await moveAssets([[plan.path, `${plan.to ? `${plan.to}/` : ""}${plan.path.slice(plan.path.lastIndexOf("/") + 1)}`]]);
+      await playlistFiles.move([plan.path], plan.to);
       return;
     case "moveFile":
       await moveToFolder([plan.path], plan.to);

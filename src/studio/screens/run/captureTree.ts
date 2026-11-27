@@ -1,7 +1,7 @@
-// The Captures panel's tree (ADR 0348 "The Profiler screen"; the prototype's captures file system): the project's
-// recordings (`*.sporesample`, ADR 0409: every one holds a profile, and a take's also holds what the game asked of
-// audio) by folder, wherever they are, or while searching the matches by path. Saved and imported recordings go to
-// `recordings/`. Pure.
+// The Takes and Captures panels' tree, shared by the Run screens from `screens/run/` (ADR 0348, 0433; the prototype's
+// captures file system): the project's recordings (`*.sporesample`, ADR 0409: every one holds a profile, and a take's
+// also holds what the game asked of audio) by folder, wherever they are, or while searching the matches by path. Saved
+// and imported recordings go to `recordings/`. Pure.
 
 import { contentFolders } from "../../components/projectFolders";
 
@@ -44,6 +44,9 @@ export function captureTitle(path: string): string {
   const s = CAPTURE_SUFFIXES.find((x) => name.toLowerCase().endsWith(x));
   return s ? name.slice(0, -s.length) : name;
 }
+
+/** A recording's extension (".sporesample"), which a typed name keeps; "" for another file. */
+export const recordingExtension = (path: string): string => nameOf(path).slice(captureTitle(path).length);
 
 export type CaptureNode =
   | { readonly kind: "folder"; readonly path: string; readonly name: string; readonly children: readonly CaptureNode[] }

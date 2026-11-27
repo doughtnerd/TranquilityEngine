@@ -1,14 +1,21 @@
-// Deleting a take or a capture (spec §4.5.2 "Delete … Undo"; the prototype's toast "Deleted canyon_run_02" with Undo):
-// its files (a take and its notes) go from the project folder into the project's trash, `.myco/trash/<n>/<path>`, the
-// hidden folder the Samples screen's delete uses (owner decision 2), so the project no longer lists them; the toast's
-// Undo moves them back. The project reads the paths again (`rereadFiles`), so it drops them and, on Undo, serves them
-// again. The trash keeps the newest deletions (the same count as samples); older ones go when another is made.
-import { assetDocumentsDeleted } from "../../../editor/assetDocuments";
-import { openScenePaths, whyNotDeletableAsset } from "../../../editor/assetDelete";
-import { joinPath } from "../../../editor/projectPaths";
-import type { EditorProject } from "../../../editor/projects";
-import { docVersion } from "../../../editor/state";
-import { TRASH_FOLDER, TRASH_KEPT } from "../samples/sampleTrash";
+// The project's trash (owner decision 2, 2026-11-23; spec §4.5.2 "Delete … Undo"), the Studio asset library's delete
+// (ADR 0433): a deleted file and the files that go with it (a take's notes, any import settings sidecar) move from the
+// project folder into `.myco/trash/<n>/<path>`, a hidden folder, so the project no longer lists them; Undo moves them
+// back. The project then reads the paths again (`rereadFiles`), so it drops them and, on Undo, serves them again, and
+// `Assets.onChanged` listeners (the audio runtime) hear both. Nothing that refers to the files is rewritten, so Undo
+// leaves the project as it was; their open documents are dropped with them, as the editor's delete does. The trash
+// keeps the newest `TRASH_KEPT` deletions; older ones go when another is made.
+import { isSidecarPath, sidecarPath } from "../../engine/scene/importSettings";
+import { assetDocumentsDeleted } from "../../editor/assetDocuments";
+import { openScenePaths, whyNotDeletableAsset } from "../../editor/assetDelete";
+import { joinPath } from "../../editor/projectPaths";
+import type { EditorProject } from "../../editor/projects";
+import { docVersion } from "../../editor/state";
+
+/** The project's trash, under its per-machine folder. */
+const TRASH_FOLDER = ".myco/trash";
+/** How many deletions the trash keeps. */
+const TRASH_KEPT = 20;
 
 /** A deletion: where each file went. */
 export interface TrashedFiles {
@@ -25,9 +32,27 @@ function disk(project: EditorProject): { fs: NonNullable<EditorProject["fileSyst
   return project.canSave && project.fileSystem && project.root ? { fs: project.fileSystem, root: project.root } : null;
 }
 
+/** `paths` with each one's import settings sidecar after it, where the project has one. */
+export function withSidecars(project: EditorProject, paths: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const p of paths) {
+    if (!out.includes(p)) out.push(p);
+    const side = sidecarPath(p);
+    if (!isSidecarPath(p) && project.files.includes(side) && !out.includes(side)) out.push(side);
+  }
+  return out;
+}
+
+/** Why `paths` can't go to the trash now (read-only, playing, gone, no project folder), or null. */
+export function whyNotTrashable(project: EditorProject, paths: readonly string[]): string | null {
+  const why = paths.map((p) => whyNotDeletableAsset(project, p, openScenePaths())).find((w) => w !== null);
+  if (why) return why;
+  return disk(project) ? null : "only a project folder has a trash";
+}
+
 /** Move `paths` (the first is the one the user deleted) into the trash; the project stops listing them. */
 export async function trashFiles(project: EditorProject, paths: readonly string[]): Promise<{ trashed: TrashedFiles } | { refused: string }> {
-  const why = paths.map((p) => whyNotDeletableAsset(project, p, openScenePaths())).find((w) => w !== null);
+  const why = whyNotTrashable(project, paths);
   const d = disk(project);
   if (why || !d) return { refused: why ?? "only a project folder has a trash" };
   const { fs, root } = d;

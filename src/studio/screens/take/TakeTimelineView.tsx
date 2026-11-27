@@ -20,8 +20,8 @@ import { recordingView } from "../../components/recordingView";
 import { heatOfCounts } from "../../components/heatmapModel";
 import { noteColourCss } from "./notesEdits";
 import type { TakeSelection } from "./takeScreen";
-import { RunPlayhead, RunRuler } from "../profiler/RunRuler";
-import { secondsLabel } from "../profiler/runRulerModel";
+import { RunPlayhead, RunRuler } from "../run/RunRuler";
+import { secondsLabel } from "../run/runRulerModel";
 import { parameterText, pathLabel, type ParameterLane, type TakeTimeline } from "./takeTimeline";
 
 export interface TakeTimelineViewProps {

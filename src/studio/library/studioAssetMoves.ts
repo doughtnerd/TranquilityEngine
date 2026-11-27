@@ -1,6 +1,7 @@
-// Moving and renaming assets in the Studio (ADR 0341, "One app owns each file; both watch"). A move changes what
-// scenes, prefabs and project.json name, files the editor owns, so who rewrites them depends on whether the editor
-// has the project open (its lock, `.myco/locks/editor.json`):
+// Moving and renaming assets in the Studio (ADR 0341, "One app owns each file; both watch"); the Studio asset library
+// (`studioLibrary.ts`, ADR 0433) is its only caller, so every Studio move and rename comes through here. A move changes
+// what scenes, prefabs and project.json name, files the editor owns, so who rewrites them depends on whether the
+// editor has the project open (its lock, `.myco/locks/editor.json`):
 //
 // - **No editor holds it:** the Studio rewrites every reference itself, through the engine's asset move machinery
 //   (`moveAssets`: files on disk, open documents and their histories, references in scenes, prefabs, project.json and
@@ -13,7 +14,7 @@
 import { fileName } from "../../editor/assetBrowser";
 import { assetDocumentsMoved } from "../../editor/assetDocuments";
 import { folderEntry } from "../../editor/assetEntry";
-import { moveAssets, whyNotMovable, whyNotValidName } from "../../editor/assetOps";
+import { moveAssets, whyNotMovable } from "../../editor/assetOps";
 import { movedPath } from "../../editor/assetReferences";
 import { withMovedAssets } from "../../editor/assetRefValues";
 import { errorStatus } from "../../editor/messages";
@@ -95,16 +96,4 @@ function rewriteOwnReferences(project: EditorProject, moves: readonly AssetMove[
     },
     `Update references to ${moves.length === 1 ? fileName(moves[0]![1]) : `${moves.length} moved files`}`,
   );
-}
-
-/** Rename the file or folder at `path` to `name` in the same folder. */
-export async function renameStudioAsset(path: string, name: string): Promise<boolean> {
-  if (name === fileName(path)) return false;
-  const reason = whyNotValidName(name);
-  if (reason) {
-    status.value = { kind: "info", text: `Can't rename ${fileName(path)}: ${reason}.` };
-    return false;
-  }
-  const slash = path.lastIndexOf("/");
-  return moveStudioAssets([[path, `${slash < 0 ? "" : `${path.slice(0, slash)}/`}${name}`]], "Renamed");
 }

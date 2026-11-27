@@ -6,10 +6,11 @@ import { DIALOGUE_PANELS } from "./dialogue";
 import { MIXER_PANELS } from "./mixer";
 import { PACKAGES_PANELS } from "./packages";
 import { PLAYLISTS_PANELS } from "./playlists";
-import { PROFILER_PANELS } from "./profiler";
+import { profilerPanels } from "./profiler";
 import { SAMPLES_PANELS } from "./samples";
 import { SPATIAL_PANELS } from "./spatial";
-import { TAKE_PANELS } from "./take";
+import { ReplayTransport, TAKE_PANELS } from "./take";
+import { takeScreen } from "./take/takeScreen";
 
 export const SCREEN_PANELS: Readonly<Record<ScreenId, readonly StudioPanel[]>> = {
   samples: SAMPLES_PANELS,
@@ -18,6 +19,8 @@ export const SCREEN_PANELS: Readonly<Record<ScreenId, readonly StudioPanel[]>> =
   mixer: MIXER_PANELS,
   spatial: SPATIAL_PANELS,
   take: TAKE_PANELS,
-  profiler: PROFILER_PANELS,
+  // One recording for both screens (ADR 0408): the Profiler gets what it needs of the Take screen here, so neither
+  // screen imports the other (ADR 0433).
+  profiler: profilerPanels({ openPath: (path) => void takeScreen().openPath(path), Transport: ReplayTransport }),
   packages: PACKAGES_PANELS,
 };

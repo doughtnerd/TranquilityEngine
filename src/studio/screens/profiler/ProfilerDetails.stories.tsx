@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { DockLayout } from "../../../editor/layout/DockLayout";
 import { screenDock } from "../../shell/studioPanels";
-import { PROFILER_PANELS } from ".";
+import { profilerPanels } from ".";
 import "../../studio.css";
 import { namesFromStart } from "../../../plugins/audio/runtime/capture/testSupport";
 import { GEN_CLIP_ID_FIRST } from "../../../plugins/audio/runtime/wire.generated";
@@ -15,6 +15,9 @@ import { RecordButton } from "./RecordButton";
 import { buildVoices } from "./voiceModel";
 import type { CaptureEventAt } from "../../../plugins/audio/runtime/capture/reader";
 import "./profiler.css";
+
+/** The screen's panel list, with a stand-in for the Take screen (the dock story draws only titles). */
+const PROFILER_PANELS = profilerPanels({ openPath: () => undefined, Transport: () => null });
 
 const names = namesFromStart({ clips: [[1, "impact_01.wav"], [2, "vo_rider_07.wav"]], buses: [[1, "Vehicles"], [2, "Dialogue"]] });
 const events: CaptureEventAt[] = [
