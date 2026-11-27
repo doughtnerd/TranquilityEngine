@@ -8,7 +8,7 @@ import { AboutDialog, aboutOpen } from "./AboutDialog";
 import { AssetDragGhost } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { DebugLinkPrompt } from "../debugLink/AcceptPrompt";
-import { exportOpen, settingsOpen } from "./dialogState";
+import { exportOpen, inputDialog, settingsOpen } from "./dialogState";
 import { lazyDialog } from "./lazy";
 import { addPanelRequest } from "../layout/store";
 import { manageLayoutsOpen, saveLayoutAsOpen } from "../layout/layoutDialogs";
@@ -30,6 +30,7 @@ const AddPanelDialog = lazyDialog(() => addPanelRequest.value !== null && !addPa
 const SaveLayoutDialog = lazyDialog(() => saveLayoutAsOpen.value, () => import("./SaveLayoutDialog").then((m) => m.SaveLayoutDialog));
 const LayoutsDialog = lazyDialog(() => manageLayoutsOpen.value, () => import("./LayoutsDialog").then((m) => m.LayoutsDialog));
 const SpriteEditorDialog = lazyDialog(() => spriteEditorImage.value !== null, () => import("./SpriteEditor").then((m) => m.SpriteEditorDialog));
+const InputDialog = lazyDialog(() => inputDialog.value !== null, () => import("./input/InputDialog").then((m) => m.InputDialog));
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {
@@ -48,6 +49,7 @@ export function App() {
       <ExportDialog />
       <NewProjectDialog />
       <SpriteEditorDialog />
+      <InputDialog />
       <SettingsDialog />
       <AddPanelDialog />
       <SaveLayoutDialog />
