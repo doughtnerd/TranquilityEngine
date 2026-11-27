@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Cargo's rustc wrapper for reproducible wasm builds (ADR 0428), set as RUSTC_WRAPPER by ../native/rustflags.mjs's
+// Cargo's rustc wrapper for reproducible wasm builds (ADR 0432), set as RUSTC_WRAPPER by ../native/rustflags.mjs's
 // `wasmBuildEnv`. Cargo names each crate instance with `-C metadata=<hash>`, and for a path dependency outside the
 // workspace (native/common/* from native/anim, native/tween and native/audio) that hash covers the dependency's
 // absolute path. rustc derives the crate's identity from it, and the order it lays out code and data follows that

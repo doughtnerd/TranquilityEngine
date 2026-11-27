@@ -1,4 +1,4 @@
-// ADR 0420: the engine's tween backend over the animation core's table, through the interface its callers use, and the
+// ADR 0424: the engine's tween backend over the animation core's table, through the interface its callers use, and the
 // same scripts on the standalone tween module's backend: every row, value, weight and change record must match bit for
 // bit ("results are identical either way"; native/tween/tests/parity.rs holds the two modules together in Rust too).
 // While the plugin is active (the test setup activates it), `openTweenBackend` opens the core's.

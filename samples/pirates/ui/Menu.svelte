@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The main menu and the room view (ADR 0068, 0419), shown by the Menu node in scenes/menu.scene.json: its
+  // The main menu and the room view (ADR 0068, 0423), shown by the Menu node in scenes/menu.scene.json: its
   // UIView's props are `menu` (what the lobby says, scripts/behaviors/Menu.ts fills it each frame), `fields` (the
   // name, room code and server address fields, bound both ways) and `on` (what the buttons do). Screens are shown
   // and hidden with the "hidden" class (display: none), so the scene view shows the home screen. Dynamic texts go in

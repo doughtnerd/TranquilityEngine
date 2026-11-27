@@ -15,7 +15,7 @@ import { undoStep } from "./undoStep";
 /** Delete the selected nodes (and their children) as one undo step. Returns true if they were deleted. */
 export async function deleteSelected(): Promise<boolean> {
   const viewEl = selectedUIViewRef();
-  if (viewEl) return deleteUIViewElement(viewEl); // an element a UIView rendered (ADR 0419 wave C): from its .svelte source
+  if (viewEl) return deleteUIViewElement(viewEl); // an element a UIView rendered (ADR 0423 wave C): from its .svelte source
   if (!openScene.value || selectedKeys.value.length === 0) return false;
   const scene = editableNow({ kind: "scene" }, "delete nodes"); // not while playing (ADR 0247)
   if (!scene) return false;

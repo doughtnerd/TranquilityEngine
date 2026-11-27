@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { expect, openEditor, type Page, play, test } from "./fixtures";
 import { inLiveWorld } from "./liveWorld";
 
-// The web CSS the UI core draws (ADR 0418's five waves, and 0424 forms, 0425 inline runs, 0426 filters, SVG and skew),
-// captured in Play mode and compared with committed baselines, one test per wave (0418 "Order and verification": a
-// browser capture per wave). UI documents are retired (0419 wave D), so each test document is a Svelte component on a
+// The web CSS the UI core draws (ADR 0422's five waves, and 0428 forms, 0429 inline runs, 0430 filters, SVG and skew),
+// captured in Play mode and compared with committed baselines, one test per wave (0422 "Order and verification": a
+// browser capture per wave). UI documents are retired (0423 wave D), so each test document is a Svelte component on a
 // UIView: a grid of labelled cells, each showing one feature, over a plain camera background.
 //
 // Baselines are Playwright's (`toHaveScreenshot`, in `ui-css.spec.ts-snapshots/`, named per project and platform). The
@@ -246,7 +246,7 @@ test("wave 2, paint: box and text shadows, linear and radial gradients, per-corn
   expect(problems).toEqual([]);
 });
 
-// --- Wave 3: transforms (and 0426's skew and matrix) --------------------------------------------------------------------
+// --- Wave 3: transforms (and 0430's skew and matrix) --------------------------------------------------------------------
 
 const TRANSFORMS = `<div id="screen">
 ${cell("rotate(20deg)", `    <div class="ghost"></div><div id="rotated" class="box a" style="transform: rotate(20deg)"></div>`)}
@@ -278,7 +278,7 @@ ${cell("transformed clip", `    <div class="ghost"></div><div id="clipper" class
 </style>
 `;
 
-test("wave 3, transforms: rotate, scale, translate, nested transforms and origins, skew and matrix (0426), transformed clips", async ({ page }) => {
+test("wave 3, transforms: rotate, scale, translate, nested transforms and origins, skew and matrix (0430), transformed clips", async ({ page }) => {
   const problems = trackProblems(page);
   await playDoc(page, TRANSFORMS);
   await settle(page);
@@ -430,7 +430,7 @@ test("wave 5, selectors and values: structural, attribute and sibling selectors,
   expect(problems).toEqual([]);
 });
 
-// --- 0424: form elements ------------------------------------------------------------------------------------------------
+// --- 0428: form elements ------------------------------------------------------------------------------------------------
 
 const FORMS = `<script lang="ts">
   let music = $state(true);
@@ -493,7 +493,7 @@ ${cell(
 </style>
 `;
 
-test("0424 form elements: checkboxes, radios, sliders, progress and meters, text fields, a text area, a select", async ({ page }) => {
+test("0428 form elements: checkboxes, radios, sliders, progress and meters, text fields, a text area, a select", async ({ page }) => {
   const problems = trackProblems(page);
   await playDoc(page, FORMS);
   await settle(page);
@@ -513,7 +513,7 @@ test("0424 form elements: checkboxes, radios, sliders, progress and meters, text
   expect(problems).toEqual([]);
 });
 
-// --- 0425: inline runs and {@html} --------------------------------------------------------------------------------------
+// --- 0429: inline runs and {@html} --------------------------------------------------------------------------------------
 
 const RICH = `<script lang="ts">
   const coins = 42;
@@ -549,7 +549,7 @@ ${cell(
 </style>
 `;
 
-test("0425 inline text: phrasing runs, styled runs, {@html} and alignment", async ({ page }) => {
+test("0429 inline text: phrasing runs, styled runs, {@html} and alignment", async ({ page }) => {
   const problems = trackProblems(page);
   await playDoc(page, RICH);
   await settle(page);
@@ -564,7 +564,7 @@ test("0425 inline text: phrasing runs, styled runs, {@html} and alignment", asyn
   expect(problems).toEqual([]);
 });
 
-// --- 0426: filters and inline SVG ---------------------------------------------------------------------------------------
+// --- 0430: filters and inline SVG ---------------------------------------------------------------------------------------
 
 /** A colourful square to filter: three bands of colour and a white label. */
 const SWATCH = `<div class="sw"><div class="band a"></div><div class="band b"></div><div class="band c"></div><p class="sw-label">Aa</p></div>`;
@@ -607,7 +607,7 @@ ${cell("filtered svg", `    <svg class="f-gray" width="120" height="120" viewBox
 </style>
 `;
 
-test("0426 filters and inline SVG: each filter function, a drop shadow, an SVG document with a gradient, and a filtered SVG", async ({ page }) => {
+test("0430 filters and inline SVG: each filter function, a drop shadow, an SVG document with a gradient, and a filtered SVG", async ({ page }) => {
   const problems = trackProblems(page);
   await playDoc(page, FILTERS);
   await settle(page);
@@ -619,13 +619,13 @@ test("0426 filters and inline SVG: each filter function, a drop shadow, an SVG d
 
 });
 
-// --- Frame time: the Pirates HUD and the control mapper (0418's performance check) --------------------------------------
+// --- Frame time: the Pirates HUD and the control mapper (0422's performance check) --------------------------------------
 //
 // What a view costs a frame, read where a developer reads it: play mode's Stats overlay, whose per-World Update (UI sync,
 // restyle, layout and the UI's animation run in the update phase) and Render (Babylon GUI draws its Canvas2D texture
 // there) are the Engine's own phase timings. The view's share is the difference between the World with its views
 // enabled and the same World a moment later with them disabled (`Component.enabled`: a disabled view unmounts), each the
-// median of a few seconds of Stats readings. The numbers are recorded in implementation-status (0418) and the UI plan;
+// median of a few seconds of Stats readings. The numbers are recorded in implementation-status (0422) and the UI plan;
 // the tripwires below are those measurements with a generous margin (CLAUDE.md: a gate against accidental growth, not a
 // design limit; raise it with a reason in the plan when a scheduled feature needs more).
 

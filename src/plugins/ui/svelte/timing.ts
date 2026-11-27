@@ -1,5 +1,5 @@
 /**
- * The engine renderer's `requestAnimationFrame` and `now` hooks (ADR 0419, `docs/architecture/svelte-patch.md`): Svelte's
+ * The engine renderer's `requestAnimationFrame` and `now` hooks (ADR 0423, `docs/architecture/svelte-patch.md`): Svelte's
  * frames and clock under the custom renderer, so `svelte/motion` (`Tween`, `Spring`, `tweened`, `spring`), `tick`
  * transitions and everything else on Svelte's frame loop run on engine frames, in a browser and headless alike (no
  * `requestAnimationFrame`: `engine.step` drives them).

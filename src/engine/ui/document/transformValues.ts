@@ -1,9 +1,9 @@
 /**
- * Transform values of UI stylesheets (ADR 0418 wave 3): `transform`, the individual `translate`, `scale` and `rotate`
+ * Transform values of UI stylesheets (ADR 0422 wave 3): `transform`, the individual `translate`, `scale` and `rotate`
  * properties, and `transform-origin`, parsed from CSS text into the transform fields' values. The cascade
  * (`cascade.ts`) expands and checks them. Pure: a value that can't be read comes back as a message saying why.
  *
- * The fields hold one translate, one rotation, one scale and (ADR 0426) a full matrix, applied as CSS applies the
+ * The fields hold one translate, one rotation, one scale and (ADR 0430) a full matrix, applied as CSS applies the
  * individual properties before `transform` (translate, rotate, scale, then the matrix; `transform2d.ts`). A `transform`
  * list is composed left to right and folded into translate, rotate and scale when it can be. A list that can't fold (one
  * with `skew()`, `skewX()`, `skewY()` or `matrix()`, or a rotation after an unequal scale) is held as the matrix, after
@@ -20,7 +20,7 @@ export interface UITransformValue {
   readonly scaleX: number;
   readonly scaleY: number;
   readonly rotate: number;
-  /** ADR 0426: the full matrix (`matrix(a, b, c, d, e, f)`), or "" when the list folds. */
+  /** ADR 0430: the full matrix (`matrix(a, b, c, d, e, f)`), or "" when the list folds. */
   readonly transformMatrix: string;
 }
 
@@ -184,7 +184,7 @@ function args(inner: string): string[] {
 
 const FUNCTIONS = ["translate", "translatex", "translatey", "scale", "scalex", "scaley", "rotate", "skew", "skewx", "skewy", "matrix"];
 
-/** One function of a list, read: a translate (lengths), a scale, a rotation or (ADR 0426) a matrix holding a skew or `matrix()`. */
+/** One function of a list, read: a translate (lengths), a scale, a rotation or (ADR 0430) a matrix holding a skew or `matrix()`. */
 type Step =
   | { readonly kind: "translate"; readonly x: Len; readonly y: Len }
   | { readonly kind: "scale"; readonly x: number; readonly y: number }
@@ -246,7 +246,7 @@ function fold(steps: readonly Step[]): UITransformValue | string {
 }
 
 /**
- * ADR 0426: the steps as the leading translates (kept in the translate fields, `%` allowed) and the rest composed into
+ * ADR 0430: the steps as the leading translates (kept in the translate fields, `%` allowed) and the rest composed into
  * one matrix (pixels only).
  */
 function asMatrix(steps: readonly Step[]): UITransformValue | string {
@@ -279,7 +279,7 @@ function asMatrix(steps: readonly Step[]): UITransformValue | string {
 
 /**
  * `transform`: `none`, or a list of `translate(x[, y])`, `translateX()`, `translateY()`, `scale(s[, sy])`, `scaleX()`,
- * `scaleY()`, `rotate(angle)` and (ADR 0426) `skew(ax[, ay])`, `skewX()`, `skewY()` and `matrix(a, b, c, d, e, f)`,
+ * `scaleY()`, `rotate(angle)` and (ADR 0430) `skew(ax[, ay])`, `skewX()`, `skewY()` and `matrix(a, b, c, d, e, f)`,
  * composed left to right: folded into translate, rotate and scale when it can be, else held as the matrix.
  */
 export function parseTransform(raw: string): PaintParse<UITransformValue> {

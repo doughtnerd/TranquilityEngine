@@ -1,14 +1,14 @@
-# 0421. Games bundle the Svelte runtime and UI renderer into their own code at export, tree-shaken
+# 0425. Games bundle the Svelte runtime and UI renderer into their own code at export, tree-shaken
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0041, 0419
+- **Related:** 0041, 0423
 
 ## Context
 
-0419 predicted a Svelte-only game would load about 30 KB gzip of UI code: the Svelte runtime plus our renderer, instead of the 40.9 KB markup and CSS parsers.
+0423 predicted a Svelte-only game would load about 30 KB gzip of UI code: the Svelte runtime plus our renderer, instead of the 40.9 KB markup and CSS parsers.
 
 Wave A part 2 measured 58.9 KB:
 
@@ -29,8 +29,8 @@ The prebuilt player can't know which Svelte features a game uses; only the game'
 
 - **One bundle and one Svelte instance per game.** The export step's code bundler (the one that bundles a game's scripts today) also takes the compiled components and `.svelte.ts` modules. Their imports of `svelte/internal/client`, other `svelte/*` modules and the renderer resolve to the packages, bundled once per game. That gives one Svelte instance per game, which Svelte requires.
 - **`UIView` mounts through the game's bundle.** The bundle exports, for each component, a small mount function made with the bundled Svelte (`mount`/`unmount` plus the renderer). `UIView` in the player calls it with the host and props, and never imports Svelte itself. The player's fixed-name Svelte entries (`uiRuntimeEntries()`) are removed.
-- **The editor is unchanged.** Play keeps the shared, un-shaken runtime from 0419 wave A part 2, so hot reload stays fast and every component shares one instance.
-- **The cascade and selector reader stay engine code**, loaded on demand by `UIView` and UI documents. They're shared with UI documents until 0419 wave D, then only by `UIView`.
+- **The editor is unchanged.** Play keeps the shared, un-shaken runtime from 0423 wave A part 2, so hot reload stays fast and every component shares one instance.
+- **The cascade and selector reader stay engine code**, loaded on demand by `UIView` and UI documents. They're shared with UI documents until 0423 wave D, then only by `UIView`.
 - **Measured and gated.** The export of a small Svelte HUD test project reports its UI code size, with a tripwire at the measured size plus 20% in the export tests. The figure is recorded in implementation-status.
 
 ## Alternatives considered
@@ -41,7 +41,7 @@ The prebuilt player can't know which Svelte features a game uses; only the game'
 ## Consequences
 
 **Positive**
-- Svelte games load only the runtime they use: about 32 KB gzip of UI code for a small HUD, near 0419's estimate.
+- Svelte games load only the runtime they use: about 32 KB gzip of UI code for a small HUD, near 0423's estimate.
 - The player gets smaller, and games without Svelte UI carry none of it.
 
 **Negative / costs**
@@ -58,4 +58,4 @@ The prebuilt player can't know which Svelte features a game uses; only the game'
 
 ## References
 
-- 0419 (wave A part 2's sizes, in implementation-status), 0041 (game builds), `vite.shared.ts`, `src/projectCode/compileUI.ts`, `src/export/`
+- 0423 (wave A part 2's sizes, in implementation-status), 0041 (game builds), `vite.shared.ts`, `src/projectCode/compileUI.ts`, `src/export/`

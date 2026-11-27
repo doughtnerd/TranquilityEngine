@@ -41,7 +41,7 @@ export function hashedFiles(root: string): [string, string][] {
     }
   };
   walk(root, "");
-  // The shared crates the core links (ADR 0370, 0420): `../common/<crate>/`, keyed under it, with the same skips.
+  // The shared crates the core links (ADR 0370, 0424): `../common/<crate>/`, keyed under it, with the same skips.
   for (const krate of SHARED_CRATES) {
     const dir = join(root, "..", "common", krate);
     if (existsSync(dir)) walk(dir, `../common/${krate}`);
@@ -106,7 +106,7 @@ function withFixture(body: (root: string) => void, options: { lf?: boolean } = {
       ["crates/a/README.md", "# a\n"],
       ["build.mjs", "export {};\n"],
       // The shared crates the core links (ADR 0370): hashed under `../common/`, with the same skips; another shared
-      // crate beside them (ADR 0420) is left out.
+      // crate beside them (ADR 0424) is left out.
       ["../common/curve/Cargo.toml", '[package]\nname = "c"\n'],
       ["../common/curve/src/lib.rs", fix("pub fn c() {}\r\n")],
       ["../common/curve/target/debug/y.rs", "fn y() {}\n"],

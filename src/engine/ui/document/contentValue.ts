@@ -1,5 +1,5 @@
 /**
- * The `content` property of `::before` and `::after` (ADR 0428), read from CSS text into pieces the UI host joins into the
+ * The `content` property of `::before` and `::after` (ADR 0432), read from CSS text into pieces the UI host joins into the
  * generated element's text: strings and `attr(name)` (the originating element's attribute, "" when it has none).
  * `none` and `normal` generate nothing. Counters, quotes and images (`counter()`, `open-quote`, `url()`) are out of scope
  * and refused. Pure: a value that can't be read comes back as a message saying why.

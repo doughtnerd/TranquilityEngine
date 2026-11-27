@@ -74,7 +74,7 @@ interface MenuState {
 
 /**
  * The main menu and the room view (ADR 0068), over the sea (scenes/menu.scene.json). The screens are
- * a Svelte component (ADR 0419), ui/Menu.svelte, mounted by the node's UIView. Its props: `menu`, what
+ * a Svelte component (ADR 0423), ui/Menu.svelte, mounted by the node's UIView. Its props: `menu`, what
  * the script reads from `Lobby` each frame (the screen the lobby is in, the open rooms, the crew, the
  * settings and the results); `fields`, the name, room code and server address fields (bound both
  * ways); and `on`, what the buttons do.

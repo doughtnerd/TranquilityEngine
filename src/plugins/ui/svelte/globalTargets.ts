@@ -1,5 +1,5 @@
 /**
- * The Svelte renderer's global targets (ADR 0419, the patch's `globalTarget(kind)` hook): what `<svelte:window>`,
+ * The Svelte renderer's global targets (ADR 0423, the patch's `globalTarget(kind)` hook): what `<svelte:window>`,
  * `<svelte:document>` and `<svelte:body>` stand for in a canvas game. They're objects with `addEventListener`,
  * `removeEventListener` and `dispatchEvent`, the readable state below, and the bindings the renderer's `bind` hook
  * hands them.
@@ -9,12 +9,12 @@
  *   field is typing, nor a key a UI router claimed), `pointerdown`/`pointerup` (and `mousedown`/`mouseup`) for
  *   buttons pressed outside UI that takes the pointer, `pointermove`/`mousemove` and `wheel`. They go to the body,
  *   then the document, then the window, as a DOM event bubbles from the body; `stopPropagation` ends that.
- *   ADR 0422: UI events that bubble out of a view's canvas unstopped carry on through the body, the document and the
+ *   ADR 0426: UI events that bubble out of a view's canvas unstopped carry on through the body, the document and the
  *   window (`_continue`), as a DOM event bubbles out of an element; a type the UI dispatched in a frame isn't fed to
  *   them from the devices too (a click on a button reaches `<svelte:window onclick>` once, from the button).
  *   The window also gets `resize` when the canvas's size changes, and `online`/`offline`; the document,
  *   `visibilitychange`. Events come in play, not in the editor's edit mode.
- * - **The canvas is the window, in UI pixels** (the coordinator's units ruling, ADR 0418 wave 5): `innerWidth`/
+ * - **The canvas is the window, in UI pixels** (the coordinator's units ruling, ADR 0422 wave 5): `innerWidth`/
  *   `innerHeight` (and `outerWidth`/`outerHeight`, the same: a game has no window chrome) are the UI canvas's size
  *   after the canvas scaler, the units of `getBoundingClientRect` and canvas `@media`; `devicePixelRatio` is device
  *   pixels per UI pixel. `matchMedia(query)` evaluates against the same canvas (so Svelte's `MediaQuery` follows
@@ -155,7 +155,7 @@ export class UIGlobalTarget {
     return !event.defaultPrevented;
   }
 
-  /** @internal ADR 0422: run this target's `type` listeners for a UI event bubbling up from a view (its `target` stays the node it happened on). */
+  /** @internal ADR 0426: run this target's `type` listeners for a UI event bubbling up from a view (its `target` stays the node it happened on). */
   _run(type: string, event: { currentTarget?: unknown; _stopped?: boolean }): void {
     const set = this._listeners.get(type);
     if (!set?.size) return;
@@ -223,7 +223,7 @@ export class UIGlobalWindow extends UIGlobalTarget {
     return this.globals.document;
   }
 
-  /** A media query list evaluated against the canvas in UI pixels, as canvas `@media` rules are (ADR 0418 wave 5). */
+  /** A media query list evaluated against the canvas in UI pixels, as canvas `@media` rules are (ADR 0422 wave 5). */
   matchMedia(query: string): UIMediaQueryList {
     return new UIMediaQueryList(String(query), this.globals);
   }
@@ -383,7 +383,7 @@ export class UIGlobals {
   readonly body: UIGlobalTarget;
   private stopFrame: (() => void) | null = null;
   private lastFrame = -1;
-  /** ADR 0422: the event types the UI dispatched to a view in a device frame. */
+  /** ADR 0426: the event types the UI dispatched to a view in a device frame. */
   private uiTypes = { frame: -1, types: new Set<string>() };
   private last: { width: number; height: number; online: boolean; visibility: string } | null = null;
   /** @internal `matchMedia` lists something listens to: checked each frame. */
@@ -456,7 +456,7 @@ export class UIGlobals {
   }
 
   /**
-   * @internal ADR 0422: a UI event dispatched in a view, as its DOM `types`: when it bubbles and wasn't stopped, on
+   * @internal ADR 0426: a UI event dispatched in a view, as its DOM `types`: when it bubbles and wasn't stopped, on
    * through the body, the document and the window. Either way the devices don't feed those types this frame.
    */
   _continue(event: { bubbles?: boolean; _stopped?: boolean; eventPhase?: number; currentTarget?: unknown }, types: readonly string[]): void {
@@ -481,7 +481,7 @@ export class UIGlobals {
 
   /** Bubble `make()` from the body through the document to the window, to the targets listening to `type`. */
   private bubble(type: string, make: () => UIGlobalEvent): void {
-    if (this.uiTypes.frame === devices.frame && this.uiTypes.types.has(type)) return; // the UI's dispatch reached them (ADR 0422)
+    if (this.uiTypes.frame === devices.frame && this.uiTypes.types.has(type)) return; // the UI's dispatch reached them (ADR 0426)
     const chain = [this.body, this.document, this.window].filter((t) => t._has(type));
     if (!chain.length) return;
     const e = make();

@@ -24,7 +24,7 @@
 //   Percent offsets stay percentages of the parent's padding box.
 // - In flex flow, dragging reorders: the drop goes before the first sibling (in flow, shown, in
 //   visual order) whose middle is past the pointer along the parent's main axis.
-// - Transforms (ADR 0418 wave 3): the outline and handles sit on the box as drawn, and a resize
+// - Transforms (ADR 0422 wave 3): the outline and handles sit on the box as drawn, and a resize
 //   works in that frame (a drag along a rotated box's edge changes its width by the distance in its
 //   own UI pixels). Its `left`/`top` are in the parent's frame, not its own, so on an element with a
 //   transform of its own the west and north handles change only the size. A move works in the
@@ -34,7 +34,7 @@ export type Point = readonly [number, number];
 
 /** A box on the canvas: its corners (top-left, top-right, bottom-right, bottom-left), CSS pixels, and its size in UI pixels. */
 export interface BoxOnCanvas {
-  /** As drawn: after its transforms (ADR 0418 wave 3), so a rotated box's handles sit on its turned corners. */
+  /** As drawn: after its transforms (ADR 0422 wave 3), so a rotated box's handles sit on its turned corners. */
   readonly points: readonly Point[];
   readonly size: readonly [number, number];
   /** Where layout put it, in its parent's frame (its ancestors' transforms, not its own); `points` when left out. */

@@ -1,4 +1,4 @@
-// The conformance harness's stand-in for the renderer's `animate` hook (ADR 0419 wave Y2), ported from Svelte's own test
+// The conformance harness's stand-in for the renderer's `animate` hook (ADR 0423 wave Y2), ported from Svelte's own test
 // helper (tests/animation-helpers.js at 5.59.2), which stands in for `element.animate` in its DOM runs: keyframes are
 // interpolated on the test's clock (`raf.tick(ms)`) and written to the node's inline style, so the fixtures' HTML checks
 // (`style="opacity: 0.5;"`) read the same as against the DOM. The engine's own `animate` (keyframes on the UI animator,

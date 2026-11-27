@@ -26,7 +26,7 @@ function nodeEsbuild(): Promise<EsbuildApi> {
 /** The engine's checkout, which `npm run export` runs from. */
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-/** The engine's Svelte runtime and renderer, read from its checkout, which game builds bundle their UI code with (ADR 0421). */
+/** The engine's Svelte runtime and renderer, read from its checkout, which game builds bundle their UI code with (ADR 0425). */
 export function nodeUIRuntimeSource(): UIRuntimeSource {
   return {
     files: { read: (path) => readFile(join(ENGINE_ROOT, ...path.split("/")), "utf8").catch(() => null) },

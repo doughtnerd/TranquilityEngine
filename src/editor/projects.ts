@@ -101,7 +101,7 @@ function bytesStamp(bytes: Uint8Array): string {
 export const isWithin = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
 /**
- * The project's UI code with its text (ADR 0419): Svelte components and rune modules, which the project code
+ * The project's UI code with its text (ADR 0423): Svelte components and rune modules, which the project code
  * linker compiles like scripts, and the `.css` files components may import.
  */
 export function uiFiles(project: EditorProject): Map<string, string> {

@@ -1,8 +1,8 @@
 /**
- * The engine renderer's `animate` and `measure` hooks (ADR 0419, `docs/architecture/svelte-patch.md`): what Svelte's
+ * The engine renderer's `animate` and `measure` hooks (ADR 0423, `docs/architecture/svelte-patch.md`): what Svelte's
  * `transition:`, `in:`, `out:` and `animate:` run through under the custom renderer.
  *
- * - **`animate(node, keyframes, { duration })`** plays the keyframes on the hosted element's UI animator (ADR 0418
+ * - **`animate(node, keyframes, { duration })`** plays the keyframes on the hosted element's UI animator (ADR 0422
  *   wave 4: per-segment tweens on the tween backend, unscaled time, starting in the frame it's called in), converting
  *   each keyframe's CSS as a stylesheet's values convert. The handle is the part of the DOM's `Animation` Svelte uses:
  *   `currentTime` (ms), `playState`, `onfinish` (once, at the end), `onframe` (each frame it plays: `tick` transitions)
@@ -12,7 +12,7 @@
  *   when the view changed), its inner size, and its computed style (`UIHostElement.computedStyle`) by camel-case name,
  *   with `getPropertyValue`; properties UI elements don't have read as "".
  *
- * ADR 0426: `blur` animates the filter fields like any other keyframes. A shape inside an `<svg>` (what `draw` animates)
+ * ADR 0430: `blur` animates the filter fields like any other keyframes. A shape inside an `<svg>` (what `draw` animates)
  * isn't a UI element: its keyframes (`stroke-dasharray`, `stroke-dashoffset`) are sampled each frame (`animateSvgNode`,
  * on its `<svg>`'s animator clock) and written into the `<svg>`'s document, and its computed style comes from its SVG
  * paint (`measureNode`'s `values`).
@@ -131,7 +131,7 @@ function sampleKeyframes(frames: readonly Readonly<Record<string, string>>[], p:
 }
 
 /**
- * ADR 0426: the `animate` hook for a shape inside an `<svg>`: its keyframes sampled each frame of a playback on the
+ * ADR 0430: the `animate` hook for a shape inside an `<svg>`: its keyframes sampled each frame of a playback on the
  * `<svg>`'s hosted element (the UI animator's clock, unscaled time) and handed to `write`, which puts them into the
  * `<svg>`'s document; the last keyframe's values stay until `cancel()` (which writes null). No `<svg>` shown: it
  * finishes at once.
@@ -174,7 +174,7 @@ function declaration(values: Readonly<Record<string, string>>): Record<string, s
   });
 }
 
-/** The `measure` hook. `values` stands in for the computed style (an SVG shape's paint, ADR 0426). */
+/** The `measure` hook. `values` stands in for the computed style (an SVG shape's paint, ADR 0430). */
 export function measureNode(node: AnimatedNode, values?: Readonly<Record<string, string>>): {
   left: number;
   top: number;

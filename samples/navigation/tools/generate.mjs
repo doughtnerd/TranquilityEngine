@@ -117,9 +117,9 @@ function write(path, content) {
 
 // ---------------------------------------------------------------------------------------------- the HUD component
 
-// The status panel is a Svelte component (ADR 0419); scripts/behaviors/Hud.ts passes its `status` prop.
+// The status panel is a Svelte component (ADR 0423); scripts/behaviors/Hud.ts passes its `status` prop.
 const HUD_SVELTE = `<script lang="ts">
-  // The navigation sample's status panel (ADR 0419): one text block, which scripts/behaviors/Hud.ts passes in
+  // The navigation sample's status panel (ADR 0423): one text block, which scripts/behaviors/Hud.ts passes in
   // through its UIView's props.
   let { status = "" }: { status?: string } = $props();
 </script>
@@ -140,7 +140,7 @@ const HUD_SVELTE = `<script lang="ts">
     text-outline-width: 3px;
     /* A label over the game lets the pointer through to it (ADR 0385). */
     raycast-target: false;
-    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0428 white-space). */
+    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0432 white-space). */
     white-space: pre-wrap;
   }
 </style>

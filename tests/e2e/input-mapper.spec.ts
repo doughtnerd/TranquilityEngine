@@ -3,7 +3,7 @@ import { inLiveWorld } from "./liveWorld";
 import { captureView, pixelsNear } from "./viewCapture";
 
 // The UIControlMapper (ADR 0337, docs/wiki/guide/input.md "A rebinding screen") drawn for real: a scene with a UIControlMapper
-// plays in the editor (it makes its own screen canvas: a scene can't save UI components, ADR 0417); its rows come from the player's bindings, it draws its panel and cells, and
+// plays in the editor (it makes its own screen canvas: a scene can't save UI components, ADR 0421); its rows come from the player's bindings, it draws its panel and cells, and
 // a real click on the keyboard cell then a key press rebinds the action, read back through the public `myco` API
 // (`InputPlayers.get(0).prompt`, the mapper's `rows`, `rebinding` and `status`).
 test.describe.configure({ timeout: 90_000 }); // opening a project compiles its scripts, and Play type-checks them

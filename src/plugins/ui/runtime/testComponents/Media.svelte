@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ADR 0426: <video> and <audio> under the engine's renderer: the media API on the nodes and Svelte's media bindings.
+  // ADR 0430: <video> and <audio> under the engine's renderer: the media API on the nodes and Svelte's media bindings.
   let {
     log = () => {},
     onnode = () => {},

@@ -1,5 +1,5 @@
 // Reading a source map (version 3) back: which original position a generated one came from. Used to map type errors
-// in a Svelte component's generated TypeScript back to the component (ADR 0428, `svelteCheck.ts`). Generic: one map,
+// in a Svelte component's generated TypeScript back to the component (ADR 0432, `svelteCheck.ts`). Generic: one map,
 // one source, no names.
 
 /** A source map's `mappings` decoded: per generated line, its segments as [generated column, original line, original column], 0-based. */

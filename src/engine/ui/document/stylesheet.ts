@@ -1,5 +1,5 @@
 /**
- * UI stylesheets (Svelte components' CSS and the `.css` files they import, ADR 0419; the CSS subset of ADR 0077): parsed with
+ * UI stylesheets (Svelte components' CSS and the `.css` files they import, ADR 0423; the CSS subset of ADR 0077): parsed with
  * `css-tree` (its parser only, not the lexer and its property data) into rule data (`UIStylesheet`) for
  * the cascade (`cascade.ts`, re-exported here). Pure and renderer-neutral; never throws for a bad sheet
  * (problems are reported). Svelte components' styles are parsed with it when they compile (the editor,
@@ -48,7 +48,7 @@ export const parseStylesheet: ParseStylesheet = (source, file, firstOrder = 0) =
           continue;
         }
         if (name === "media") {
-          // ADR 0418 wave 5: `@media` on the canvas; its rules carry the query lists they're in.
+          // ADR 0422 wave 5: `@media` on the canvas; its rules carry the query lists they're in.
           const prelude = node.prelude?.loc ? source.slice(node.prelude.loc.start.offset, node.prelude.loc.end.offset) : "";
           let list: UIMediaQuery[];
           try {
@@ -72,7 +72,7 @@ export const parseStylesheet: ParseStylesheet = (source, file, firstOrder = 0) =
   return keyframes.length ? { file, rules, problems, keyframes } : { file, rules, problems };
 };
 
-// --- @keyframes (ADR 0418 wave 4) ------------------------------------------------------------------
+// --- @keyframes (ADR 0422 wave 4) ------------------------------------------------------------------
 
 /** A `@keyframes name { from {…} 50% {…} to {…} }` block: its keyframes, with their offsets (0–1) and declarations. */
 function parseKeyframes(node: CssNode, source: string, report: (start: number, end: number, message: string) => void): UIKeyframes | null {
@@ -178,24 +178,24 @@ type MutableCompound = {
   has?: (readonly Selector[])[];
 };
 
-/** Pseudo-classes read by the query reader (ADR 0418 wave 5), so rule data and queries read them alike. */
+/** Pseudo-classes read by the query reader (ADR 0422 wave 5), so rule data and queries read them alike. */
 const READ_AS_TEXT: ReadonlySet<string> = new Set([
   "not", "first-child", "last-child", "only-child", "nth-child", "nth-last-child",
   "first-of-type", "last-of-type", "only-of-type", "nth-of-type", "nth-last-of-type", "empty", "root",
-  // ADR 0428: `:has()` and its relative selectors.
+  // ADR 0432: `:has()` and its relative selectors.
   "has",
 ]);
 
-/** The UI's pseudo-classes and (ADR 0428) pseudo-elements, for messages. */
+/** The UI's pseudo-classes and (ADR 0432) pseudo-elements, for messages. */
 const supported = (): string => `:hover, :pressed (or :active), :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), the -of-type forms, :empty, :root and :has(); pseudo-elements: ${[...PSEUDO_ELEMENTS].map((n) => `::${n}`).join(", ")}`;
 
-/** ADR 0428: `nested` (inside `:is()`/`:where()`), where pseudo-elements can't be. */
+/** ADR 0432: `nested` (inside `:is()`/`:where()`), where pseudo-elements can't be. */
 function parseSelector(sel: CssSelector, source: string, report: Report, nested = false): Selector | null {
   const parts: { selector: SimpleSelector; combinator: Combinator | null }[] = [];
   let current: MutableCompound | null = null;
   let pendingCombinator: Combinator | null = null;
   let ok = true;
-  /** ADR 0428: the pseudo-element the selector ends with. */
+  /** ADR 0432: the pseudo-element the selector ends with. */
   let pseudoElement: UIPseudoElement | null = null;
   const takePseudoElement = (name: string, s: number, e: number) => {
     if (!PSEUDO_ELEMENTS.has(name)) {
@@ -263,7 +263,7 @@ function parseSelector(sel: CssSelector, source: string, report: Report, nested 
       case "PseudoClassSelector": {
         const name = n.name.toLowerCase();
         if (PSEUDO.has(name)) compound().pseudo.push(name as UIPseudo);
-        else if (name === "active") compound().pseudo.push("pressed"); // ADR 0428: CSS's name for the engine's `:pressed`
+        else if (name === "active") compound().pseudo.push("pressed"); // ADR 0432: CSS's name for the engine's `:pressed`
         else if (name === "before" || name === "after") takePseudoElement(name, s, e); // CSS 2's one-colon form
         else if (READ_AS_TEXT.has(name)) readText(s, e);
         else if (name === "is" || name === "where") {

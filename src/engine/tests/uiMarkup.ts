@@ -9,7 +9,7 @@ import { parseStylesheet } from "../ui/document/stylesheet";
 import { UIView } from "../../plugins/ui/runtime/UIView";
 import * as TreeModule from "../../plugins/ui/runtime/testComponents/Tree.svelte";
 
-// Test helpers that make game UI the one way a game can (ADR 0417, 0419): a `UIView` mounting a Svelte component, through
+// Test helpers that make game UI the one way a game can (ADR 0421, 0423): a `UIView` mounting a Svelte component, through
 // the engine's renderer onto the UI core's tree host. The component is a generic one (`testComponents/Tree.svelte`) that
 // renders an element tree given as data, so a test writes its tree as HTML markup, as a component's template would be.
 // Call `loadUITestSupport()` first (in `beforeEach`, once an Engine exists), so views mount as soon as they're added.
@@ -81,7 +81,7 @@ function parseMarkup(markup: string): TreeNode[] {
   return top;
 }
 
-/** The canvas settings a `UIView` owns (ADR 0419), from a `<Canvas>` root's attributes. */
+/** The canvas settings a `UIView` owns (ADR 0423), from a `<Canvas>` root's attributes. */
 const VIEW_FIELDS: Readonly<Record<string, (value: string) => [string, unknown]>> = {
   mode: (v) => ["mode", v],
   "reference-resolution": (v) => {
@@ -217,7 +217,7 @@ export function classList(el: UIHostElement): { add(...names: string[]): void; r
   return list;
 }
 
-/** Each UI component type as the HTML tag (and attributes) a component writes for it (ADR 0419, 0424, 0426). */
+/** Each UI component type as the HTML tag (and attributes) a component writes for it (ADR 0423, 0428, 0430). */
 const TAGS = new Map<Function, readonly [string, Record<string, string>]>([
   [UIPanel, ["div", {}]],
   [UIText, ["p", {}]],

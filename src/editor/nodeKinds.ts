@@ -1,5 +1,5 @@
 // The node kinds the Create menus offer (ADR 0022, 0146): an empty node, a sprite, a camera, a 3D shape
-// (with a matching collider, as in Unity), a light (ADR 0043), a UI View (ADR 0419) or a kind a plugin adds
+// (with a matching collider, as in Unity), a light (ADR 0043), a UI View (ADR 0423) or a kind a plugin adds
 // (Particle System, Tilemap), each as a node template. The node insertion (ADR 0246, `nodeInsertion.ts`) puts them
 // in the scene.
 import { createAsset } from "./assetKindHost";
@@ -123,7 +123,7 @@ export function kindTemplate(kind: NodeKind, position: Vec3, topLevel: boolean, 
       // A WaterSurface with the four-wave preset written out, so the inspector's wave list shows it (ADR 0072).
       return { name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.WaterSurface", data: { waves: WATER_PRESET.map((w) => ({ ...w })) } }] };
     case "ui-view":
-      // A Svelte component's view (ADR 0419): `asset` is the new `.svelte` written first (`kindAssetCreator`), or empty.
+      // A Svelte component's view (ADR 0423): `asset` is the new `.svelte` written first (`kindAssetCreator`), or empty.
       return { name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.UIView", data: asset ? { component: asset } : {} }] };
     default: {
       // A light: directional and spot lights point down and away, like a sun in the afternoon
@@ -145,7 +145,7 @@ export function kindTemplate(kind: NodeKind, position: Vec3, topLevel: boolean, 
 /**
  * The asset a new node of `kind` needs written first, if any (ADR 0146, 0246): a contributed kind's `createAsset`
  * (a Particle System's effect), or for UI View a new component from the `svelte` asset kind's `create`
- * (ADR 0149, 0419) when the UI plugin registers one. Resolves to the new file's path, or null when it couldn't
+ * (ADR 0149, 0423) when the UI plugin registers one. Resolves to the new file's path, or null when it couldn't
  * write one (it said why in the status).
  */
 export function kindAssetCreator(kind: NodeKind): (() => Promise<string | null>) | undefined {

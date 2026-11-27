@@ -91,7 +91,7 @@ pub fn atan2<L: Lane>(y: L, x: L) -> L {
 /// `2^x` for `x` in about `[−100, 100]` (clamped to f32's normal range). Deterministic: `2^round(x)`
 /// (exact, built from the exponent bits) times the degree-7 Taylor series of `e^(r·ln 2)` for the
 /// remainder `r` in `[−½, ½]` (truncation error under 6e-9 relative). Used by the Penner easings
-/// (`myco-tween`, moved out of this crate's former `ease` module, ADR 0420 spike) and `anim-match`'s
+/// (`myco-tween`, moved out of this crate's former `ease` module, ADR 0424 spike) and `anim-match`'s
 /// springs.
 pub fn exp2(x: f32) -> f32 {
     let n = x.round_even().clamp(-126.0, 127.0);

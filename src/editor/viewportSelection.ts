@@ -31,7 +31,7 @@ const CLICK_SLOP = 4;
 const REFINE_RADIUS = 24;
 
 /**
- * Selection keys for the UI under a click (ADR 0077), topmost first: an element a UIView rendered (ADR 0419 wave C)
+ * Selection keys for the UI under a click (ADR 0077), topmost first: an element a UIView rendered (ADR 0423 wave C)
  * as its `uiViewRefKey` (a button's label picks the button), a view's canvas as the view's node id. Elements outside
  * the edited scene and nodes `pickable` refuses (locked) are left out; duplicates too.
  */

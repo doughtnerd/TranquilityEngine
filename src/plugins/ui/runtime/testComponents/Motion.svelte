@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ADR 0419: `svelte/motion` (Tween, Spring) drive UI fields through `style:` like any state.
+  // ADR 0423: `svelte/motion` (Tween, Spring) drive UI fields through `style:` like any state.
   import { Spring, Tween } from "svelte/motion";
   import { linear } from "svelte/easing";
 

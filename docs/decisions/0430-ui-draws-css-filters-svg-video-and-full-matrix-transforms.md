@@ -1,19 +1,19 @@
-# 0426. UI draws CSS filters, inline SVG, video and full matrix transforms with skew
+# 0430. UI draws CSS filters, inline SVG, video and full matrix transforms with skew
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0418, 0419, 0420
+- **Related:** 0422, 0423, 0424
 
 ## Context
 
-0419's full-compatibility target needs four drawing features the UI core lacks:
+0423's full-compatibility target needs four drawing features the UI core lacks:
 
 - **CSS `filter`:** `blur`, `brightness`, `drop-shadow`… Svelte's `blur` transition uses it.
 - **Inline `<svg>`:** icons, and Svelte's `draw` transition.
 - **`video`** and **`audio`** elements.
-- **Arbitrary `transform` lists with skew.** 0418 wave 3 refuses lists that would skew, and can't draw skew.
+- **Arbitrary `transform` lists with skew.** 0422 wave 3 refuses lists that would skew, and can't draw skew.
 
 They share one drawing question, because Babylon GUI draws each control into a Canvas2D context.
 
@@ -21,7 +21,7 @@ They share one drawing question, because Babylon GUI draws each control into a C
 
 **Each is drawn through Babylon GUI's Canvas2D drawing, extended where a control needs to.**
 
-- **Filters:** a `filter` property; each function is a field, so they animate (0418 wave 4).
+- **Filters:** a `filter` property; each function is a field, so they animate (0422 wave 4).
   - The functions: `blur()`, `brightness()`, `contrast()`, `grayscale()`, `hue-rotate()`, `invert()`, `opacity()`, `saturate()`, `sepia()` and `drop-shadow()`.
   - Drawn by setting the context's `filter` around the element's subtree, where the browser supports `CanvasRenderingContext2D.filter`.
   - Where it doesn't, the subtree is drawn to an offscreen canvas and filtered there, with `blur` and `drop-shadow` approximated by box blurs.
@@ -68,8 +68,8 @@ They share one drawing question, because Babylon GUI draws each control into a C
 
 ## Deprecates
 
-0418 wave 3's refusal of skewing transform lists (as built), once matrices land.
+0422 wave 3's refusal of skewing transform lists (as built), once matrices land.
 
 ## References
 
-0418 (waves 2–4), 0419, 0420; Filter Effects 1, SVG 2, HTML media elements.
+0422 (waves 2–4), 0423, 0424; Filter Effects 1, SVG 2, HTML media elements.

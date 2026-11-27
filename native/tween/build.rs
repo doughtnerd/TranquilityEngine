@@ -1,6 +1,6 @@
 //! The standalone tween module's build script: embeds the source hash (`source_hash.rs`) of the
 //! crates it compiles as `$OUT_DIR/source_hash.bin`, read by `src/lib.rs`, so a committed wasm that
-//! no longer matches its sources fails `npm test` (ADR 0420, as the animation core's).
+//! no longer matches its sources fails `npm test` (ADR 0424, as the animation core's).
 
 #[path = "source_hash.rs"]
 mod source_hash;

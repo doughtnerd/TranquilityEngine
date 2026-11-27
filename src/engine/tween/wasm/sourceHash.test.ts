@@ -1,4 +1,4 @@
-// ADR 0420 (as 0370 for the animation core): the committed myco_tween_bg.wasm must match its Rust sources. This test
+// ADR 0424 (as 0370 for the animation core): the committed myco_tween_bg.wasm must match its Rust sources. This test
 // recomputes the source hash of the crates the standalone tween module compiles with node:crypto, by the rule in
 // native/tween/source_hash.rs, and compares it with wasm/hash.json and with the hash the wasm embeds (read through its
 // glue's `source_hash`). Skipped when native/tween is absent (an exported project, a package).

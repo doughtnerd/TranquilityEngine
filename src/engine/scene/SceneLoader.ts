@@ -294,14 +294,14 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
       node.addData(def, data as Record<string, number>);
       return def;
     }
-    // UI is made only by UI views (ADR 0417, 0419): saved UI components, the removed screen `Text` and `LocalizedText`
+    // UI is made only by UI views (ADR 0421, 0423): saved UI components, the removed screen `Text` and `LocalizedText`
     // (matched by name, their classes are gone), and the retired `UIDocument` stop the load. No automatic migration.
     if (REMOVED_UI.has(entry.type)) {
       this.problem(`${source}: node "${nodePath(node)}" saves "${entry.type}", which was removed. ${UI_FROM_VIEWS}`, at, entry);
       return undefined;
     }
     if (RETIRED_DOCUMENTS.has(entry.type)) {
-      this.problem(`${source}: node "${nodePath(node)}" saves "${entry.type}": UI documents (*.ui.xml, *.ui.css) were retired by ADR 0419. Write the UI as a Svelte component and mount it with a UIView.`, at, entry);
+      this.problem(`${source}: node "${nodePath(node)}" saves "${entry.type}": UI documents (*.ui.xml, *.ui.css) were retired by ADR 0423. Write the UI as a Svelte component and mount it with a UIView.`, at, entry);
       return undefined;
     }
     const type = getComponentClass(entry.type) as (new () => Component) | undefined;
@@ -382,9 +382,9 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
   }
 }
 
-/** Component types ADR 0417 removed: the screen `Text` and `LocalizedText`, by id and by bare name. */
+/** Component types ADR 0421 removed: the screen `Text` and `LocalizedText`, by id and by bare name. */
 const REMOVED_UI = new Set(["engine.Text", "engine.LocalizedText", "Text", "LocalizedText"]);
-/** The UI document component ADR 0419 retired, by id and by bare name. */
+/** The UI document component ADR 0423 retired, by id and by bare name. */
 const RETIRED_DOCUMENTS = new Set(["engine.UIDocument", "UIDocument"]);
 
 /** A node's path of names from the World root (`/menu/Canvas/Title`), as `nodeAtPath` reads it. */

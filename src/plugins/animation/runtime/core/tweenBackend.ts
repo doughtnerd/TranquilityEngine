@@ -1,4 +1,4 @@
-// The engine's tween backend (`src/engine/tween/backend.ts`, ADR 0420) over the animation core's tween table: what UI
+// The engine's tween backend (`src/engine/tween/backend.ts`, ADR 0424) over the animation core's tween table: what UI
 // animation runs on while the animation plugin is active, so the core's wasm loads once and UI and game tweens run the
 // same table. The plugin installs it as the engine's provider when it activates (`features/core/register.ts`).
 //

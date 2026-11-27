@@ -1,5 +1,5 @@
 /**
- * Editing a text's inline runs (ADR 0425, `contenteditable`): the player's typing arrives as the hidden input's whole new
+ * Editing a text's inline runs (ADR 0429, `contenteditable`): the player's typing arrives as the hidden input's whole new
  * text; the change (one replaced span: what the text before and after share at both ends is kept) is written into the
  * components that hold the runs' text, so the runs keep their styles. Text typed at a boundary between runs takes the
  * style of the run before it, as browsers do; an inline image can't be deleted (it comes back). Rich formatting

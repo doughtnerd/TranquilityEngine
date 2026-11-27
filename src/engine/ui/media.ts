@@ -1,5 +1,5 @@
 /**
- * Video and audio elements' playback (ADR 0426): what `UIVideo` and `UIAudio` share. Not public API itself; the
+ * Video and audio elements' playback (ADR 0430): what `UIVideo` and `UIAudio` share. Not public API itself; the
  * components expose it.
  *
  * - **A media source** is anything with the `HTMLMediaElement` members the UI uses (`UIMediaSource`): an
@@ -118,7 +118,7 @@ interface AudioSourceLike {
 }
 
 /**
- * ADR 0426: an `<audio>` element's source: the media API over an engine `AudioSource` its node owns (made on first
+ * ADR 0430: an `<audio>` element's source: the media API over an engine `AudioSource` its node owns (made on first
  * play, `playOnAwake` off). Time is kept here on the element's clock (unscaled seconds × `playbackRate`), the end
  * noticed when the playing sound stops by itself. `duration` is NaN (an engine sound doesn't report its length).
  * `playbackRate` is the source's `pitch` (speed and pitch together); `muted` plays at volume 0.

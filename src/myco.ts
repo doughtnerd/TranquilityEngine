@@ -90,7 +90,7 @@ export {
   UIInputField,
   UIPanel,
   UIText,
-  // ADR 0424: form elements.
+  // ADR 0428: form elements.
   UITextArea,
   UIToggle,
   UIRadio,
@@ -104,7 +104,7 @@ export {
   type UIButtonType,
   type UIInputType,
   type UITextAreaWrap,
-  // ADR 0426
+  // ADR 0430
   UISvg,
   UIVideo,
   UIAudio,

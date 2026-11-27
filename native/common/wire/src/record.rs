@@ -204,7 +204,7 @@ pub trait WireRecord: Sized {
 
 /// Checks a record's header and length before reading it.
 ///
-/// `#[inline]` (ADR 0420 spike): called from every record's decoder in other crates; outlined, it
+/// `#[inline]` (ADR 0424 spike): called from every record's decoder in other crates; outlined, it
 /// takes `&DESC`, which keeps every record's descriptor (names and field docs, ~25 KB) in the module.
 #[inline]
 pub fn check_header(desc: &RecordDesc, bytes: &[u8]) -> Result<(), WireError> {

@@ -1,7 +1,7 @@
 <script lang="ts">
   // The engine's UI tests' generic component (`src/engine/tests/uiMarkup.ts`): it renders a tree of elements given as
   // data, each an HTML tag with its attributes as written, through the engine's renderer, so a test writes its element
-  // tree as markup and builds it the one way game UI is built (ADR 0419: a UIView mounting a Svelte component).
+  // tree as markup and builds it the one way game UI is built (ADR 0423: a UIView mounting a Svelte component).
   import Tree from "./Tree.svelte";
 
   type TreeNode = { readonly text: string } | { readonly tag: string; readonly attributes: Record<string, string>; readonly children: TreeNode[] };

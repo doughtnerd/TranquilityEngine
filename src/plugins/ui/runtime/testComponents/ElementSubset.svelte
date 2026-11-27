@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The Element subset on renderer nodes (ADR 0419) as Svelte's conformance fixtures use it: `click()` with HTML's
+  // The Element subset on renderer nodes (ADR 0423) as Svelte's conformance fixtures use it: `click()` with HTML's
   // activation, namespaces, reflected attributes, `stepUp`, the tag and class queries, and an <input> changing type.
   let { log = () => {}, onnode = () => {}, prevent = false }: { log?: (s: string) => void; onnode?: (node: unknown) => void; prevent?: boolean } = $props();
   let agreed = $state(false);

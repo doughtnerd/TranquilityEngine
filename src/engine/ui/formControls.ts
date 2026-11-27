@@ -1,10 +1,10 @@
 /**
- * Form controls' behaviour (ADR 0424): what HTML's form elements do, on the UI core's components. The UI core's routing
+ * Form controls' behaviour (ADR 0428): what HTML's form elements do, on the UI core's components. The UI core's routing
  * (clicks, slider drags, keys), navigation (submit, arrows) and both front ends' scripts (`requestSubmit`, `reset`, the
  * Svelte renderer's bindings) call these, so a checkbox toggles, a radio unchecks its group, a select chooses and a form
  * submits the same way whatever drove it. Renderer-neutral; nothing here is public API.
  *
- * - **Changes by the player** send `input` then `change` (bubbling, ADR 0422) on the control and make its polled
+ * - **Changes by the player** send `input` then `change` (bubbling, ADR 0426) on the control and make its polled
  *   `changed` true for the frame; a field's (a number field stepped by its arrow keys) is a field change as typing is.
  *   A script writing a field never counts.
  * - **Events these send** are dispatched at once while the frame's events are being dispatched (a default action's) or
@@ -273,7 +273,7 @@ export function rememberDefaults(c: UIComponentType): void {
 }
 
 /**
- * Change what a control's form reset puts back (ADR 0424; HTML's `defaultValue`, `defaultChecked` and an option's
+ * Change what a control's form reset puts back (ADR 0428; HTML's `defaultValue`, `defaultChecked` and an option's
  * `selected` attribute, which can change after the control is built): only the fields the control has a default for.
  */
 export function setUIDefaults(c: UIComponentType, values: { value?: string; checked?: boolean; selected?: boolean }): void {
@@ -389,7 +389,7 @@ export function activateControl(world: World, c: UIComponentType): void {
 }
 
 /**
- * A `click` record on `target` with HTML's activation (ADR 0424, as the conformance triage amended it): a checkbox or
+ * A `click` record on `target` with HTML's activation (ADR 0428, as the conformance triage amended it): a checkbox or
  * radio the click activates changes before the click's handlers run (HTML's legacy pre-activation), so they read the new
  * state, and changes back if one prevents the click; else `input` and `change` follow. Every other activation (an option
  * chosen, a select opened, a form submitted or reset, a label's click sent on) is the click's default action, as before.
@@ -456,7 +456,7 @@ function activatedControl(target: UIComponentType): UIComponentType | null {
 }
 
 /**
- * A finished click on `target`'s default action (ADR 0422, 0424): the nearest control at or above it activates (an
+ * A finished click on `target`'s default action (ADR 0426, 0428): the nearest control at or above it activates (an
  * option in its select's list, a checkbox, a radio, a select, a button); a field or slider there takes it (nothing
  * more). Else a label at or above it sends a click to its control, whose own default action follows.
  */

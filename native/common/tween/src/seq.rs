@@ -1,7 +1,7 @@
 //! Sequence and parallel programs: tween members at offsets (`sequence(a, b)` is members at 0 and
 //! `a`'s length, `parallel(a, b)` members all at 0; the host computes the offsets).
 //!
-//! Only the program moved here from `anim-wasm/src/timeline.rs` (ADR 0420 spike): the members, their
+//! Only the program moved here from `anim-wasm/src/timeline.rs` (ADR 0424 spike): the members, their
 //! evaluation at a sequence time and the order in which they complete. Playing one (the playhead,
 //! wrap modes, speed, seek, pause, the `SEQ_CREATE`/`SEQ_MEMBER` records, the value and weight
 //! blocks, `CHANGE_MEMBER_DONE`) is a timeline instance and stays in the animation core's timeline,

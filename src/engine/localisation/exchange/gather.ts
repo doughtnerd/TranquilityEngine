@@ -3,7 +3,7 @@
  * and the report lists built from it.
  *
  * **Uses** come from:
- * - Svelte UI (`*.svelte` components and `*.svelte.ts` rune modules, ADR 0419): literal first arguments of `t(…)` and
+ * - Svelte UI (`*.svelte` components and `*.svelte.ts` rune modules, ADR 0423): literal first arguments of `t(…)` and
  *   `tHtml(…)` (the `myco` imports), and of `Locale.t(…)`, `Locale.text(…)` and `Locale.has(…)`;
  * - scripts (`.ts`, `.js`, …): literal first arguments of `Locale.t(…)`, `Locale.text(…)` and `Locale.has(…)`;
  * - line tables (`*.lines.json`, 0357 §1): each line's subtitle key (its `textKey`, else its key; `null`: none);
@@ -15,8 +15,8 @@
  * missing per key in the shipped languages (`missing`, with whether the key is used) and needing review
  * (`needsReview`), per-language counts, and keys defined in two tables (`duplicates`).
  *
- * Scenes and prefabs aren't read: game UI is built only from Svelte components (ADR 0417, 0419), so a scene holds no UI
- * text. ADR 0419 retired UI documents, and with them the `t:` attributes and the unkeyed-text list read from their markup.
+ * Scenes and prefabs aren't read: game UI is built only from Svelte components (ADR 0421, 0423), so a scene holds no UI
+ * text. ADR 0423 retired UI documents, and with them the `t:` attributes and the unkeyed-text list read from their markup.
  *
  * Localisation is engine-level and imports nothing from audio: line tables and playlists are read here for the one or
  * two fields gathering needs.
@@ -72,7 +72,7 @@ export interface GatherInput {
 
 const SCRIPT = /\.(ts|tsx|js|mjs|cjs|mts|cts)$/i;
 const LOCALE_CALL = /\bLocale\s*\.\s*(?:t|text|has)\s*\(\s*(["'`])([A-Za-z0-9_.{}-]{1,128})\1/g;
-/** Svelte UI (ADR 0419): `myco`'s reactive `t(…)` and `tHtml(…)`, not as a member (`x.t(…)`) or part of a longer name. */
+/** Svelte UI (ADR 0423): `myco`'s reactive `t(…)` and `tHtml(…)`, not as a member (`x.t(…)`) or part of a longer name. */
 const UI_CALL = /(?<![\w$.])(?:t|tHtml)\s*\(\s*(["'`])([A-Za-z0-9_.{}-]{1,128})\1/g;
 const UI_CODE = /\.svelte$|\.svelte\.(ts|js)$/i;
 

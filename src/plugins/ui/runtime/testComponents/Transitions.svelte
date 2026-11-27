@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ADR 0419 wave Y2: Svelte transitions under the engine's renderer (the patch's `animate` and `measure` hooks).
+  // ADR 0423 wave Y2: Svelte transitions under the engine's renderer (the patch's `animate` and `measure` hooks).
   import { fade, fly, scale, slide, blur, draw } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
 
@@ -24,7 +24,7 @@
       },
     };
   }
-  // A `tick` transition that writes an inline style each frame (ADR 0419 wave Z3: shown in the frame it's written).
+  // A `tick` transition that writes an inline style each frame (ADR 0423 wave Z3: shown in the frame it's written).
   function grow(node: { style: { width: string } }, { duration = 100 }: { duration?: number } = {}) {
     return {
       duration,

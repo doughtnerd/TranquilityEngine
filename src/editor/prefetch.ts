@@ -10,7 +10,7 @@ let engine: Promise<void> | null = null;
 
 /**
  * Load the engine's lazily loaded chunks a project's first frame needs: the Babylon renderer, the
- * editor's gizmos, particles and the UI cascade (ADR 0419). Physics, navigation
+ * editor's gizmos, particles and the UI cascade (ADR 0423). Physics, navigation
  * and the script compiler load when a project uses them. Never throws (a real load reports it).
  */
 export function prefetchEngine(): Promise<void> {

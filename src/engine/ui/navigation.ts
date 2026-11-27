@@ -13,7 +13,7 @@
  *   run a script yet, so every script phase of the frame sees them.
  * - Canvases trap focus (`modal`), take it when they become active (`autoFocus`, `firstSelected`), and
  *   name the player whose actions drive them (`player`).
- * - ADR 0423: an element scrolled out of its scrolling ancestors' view is still found (by where it is), and focus it
+ * - ADR 0427: an element scrolled out of its scrolling ancestors' view is still found (by where it is), and focus it
  *   moves to is scrolled into view (`nearest`, smoothly where `scroll-behavior` says so).
  */
 import { getDataComponentDef } from "../core/data";
@@ -33,8 +33,8 @@ import type { UIRect } from "./layout";
 import { uiScrollIntoView } from "./scrolling";
 
 /**
- * The part of an element that's drawn (ADR 0418): its box as drawn (wave 3: transformed, so the search uses the
- * transformed box's centre), clipped by its `overflow: hidden` ancestors, as axis-aligned bounds. ADR 0423: scrolling
+ * The part of an element that's drawn (ADR 0422): its box as drawn (wave 3: transformed, so the search uses the
+ * transformed box's centre), clipped by its `overflow: hidden` ancestors, as axis-aligned bounds. ADR 0427: scrolling
  * ancestors don't cut it (an element scrolled out of view is where it is, and navigation scrolls it back).
  */
 function shownBox(e: UILaidOutElement): UIRect {
@@ -311,14 +311,14 @@ function run(world: World): void {
     if (r === "cancel") log.setTyping(false);
     else step(log, layout, canvas, r === "next" ? 1 : -1);
   }
-  // ADR 0424: a focused control takes the arrows it uses (a slider's and a radio group's left and right, an open select's
+  // ADR 0428: a focused control takes the arrows it uses (a slider's and a radio group's left and right, an open select's
   // list); Tab and Shift+Tab stay within an open select's list.
   if (act.navigate && !controlTakes(world, log, direction(act.navigate))) move(log, layout, canvas, direction(act.navigate));
   if (act.next && !listStep(log, 1)) step(log, layout, canvas, 1);
   if (act.previous && !listStep(log, -1)) step(log, layout, canvas, -1);
   const target = log.focused;
   if (act.submit && target) {
-    // ADR 0424: `submit` clicks any control but a field (a field starts typing); the click's default action activates it.
+    // ADR 0428: `submit` clicks any control but a field (a field starts typing); the click's default action activates it.
     if (!(target instanceof UIInputField)) {
       // Its activation is a click's (a checkbox toggles before the click's handlers, HTML's order).
       const click = uiClickRecord(world, target, {}, (prevented) => {
@@ -340,12 +340,12 @@ function run(world: World): void {
       if (on) log.publishNow("cancel", on);
     }
   }
-  // ADR 0423: what navigation focused shows: its scrolling ancestors scroll it into view.
+  // ADR 0427: what navigation focused shows: its scrolling ancestors scroll it into view.
   if (target && target !== before) uiScrollIntoView(world, target, { block: "nearest", inline: "nearest" });
 }
 
 /**
- * ADR 0424: `navigate` on a focused control that uses the arrows: an option in an open select's list moves up and down
+ * ADR 0428: `navigate` on a focused control that uses the arrows: an option in an open select's list moves up and down
  * the list (left and right do nothing there); a slider steps left and right; a named radio checks the previous or next
  * of its group left and right. Up and down leave a slider or radio, so a gamepad never gets stuck. Returns whether the
  * control took it.
@@ -380,7 +380,7 @@ function controlTakes(world: World, log: UIInteractions, dir: Direction): boolea
   return false;
 }
 
-/** ADR 0424: with focus on an option in an open select's list, move it to the next or previous enabled option (not past the ends). Returns whether it was there. */
+/** ADR 0428: with focus on an option in an open select's list, move it to the next or previous enabled option (not past the ends). Returns whether it was there. */
 function listStep(log: UIInteractions, delta: 1 | -1): boolean {
   const c = log.focused;
   const select = c instanceof UIOption ? selectOf(c) : null;
@@ -433,7 +433,7 @@ function search(origin: UILaidOutElement, list: readonly UILaidOutElement[], dir
   const horizontal = dir === "left" || dir === "right";
   const sign = dir === "right" || dir === "down" ? 1 : -1;
   // Along: the direction's axis; across: the other. Spans as [min, max].
-  // The drawn part of each box (ADR 0418: clipped by `overflow: hidden` ancestors).
+  // The drawn part of each box (ADR 0422: clipped by `overflow: hidden` ancestors).
   const along = (el: UILaidOutElement): [number, number] => {
     const e = shownBox(el);
     return horizontal ? [e.x, e.x + e.width] : [e.y, e.y + e.height];

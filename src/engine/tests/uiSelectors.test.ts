@@ -4,7 +4,7 @@ import type { MarkupElement, StyleTarget } from "../ui/document/types";
 import { UIPanel, UIText } from "../ui/components";
 import { Color } from "../core/math";
 
-// ADR 0419 (0418 wave 5's selector items, pulled forward): `:is()`, `:where()` and case-insensitive tags, which
+// ADR 0423 (0422 wave 5's selector items, pulled forward): `:is()`, `:where()` and case-insensitive tags, which
 // Svelte's scoped CSS emits (`button.svelte-x`, `.a:where(.svelte-x)`), and the HTML tags Svelte components write.
 
 const state = { hover: false, pressed: false, focus: false, disabled: false };
@@ -54,7 +54,7 @@ describe("selectors for Svelte's CSS", () => {
   });
 });
 
-// ADR 0418 wave 5: `:not()`, structural pseudo-classes, attribute selectors, sibling combinators, `:empty`, `:root`,
+// ADR 0422 wave 5: `:not()`, structural pseudo-classes, attribute selectors, sibling combinators, `:empty`, `:root`,
 // `calc()` and canvas `@media`, through the cascade's interface (rule data from the stylesheet parser, targets as the
 // document and the UI host build them).
 

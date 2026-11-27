@@ -1,5 +1,5 @@
 /**
- * Scrolling (ADR 0423): what scripts, navigation and the UI core's input share to move an element's `scrollX`/`scrollY`.
+ * Scrolling (ADR 0427): what scripts, navigation and the UI core's input share to move an element's `scrollX`/`scrollY`.
  * Nothing here is public API; hosted elements and the Svelte renderer's nodes offer it as the DOM's scrolling
  * members (`scrollTo`, `scrollBy`, `scrollIntoView`, `scrollTop`…).
  *
@@ -11,12 +11,12 @@
  *   frame on the unscaled clock (`advanceUIScrolling`). A script writing the field meanwhile wins, as with transitions.
  * - **Momentum**: a touch or pen drag that lets go while moving keeps scrolling, slowing exponentially (`MOMENTUM_DECAY`
  *   per second) until it's slower than 20 UI pixels a second or reaches an end.
- * - **Snapping** (ADR 0428, `scrollSnap.ts` chooses where): `scrollTo` and `scrollIntoView` snap as explicit scrolls,
+ * - **Snapping** (ADR 0432, `scrollSnap.ts` chooses where): `scrollTo` and `scrollIntoView` snap as explicit scrolls,
  *   `scrollBy` and keys as directional ones; the wheel scrolls at once and snaps (smoothly) once it has been still
  *   for `WHEEL_SETTLE`; a drag let go eases (`ease-out`) to the position nearest its momentum's end instead of
  *   coasting. Each snap remembers the area it rests on, and the routing core's layout snaps to it again when the
  *   layout moves it (`uiResnap`), or, for `mandatory`, to the nearest position when nothing holds the offset there.
- * - **Ranges** (ADR 0428): an axis scrolling from its end has offsets from a negative `min` up to 0.
+ * - **Ranges** (ADR 0432): an axis scrolling from its end has offsets from a negative `min` up to 0.
  */
 import { evalCurve } from "../core/curve";
 import type { World } from "../core/World";
@@ -46,14 +46,14 @@ export interface UIScrollIntoViewOptions {
 export const MOMENTUM_DECAY = 3.5;
 /** Momentum ends below this speed, UI pixels per second. */
 const MOMENTUM_STOP = 20;
-/** ADR 0428: a snapping scroller snaps once the wheel has been still this long (seconds). */
+/** ADR 0432: a snapping scroller snaps once the wheel has been still this long (seconds). */
 export const WHEEL_SETTLE = 0.12;
 
 const EASE = timingCurve({ kind: "bezier", x1: 0.25, y1: 0.1, x2: 0.25, y2: 1 })!;
 const EASE_OUT = timingCurve({ kind: "bezier", x1: 0, y1: 0, x2: 0.58, y2: 1 })!;
 
 /**
- * ADR 0428: how a scroll snaps. `explicit` (`scrollTo`, `scrollIntoView`) and `directional` (`scrollBy`, keys) as CSS
+ * ADR 0432: how a scroll snaps. `explicit` (`scrollTo`, `scrollIntoView`) and `directional` (`scrollBy`, keys) as CSS
  * Scroll Snap's kinds; `none` for moves that snap only when they end (a drag, the wheel, a thumb).
  */
 export type UIScrollSnapKind = "explicit" | "directional" | "none";
@@ -78,13 +78,13 @@ interface Momentum {
   wroteY: number;
 }
 
-/** ADR 0428: the snap area an axis rests on, and the offset it put it at. */
+/** ADR 0432: the snap area an axis rests on, and the offset it put it at. */
 interface Snapped {
   area: UIComponentType;
   at: number;
 }
 
-/** ADR 0428: a wheel gesture on a snapping scroller: where it started, and how long the wheel has been still. */
+/** ADR 0432: a wheel gesture on a snapping scroller: where it started, and how long the wheel has been still. */
 interface WheelGesture {
   fromX: number;
   fromY: number;
@@ -125,7 +125,7 @@ function clamp(v: number, min: number | undefined, max: number | undefined): num
   return min === undefined || max === undefined ? v : Math.min(Math.max(min, v), max);
 }
 
-/** ADR 0428: options of a scroll that snaps. */
+/** ADR 0432: options of a scroll that snaps. */
 interface SnapOptions {
   readonly snap?: UIScrollSnapKind;
 }
@@ -137,7 +137,7 @@ function noteSnap(s: Scrolling, comp: UIScrollable, axis: "x" | "y", area: UICom
   rec[axis] = area ? { area, at } : null;
 }
 
-/** ADR 0428: where a scroll from `from` toward `to` rests on `axis`, noting the area (or none) it rests on. */
+/** ADR 0432: where a scroll from `from` toward `to` rests on `axis`, noting the area (or none) it rests on. */
 function snapped(s: Scrolling, comp: UIScrollable, info: UIScrollInfo, snap: UIScrollSnap, axis: "x" | "y", from: number, to: number, mode: UISnapMode, keep?: { start: number; size: number } | null): number {
   if (!snap[axis]) return to;
   const min = axis === "x" ? info.minX : info.minY, max = axis === "x" ? info.maxX : info.maxY;
@@ -153,7 +153,7 @@ function smooth(comp: UIScrollable, behavior: UIScrollBehaviorOption): boolean {
 }
 
 /**
- * Scroll `comp` to `x`, `y` (UI pixels; null keeps an axis), clamped to its range when it's laid out. ADR 0428: on a
+ * Scroll `comp` to `x`, `y` (UI pixels; null keeps an axis), clamped to its range when it's laid out. ADR 0432: on a
  * snapping scroller an axis given rests on a snap position as `options.snap` says (`explicit` by default).
  */
 export function uiScrollTo(world: World, comp: UIScrollable, x: number | null, y: number | null, behavior: UIScrollBehaviorOption = "auto", options: SnapOptions = {}): void {
@@ -188,7 +188,7 @@ function animate(s: Scrolling, comp: UIScrollable, toX: number, toY: number, cur
 }
 
 /**
- * Scroll `comp` by `dx`, `dy` from where it is (or, mid-animation, from where that's going). ADR 0428: a directional
+ * Scroll `comp` by `dx`, `dy` from where it is (or, mid-animation, from where that's going). ADR 0432: a directional
  * scroll on a snapping scroller (it moves on to a snap position past where it is), unless `snap` says otherwise.
  */
 export function uiScrollBy(world: World, comp: UIScrollable, dx: number, dy: number, behavior: UIScrollBehaviorOption = "auto", snap: UIScrollSnapKind = "directional"): void {
@@ -199,7 +199,7 @@ export function uiScrollBy(world: World, comp: UIScrollable, dx: number, dy: num
 }
 
 /**
- * ADR 0423/0428: the wheel's default action: scroll `comp` by `dx`, `dy` at once. A snapping scroller then snaps,
+ * ADR 0427/0432: the wheel's default action: scroll `comp` by `dx`, `dy` at once. A snapping scroller then snaps,
  * smoothly, once the wheel has been still for `WHEEL_SETTLE` (a directional snap from where the gesture started).
  */
 export function uiWheelScroll(world: World, comp: UIScrollable, dx: number, dy: number): void {
@@ -212,7 +212,7 @@ export function uiWheelScroll(world: World, comp: UIScrollable, dx: number, dy: 
 
 /**
  * A touch or pen drag (or a scrollbar thumb, at 0 speed) let go: keep it going at `vx`, `vy` UI pixels a second (ADR
- * 0423: momentum). ADR 0428: on a snapping scroller it eases instead to the snap position nearest where the momentum
+ * 0427: momentum). ADR 0432: on a snapping scroller it eases instead to the snap position nearest where the momentum
  * would end (`fromX`, `fromY`: where the gesture started, for `scroll-snap-stop`).
  */
 export function uiEndScrollGesture(world: World, comp: UIScrollable, vx: number, vy: number, fromX: number, fromY: number): void {
@@ -244,14 +244,14 @@ export function uiStopScrolling(world: World, comp: UIScrollable): void {
   s.wheel.delete(comp);
 }
 
-/** True while `comp` scrolls smoothly or with momentum, or (ADR 0428) waits to snap after the wheel. */
+/** True while `comp` scrolls smoothly or with momentum, or (ADR 0432) waits to snap after the wheel. */
 export function uiScrollMoving(world: World, comp: UIScrollable): boolean {
   const s = states.get(world);
   return !!s && (s.animations.has(comp) || s.momentum.has(comp) || s.wheel.has(comp));
 }
 
 /**
- * ADR 0428: at the routing core's layout, a scroller's offsets `x`, `y` (clamped) snapped again, unless something moves
+ * ADR 0432: at the routing core's layout, a scroller's offsets `x`, `y` (clamped) snapped again, unless something moves
  * it (the core leaves out one a gesture holds). An axis resting on a snap area follows it where the layout moved it;
  * otherwise a `mandatory` axis goes to the nearest position.
  */
@@ -287,7 +287,7 @@ export function uiResnap(world: World, comp: UIScrollable, info: UIScrollInfo, x
 export function advanceUIScrolling(world: World, dt: number): void {
   const s = states.get(world);
   if (!s) return;
-  // ADR 0428: a wheel gesture on a snapping scroller, still for long enough, snaps (smoothly).
+  // ADR 0432: a wheel gesture on a snapping scroller, still for long enough, snaps (smoothly).
   for (const [comp, w] of s.wheel) {
     if (!comp.node.isValid) {
       s.wheel.delete(comp);
@@ -374,12 +374,12 @@ export function uiScrollIntoView(world: World, comp: UIComponentType, options: U
     if (!e) continue;
     const s = e.scroll;
     if (!s) continue;
-    // ADR 0428: in `rtl` the inline start is the right edge.
+    // ADR 0432: in `rtl` the inline start is the right edge.
     const along = rtlAt(n, byNode) ? (inline === "start" ? "end" : inline === "end" ? "start" : inline) : inline;
     let toX = clamp(s.x + alignDelta(x - s.client.x, w, s.clientWidth, along), s.minX, s.maxX);
     let toY = clamp(s.y + alignDelta(y - s.client.y, h, s.clientHeight, block), s.minY, s.maxY);
     if (s.snap) {
-      // ADR 0428: rest on a snap position, one that keeps the element in view where one does.
+      // ADR 0432: rest on a snap position, one that keeps the element in view where one does.
       const st = stateOf(world), sc = e.comp as UIScrollable;
       toX = snapped(st, sc, s, s.snap, "x", s.x, toX, "explicit", { start: x - s.client.x + s.x, size: w });
       toY = snapped(st, sc, s, s.snap, "y", s.y, toY, "explicit", { start: y - s.client.y + s.y, size: h });
@@ -390,7 +390,7 @@ export function uiScrollIntoView(world: World, comp: UIComponentType, options: U
   }
 }
 
-/** ADR 0428: whether the element on `node` is `rtl`: its own `direction`, else its nearest laid-out ancestor's (else `ltr`). */
+/** ADR 0432: whether the element on `node` is `rtl`: its own `direction`, else its nearest laid-out ancestor's (else `ltr`). */
 function rtlAt(node: GameObject | null, byNode: ReadonlyMap<GameObject, UILaidOutElement>): boolean {
   for (let n = node; n?.isValid; n = n.parent) {
     const comp = byNode.get(n)?.comp;

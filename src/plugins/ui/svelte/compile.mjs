@@ -1,4 +1,4 @@
-// Compiling game UI components (ADR 0419): `*.svelte` with the engine's custom renderer and external CSS,
+// Compiling game UI components (ADR 0423): `*.svelte` with the engine's custom renderer and external CSS,
 // and `*.svelte.ts` rune modules. One place for the options, so every host that compiles (Vitest, the
 // editor and the export, through the project code linker) emits the same code and the same scoping hashes (Svelte
 // derives a component's hash from the filename, so it must be the same project-relative path everywhere).
@@ -8,11 +8,11 @@ import { compile, compileModule } from "svelte/compiler";
 /** The renderer module's specifier as compiled components import it (resolved by the bundler or Vitest). */
 export const DEFAULT_RENDERER = "myco/ui-renderer";
 
-/** ADR 0425: the inline HTML parser's specifier, which components that use `{@html}` or `bind:innerHTML` import. */
+/** ADR 0429: the inline HTML parser's specifier, which components that use `{@html}` or `bind:innerHTML` import. */
 export const HTML_PARSER = "myco/ui-html";
 
 /**
- * ADR 0425: true for a source that uses `{@html}`, `bind:innerHTML` or Svelte's `createRawSnippet` (whose HTML the
+ * ADR 0429: true for a source that uses `{@html}`, `bind:innerHTML` or Svelte's `createRawSnippet` (whose HTML the
  * renderer's `html` hook reads, as `{@html}`'s), so it needs the inline HTML parser.
  */
 export function usesInlineHtml(source) {
@@ -43,7 +43,7 @@ export function svelteUIOptions(filename, { renderer = DEFAULT_RENDERER, dev = f
 /**
  * Compile a component. The module registers its CSS with the renderer when it's imported (`addStyles`, the
  * renderer's named export), so its scoped and `:global` rules reach every view. The CSS goes in as rule data
- * (ADR 0419: games ship no CSS parser): `styles` is either a function that parses it now (the editor and
+ * (ADR 0423: games ship no CSS parser): `styles` is either a function that parses it now (the editor and
  * the export pass the cascade's stylesheet parser) and returns the data, which is written into the module,
  * or `{ parser }`, a module whose `parseStylesheet` the compiled module calls when it loads (for hosts that
  * can't load the parser while compiling, such as Vitest's transform).
@@ -51,13 +51,13 @@ export function svelteUIOptions(filename, { renderer = DEFAULT_RENDERER, dev = f
 export function compileSvelteUI(source, { filename, renderer = DEFAULT_RENDERER, dev = false, styles }) {
   const r = compile(source, svelteUIOptions(filename, { renderer, dev }));
   let code = r.js.code;
-  // ADR 0421: the module mounts its own component, with the Svelte and the renderer it was linked with (the editor's
+  // ADR 0425: the module mounts its own component, with the Svelte and the renderer it was linked with (the editor's
   // shared runtime, or the game's own bundle), so `UIView` never imports Svelte. A `$` name can't clash with the
   // component's own exports (Svelte reserves it).
   const name = /^export default function ([\w$]+)\(/m.exec(code)?.[1];
   if (!name) throw new Error(`${filename}: the compiled component has no default export function.`);
   code += `\nimport { mountView as $$mycoMountView } from ${JSON.stringify(renderer)};\nexport const $mount = (host, props, options) => $$mycoMountView(host, ${name}, props, options);\n`;
-  // ADR 0425: `{@html}`, `bind:innerHTML` and raw snippets need the inline HTML parser; only components that use them
+  // ADR 0429: `{@html}`, `bind:innerHTML` and raw snippets need the inline HTML parser; only components that use them
   // import it, so other games never load it.
   if (usesInlineHtml(source)) code += useHtmlParserCode(renderer);
   let css = r.css?.code ?? "";

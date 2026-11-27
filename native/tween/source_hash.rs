@@ -1,4 +1,4 @@
-//! The standalone tween module's source hash (ADR 0420; the animation core's rule over the crates
+//! The standalone tween module's source hash (ADR 0424; the animation core's rule over the crates
 //! this module compiles). Included by `build.rs` (which embeds the hash in the wasm) and by
 //! `tests/source_hash.rs`; `src/engine/tween/wasm/sourceHash.test.ts` recomputes the same hash in
 //! TypeScript, so the rule below must match it byte for byte.

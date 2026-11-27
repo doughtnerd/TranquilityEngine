@@ -1,6 +1,6 @@
 # 0020. In-canvas UI built on pmndrs uikit
 
-- **Status:** Accepted; partly superseded by 0076 (uikit replaced by Yoga and Babylon GUI; UI stays in-canvas); partly superseded by 0417 (the interim screen `Text` is removed)
+- **Status:** Accepted; partly superseded by 0076 (uikit replaced by Yoga and Babylon GUI; UI stays in-canvas); partly superseded by 0421 (the interim screen `Text` is removed)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

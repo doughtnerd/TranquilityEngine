@@ -1,4 +1,4 @@
-// The Svelte conformance harness (ADR 0419: "conformance is measured, not claimed"). Svelte 5.59.2's own runtime
+// The Svelte conformance harness (ADR 0423: "conformance is measured, not claimed"). Svelte 5.59.2's own runtime
 // fixtures (tests/runtime-runes/samples, fetched by fetch.mjs) compiled with the engine's custom renderer and run
 // against it in a headless World, the way Svelte's harness runs them against the DOM (its `dom` variant):
 //
@@ -57,7 +57,7 @@ const results = new Map<string, Result>();
 
 /**
  * The baseline (baseline.json): the samples that must keep passing (the ratchet), and the samples out of scope (ADR
- * 0419's "Out of scope": impossible or meaningless in a canvas game, or an expectation only jsdom can meet), each with
+ * 0423's "Out of scope": impossible or meaningless in a canvas game, or an expectation only jsdom can meet), each with
  * its reason. Out-of-scope samples still run, so one that starts passing shows; the in-scope pass rate leaves them out.
  * TRIAGE.md classifies every sample that doesn't pass.
  */
@@ -209,7 +209,7 @@ function classifyMessage(err: unknown, stage: "compile" | "run"): { category: st
  */
 const TEXTLESS_CONTROLS: ReadonlySet<string> = new Set(["Image", "InputField", "TextArea", "Toggle", "Radio", "Slider", "Progress", "Meter", "Svg", "Video", "Audio"]);
 
-/** The hosted UI elements must mirror the rendered tree: the same elements (and text labels) in the same order, Text elements holding the text (ADR 0425: in their own text and their inline runs'). */
+/** The hosted UI elements must mirror the rendered tree: the same elements (and text labels) in the same order, Text elements holding the text (ADR 0429: in their own text and their inline runs'). */
 function checkHostTree(target: InstanceType<Renderer["UIRenderElement"]>, host: UIHostElement): void {
   const label = (h: UIHostElement) => h.tag;
   const expected: string[] = [];
@@ -407,7 +407,7 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
     engine = await Engine.create({ headless: true });
     await loadUIHostSupport();
     renderer = await import("../../src/plugins/ui/svelte/renderer");
-    // ADR 0425: the inline HTML parser, which compileSvelteUI imports into components that use `{@html}` or `bind:innerHTML`
+    // ADR 0429: the inline HTML parser, which compileSvelteUI imports into components that use `{@html}` or `bind:innerHTML`
     // (the samples compile with `compile` itself, so the harness registers it once).
     renderer.useHtmlParser((await import("../../src/plugins/ui/svelte/htmlInline")).parseInlineHtml);
     const win = (renderer.default as unknown as { globalTarget(kind: string): object }).globalTarget("window");

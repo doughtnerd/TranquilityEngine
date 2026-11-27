@@ -1,4 +1,4 @@
-// ADR 0418 wave 2: paint in UI stylesheets — shadows, background images (url and gradients) and per-corner radii:
+// ADR 0422 wave 2: paint in UI stylesheets — shadows, background images (url and gradients) and per-corner radii:
 // their values as CSS text, the cascade that expands the shorthands, and what a built document's elements hold.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Color, Engine } from "../index";
@@ -19,7 +19,7 @@ function element(tag: UITag, attributes: Record<string, string> = {}): MarkupEle
 
 const black = new Color(0, 0, 0, 1);
 
-describe("paint values (ADR 0418 wave 2)", () => {
+describe("paint values (ADR 0422 wave 2)", () => {
   it("reads one shadow: offsets, an optional blur and a colour before or after them", () => {
     expect(parseShadow("2px 4px 6px rgba(0, 0, 0, 0.5)")).toEqual({ ok: true, value: { offsetX: 2, offsetY: 4, blur: 6, color: new Color(0, 0, 0, 0.5) } });
     expect(parseShadow("#ff0000 -1 3")).toEqual({ ok: true, value: { offsetX: -1, offsetY: 3, blur: 0, color: new Color(1, 0, 0, 1) } });
@@ -94,7 +94,7 @@ describe("paint values (ADR 0418 wave 2)", () => {
   });
 });
 
-describe("the cascade's paint (ADR 0418 wave 2)", () => {
+describe("the cascade's paint (ADR 0422 wave 2)", () => {
   it("expands box-shadow, text-shadow and border-radius to their fields, from rules and attributes", () => {
     const sheet = parseStylesheet(
       `.card { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); border-radius: 4px 8px 12px 16px; background-image: linear-gradient(90deg, #fff, #000 60%); }
@@ -160,7 +160,7 @@ describe("the cascade's paint (ADR 0418 wave 2)", () => {
   });
 });
 
-describe("paint on a built document (ADR 0418 wave 2)", () => {
+describe("paint on a built document (ADR 0422 wave 2)", () => {
   let engine: Engine;
   beforeEach(async () => {
     engine = await Engine.create({ headless: true });

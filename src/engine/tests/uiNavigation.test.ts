@@ -549,7 +549,7 @@ describe("input fields (ADR 0340)", () => {
   });
 });
 
-describe("Svelte UI (ADR 0340, 0419)", () => {
+describe("Svelte UI (ADR 0340, 0423)", () => {
   beforeEach(async () => {
     await loadUITestSupport();
   });

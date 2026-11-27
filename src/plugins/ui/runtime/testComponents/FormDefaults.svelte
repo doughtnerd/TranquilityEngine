@@ -1,6 +1,6 @@
 <script>
   // HTML's form defaults and reset, input buttons, a select's value, a control inside text, media `muted`, a disabled
-  // control's click() and focus() from a script (the conformance round's renderer and UI core fixes, ADR 0419/0424).
+  // control's click() and focus() from a script (the conformance round's renderer and UI core fixes, ADR 0423/0428).
   let { onnodes = () => {}, log = () => {} } = $props();
   let name = $state();
   let agree = $state();

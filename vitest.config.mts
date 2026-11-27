@@ -7,7 +7,7 @@ export default defineConfig({
   oxc: false,
   // Sample scripts (ADR 0031) import the engine as "myco", as project scripts do.
   resolve: { alias: MYCO_ALIASES },
-  // Svelte picks its client runtime with the custom renderer (ADR 0419) through this condition; in Node it's required,
+  // Svelte picks its client runtime with the custom renderer (ADR 0423) through this condition; in Node it's required,
   // or `svelte/renderer` resolves to its server stub.
   ssr: { resolve: { conditions: ["svelte-custom-renderer", ...defaultServerConditions], externalConditions: ["svelte-custom-renderer"] } },
   test: {

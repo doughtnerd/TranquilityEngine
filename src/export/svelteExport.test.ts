@@ -16,7 +16,7 @@ import { nodeUIRuntimeSource } from "../server/packages";
 import { uiHostEntry } from "../../vite.shared";
 import { planWebBuild, type BuildSource, type WebBuildPlan } from "./webBuild";
 
-// ADR 0419 wave A part 2, ADR 0421: a game build compiles the project's Svelte UI (dev: false) with CSS as parsed rule
+// ADR 0423 wave A part 2, ADR 0425: a game build compiles the project's Svelte UI (dev: false) with CSS as parsed rule
 // data, and bundles it with the parts of Svelte's runtime and the engine's renderer it uses into the game's own code,
 // tree-shaken: one Svelte instance per game, never `svelte/compiler`, and the player carries no Svelte. Each
 // component's module mounts itself (`$mount`), which `UIView` calls; the player serves each as its file's asset.
@@ -144,7 +144,7 @@ describe("exporting Svelte UI", () => {
     expect(new Map(uiFiles(fromServed))).toEqual(new Map(uiFiles(await hudPlan())));
   });
 
-  it("compiles the engine's built-in UI a project uses into its code (0419 wave B), and none that it doesn't", async () => {
+  it("compiles the engine's built-in UI a project uses into its code (0423 wave B), and none that it doesn't", async () => {
     expect((await hudPlan()).manifest.scripts.some((s) => s.source.startsWith("@myco/"))).toBe(false);
     const scene = JSON.stringify({ format: "myco.scene@1", nodes: [{ name: "Controls", components: [{ type: "engine.UIControlMapper" }] }] });
     const json = new Map([["project.json", '{ "name": "Mapper" }'], ["scenes/main.scene.json", scene]]);
@@ -163,13 +163,13 @@ describe("exporting Svelte UI", () => {
     await expect(planWebBuild(withoutRuntime)).rejects.toThrow(/ui\/Hud\.svelte: the UI runtime \(Svelte\) didn't load: this build has no Svelte runtime/);
   });
 
-  it("stays small: the HUD's UI code is within its tripwire (ADR 0421: measured + 20%)", async () => {
+  it("stays small: the HUD's UI code is within its tripwire (ADR 0425: measured + 20%)", async () => {
     const ui = uiFiles(await hudPlan());
     const gzip = ui.reduce((sum, [, code]) => sum + gzipSync(code).length, 0);
     // Measured 2026-11-26 (Svelte 5.59.2, esbuild 0.28.2): 24.9 KB gzip for the HUD's components, rule data, Svelte and the renderer
-    // at 0421; 30.6 KB once waves Y1-Y3 grew the renderer (window units and matchMedia, animate/measure, event propagation, scrolling);
+    // at 0425; 30.6 KB once waves Y1-Y3 grew the renderer (window units and matchMedia, animate/measure, event propagation, scrolling);
     // 36.9 KB at Z3 (form elements, SVG, media, inline runs and {@html}, then Svelte's frames and clock on the engine frame).
-    // 38.2 KB (38,221 bytes) after Z1-Z2 (form bindings, SVG, media, 0425's runs and `html` hook) and the conformance triage's
+    // 38.2 KB (38,221 bytes) after Z1-Z2 (form bindings, SVG, media, 0429's runs and `html` hook) and the conformance triage's
     // Element-subset members (reflected attributes, namespaces, stepUp, booleans as the DOM writes them).
     expect(gzip).toBeLessThan(MEASURED_GZIP * 1.2);
   });

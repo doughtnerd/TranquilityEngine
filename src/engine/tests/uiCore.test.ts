@@ -279,7 +279,7 @@ describe("UICore layout", () => {
   it("warns once about elements outside a canvas and does not lay them out", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const canvas = node("Canvas", null, UICanvas);
-    // UI elements are made under a view's canvas (ADR 0419); a script can still move one's node out of it.
+    // UI elements are made under a view's canvas (ADR 0423); a script can still move one's node out of it.
     const loose = node("Loose", canvas.node, UIPanel, { width: 10, height: 10 } as Partial<UIPanel>);
     loose.node.setParent(GameObject.create("Elsewhere"));
     const c = await core();
@@ -294,7 +294,7 @@ describe("UICore layout", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const canvas = node("Canvas", null, UICanvas);
     const text = node("Label", canvas.node, UIImage, { width: 40, height: 20 } as Partial<UIImage>);
-    // An image has no children (ADR 0428: under a text, a panel would be an atomic inline box of it); a script moving a panel under one makes one.
+    // An image has no children (ADR 0432: under a text, a panel would be an atomic inline box of it); a script moving a panel under one makes one.
     const child = node("Child", canvas.node, UIPanel, { width: 30, height: 30 } as Partial<UIPanel>);
     child.node.setParent(text.node);
     const c = await core();
@@ -467,7 +467,7 @@ describe("UICore text", () => {
     text.text = "abcdefgh";
     sync(c);
     expect(c.rectOf(text)!.width).toBeCloseTo(0.55 * 10 * 8);
-    // ADR 0428: a line break shows only where `white-space` keeps it (HTML's default collapses it to a space).
+    // ADR 0432: a line break shows only where `white-space` keeps it (HTML's default collapses it to a space).
     text.text = "ab\ncd";
     sync(c);
     expect(c.rectOf(text)!.height).toBeCloseTo(12);

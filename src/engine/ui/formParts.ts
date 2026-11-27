@@ -1,9 +1,9 @@
 /**
- * Form elements' parts (ADR 0424): what a checkbox, radio, slider, select, option, progress bar or meter draws over its
+ * Form elements' parts (ADR 0428): what a checkbox, radio, slider, select, option, progress bar or meter draws over its
  * own box, worked out from its fields and size so every drawing layer draws the same thing from plain rectangles
  * (`UIPart`, in `uiCoreTypes.ts`). The box itself is the element's, styled by the cascade as a panel; the parts take
  * `accentColor` (CSS's `accent-color`), as browsers draw their controls' checked fill, mark, slider fill and bar.
- * ADR 0428: part pseudo-elements (`::-webkit-slider-thumb`, `::checkmark`…) style them further: the UI host resolves
+ * ADR 0432: part pseudo-elements (`::-webkit-slider-thumb`, `::checkmark`…) style them further: the UI host resolves
  * their rules into a `UIPartStyle` per part (`setUIPartStyles`), which overrides the defaults here.
  * Renderer-neutral; not public API.
  */
@@ -25,7 +25,7 @@ const SWEEP_SECONDS = 1.4;
 const rgba = (c: Color): RGBA => [c.r, c.g, c.b, c.a];
 
 /**
- * ADR 0428: what a part pseudo-element's rules declare, in UI pixels: each absent property keeps the part's default.
+ * ADR 0432: what a part pseudo-element's rules declare, in UI pixels: each absent property keeps the part's default.
  * `background` null is transparent; `color` is a check mark's, a radio's dot's or a select arrow's; `width`/`height` size
  * a slider's thumb (and `height` its track's thickness); `opacity` fades the part.
  */
@@ -44,7 +44,7 @@ export interface UIPartStyle {
 type PartStyles = Partial<Record<UIPseudoElement, UIPartStyle>>;
 const partStyles = new WeakMap<UIComponentType, PartStyles>();
 
-/** ADR 0428: set (null: clear) the part styles a control's part pseudo-elements resolved to; the UI host calls it. */
+/** ADR 0432: set (null: clear) the part styles a control's part pseudo-elements resolved to; the UI host calls it. */
 export function setUIPartStyles(c: UIComponentType, styles: PartStyles | null): void {
   if (styles) partStyles.set(c, styles);
   else partStyles.delete(c);

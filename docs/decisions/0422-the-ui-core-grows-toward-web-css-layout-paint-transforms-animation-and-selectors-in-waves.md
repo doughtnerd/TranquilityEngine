@@ -1,14 +1,14 @@
-# 0418. The UI core grows toward web CSS in five waves: layout, paint, transforms, animation, then selectors and values
+# 0422. The UI core grows toward web CSS in five waves: layout, paint, transforms, animation, then selectors and values
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0069, 0076, 0077, 0271, 0340, 0385, 0417, 0419, 0420
+- **Related:** 0069, 0076, 0077, 0271, 0340, 0385, 0421, 0423, 0424
 
 ## Context
 
-0417 made UI documents (markup, stylesheets, scripts) the only way to build game UI. 0077 kept the CSS subset small on purpose: it left out media queries, animations and transitions, `!important` and attribute selectors, and said they "can be added later without breaking anything".
+0421 made UI documents (markup, stylesheets, scripts) the only way to build game UI. 0077 kept the CSS subset small on purpose: it left out media queries, animations and transitions, `!important` and attribute selectors, and said they "can be added later without breaking anything".
 
 The Svelte spike (`spikes/svelte-ui/README.md`) compared the UI core with what people writing web-style UI expect. Rendering Svelte into the UI core works. What's missing is UI core features, and those gaps hurt `.ui.xml` the same way. Missing today:
 
@@ -75,25 +75,25 @@ We will grow the UI core toward web CSS in five waves. Each wave is shippable al
   - Editor handles: resizing works in the element's drawn frame. On an element with a transform of its own, the west and north handles change only the size, because `left`/`top` are in its parent's frame. Moving uses the parent's frame, from where layout put the box (`UICorners.layoutPoints`). The editor's clip outline leaves out a clip that is turned relative to the element.
   - The hidden DOM `<input>` that takes typing stays off-screen, as before wave 3. An IME's candidate window doesn't follow a transformed field.
 
-**Wave 4: Animation (on the engine's tween core, 0420, on unscaled time).**
+**Wave 4: Animation (on the engine's tween core, 0424, on unscaled time).**
 
 - **Properties:** `transition` (property list or `all`, duration, timing function, delay) and `@keyframes` with `animation` (name, duration, timing function, delay, iteration count or `infinite`, direction, fill mode, play state).
   - These are cascade declarations, not component fields: a class or pseudo-class change starts them.
   - Scripts drive them by changing classes or by setting the `animation-*` attributes.
 - **Animatable values:** numbers, lengths (px with px, % with %; a mixed pair jumps at the midpoint, as CSS does for non-interpolable values), colours (in linear RGB), the transform fields and opacity.
-- **Timing functions:** `linear`, `ease`, `ease-in`, `ease-out`, `ease-in-out`, `cubic-bezier()` and `steps()`, as engine curves (Bezier keys, step keys) on the shared tween crate (0420). Transitions and keyframes run on the animation core's tween table when the animation plugin is on, and on the small tween module when it isn't.
+- **Timing functions:** `linear`, `ease`, `ease-in`, `ease-out`, `ease-in-out`, `cubic-bezier()` and `steps()`, as engine curves (Bezier keys, step keys) on the shared tween crate (0424). Transitions and keyframes run on the animation core's tween table when the animation plugin is on, and on the small tween module when it isn't.
 - **When it runs:** animation runs in the UI document sync on the World's unscaled clock, so UI still animates while the game is paused with `Time.timeScale = 0`. A script writing a field directly overrides that field's running transition, as an inline style would.
 - **Events:** `transitionend` and `animationend` through `element.on` (on top of 0309's interaction log), one frame after they finish, like other UI events.
 
 - **As built (wave 4):**
-  - **Tweens, not sequences.** Each transition, and each field of a keyframe animation, is one tween at a time on the backend (0420): the segment it's in. A segment's tween is created on the frame it starts, with a delay placing its start exactly (`start − last frame's time`). Sequences would have needed one table slot per animation, and both tables hold 256 sequences against 4,096 tweens.
+  - **Tweens, not sequences.** Each transition, and each field of a keyframe animation, is one tween at a time on the backend (0424): the segment it's in. A segment's tween is created on the frame it starts, with a delay placing its start exactly (`start − last frame's time`). Sequences would have needed one table slot per animation, and both tables hold 256 sequences against 4,096 tweens.
   - **The animator keeps time.** Each run's clock (unscaled seconds since it started), delay, iterations, direction (a backward segment eases through the reversed curve `1 − f(1 − x)`), fill mode, play state and end are decided in TypeScript; the backend only eases values. A segment entered part-way (a negative delay, a resumed animation, the backend still loading, a fractional last iteration) is evaluated from the same engine curve in TypeScript (`evalCurve`) until the next segment, which tweens again.
   - **Curves.** `cubic-bezier()` and its keywords are exactly one Bézier segment of an engine curve (0346): handles at (x1, y1) and (x2, y2). `steps()` is step keys. Each distinct function and direction loads once per backend. Linear uses the tween's own easing.
-  - **Where it runs.** `engine.UIAnimation`, a late-update system after `engine.UIDocumentSync` and `engine.UIHostSync`, so a restyle's transition starts in its frame, and after `lateUpdate()` scripts, outside the animation plugin's evaluate-to-apply span, as the core-backed backend's update needs (0420 as built). One animator and one backend per World; it closes when the World's last animating document or tree goes.
+  - **Where it runs.** `engine.UIAnimation`, a late-update system after `engine.UIDocumentSync` and `engine.UIHostSync`, so a restyle's transition starts in its frame, and after `lateUpdate()` scripts, outside the animation plugin's evaluate-to-apply span, as the core-backed backend's update needs (0424 as built). One animator and one backend per World; it closes when the World's last animating document or tree goes.
   - **Cascade data.** The declarations resolve under two keys of the resolved map that are never fields (`@transition`, `@animation`), in the field order (rules by specificity, then attributes, then an inline style). `@keyframes` are plain data on `UIStylesheet`, so Svelte styles compiled to rule data carry them. A missing `from`/`to` keyframe takes the element's value when the animation starts.
   - **Values.** A transition only runs between values that interpolate: numbers, px with px, % with %, colours, and a mixed pair of lengths (which jumps half way, as above). Other fields change at once (CSS's `transition-behavior: normal`); between keyframes they jump half way. A side left null and a corner left at -1 animate from their all-sides value; a none shadow or background colour animates as the other colour fully transparent.
   - **Scripts.** A script's write is noticed as a field whose value isn't what the animator last wrote. It stops that field's transition (no `transitionend`, as CSS's cancel) or that field of an animation for the rest of the run.
-  - **Events** also reach the `UIEvents` buffer (the open question below), with `propertyName`, `animationName` and `elapsedTime`. `animationstart` and `animationiteration` were cheap, so they're there. Hosted elements get them through `UIHostElement.on`; Svelte's `ontransitionend` attribute needs the renderer's event list (0419), not yet.
+  - **Events** also reach the `UIEvents` buffer (the open question below), with `propertyName`, `animationName` and `elapsedTime`. `animationstart` and `animationiteration` were cheap, so they're there. Hosted elements get them through `UIHostElement.on`; Svelte's `ontransitionend` attribute needs the renderer's event list (0423), not yet.
   - **Value sources:** the Inspector names a running transition or animation over the origin of the value it animates to.
   - **Left out:** a running animation picks up new durations or timing functions only when it starts again (its play state applies at once); inherited values reach children at the end of a parent's transition, not in between; CSS's shortening of a transition reversed half way; `transition-behavior`, `animation-composition` and `linear()`.
   - **Measured** (headless, no drawing; medians): 500 elements each transitioning a colour and a number cost about 1 ms a frame; the frame starting all 1,000 transitions about 17 ms against 9 ms for the same class change without transitions.
@@ -120,7 +120,7 @@ We will grow the UI core toward web CSS in five waves. Each wave is shippable al
   - **Svelte (the coordinator's units ruling).** The renderer's window target reports the canvas in UI pixels: `innerWidth`/`innerHeight` (and `outer*`) are the first view's canvas after the scaler, `devicePixelRatio` is device pixels per UI pixel, `resize` follows that size, and `matchMedia` evaluates against it (a `UIMediaQueryList` with `change` events). `svelte/reactivity`'s `MediaQuery` calls the global `window.matchMedia`, so UI code gets an engine module for `svelte/reactivity` (Svelte's, with `MediaQuery` asking the renderer's window) in the editor's runtime modules, in game UI bundles and in Vitest; no patch change. `svelte/reactivity/window` still reads the global window.
   - **Measured:** the lazily loaded cascade grew by the media reader (2.2 KB gzip) and the math reader (1.5 KB); `svelte/reactivity`'s wrapper is 0.3 KB in bundles that import it. Structural matching scans siblings (an `:nth-child` over n rows costs O(n) per row's restyle).
 
-**Out of scope here, each its own record when needed:** scrolling containers, `position: sticky`/`fixed`, CSS grid, filters (`blur`, `drop-shadow`), masks, several shadows, 3D transforms, pseudo-elements (`::before`/`::after`), web fonts beyond the font assets we have, and an external tree host for a Svelte plugin (the spike's follow-up, which amends 0417).
+**Out of scope here, each its own record when needed:** scrolling containers, `position: sticky`/`fixed`, CSS grid, filters (`blur`, `drop-shadow`), masks, several shadows, 3D transforms, pseudo-elements (`::before`/`::after`), web fonts beyond the font assets we have, and an external tree host for a Svelte plugin (the spike's follow-up, which amends 0421).
 
 **Order and verification.**
 
@@ -130,7 +130,7 @@ We will grow the UI core toward web CSS in five waves. Each wave is shippable al
 
 ## Alternatives considered
 
-- **A DOM overlay for UI that needs web CSS.** It gets everything at once, but 0020 and 0417 keep UI in-canvas: world-space UI, post-processing, one look on every platform.
+- **A DOM overlay for UI that needs web CSS.** It gets everything at once, but 0020 and 0421 keep UI in-canvas: world-space UI, post-processing, one look on every platform.
 - **Port a CSS engine** (for example Taffy, a layout-only Rust crate). Yoga is already our layout, and Taffy would add a second wasm engine for grid, which is out of scope here. Selectors and the cascade are a few hundred lines on css-tree, which we already ship.
 - **Animation through the engine's animation system** (clips and curves). It's built for nodes and skeletons, not CSS timing semantics, and tying stylesheet transitions to clip assets would make simple hover fades heavy to author. A script API (`element.animate(...)`, like the Web Animations API) could come later over the same tweening.
 - **Everything at once.** Five waves let each be checked and shipped, and keep the cost of each visible.
@@ -139,7 +139,7 @@ We will grow the UI core toward web CSS in five waves. Each wave is shippable al
 
 **Positive**
 - `.ui.xml` and any later Svelte layer get the same, much larger CSS: wrapping layouts, min/max sizes, clipping, layering, shadows, gradients, transforms and animated states.
-- Mostly wiring onto Yoga, Babylon GUI and css-tree. No new dependency: animation runs on the engine's tween core (0420).
+- Mostly wiring onto Yoga, Babylon GUI and css-tree. No new dependency: animation runs on the engine's tween core (0424).
 - A step toward the Gameface-like path the spike describes, without leaving the canvas.
 
 **Negative / costs**

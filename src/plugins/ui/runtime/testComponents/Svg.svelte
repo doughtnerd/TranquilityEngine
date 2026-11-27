@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ADR 0426: inline SVG under the engine's renderer: the subtree kept as an SVG document on the <svg>'s element, its
+  // ADR 0430: inline SVG under the engine's renderer: the subtree kept as an SVG document on the <svg>'s element, its
   // shapes' geometry (getTotalLength) and pointer events on shapes.
   let {
     r = 20,

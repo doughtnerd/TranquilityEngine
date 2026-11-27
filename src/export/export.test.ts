@@ -428,7 +428,7 @@ describe("exportProject (Node)", () => {
     return dir;
   };
 
-  // The first build that compiles Svelte UI loads svelte/compiler and esbuild (ADR 0419, 0421): several seconds.
+  // The first build that compiles Svelte UI loads svelte/compiler and esbuild (ADR 0423, 0425): several seconds.
   it("writes the Flappy sample as a web build: player, project files, compiled scripts and UI, manifest", { timeout: 120_000 }, async () => {
     const out = join(temp(), "web");
     const result = await exportProject({ projectDir: join(SAMPLES, "flappy"), out, playerDir: fakePlayer() });

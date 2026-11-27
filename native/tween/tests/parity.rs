@@ -1,4 +1,4 @@
-//! The standalone module against the animation core (ADR 0420: "results are identical either
+//! The standalone module against the animation core (ADR 0424: "results are identical either
 //! way"): the same scripts of tweens, sequences and controls run on both, through each one's own
 //! calls (`anim_wasm::init::Core` natively, `myco_tween_wasm::Module`), and every frame's tween
 //! rows, tween change records, sequence values, weights, change records and evaluated list must

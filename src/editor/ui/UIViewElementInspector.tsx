@@ -24,7 +24,7 @@ function rawText(row: FieldSourceRow, text: string | null): string {
 }
 
 /**
- * An element a UIView rendered from a Svelte component (ADR 0419 wave C): what it is, where it's written (the file
+ * An element a UIView rendered from a Svelte component (ADR 0423 wave C): what it is, where it's written (the file
  * and line open in the Code panel), and its component's fields with where each value comes from: a literal attribute,
  * an expression `{…}` (view-only, shown as written), a scoped or global rule, inherited, the text, the default, or a
  * transition or animation. Static parts of the view's own component edit in place, written back to the `.svelte`

@@ -15,7 +15,7 @@ afterEach(() => {
 
 describe("click ordering", () => {
   it("splits hits keeping order and puts painted UI before the scene and bare UI after", () => {
-    // UI elements come only from a view's component (ADR 0417, 0419): a text, a bare panel and a painted one.
+    // UI elements come only from a view's component (ADR 0421, 0423): a text, a bare panel and a painted one.
     const ui = buildUI(`<Canvas><p id="a">a</p><div id="bare"></div><div id="b" background-color="#ffffff"></div></Canvas>`);
     const [a, bare, b] = ["#a", "#bare", "#b"].map((s) => ui.query(s)!.component);
     expect(partitionUIHits([a, bare, b])).toEqual({ painted: [a, b], bare: [bare] });

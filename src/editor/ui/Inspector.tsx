@@ -65,7 +65,7 @@ export function Inspector() {
   switch (target.kind) {
     case "live": return <Panel><RuntimeInspector /></Panel>; // a live World of the running game (ADR 0022, 0124)
     case "asset": return <Panel><AssetInspector path={target.path} /></Panel>; // a file selected in the Assets panel (ADR 0040, 0143)
-    case "uiViewElement": return <Panel><UIViewElementInspector /></Panel>; // an element a UIView rendered (ADR 0419 wave C)
+    case "uiViewElement": return <Panel><UIViewElementInspector /></Panel>; // an element a UIView rendered (ADR 0423 wave C)
     case "bone": return <Panel><BoneInspector provider={target.provider} scene={target.scene} path={target.path} bone={target.bone} /></Panel>; // a Skeleton's bone (ADR 0373)
     case "nodes":
       return target.paths.length > 1 ? <Panel><MultiInspector scene={target.scene} paths={[...target.paths]} /></Panel> : <NodeInspector scene={target.scene} path={target.paths[0]} />;

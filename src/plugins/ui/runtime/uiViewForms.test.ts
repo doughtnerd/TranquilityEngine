@@ -6,7 +6,7 @@ import { UIPointer, stubDocument } from "../../../engine/tests/uiPointer";
 import { UIView } from "./UIView";
 import * as ControlsModule from "./testComponents/Controls.svelte";
 
-// ADR 0424 in Svelte views: HTML's form tags become the UI core's form kinds, and the renderer's `bind` hook gives
+// ADR 0428 in Svelte views: HTML's form tags become the UI core's form kinds, and the renderer's `bind` hook gives
 // bind:checked, bind:group (radios and checkboxes) and bind:value (with number coercion for range and number inputs,
 // on selects with values of any type, and on text areas). Driven through a UI core routing `Input`'s DOM adapter
 // (`UIPointer`), as a player drives them.
@@ -38,7 +38,7 @@ async function view(): Promise<{ v: UIView; log: string[]; api: Api; echo: () =>
   const v = GameObject.create("UI").addBehavior(UIView, { component: "asset:ui/controls.svelte", props: { log: (s: string) => log.push(s), onapi: (a: Api) => (api = a) } });
   await v.ready;
   pointer = await UIPointer.create(World.require(), 1280, 1000);
-  return { v, log, api, echo: () => v.query("#echo")!.as(UIText).text.replace(/\s+/g, " ").trim() }; // ADR 0428: its text is as written; collapsed as the UI core shows it
+  return { v, log, api, echo: () => v.query("#echo")!.as(UIText).text.replace(/\s+/g, " ").trim() }; // ADR 0432: its text is as written; collapsed as the UI core shows it
 }
 
 /** A frame, then the renderer's layout; a click waits a second frame (one press per frame). */
@@ -54,7 +54,7 @@ function click(c: Parameters<UIPointer["click"]>[0]): void {
   frame(2);
 }
 
-describe("UIView: form elements (ADR 0424)", () => {
+describe("UIView: form elements (ADR 0428)", () => {
   it("maps HTML's form tags to their kinds and pushes the bound values in", async () => {
     const { v, echo } = await view();
     expect(v.query("#agree")!.component).toBeInstanceOf(UIToggle);

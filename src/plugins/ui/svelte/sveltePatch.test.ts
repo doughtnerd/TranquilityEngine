@@ -7,7 +7,7 @@ import "svelte/internal/flags/custom-renderer"; // effects remember their render
 import { crossfade, fade, fly } from "svelte/transition";
 import { flip } from "svelte/animate";
 
-// ADR 0419: patches/svelte+5.59.2.patch, the custom renderer's hooks.
+// ADR 0423: patches/svelte+5.59.2.patch, the custom renderer's hooks.
 // - `bind`: the compiler emits `bind_renderer` for element bindings when a custom renderer is set (bind:this stays
 //   `bind_this`, with the renderer's node), and for <svelte:window>/<svelte:document> bindings on the renderer's
 //   global target; at runtime the hook runs like an attachment, again when state read through `get()` changes, and a
@@ -252,7 +252,7 @@ describe("the custom renderer bind hook (svelte patch)", () => {
   });
 });
 
-// ADR 0425: the `html(anchor, value)` hook: `{@html}` compiles under a custom renderer, the renderer turns the string into
+// ADR 0429: the `html(anchor, value)` hook: `{@html}` compiles under a custom renderer, the renderer turns the string into
 // nodes (a fragment) that replace the tag's previous ones before its anchor (or become its element's only content), and a
 // renderer without the hook fails clearly.
 describe("the custom renderer html hook (svelte patch)", () => {
@@ -338,7 +338,7 @@ describe("the custom renderer html hook (svelte patch)", () => {
   });
 });
 
-// ADR 0419 wave Z3: the `requestAnimationFrame(callback)` and `now()` hooks: while a component mounted with a renderer
+// ADR 0423 wave Z3: the `requestAnimationFrame(callback)` and `now()` hooks: while a component mounted with a renderer
 // that has them is mounted, Svelte's frame loop (`svelte/motion`, `tick` transitions) runs on the renderer's frames and
 // clock instead of the browser's; unmounting gives them back.
 describe("the custom renderer timing hooks (svelte patch)", () => {

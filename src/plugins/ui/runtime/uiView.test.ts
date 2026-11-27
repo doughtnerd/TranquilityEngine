@@ -11,7 +11,7 @@ import * as PriceModule from "./testComponents/Price.svelte";
 import * as FaderModule from "./testComponents/Fader.svelte";
 import * as ExportedModule from "./testComponents/Exported.svelte";
 
-// ADR 0419 wave A: game UI as Svelte components, mounted by `UIView` through the engine's renderer onto the
+// ADR 0423 wave A: game UI as Svelte components, mounted by `UIView` through the engine's renderer onto the
 // UI core's external tree host. Components compile in the test run (vitest.config.mts's `svelteUI()`), as the
 // editor and export will; a compiled module is the asset value of its `.svelte` path.
 
@@ -65,11 +65,11 @@ describe("UIView", () => {
       "Canvas",
       "  section#shop.shop",
       '    h1#title.title "Shop (10 left)"',
-      '    p#hint ""', // ADR 0425: `<b>` inside a Text is an inline run of it, beside a text piece
+      '    p#hint ""', // ADR 0429: `<b>` inside a Text is an inline run of it, beside a text piece
       '      #text "Pick "',
       '      b "something"',
       "    button#item-a.row",
-      '      #text "Apple "', // ADR 0428: as written; the UI core collapses it by `white-space`
+      '      #text "Apple "', // ADR 0432: as written; the UI core collapses it by `white-space`
       '      span.price "2g"',
       "    button#item-b.row",
       '      #text "Bow "',
@@ -254,7 +254,7 @@ describe("UIView", () => {
     expect(() => GameObject.create("X").addComponent(UIPanel)).toThrow(/UIView/);
   });
 
-  it("hears a stylesheet transition's end through ontransitionend (ADR 0418 wave 4)", async () => {
+  it("hears a stylesheet transition's end through ontransitionend (ADR 0422 wave 4)", async () => {
     const ended: string[] = [];
     const v = await view("ui/fader.svelte", { on: false, ended: (name: string) => ended.push(name) });
     engine.step(DT);

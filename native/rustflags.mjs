@@ -1,4 +1,4 @@
-// Reproducible wasm builds (ADR 0428): every native build script (except native/nav, frozen) compiles its wasm with
+// Reproducible wasm builds (ADR 0432): every native build script (except native/nav, frozen) compiles its wasm with
 // `--remap-path-prefix` for the repository root (to `/myco`) and CARGO_HOME (to `/cargo`), so the paths rustc writes
 // into panic locations (crates outside a workspace, such as native/common, and registry crates) don't name the
 // checkout that built it, and through `rustc-wrapper.mjs`, which takes the checkout's path out of the crate identities

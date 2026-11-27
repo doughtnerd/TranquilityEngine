@@ -1,4 +1,4 @@
-// The engine's built-in UI components in the editor (ADR 0419 wave B, `projectCode/builtinUI.ts`): a plugin's editor half
+// The engine's built-in UI components in the editor (ADR 0423 wave B, `projectCode/builtinUI.ts`): a plugin's editor half
 // starts loading its component (compiled with the editor's build) when it activates, and the editor's project code load
 // (`thirdPartyEditor.ts`'s `loadProjectCode`, which every script load and reload goes through) waits for every load
 // started so far, as it waits for the plugins' audio effects and animation nodes. So Play, which runs on loaded code,

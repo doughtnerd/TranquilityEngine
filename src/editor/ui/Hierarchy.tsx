@@ -82,14 +82,14 @@ function boneSelectionUnder(key: string): boolean {
   return host === key || host.startsWith(`${key}/`) || ancestorKeys(scene.doc, host).includes(key);
 }
 
-/** True if the selected UI element (a view's, ADR 0419 wave C) is on the node at `key` or below it. */
+/** True if the selected UI element (a view's, ADR 0423 wave C) is on the node at `key` or below it. */
 function uiSelectionUnder(key: string): boolean {
   const ref = selectedUIViewRef(), scene = openScene.value;
   if (!ref || !scene) return false;
   return ref.host === key || ref.host.startsWith(`${key}/`) || ancestorKeys(scene.doc, ref.host).includes(key);
 }
 
-/** The views on the node at `key`, with the elements each rendered (ADR 0419 wave C; none while searching: the search is over scene nodes). */
+/** The views on the node at `key`, with the elements each rendered (ADR 0423 wave C; none while searching: the search is over scene nodes). */
 function uiViewsAt(view: HierarchyView, key: string): UIViewRows[] {
   uiViewVersion.value; // re-read when a view renders again or hot-reloads
   const scene = openScene.value;
@@ -383,7 +383,7 @@ function nodeRow(view: HierarchyView, scene: OpenScene, spec: NodeRowSpec): Tree
   };
 }
 
-/** A node's views' rendered elements (ADR 0419 wave C), under its own children; none while searching. */
+/** A node's views' rendered elements (ADR 0423 wave C), under its own children; none while searching. */
 function uiElementRows(view: HierarchyView, views: readonly UIViewRows[]): TreeRow[] {
   if (views.length === 0) return [];
   const selectedKey = selectedUIElement.value;
@@ -392,7 +392,7 @@ function uiElementRows(view: HierarchyView, views: readonly UIViewRows[]): TreeR
 }
 
 /**
- * An element a UIView rendered from a Svelte component (ADR 0419 wave C): rendered from the file, not saved in the
+ * An element a UIView rendered from a Svelte component (ADR 0423 wave C): rendered from the file, not saved in the
  * scene, so it's marked as the file's. Clicking selects it; the menu creates inside it,
  * renames (its id), duplicates and deletes; dragging reorders it within its file. `{#each}` rows, snippets and child
  * components' insides select, but are view-only (their rows say why).

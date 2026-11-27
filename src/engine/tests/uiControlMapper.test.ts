@@ -5,7 +5,7 @@ import { UIControlMapper } from "../../plugins/ui/runtime/UIControlMapper";
 import { World } from "../core/World";
 import { UIPointer, stubDocument } from "./uiPointer";
 import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
-// The built-in UI components, as the editor provides them (ADR 0419 wave B).
+// The built-in UI components, as the editor provides them (ADR 0423 wave B).
 import "../../plugins/ui/builtinUI";
 
 // ADR 0337, 0339 and 0340: the engine's rebinding screen, driven as a player does: clicks through a UI

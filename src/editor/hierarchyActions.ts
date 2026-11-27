@@ -118,7 +118,7 @@ export function pasteClipboardAt(key: string | null, asChild = false): boolean {
 /** Duplicate the selected nodes, each right after itself, and select the copies. */
 export function duplicateSelection(): boolean {
   const viewEl = selectedUIViewRef();
-  if (viewEl) return duplicateUIViewElement(viewEl); // an element a UIView rendered (ADR 0419 wave C): in its .svelte source
+  if (viewEl) return duplicateUIViewElement(viewEl); // an element a UIView rendered (ADR 0423 wave C): in its .svelte source
   const scene = editableNow({ kind: "scene" }, "duplicate nodes");
   if (!scene) return false;
   const keys = selectedKeys.value;

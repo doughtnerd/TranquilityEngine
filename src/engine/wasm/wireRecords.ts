@@ -1,5 +1,5 @@
 // The wire's record layouts as data (ADR 0370; `anim-wire`'s generated constants: the animation plugin's
-// `runtime/wasm/wire/*.ts`, the engine tween backend's `src/engine/tween/wasm/wire/*.ts`, ADR 0420), and one generic
+// `runtime/wasm/wire/*.ts`, the engine tween backend's `src/engine/tween/wasm/wire/*.ts`, ADR 0424), and one generic
 // encoder and decoder over them: every record starts with the header (opcode `u16`, family version `u16`), then its
 // fields, little-endian, at the offsets the layout gives. A pure library: the animation core host's command writer and
 // output readers use it, the engine's tween backend too, and so can any later family without a hand-written codec.

@@ -21,7 +21,7 @@ import { loadBundledFont } from "../ui/fonts";
 import { UIPointer } from "./uiPointer";
 import { buildUI, byId, loadUITestSupport, uiElement } from "./uiMarkup";
 
-/** Gradients the fake contexts made, in order: the kind, then the arguments (ADR 0418 wave 2). */
+/** Gradients the fake contexts made, in order: the kind, then the arguments (ADR 0422 wave 2). */
 const drawnGradients: Array<[string, ...number[]]> = [];
 
 /** A 2D context that draws nothing and measures half an em per character. */
@@ -75,7 +75,7 @@ afterEach(() => {
   Assets.clearSources();
 });
 
-/** One element (ADR 0417, 0419: rendered by a UI view), its fields then written as a script writes them. */
+/** One element (ADR 0421, 0423: rendered by a UI view), its fields then written as a script writes them. */
 const node = uiElement;
 
 function canvasInfo(comp: UICanvas, over: Partial<UILaidOutCanvas> = {}): UILaidOutCanvas {
@@ -415,7 +415,7 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
   });
 });
 
-describe("layout wave 1 on Babylon GUI (ADR 0418)", () => {
+describe("layout wave 1 on Babylon GUI (ADR 0422)", () => {
   it("draws an overflow: hidden element's descendants in a clip at its padding box, right above it, and takes them out again", () => {
     const canvas = node("C", null, UICanvas);
     const clipper = node("Clip", canvas.node, UIPanel, { borderWidth: 10, borderRadius: 12, overflow: "hidden" });
@@ -449,7 +449,7 @@ describe("layout wave 1 on Babylon GUI (ADR 0418)", () => {
     expect(rootOf().children.some((c) => c.name === "Clip.clip")).toBe(false);
   });
 
-  it("draws a scroller's scrollbar as a track and a thumb over its content, in its colours, and removes them with the bar (ADR 0423)", () => {
+  it("draws a scroller's scrollbar as a track and a thumb over its content, in its colours, and removes them with the bar (ADR 0427)", () => {
     const canvas = node("C", null, UICanvas);
     const list = node("List", canvas.node, UIPanel, { overflow: "auto", scrollbarThumbColor: new Color(1, 0, 0, 1) });
     const core = new FakeCore();
@@ -519,7 +519,7 @@ describe("layout wave 1 on Babylon GUI (ADR 0418)", () => {
   });
 });
 
-describe("form elements on Babylon GUI (ADR 0424)", () => {
+describe("form elements on Babylon GUI (ADR 0428)", () => {
   it("draws a control's parts as rectangles over its box (inset by its stroke), turned and coloured, and drops them when gone", () => {
     const canvas = node("C", null, UICanvas);
     const toggle = node("T", canvas.node, UIToggle, { borderWidth: 1 });
@@ -608,7 +608,7 @@ describe("world canvases on Babylon GUI (ADR 0076)", () => {
   });
 });
 
-describe("a UIText's outline (ADR 0417)", () => {
+describe("a UIText's outline (ADR 0421)", () => {
   const outlined = (init: Partial<UIText>, scale = 1, pixelRatio = 1) => {
     const canvas = node("C", null, UICanvas);
     const text = node("T", canvas.node, UIText, { text: "Score", fontSize: 30, ...init });
@@ -825,7 +825,7 @@ describe("uploading only the redrawn part of the screen UI (ADR 0075 notes)", ()
   });
 });
 
-describe("paint on Babylon GUI (ADR 0418 wave 2)", () => {
+describe("paint on Babylon GUI (ADR 0422 wave 2)", () => {
   const painted = (init: Partial<UIPanel>, opts: { scale?: number; pixelRatio?: number; box?: ElementInit } = {}) => {
     const canvas = node("C", null, UICanvas);
     const panel = node("P", canvas.node, UIPanel, { backgroundColor: new Color(0.2, 0.2, 0.2, 1), ...init });
@@ -942,7 +942,7 @@ describe("paint on Babylon GUI (ADR 0418 wave 2)", () => {
   });
 });
 
-describe("transforms on Babylon GUI (ADR 0418 wave 3)", () => {
+describe("transforms on Babylon GUI (ADR 0422 wave 3)", () => {
   const syncReal = (pointer: UIPointer) => {
     pointer.sync();
     ui.sync(World.require(), pointer.core, {}, 1280, 720, 1);
@@ -1049,7 +1049,7 @@ describe("transforms on Babylon GUI (ADR 0418 wave 3)", () => {
   });
 });
 
-describe("ADR 0426 on Babylon GUI: skew through the full matrix, and filters", () => {
+describe("ADR 0430 on Babylon GUI: skew through the full matrix, and filters", () => {
   /** The control drawing `c`, anywhere under the screen canvas roots. */
   const controlOf = (c: UIComponentType): Control => {
     const find = (ctl: Control): Control | null => {
@@ -1177,7 +1177,7 @@ describe("ADR 0426 on Babylon GUI: skew through the full matrix, and filters", (
   });
 });
 
-describe("ADR 0426 on Babylon GUI: inline SVG and video", () => {
+describe("ADR 0430 on Babylon GUI: inline SVG and video", () => {
   it("rasterises an inline SVG at its box's size in texture pixels, with its colour, again only when it changes", () => {
     const made: { src: string; onload: (() => void) | null; naturalWidth: number; naturalHeight: number }[] = [];
     vi.stubGlobal("Image", class {
@@ -1254,7 +1254,7 @@ describe("ADR 0426 on Babylon GUI: inline SVG and video", () => {
   });
 });
 
-describe("ADR 0428 on Babylon GUI: backdrop-filter, part pseudo-elements, ::placeholder and ::selection", () => {
+describe("ADR 0432 on Babylon GUI: backdrop-filter, part pseudo-elements, ::placeholder and ::selection", () => {
   /** The control drawing `c`, anywhere under the screen canvas roots. */
   const controlOf = (c: UIComponentType): Control => {
     const find = (ctl: Control): Control | null => {

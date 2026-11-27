@@ -2,7 +2,7 @@
 // plugin and its TypeScript declarations: `exports` maps (resolve.exports), then the
 // `browser`/`module`/`main` fields, extension and index probing, nested node_modules, and a package's
 // own subpath imports (`#internal`, its `imports` map). No file access of its own: callers give a
-// `PackageFiles`. The game UI bundle (ADR 0421) resolves Svelte's runtime through it too.
+// `PackageFiles`. The game UI bundle (ADR 0425) resolves Svelte's runtime through it too.
 import { imports as resolveImports, resolve as resolveExports } from "resolve.exports";
 
 /** Read access to the project folder, by project-relative "/"-separated path; null when there's no such file. */

@@ -25,7 +25,7 @@ import { Menu } from "../../../samples/pirates/scripts/behaviors/Menu";
 import "../../../samples/pirates/scripts/behaviors/MenuBackdrop";
 import "../../../samples/pirates/scripts/lobby";
 
-// The pirates menu is a Svelte component (ADR 0419): scenes/menu.scene.json has one UI node, with a
+// The pirates menu is a Svelte component (ADR 0423): scenes/menu.scene.json has one UI node, with a
 // UIView (ui/Menu.svelte) and the Menu script. Played headless from the sample's own bootstrap, it
 // mounts with no problems, shows what the lobby says, renders the crew and settings rows, and its
 // buttons create rooms, step settings and start a practice match.

@@ -1,14 +1,14 @@
-# 0420. Tweening is a shared Rust crate, linked by the animation core and by a small standalone tween module that UI uses without the animation plugin
+# 0424. Tweening is a shared Rust crate, linked by the animation core and by a small standalone tween module that UI uses without the animation plugin
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0346, 0370, 0371, 0372, 0374, 0418, 0419
+- **Related:** 0346, 0370, 0371, 0372, 0374, 0422, 0423
 
 ## Context
 
-0418 wave 4 adds CSS transitions and keyframe animation to the UI core. 0419 has Svelte transitions and `animate:` run through a renderer `animate` hook. The plan was a JS tweener plus `bezier-easing`. But the engine already has tweening, in the animation core (0370, 0371, 0372):
+0422 wave 4 adds CSS transitions and keyframe animation to the UI core. 0423 has Svelte transitions and `animate:` run through a renderer `animate` hook. The plan was a JS tweener plus `bezier-easing`. But the engine already has tweening, in the animation core (0370, 0371, 0372):
 
 - **The API:** `tween(target, field, to, { duration, from, relative, ease, delay, loops, loopMode, time, speed })`, plus `sequence()` and `parallel()`. Handles are awaitable, with `pause`/`resume`/`stop`.
 - **Easing:** Penner eases by name, or any engine curve (0346).
@@ -91,12 +91,12 @@ There's a precedent for exactly this split: `native/common/curve` (`myco-curve`)
 - **Size fixes:** an own clamp helper in place of `f32::clamp` (whose assertion message pulled in float formatting), an insertion-ordered free list, and insertion-ordered sequence completion (no sort, shared with the core). Without them the module was 92 KB, and the core shrank from 879,303 to 868,216 bytes.
 - **The audio core's source hash covers only `native/common/curve`**, not all of `native/common/`. Otherwise tween-crate edits would mark the audio builds stale. Any change to `myco-curve` still rebuilds audio, so "audio unchanged" holds behaviourally, not byte for byte.
 - **Parity:** `native/tween/tests/parity.rs` (Rust) and `tweenBackend.node.test.ts` (TypeScript) run identical scripts on the core and the standalone module and compare every value and record bit for bit.
-- **Timing note for 0418 wave 4:** the core-backed backend's update (`writeInputs(0)`) clears the core's per-frame outputs for every World, so UI runs it outside a game World's evaluate-to-apply span (`runtime/core/tweenBackend.ts`).
+- **Timing note for 0422 wave 4:** the core-backed backend's update (`writeInputs(0)`) clears the core's per-frame outputs for every World, so UI runs it outside a game World's evaluate-to-apply span (`runtime/core/tweenBackend.ts`).
 
 ## Alternatives considered
 
 - **UI requires the animation plugin.** Simplest, but every game with UI animation pays 352 KB gzip, even with no skeletal animation.
-- **A JS tweener in the UI core, plus `bezier-easing`** (0418 as written). Small, but two tweening engines whose easing and loop behaviour must be kept equal, and UI tweens couldn't join game sequences.
+- **A JS tweener in the UI core, plus `bezier-easing`** (0422 as written). Small, but two tweening engines whose easing and loop behaviour must be kept equal, and UI tweens couldn't join game sequences.
 - **Build the animation core in two feature-gated variants** (a tween-only build of `anim-wasm`). It avoids a new crate, but couples the tween module's build to the whole core's crate graph and `init`, and needs conditional compilation through the core.
 
 ## Consequences
@@ -114,15 +114,15 @@ There's a precedent for exactly this split: `native/common/curve` (`myco-curve`)
 ## Deprecates
 
 - `anim-math::ease` and the tween parts of `anim-wasm/src/tweens.rs`, `timeline.rs` (sequences) and `anim-wire/src/tween.rs`: moved into `myco-tween`. The animation core uses them from there.
-- 0418 wave 4's `bezier-easing` and JS tweener: not built.
+- 0422 wave 4's `bezier-easing` and JS tweener: not built.
 
 ## Open questions
 
-- Whether scripts get a UI-facing `tween()` without the animation plugin (`element.animate(...)`, 0418's open question) on the same backend.
+- Whether scripts get a UI-facing `tween()` without the animation plugin (`element.animate(...)`, 0422's open question) on the same backend.
 
 ## References
 
 - `native/anim/Cargo.toml` (crates, release profile), `native/anim/crates/anim-wasm/src/{tweens,timeline,curves}.rs`, `native/anim/crates/anim-math/src/ease.rs`, `native/anim/crates/anim-wire/src/tween.rs`, `native/anim/crates/anim-bench/benches/budgets.rs`
 - `native/common/curve` (`myco-curve`, the shared-crate precedent), `native/audio/build.mjs` (size gates)
 - `src/plugins/animation/runtime/{api,types}.ts`, `features/tweens.ts`
-- 0346 (curves), 0370 (animation core), 0371 (tracks and tweens), 0372 (scripting API), 0418 wave 4, 0419 (`animate` hook)
+- 0346 (curves), 0370 (animation core), 0371 (tracks and tweens), 0372 (scripting API), 0422 wave 4, 0423 (`animate` hook)

@@ -1,4 +1,4 @@
-<!-- A game component carrying a subtitle theme (ADR 0357 §5, 0419 wave B): its global rule sets the built-in display's variable. -->
+<!-- A game component carrying a subtitle theme (ADR 0357 §5, 0423 wave B): its global rule sets the built-in display's variable. -->
 <div id="hud"></div>
 
 <style>

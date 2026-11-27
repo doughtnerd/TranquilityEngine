@@ -5,12 +5,12 @@ import { World } from "../core/World";
 import { DomInput } from "./domInput";
 import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
 
-// ADR 0069: UI components in a headless World, and Input without UI. ADR 0417 (amended by 0419): only a UIView's
-// Svelte component makes them; ADR 0419 retired UI documents. Layout, pointer routing and editor picking are tested on the renderer-neutral core
+// ADR 0069: UI components in a headless World, and Input without UI. ADR 0421 (amended by 0423): only a UIView's
+// Svelte component makes them; ADR 0423 retired UI documents. Layout, pointer routing and editor picking are tested on the renderer-neutral core
 // (uiCore.test.ts, ADR 0076) and on Babylon (babylonUI.test.ts); the three.js runtime was removed with
 // its backend (ADR 0081).
 
-const FROM_VIEWS = "UI elements come from a UIView's Svelte component (ADR 0417, 0419): write the element in the component.";
+const FROM_VIEWS = "UI elements come from a UIView's Svelte component (ADR 0421, 0423): write the element in the component.";
 
 const DT = 1 / 60;
 let engine: Engine;
@@ -82,7 +82,7 @@ describe("UI components (ADR 0069)", () => {
   });
 });
 
-describe("UI comes only from UI views (ADR 0417, 0419)", () => {
+describe("UI comes only from UI views (ADR 0421, 0423)", () => {
   const types = [UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField];
 
   it("refuses every UI component from addComponent, addBehavior and addChildBehavior, adding nothing", () => {
@@ -120,7 +120,7 @@ describe("UI comes only from UI views (ADR 0417, 0419)", () => {
     ],
   });
 
-  it("fails to load a scene or prefab that saves a UI component, naming the file, the node and ADR 0417", async () => {
+  it("fails to load a scene or prefab that saves a UI component, naming the file, the node and ADR 0421", async () => {
     Assets.addSource(Assets.fromObject({
       "scenes/menu.scene.json": fromFile([{ type: "engine.UIText", data: { text: "Hi" } }]),
       "prefabs/hud.prefab.json": fromFile([{ type: "engine.UIPanel" }]),
@@ -129,7 +129,7 @@ describe("UI comes only from UI views (ADR 0417, 0419)", () => {
     }));
     await expect(SceneManager.load("scenes/menu.scene.json")).rejects.toThrow(`scenes/menu.scene.json: node "/menu/Menu/Title" saves a UI component ("engine.UIText"). ${FROM_VIEWS}`);
     expect(() => GameObject.instantiate("prefabs/hud.prefab.json")).toThrow(`prefabs/hud.prefab.json: node "/Menu/Title" saves a UI component ("engine.UIPanel"). ${FROM_VIEWS}`);
-    expect(() => GameObject.instantiate("prefabs/added.prefab.json")).toThrow(/prefabs\/added\.prefab\.json: node "\/Instance" saves a UI component \("engine\.UIButton"\)\. UI elements come from a UIView's Svelte component \(ADR 0417, 0419\)/);
+    expect(() => GameObject.instantiate("prefabs/added.prefab.json")).toThrow(/prefabs\/added\.prefab\.json: node "\/Instance" saves a UI component \("engine\.UIButton"\)\. UI elements come from a UIView's Svelte component \(ADR 0421, 0423\)/);
     expect(engine.world.root.children.map((c) => c.name)).toEqual([]); // nothing half-built stays
     expect(GameObject.findObjectsOfType(Marker)).toEqual([]);
   });
@@ -142,13 +142,13 @@ describe("UI comes only from UI views (ADR 0417, 0419)", () => {
     });
   });
 
-  it("fails to load a scene or prefab that saves a UIDocument (ADR 0419 retired them), by id or bare name, naming the record", async () => {
+  it("fails to load a scene or prefab that saves a UIDocument (ADR 0423 retired them), by id or bare name, naming the record", async () => {
     Assets.addSource(Assets.fromObject({
       "ui/hud.ui.xml": `<Canvas><Text id="score">0</Text></Canvas>`,
       "scenes/game.scene.json": { format: "myco.scene@5", nodes: [{ id: "hud", name: "HUD", components: [{ type: "engine.UIDocument", data: { document: "asset:ui/hud.ui.xml" } }] }] },
       "prefabs/hud.prefab.json": fromFile([{ type: "UIDocument", data: { document: "asset:ui/hud.ui.xml" } }]),
     }));
-    const retired = (file: string, node: string, type: string) => `${file}: node "${node}" saves "${type}": UI documents (*.ui.xml, *.ui.css) were retired by ADR 0419. Write the UI as a Svelte component and mount it with a UIView.`;
+    const retired = (file: string, node: string, type: string) => `${file}: node "${node}" saves "${type}": UI documents (*.ui.xml, *.ui.css) were retired by ADR 0423. Write the UI as a Svelte component and mount it with a UIView.`;
     await expect(SceneManager.load("scenes/game.scene.json")).rejects.toThrow(retired("scenes/game.scene.json", "/game/HUD", "engine.UIDocument"));
     expect(() => GameObject.instantiate("prefabs/hud.prefab.json")).toThrow(retired("prefabs/hud.prefab.json", "/Menu/Title", "UIDocument"));
     expect(engine.world.root.children.map((c) => c.name)).toEqual([]); // nothing half-built stays

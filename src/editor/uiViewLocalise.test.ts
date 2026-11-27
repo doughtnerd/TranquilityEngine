@@ -1,4 +1,4 @@
-// Localising Svelte UI from the editor (ADR 0356 §9, ADR 0419 wave F): the Inspector's Localise and Extract to string
+// Localising Svelte UI from the editor (ADR 0356 §9, ADR 0423 wave F): the Inspector's Localise and Extract to string
 // table write `{t("key")}` into the view's `.svelte` source (importing `t` from `myco` when the script doesn't) and, for
 // Extract, the key into the table, as one undo step on the scene's history; Unlink writes the text back; dynamic parts
 // are refused with the reason. The fit check's targets come from what the views rendered, with their boxes.

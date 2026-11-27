@@ -1,4 +1,4 @@
-//! `trig::exp2` against f64 (moved from the former `tests/ease.rs` with the easings, ADR 0420 spike).
+//! `trig::exp2` against f64 (moved from the former `tests/ease.rs` with the easings, ADR 0424 spike).
 
 use anim_math::trig::exp2;
 

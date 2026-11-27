@@ -1,4 +1,4 @@
-//! `myco-tween` (ADR 0420 spike): Myco's tweening, shared by the animation core (`anim-wasm`, which
+//! `myco-tween` (ADR 0424 spike): Myco's tweening, shared by the animation core (`anim-wasm`, which
 //! links it unchanged in behaviour) and the standalone tween module (`native/tween`) that UI uses
 //! without the animation plugin. Same records, same results, either way.
 //!

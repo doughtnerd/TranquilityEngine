@@ -14,7 +14,7 @@ import { useEditorPlugins } from "../plugins/testEditorPlugins";
 import { uiEditorPlugin } from "../plugins/ui/editor";
 
 
-// ADR 0419 wave A part 2: a project's Svelte UI compiles in the editor with its scripts (the project code
+// ADR 0423 wave A part 2: a project's Svelte UI compiles in the editor with its scripts (the project code
 // linker's memory target, dev mode), each component becomes its `.svelte` file's asset value, a `UIView`
 // mounts it, and loading again after a save remounts the view with its props (hot reload).
 

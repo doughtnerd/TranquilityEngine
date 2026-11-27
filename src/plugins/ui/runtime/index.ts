@@ -20,7 +20,7 @@ export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, 
 export type { UITag } from "../../../engine/ui/document/types";
 export { UIView } from "./UIView";
 export { UIPreferences, type UIColorScheme } from "../../../engine/ui/preferences";
-/** A UI element a `UIView`'s component rendered (ADR 0419): `view.query("#play")`. */
+/** A UI element a `UIView`'s component rendered (ADR 0423): `view.query("#play")`. */
 export type { UIHostElement as UIViewElement, UIHostEvent as UIViewEvent } from "../../../engine/ui/host/UIHost";
 
 /**
@@ -38,7 +38,7 @@ const UI_SPEC: RenderFeatureSpec = {
   warms: (content) => content.worldUI,
 };
 
-/** Internal (ADR 0427): the player's saved UI preferences (namespace `settings`, key `myco.ui`), read before a runtime World's first scene. */
+/** Internal (ADR 0431): the player's saved UI preferences (namespace `settings`, key `myco.ui`), read before a runtime World's first scene. */
 const UI_PREFERENCES_SERVICE: WorldServiceDef<null, World> = {
   id: "myco.uiPreferences",
   load: async () => null,

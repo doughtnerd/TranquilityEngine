@@ -33,7 +33,7 @@ export interface PackageSource {
 // "myco/editor" (ADR 0139): the editor SDK, which npm plugins' editor halves import; external like "myco".
 const ENGINE_SPECIFIERS = new Set(["myco", "tranquility", "myco/editor"]);
 
-/** True for an import of an npm package: a bare specifier other than the engine's and the UI runtime's (Svelte, ADR 0419). */
+/** True for an import of an npm package: a bare specifier other than the engine's and the UI runtime's (Svelte, ADR 0423). */
 export const isPackageSpecifier = (specifier: string) =>
   !ENGINE_SPECIFIERS.has(specifier) && !isUIRuntimeSpecifier(specifier) &&
  !specifier.startsWith(".") && !specifier.startsWith("/") && !/^[a-z][a-z0-9+.-]*:/i.test(specifier);

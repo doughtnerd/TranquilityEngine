@@ -8,8 +8,8 @@ import renderer from "../svelte/renderer";
 import * as TransitionsModule from "./testComponents/Transitions.svelte";
 import * as ListsModule from "./testComponents/Lists.svelte";
 
-// ADR 0419 wave Y2: `transition:`, `in:`, `out:` and `animate:` through the Svelte patch's `animate` and `measure`
-// hooks, played by the engine's renderer on the UI animator (ADR 0418 wave 4) and driven by engine frames.
+// ADR 0423 wave Y2: `transition:`, `in:`, `out:` and `animate:` through the Svelte patch's `animate` and `measure`
+// hooks, played by the engine's renderer on the UI animator (ADR 0422 wave 4) and driven by engine frames.
 
 const DT = 1 / 60;
 let engine: Engine;
@@ -159,7 +159,7 @@ describe("UIView: Svelte transitions (the patch's animate hook)", () => {
     expect(frames(7, () => field(v, "#box", "opacity"))).toEqual([0, 0.133, 0.267, 0.4, 0.533, 0.667, 0.8]);
   });
 
-  it("blurs in through the filter fields (ADR 0426) as it fades", async () => {
+  it("blurs in through the filter fields (ADR 0430) as it fades", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const blur = await transitions("blur");
     blur.show(true);
@@ -170,7 +170,7 @@ describe("UIView: Svelte transitions (the patch's animate hook)", () => {
     expect(warn.mock.calls.some((c) => String(c[0]).includes("can't animate filter"))).toBe(false);
   });
 
-  it("draws a path in through its stroke dashes (ADR 0426), written into its <svg>'s document each frame", async () => {
+  it("draws a path in through its stroke dashes (ADR 0430), written into its <svg>'s document each frame", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const draw = await transitions("draw");
     draw.show(true);

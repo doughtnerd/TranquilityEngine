@@ -4,7 +4,7 @@ import { UIButton, UIInputField, UIText } from "../../../engine/ui/components";
 import { UIView } from "./UIView";
 import * as FormDefaultsModule from "./testComponents/FormDefaults.svelte";
 
-// HTML's form defaults on renderer nodes (ADR 0424, as Svelte's conformance fixtures use them): `defaultValue`,
+// HTML's form defaults on renderer nodes (ADR 0428, as Svelte's conformance fixtures use them): `defaultValue`,
 // `defaultChecked`, a text area's content and an option's `selected` attribute are what a reset puts back, with HTML's
 // dirty flags; `<input type="reset">` is a reset button; a select's `value` chooses at once; a control inside a text
 // element stays a control; `muted` sends `volumechange`; a disabled control's `click()` does nothing; `focus()` sends

@@ -166,7 +166,7 @@ export class GameObject {
    * 0033) isn't attached: you get a detached instance that never runs and that `getBehavior`
    * doesn't find (see `_componentAllowedIn`). UI components (`UICanvas`, `UIPanel`, `UIText`,
    * `UIImage`, `UIButton`, `UIInputField`…) throw: only a `UIView` rendering its component makes them
-   * (ADR 0417, amended by 0419).
+   * (ADR 0421, amended by 0423).
    */
   addBehavior<T extends Component>(type: ConcreteComponentType<T>, init?: ComponentInit<T>): T {
     this.check();
@@ -280,17 +280,17 @@ export class GameObject {
   }
 }
 
-// --- UI elements come from UI views (ADR 0417, amended by 0419) ----------------------------------
+// --- UI elements come from UI views (ADR 0421, amended by 0423) ----------------------------------
 
-/** Ids of the UI components only a `UIView`'s render creates (ADR 0417, 0419). */
+/** Ids of the UI components only a `UIView`'s render creates (ADR 0421, 0423). */
 const VIEW_ONLY = new Set(["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField", "engine.UISvg", "engine.UIVideo", "engine.UIAudio"]);
 
-/** @internal What refusing a UI component outside a UI view says (ADR 0417, 0419); scene loads say it too. */
-export const UI_FROM_VIEWS = "UI elements come from a UIView's Svelte component (ADR 0417, 0419): write the element in the component.";
+/** @internal What refusing a UI component outside a UI view says (ADR 0421, 0423); scene loads say it too. */
+export const UI_FROM_VIEWS = "UI elements come from a UIView's Svelte component (ADR 0421, 0423): write the element in the component.";
 
 /**
  * @internal The id of the UI component `type` is or extends, when only a UI view may create it
- * (ADR 0417, 0419); else null. Matched by registered id, so this module needn't import the UI components.
+ * (ADR 0421, 0423); else null. Matched by registered id, so this module needn't import the UI components.
  */
 export function _viewOnlyComponentId(type: ComponentClass): string | null {
   for (let t: unknown = type; typeof t === "function" && t !== Component; t = Object.getPrototypeOf(t)) {

@@ -6,9 +6,9 @@ import { World } from "../core/World";
 import { UIPointer, stubDocument } from "./uiPointer";
 import { buildUI, loadUITestSupport, uiAs, type TestUI } from "./uiMarkup";
 
-// ADR 0422: UI events travel through capture, target and bubble phases over the target's ancestors in a view, with
+// ADR 0426: UI events travel through capture, target and bubble phases over the target's ancestors in a view, with
 // the DOM's event members, pointer and key data, and default actions handlers can prevent. Driven as a player drives
-// them: a UI core routes `Input`'s DOM adapter (`UIPointer`), views built from markup (ADR 0419), handlers through `on`.
+// them: a UI core routes `Input`'s DOM adapter (`UIPointer`), views built from markup (ADR 0423), handlers through `on`.
 
 const DT = 1 / 60;
 let engine: Engine;
@@ -77,7 +77,7 @@ describe("inert (HTML's)", () => {
   });
 });
 
-describe("propagation (ADR 0422)", () => {
+describe("propagation (ADR 0426)", () => {
   it("runs capture handlers from the root down, the target's, then bubble handlers back up", async () => {
     const doc = list();
     const seen: string[] = [];
@@ -144,7 +144,7 @@ describe("propagation (ADR 0422)", () => {
   });
 });
 
-describe("pointer events (ADR 0422)", () => {
+describe("pointer events (ADR 0426)", () => {
   it("sends over, enter, move, down, up, click and dblclick with positions in canvas and element pixels", async () => {
     const doc = list();
     const seen: string[] = [];
@@ -204,7 +204,7 @@ describe("pointer events (ADR 0422)", () => {
   });
 });
 
-describe("default actions (ADR 0422)", () => {
+describe("default actions (ADR 0426)", () => {
   it("focuses on press after the pointerdown's dispatch, unless a handler prevents it; focusin and focusout bubble", async () => {
     stubDocument();
     const doc = list();
@@ -264,7 +264,7 @@ describe("default actions (ADR 0422)", () => {
   });
 });
 
-describe("drags between UI elements (ADR 0422)", () => {
+describe("drags between UI elements (ADR 0426)", () => {
   it("drags a draggable element past the threshold: dragstart, drag, dragenter/dragover, drop where a dragover was prevented, dragend; no click", async () => {
     const doc = buildUI(`<Canvas>
   <div id="src" draggable="true" width="100" height="100" background-color="#ff0000"/>

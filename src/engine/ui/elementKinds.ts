@@ -45,12 +45,12 @@ interface KindSpec<C extends UIComponentType = UIComponentType> {
 }
 
 const visible = (c: { a: number } | null | undefined): boolean => !!c && c.a > 0;
-/** A border on any side (ADR 0418: sides may differ). */
+/** A border on any side (ADR 0422: sides may differ). */
 const hasBorder = (c: UIPanel): boolean => uiBorderEdges(c).some((w) => w > 0);
 const panelPaints = (c: UIPanel): boolean => visible(c.backgroundColor) || (hasBorder(c) && visible(c.borderColor));
 /**
  * A panel with a background (a transparent one too: Unity's invisible blocker) or a border; without either it's a layout
- * box. ADR 0423: a panel the player scrolls takes the pointer over its whole box too (a ScrollRect's viewport), so the
+ * box. ADR 0427: a panel the player scrolls takes the pointer over its whole box too (a ScrollRect's viewport), so the
  * wheel and drags reach it between its children.
  */
 const panelIsGraphic = (c: UIPanel): boolean => c.backgroundColor !== null || hasBorder(c) || isUserScroller(c);
@@ -58,13 +58,13 @@ const always = () => true;
 
 /** The kinds, subclasses before the classes they extend (the first whose type matches wins). */
 const fieldPseudo = (c: UIInputField) => ({ focus: c.focused, disabled: !c.interactable, "placeholder-shown": c.placeholder !== "" && c.value === "" });
-/** ADR 0424: a form control's own look (a checkbox's mark, a slider's thumb, a bar's fill) is always drawn. */
+/** ADR 0428: a form control's own look (a checkbox's mark, a slider's thumb, a bar's fill) is always drawn. */
 const control = <C extends UIComponentType>(kind: UIKind, type: abstract new () => C, tag: UITag, pseudo: (c: C) => Partial<Record<UIPseudo, boolean>>, leaf = true, interactive = true): KindSpec =>
   ({ kind, type, tag, leaf, interactive, flexShrink: 0, pseudo, paints: always, graphic: always }) as KindSpec<C> as KindSpec;
 
 const KINDS: readonly KindSpec[] = [
   { kind: "canvas", type: UICanvas, tag: "Canvas", leaf: false, interactive: false, flexShrink: 0, paints: () => false, graphic: () => false },
-  // ADR 0424: an option is a button in its select's list; it's checked while chosen.
+  // ADR 0428: an option is a button in its select's list; it's checked while chosen.
   {
     kind: "option", type: UIOption, tag: "Option", leaf: false, interactive: true, flexShrink: 0,
     pseudo: (c: UIOption) => ({ hover: c.hovered, pressed: c.pressed, focus: c.focused, disabled: !c.interactable, checked: c.selected }),
@@ -89,7 +89,7 @@ const KINDS: readonly KindSpec[] = [
     paints: (c: UIInputField) => panelPaints(c) || textRunOf(c)!.text !== "",
     graphic: always,
   } as KindSpec<UIInputField> as KindSpec,
-  // ADR 0424: form elements. A select isn't a leaf: its options are its children (laid out in its list, not in it).
+  // ADR 0428: form elements. A select isn't a leaf: its options are its children (laid out in its list, not in it).
   control("toggle", UIToggle, "Toggle", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked, indeterminate: c.indeterminate })),
   control("radio", UIRadio, "Radio", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked })),
   control("slider", UISlider, "Slider", (c) => ({ focus: c.focused, disabled: !c.interactable })),
@@ -99,15 +99,15 @@ const KINDS: readonly KindSpec[] = [
   // A label's whole box takes a click (which goes to its control); a form is a panel.
   { kind: "label", type: UILabel, tag: "Label", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: always } as KindSpec<UILabel> as KindSpec,
   { kind: "form", type: UIForm, tag: "Form", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIForm> as KindSpec,
-  // ADR 0425: a text's inline children are its runs, not boxes (it stays a leaf for layout); its background paints its box.
-  // ADR 0428: a text and its runs are `:hover` under the pointer and `:active` pressed (per run); a border paints too.
+  // ADR 0429: a text's inline children are its runs, not boxes (it stays a leaf for layout); its background paints its box.
+  // ADR 0432: a text and its runs are `:hover` under the pointer and `:active` pressed (per run); a border paints too.
   {
     kind: "text", type: UIText, tag: "Text", leaf: true, interactive: false, flexShrink: 1,
     pseudo: (c: UIText) => ({ hover: uiInteractions(c._world).isTextHovered(c), pressed: uiInteractions(c._world).isTextPressed(c) }),
     paints: (c: UIText) => visible(c.backgroundColor) || (uiBorderEdges(c).some((w) => w > 0) && visible(c.borderColor)) || textRunOf(c)!.text.trim() !== "",
     graphic: always,
   } as KindSpec<UIText> as KindSpec,
-  // ADR 0426: an inline SVG and a video draw as images (their own pictures); audio is a box that draws nothing.
+  // ADR 0430: an inline SVG and a video draw as images (their own pictures); audio is a box that draws nothing.
   { kind: "image", type: UISvg, tag: "Svg", leaf: true, interactive: false, flexShrink: 0, paints: (c: UISvg) => c.markup !== "", graphic: always } as KindSpec<UISvg> as KindSpec,
   { kind: "image", type: UIVideo, tag: "Video", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIVideo) => c.src !== "" || c._player.current !== null, graphic: always } as KindSpec<UIVideo> as KindSpec,
   { kind: "image", type: UIImage, tag: "Image", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIImage) => c.image !== "", graphic: always } as KindSpec<UIImage> as KindSpec,
@@ -162,7 +162,7 @@ export function uiPseudoState(c: UIComponentType): Record<UIPseudo, boolean> {
     pressed: own.pressed ?? false,
     focus: own.focus ?? false,
     disabled: !c.enabled || (own.disabled ?? false),
-    // ADR 0424.
+    // ADR 0428.
     checked: own.checked ?? false,
     indeterminate: own.indeterminate ?? false,
     "placeholder-shown": own["placeholder-shown"] ?? false,
@@ -211,7 +211,7 @@ export function cssFontWeight(w: string): string {
 const WRAPS: Readonly<Record<UIWordBreak, UITextWrap>> = { "break-word": "word", "break-all": "anywhere", "keep-all": "none" };
 
 /**
- * ADR 0428: the base direction an element's text is laid out in: its own `direction`, else the nearest ancestor's below
+ * ADR 0432: the base direction an element's text is laid out in: its own `direction`, else the nearest ancestor's below
  * its canvas (HTML's `dir`), else the current language's (ADR 0356 §5), as before `direction` existed.
  */
 function textDirectionOf(c: UIComponentType): "ltr" | "rtl" {
@@ -234,30 +234,30 @@ function textAlignEdge(align: UITextAlign, direction: "ltr" | "rtl"): UITextRun[
 
 }
 /**
- * ADR 0428: an atomic inline box's size (its margin box and baseline), as its UI core last laid it out; null while it
+ * ADR 0432: an atomic inline box's size (its margin box and baseline), as its UI core last laid it out; null while it
  * hasn't been (it takes no room).
  */
 export type UIInlineAtomSizes = (c: UIComponentType) => UIInlineAtomSize | null;
 
 /**
  * The text an element shows, resolved: a `UIText`'s text, or an input field's value (its placeholder
- * while empty) on one line. Null for kinds without text. A fresh object each call. ADR 0428: `atoms` gives the sizes of
+ * while empty) on one line. Null for kinds without text. A fresh object each call. ADR 0432: `atoms` gives the sizes of
  * atomic inline boxes inside a text (the UI core's layouts of them); without it they take no room.
  */
 export function textRunOf(c: UIComponentType, atoms?: UIInlineAtomSizes): UITextRun | null {
   if (c instanceof UITextArea) {
-    // ADR 0424: lines as typed, wrapped at its width unless `wrap` is `off`; a password-like mask doesn't apply.
+    // ADR 0428: lines as typed, wrapped at its width unless `wrap` is `off`; a password-like mask doesn't apply.
     const direction = textDirectionOf(c);
     return { text: c.value || c.placeholder, fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: c.wrap === "off" ? "none" : "word", direction, align: textAlignEdge("start", direction) };
   }
   if (c instanceof UISelect) {
-    // ADR 0424: the chosen option's label, on one line.
+    // ADR 0428: the chosen option's label, on one line.
     const direction = textDirectionOf(c);
     return { text: selectLabel(c).replace(/[\r\n]/g, " "), fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: "none", direction, align: textAlignEdge("start", direction) };
   }
   if (c instanceof UIInputField) {
     // One line: a line break a script put in the value shows as a space (one for one, so caret indices still match).
-    // ADR 0424: a password's characters show as dots (one each, so caret indices still match).
+    // ADR 0428: a password's characters show as dots (one each, so caret indices still match).
     const shown = c.value && c.type === "password" ? "•".repeat(c.value.length) : c.value;
     const text = (shown || c.placeholder).replace(/[\r\n]/g, " ");
     // Drawn from the language's start edge (ADR 0356 §5).
@@ -267,12 +267,12 @@ export function textRunOf(c: UIComponentType, atoms?: UIInlineAtomSizes): UIText
   if (c instanceof UIText) {
     const direction = textDirectionOf(c);
     const fontFamily = fontFamilyOf(c.font);
-    // ADR 0428: `text-wrap-mode: nowrap` keeps lines whole (an editable text wraps, as `pre-wrap`).
+    // ADR 0432: `text-wrap-mode: nowrap` keeps lines whole (an editable text wraps, as `pre-wrap`).
     const nowrap = !c.contentEditable && c.textWrapMode === "nowrap";
     const wrap: UITextWrap = nowrap ? "none" : (WRAPS[c.wordBreak] ?? "word");
     const run = { text: c.text, fontSize: c.fontSize, fontWeight: cssFontWeight(c.fontWeight), fontFamily, lineHeight: UI_LINE_HEIGHT, wrap, direction, align: textAlignEdge(c.textAlign, direction) };
-    // ADR 0425: inline children make runs (an editable text always has them: its caret and selection are placed by them).
-    // ADR 0428: so does plain text whose spaces take room at a line's end (`break-spaces`): the inline layout places them.
+    // ADR 0429: inline children make runs (an editable text always has them: its caret and selection are placed by them).
+    // ADR 0432: so does plain text whose spaces take room at a line's end (`break-spaces`): the inline layout places them.
     const inline = inlineRunsOf(c, fontFamily, atoms ?? NO_ATOMS);
     if (!inline) return { ...run, text: whiteSpaceText(c.text, c.whiteSpaceCollapse) };
     const { runs, boxes } = inline;
@@ -288,7 +288,7 @@ export function textRunOf(c: UIComponentType, atoms?: UIInlineAtomSizes): UIText
 
 const NO_ATOMS: UIInlineAtomSizes = () => null;
 
-// --- White space (ADR 0428) ----------------------------------------------------------------------
+// --- White space (ADR 0432) ----------------------------------------------------------------------
 
 /** Tabs as spaces up to the next multiple of 8 columns (CSS's default `tab-size`), counting from each line's start. */
 function expandTabs(text: string, column = 0): string {
@@ -325,7 +325,7 @@ function whiteSpaceText(text: string, mode: UIWhiteSpaceCollapse): string {
   }
 }
 
-// --- Inline runs (ADR 0425) ----------------------------------------------------------------------
+// --- Inline runs (ADR 0429) ----------------------------------------------------------------------
 
 const OBJECT = "￼";
 
@@ -338,7 +338,7 @@ function cssColor(c: { r: number; g: number; b: number; a: number }): string {
 const isPlainImage = (c: UIComponentType): c is UIImage => c instanceof UIImage && !(c instanceof UISvg) && !(c instanceof UIVideo);
 
 /**
- * ADR 0428: true for an element inside a text that lays out as an atomic inline box, in a Yoga tree of its own, rather
+ * ADR 0432: true for an element inside a text that lays out as an atomic inline box, in a Yoga tree of its own, rather
  * than as runs of the text: `display: inline-block` or `inline-flex`, and every element that isn't phrasing text or a
  * plain image (a button, a form control, an SVG, a video or audio element, a panel).
  */
@@ -390,7 +390,7 @@ function pixelsOr(v: unknown, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-/** An element's own baseline shift: `sub` lowers, `super` raises (ADR 0425), by its font size (a text's, else its text's). */
+/** An element's own baseline shift: `sub` lowers, `super` raises (ADR 0429), by its font size (a text's, else its text's). */
 function shiftOf(va: UIVerticalAlign, fontSize: number): number {
   return va === "sub" ? -0.25 * fontSize : va === "super" ? 0.45 * fontSize : 0;
 }
@@ -407,8 +407,8 @@ interface RunBuild {
 }
 
 /**
- * A text element's inline runs (ADR 0425): its own text, then each inline child's runs in order (a child text's own
- * text, then its children's, depth first; an image or (ADR 0428) an atomic inline box as one U+FFFC run), with white
+ * A text element's inline runs (ADR 0429): its own text, then each inline child's runs in order (a child text's own
+ * text, then its children's, depth first; an image or (ADR 0432) an atomic inline box as one U+FFFC run), with white
  * space collapsed across runs by each run's rules (unless the text is editable, which keeps it as typed). Null when it
  * has no inline children, isn't editable and keeps no spaces at line ends: plain text, one run, as before.
  */
@@ -440,13 +440,13 @@ function textRun(c: UIText, text: string, ctx: InlineContext, owner: UIComponent
     source: c,
   };
   if (editable) return run;
-  // ADR 0428: the white space rules that change line breaking, only where they apply (plain runs compare as before).
+  // ADR 0432: the white space rules that change line breaking, only where they apply (plain runs compare as before).
   const nowrap = c.textWrapMode === "nowrap";
   const keepSpaces = c.whiteSpaceCollapse === "break-spaces" || (nowrap && c.whiteSpaceCollapse === "preserve");
   return nowrap || keepSpaces ? { ...run, ...(nowrap ? { nowrap } : {}), ...(keepSpaces ? { keepSpaces } : {}) } : run;
 }
 
-/** ADR 0428: an inline element's box (its padding, border and horizontal margins), or null when it has none of them. */
+/** ADR 0432: an inline element's box (its padding, border and horizontal margins), or null when it has none of them. */
 function boxOf(c: UIText, first: number, last: number, ctx: InlineContext): UIInlineBox | null {
   const padding = uiEdges(c.padding, c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft).map((v) => Math.max(0, v)) as [number, number, number, number];
   const margins = uiEdges(c.margin, c.marginTop, c.marginRight, c.marginBottom, c.marginLeft);
@@ -460,7 +460,7 @@ function boxOf(c: UIText, first: number, last: number, ctx: InlineContext): UIIn
 function pushRuns(c: UIText, outer: InlineContext, b: RunBuild, root: boolean): void {
   const out = b.out;
   // The text element itself paints its background over its box (it's drawn by the drawing layer), not behind its runs.
-  // ADR 0428: so does an inline element with a box (padding, a border or margins): its runs don't paint it again.
+  // ADR 0432: so does an inline element with a box (padding, a border or margins): its runs don't paint it again.
   const boxIndex = root ? -1 : b.boxes.length;
   if (!root) b.boxes.push(null as unknown as UIInlineBox); // its place, outer boxes before inner ones
   const first = out.length;
@@ -477,10 +477,10 @@ function pushRuns(c: UIText, outer: InlineContext, b: RunBuild, root: boolean): 
       };
   const box = root ? null : boxOf(c, first, first, ctx);
   const inner: InlineContext = box ? { ...ctx, background: outer.background } : ctx;
-  // A text piece's events go to the element it's in, as a generated `::before`/`::after`'s do (ADR 0428).
+  // A text piece's events go to the element it's in, as a generated `::before`/`::after`'s do (ADR 0432).
   const owner = c._textPiece || c._pseudo ? ownerAbove(c) : c;
   const children = inlineChildren(c);
-  // ADR 0428: a `::before` comes before the element's own text (a run, or an atomic box when it's `inline-block`).
+  // ADR 0432: a `::before` comes before the element's own text (a run, or an atomic box when it's `inline-block`).
   const before = children[0] instanceof UIText && children[0]._pseudo === "before" ? children[0] : null;
   const rest = before ? children.slice(1) : children;
   if (before) pushChild(c, before, inner, b);
@@ -496,14 +496,14 @@ function pushRuns(c: UIText, outer: InlineContext, b: RunBuild, root: boolean): 
 function pushChild(c: UIText, k: Exclude<UIComponentType, UICanvas>, inner: InlineContext, b: RunBuild): void {
   const out = b.out;
   if (isInlineAtom(k)) {
-    // ADR 0428: an atomic inline box: one object run, the size of its own layout's margin box.
+    // ADR 0432: an atomic inline box: one object run, the size of its own layout's margin box.
     const va = (k as { verticalAlign?: UIVerticalAlign }).verticalAlign ?? "baseline";
     const size = b.atoms(k) ?? { width: 0, height: 0, baseline: 0 };
     out.push({ ...textRun(c, OBJECT, inner, k, b.editable), verticalAlign: alignOf(va), shift: inner.shift + shiftOf(va, c.fontSize), decoration: "", background: null, atom: { width: size.width, height: size.height, baseline: size.baseline }, owner: k, source: null });
     return;
   }
   if (k instanceof UIText) {
-    // A child text, a `<br>` (a line break in the run's style) or a generated `::before`/`::after` (ADR 0428).
+    // A child text, a `<br>` (a line break in the run's style) or a generated `::before`/`::after` (ADR 0432).
     pushRuns(k, inner, b, false);
     return;
   }
@@ -523,7 +523,7 @@ function ownerAbove(c: UIText): UIComponentType {
   return c;
 }
 
-/** ADR 0428: a run's white space rules for collapsing (its source text's; objects and line breaks have none). */
+/** ADR 0432: a run's white space rules for collapsing (its source text's; objects and line breaks have none). */
 function collapseOf(r: UIInlineRun): UIWhiteSpaceCollapse {
   return (r.source as UIText | null)?.whiteSpaceCollapse ?? "collapse";
 }
@@ -535,7 +535,7 @@ const collapsible = (r: UIInlineRun) => {
 };
 
 /**
- * White space collapsing across runs (HTML's, by each run's `white-space-collapse`, ADR 0428): in a run that collapses,
+ * White space collapsing across runs (HTML's, by each run's `white-space-collapse`, ADR 0432): in a run that collapses,
  * spaces, tabs and line breaks are one space, and a space after a collapsible space (in an earlier run too) or at a line's
  * start goes; `preserve-breaks` keeps line breaks (spaces around them go); `preserve` and `break-spaces` keep everything
  * (tabs as spaces). Collapsible spaces before a line break (a `<br>` run, a kept one) or at the end go. `<br>` runs are
@@ -580,7 +580,7 @@ function collapseRuns(runs: UIInlineRun[]): void {
   trimBefore(runs, runs.length);
 }
 
-/** True for a `<br>`'s run (ADR 0428: the host marks `<br>` elements; text that is only a line break isn't one). */
+/** True for a `<br>`'s run (ADR 0432: the host marks `<br>` elements; text that is only a line break isn't one). */
 function isBreak(r: UIInlineRun): boolean {
   return r.text === "\n" && !!(r.source as UIText | null)?._lineBreak;
 }
@@ -596,7 +596,7 @@ function trimBefore(runs: UIInlineRun[], end: number): void {
   }
 }
 
-// --- Overflow (ADR 0418 wave 1, 0423) -------------------------------------------------------------
+// --- Overflow (ADR 0422 wave 1, 0427) -------------------------------------------------------------
 
 /**
  * An element's overflow on each axis: `overflowX`/`overflowY`, else `overflow`. As in CSS, `visible` beside an axis that
@@ -635,12 +635,12 @@ export function sameTextRun(a: UITextRun | null, b: UITextRun | null): boolean {
   return a.text === b.text && a.fontSize === b.fontSize && a.fontWeight === b.fontWeight && a.fontFamily === b.fontFamily && a.lineHeight === b.lineHeight && a.wrap === b.wrap && a.direction === b.direction && a.align === b.align && a.editable === b.editable && sameRuns(a.runs, b.runs) && sameBoxes(a.boxes, b.boxes, true);
 }
 
-/** ADR 0428: true when two atomic boxes' sizes are the same. */
+/** ADR 0432: true when two atomic boxes' sizes are the same. */
 function sameAtom(x: UIInlineAtomSize | null | undefined, y: UIInlineAtomSize | null | undefined): boolean {
   return x === y || (!!x && !!y && x.width === y.width && x.height === y.height && x.baseline === y.baseline) || (!x && !y);
 }
 
-/** ADR 0428: true when two box lists are the same (with `paint`, their colours too; else only what lays them out). */
+/** ADR 0432: true when two box lists are the same (with `paint`, their colours too; else only what lays them out). */
 function sameBoxes(a: readonly UIInlineBox[] | undefined, b: readonly UIInlineBox[] | undefined, paint: boolean): boolean {
   if (a === b) return true;
   const x = a ?? [], y = b ?? [];
@@ -654,7 +654,7 @@ function sameBoxes(a: readonly UIInlineBox[] | undefined, b: readonly UIInlineBo
   return true;
 }
 
-/** ADR 0425: true when two run lists are the same, run by run (style, owner and source included). */
+/** ADR 0429: true when two run lists are the same, run by run (style, owner and source included). */
 function sameRuns(a: readonly UIInlineRun[] | undefined, b: readonly UIInlineRun[] | undefined): boolean {
   if (a === b) return true;
   if (!a || !b || a.length !== b.length) return false;
@@ -668,7 +668,7 @@ function sameRuns(a: readonly UIInlineRun[] | undefined, b: readonly UIInlineRun
 }
 
 /**
- * ADR 0425: true when two runs measure the same (what the text says and how it's set: colours, decorations and
+ * ADR 0429: true when two runs measure the same (what the text says and how it's set: colours, decorations and
  * backgrounds aside), so a colour change (a link's hover) redraws without laying out again.
  */
 export function sameTextMeasure(a: UITextRun | null, b: UITextRun | null): boolean {

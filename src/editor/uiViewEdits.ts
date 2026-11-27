@@ -1,5 +1,5 @@
-// Editing Svelte UI from the editor (ADR 0419 wave C): the Inspector's fields, text, id and classes, Move to class,
-// Localise and Extract to string table (ADR 0356 §9, 0419 wave F), Create, the hierarchy's rename, duplicate, delete
+// Editing Svelte UI from the editor (ADR 0423 wave C): the Inspector's fields, text, id and classes, Move to class,
+// Localise and Extract to string table (ADR 0356 §9, 0423 wave F), Create, the hierarchy's rename, duplicate, delete
 // and drag, and the scene view's handles, all written back to the
 // view's `.svelte` source with edits that change only their own text (`uiEdit/svelteText.ts`, on `parse()` spans).
 // The rules:
@@ -8,7 +8,7 @@
 //   edits, and the History panel lists it. The file host writes through the project; writing UI code
 //   reloads the project's code (`textFiles.ts`), and the view hot-reloads with its props.
 // - Whether it can be edited now (a scene open, a project that can save, not playing) is the edit gate's (ADR 0247).
-// - Only static parts of the view's own component are edited (owner decision 1 of ADR 0419): `uiViews.ts`'s
+// - Only static parts of the view's own component are edited (owner decision 1 of ADR 0423): `uiViews.ts`'s
 //   `whyViewOnly` says why the others aren't, in the status bar.
 // - A selection is a template location; an edit that moves the selected element selects it where it went.
 import type { UIHostElement } from "../engine/ui/host/UIHost";
@@ -229,7 +229,7 @@ export function setUIViewElementClasses(ref: UIViewRef, classes: string): boolea
   return setUIViewElementAttributes(ref, { class: list.length ? list.join(" ") : null }, "Set class");
 }
 
-// --- Localised text (ADR 0356 §9, 0419 wave F) ----------------------------------------------------------
+// --- Localised text (ADR 0356 §9, 0423 wave F) ----------------------------------------------------------
 
 /** The text a rendered element shows that can be localised (its text content, its text attributes), each as written; [] when its source can't be read. */
 export function uiViewElementTexts(scene: OpenScene | null, ref: UIViewRef): LocalisablePart[] {
@@ -403,7 +403,7 @@ export const NEW_VIEW_ELEMENTS: Readonly<Record<string, { readonly label: string
   button: { label: "Button", markup: `<button width="160" height="40">Button</button>` },
   img: { label: "Image (img)", markup: `<img width="100" height="100" alt="" />` },
   input: { label: "Input Field (input)", markup: `<input placeholder="Enter text…" />` },
-  // ADR 0424: form elements.
+  // ADR 0428: form elements.
   textarea: { label: "Text Area (textarea)", markup: `<textarea placeholder="Enter text…"></textarea>` },
   checkbox: { label: "Checkbox (input)", markup: `<input type="checkbox" />` },
   radio: { label: "Radio Button (input)", markup: `<input type="radio" name="choice" />` },

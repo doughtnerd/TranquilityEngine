@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The Sound Lab's mixer page text (ADR 0419): the page's heading lines and its readouts. The look is in lab.css,
+  // The Sound Lab's mixer page text (ADR 0423): the page's heading lines and its readouts. The look is in lab.css,
   // shared by every page; the scripts on the scene's nodes pass the readouts in through the HUD's UIView props.
   import "./lab.css";
   let { mixer = "", loudness = "" }: { mixer?: string; loudness?: string } = $props();

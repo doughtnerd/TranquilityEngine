@@ -1,4 +1,4 @@
-// `svelte/reactivity` as game UI imports it (ADR 0419: its `MediaQuery` follows canvas `@media`, ADR 0418 wave 5):
+// `svelte/reactivity` as game UI imports it (ADR 0423: its `MediaQuery` follows canvas `@media`, ADR 0422 wave 5):
 // Svelte's own module, with `MediaQuery` asking the engine renderer's window target (`matchMedia`, evaluated against the
 // canvas in UI pixels) instead of the browser's window. Svelte's `MediaQuery` calls the global `window.matchMedia`,
 // which in a game is the page, not the canvas, and doesn't exist at all in Node. Compiled UI code gets this module for

@@ -1,5 +1,5 @@
 /**
- * `UIPreferences` (ADR 0427): the player's UI preferences that CSS and Svelte read as user-preference media features,
+ * `UIPreferences` (ADR 0431): the player's UI preferences that CSS and Svelte read as user-preference media features,
  * the hook a game's options menu uses.
  *
  * - **`reducedMotion`**: canvas `@media (prefers-reduced-motion: reduce)` matches while it's true, and Svelte's
@@ -106,7 +106,7 @@ function read(data: unknown): Chosen {
   return out;
 }
 
-/** The player's UI preferences (ADR 0427): reduced motion and colour scheme, as CSS `@media` and Svelte read them. */
+/** The player's UI preferences (ADR 0431): reduced motion and colour scheme, as CSS `@media` and Svelte read them. */
 export const UIPreferences = {
   /** Whether the player prefers reduced motion: their choice, else the system's. Set `null` to follow the system again. */
   get reducedMotion(): boolean {

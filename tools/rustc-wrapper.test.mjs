@@ -1,4 +1,4 @@
-// Tests for native/rustc-wrapper.mjs and native/rustflags.mjs (ADR 0428: reproducible wasm builds).
+// Tests for native/rustc-wrapper.mjs and native/rustflags.mjs (ADR 0432: reproducible wasm builds).
 // Run: node --test tools/rustc-wrapper.test.mjs. The wrapper runs as Cargo runs it, with a stand-in rustc that
 // records its arguments.
 import test from "node:test";

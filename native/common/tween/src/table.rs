@@ -16,7 +16,7 @@
 //! A kill or destroy command takes effect at once (the tween leaves the output) and its record is
 //! written by the next update of its World.
 //!
-//! Moved from `anim-wasm/src/tweens.rs` (ADR 0420 spike); unchanged but for the curve lookup.
+//! Moved from `anim-wasm/src/tweens.rs` (ADR 0424 spike); unchanged but for the curve lookup.
 
 use alloc::vec;
 use alloc::vec::Vec;

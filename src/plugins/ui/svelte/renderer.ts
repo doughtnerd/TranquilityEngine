@@ -1,20 +1,20 @@
 /**
- * The engine's Svelte renderer (ADR 0419): `createRenderer` from `svelte/renderer`, whose nodes become UI
+ * The engine's Svelte renderer (ADR 0423): `createRenderer` from `svelte/renderer`, whose nodes become UI
  * core elements through the UI core's external tree host (`engine/ui/host/UIHost.ts`). Compiled UI
  * components import it (`experimental.customRenderer`, as `myco/ui-renderer`); `UIView` loads it on demand,
  * so games without Svelte UI never download Svelte.
  *
  * - **Tags are HTML names**, mapped onto UI elements (`engine/ui/host/htmlTags.ts`): `div`, `section`,
  *   `nav`… → Panel; `span`, `p`, `h1`–`h6`, `label` → Text; `img` → Image; `button` → Button; `input` →
- *   InputField; (ADR 0426) `svg` → Svg, `video` → Video, `audio` → Audio. Unknown tags warn once and are Panels. The
+ *   InputField; (ADR 0430) `svg` → Svg, `video` → Video, `audio` → Audio. Unknown tags warn once and are Panels. The
  *   cascade matches the tag as written.
- * - **Inline SVG (ADR 0426).** An `<svg>`'s descendants (`path`, `rect`, `circle`, `g`, `text`, `use`, gradients…) aren't
+ * - **Inline SVG (ADR 0430).** An `<svg>`'s descendants (`path`, `rect`, `circle`, `g`, `text`, `use`, gradients…) aren't
  *   UI elements: the renderer keeps them as nodes and writes the subtree as SVG text to the `<svg>`'s `UISvg.markup`
  *   whenever anything in it changes; the drawing layer rasterises it. Only the `<svg>` itself is styled by the cascade
  *   (its size, `color` for `currentColor`); shapes take their paint from attributes and inline styles. Pointer events on
  *   the `<svg>` go on to the shape under them (`svgShapeAt`: geometry and `pointer-events`), through its groups. Shapes
  *   have `getTotalLength()`/`getPointAtLength()`, and `draw` writes its stroke dashes into the subtree each frame.
- * - **Media (ADR 0426).** `<video>` and `<audio>` nodes have the media API (`play`, `pause`, `currentTime`, `duration`,
+ * - **Media (ADR 0430).** `<video>` and `<audio>` nodes have the media API (`play`, `pause`, `currentTime`, `duration`,
  *   `paused`, `ended`, `volume`, `muted`, `playbackRate`, `loop`…) over their `UIVideo`/`UIAudio`, media events
  *   (`onplay`, `onended`, `ontimeupdate`…) and Svelte's media bindings through `bind`. `src` (or a `<source>` child's),
  *   `autoplay`, `loop` and `muted` attributes are fields.
@@ -27,10 +27,10 @@
  *   its text. Anywhere else, text with something other than whitespace is a Text element of its own (a
  *   button's label). Whitespace is collapsed as UI markup does. Comments (Svelte's anchors) are never built.
  * - **Events** are the UI core's (ADR 0309) with DOM names: `onclick`, `oninput`, `onchange`, `onsubmit`,
- *   `onfocus`, `onblur`, `onpointerenter`, `onpointerleave` (and `onmouseenter`/`onmouseleave`), and (ADR 0422)
+ *   `onfocus`, `onblur`, `onpointerenter`, `onpointerleave` (and `onmouseenter`/`onmouseleave`), and (ADR 0426)
  *   `onpointerdown`/`up`/`move`/`over`/`out`/`cancel` (and their `onmouse…` names), `ondblclick`, `oncontextmenu`,
  *   `onwheel`, `onkeydown`/`onkeyup` (on the focused element), `onfocusin`/`onfocusout`, `onscroll`/`onscrollend`
- *   (ADR 0423) and drags, as event attributes or legacy `on:` directives (with their modifiers). They travel through
+ *   (ADR 0427) and drags, as event attributes or legacy `on:` directives (with their modifiers). They travel through
  *   the nodes' ancestors in capture (`onclickcapture`, `addEventListener(…, { capture: true })`), target and bubble
  *   phases, then, bubbling out of the view, through `<svelte:body>`, `<svelte:document>` and `<svelte:window>`. A
  *   handler gets a `UIHostEvent` whose `target` is the node it happened on and `currentTarget` the node listening
@@ -50,7 +50,7 @@
  *   `querySelector`/`querySelectorAll`, `contains`, `parentElement`/`parentNode`/`children`/`childNodes`/
  *   `firstElementChild`/`lastElementChild`/`nextElementSibling`/`previousElementSibling` (and the node
  *   versions), `value`, `tagName`, `textContent`, `innerHTML` (read-only), `isConnected`, `element` (the
- *   hosted UI element), and (ADR 0423) `scrollTop`/`scrollLeft`, `scrollWidth`/`scrollHeight`/`clientWidth`/
+ *   hosted UI element), and (ADR 0427) `scrollTop`/`scrollLeft`, `scrollWidth`/`scrollHeight`/`clientWidth`/
  *   `clientHeight`, `scrollTo`, `scrollBy` and `scrollIntoView`.
  * - **`t()`** from "myco" is reactive in components: the renderer installs a reactive read of `Locale.epoch`.
  *
@@ -91,7 +91,7 @@ const EVENTS: Readonly<Record<string, UIHostEventType>> = {
   pointerleave: "pointerleave",
   mouseenter: "pointerenter",
   mouseleave: "pointerleave",
-  // ADR 0422: the pointer (with the mouse names browsers also fire), keys, focus moving, drags; ADR 0423: scrolling.
+  // ADR 0426: the pointer (with the mouse names browsers also fire), keys, focus moving, drags; ADR 0427: scrolling.
   pointerdown: "pointerdown",
   pointerup: "pointerup",
   pointermove: "pointermove",
@@ -119,9 +119,9 @@ const EVENTS: Readonly<Record<string, UIHostEventType>> = {
   dragleave: "dragleave",
   drop: "drop",
   dragend: "dragend",
-  // ADR 0424: a form's reset.
+  // ADR 0428: a form's reset.
   reset: "reset",
-  // ADR 0418 wave 4: stylesheet animation events, the frame after they happen.
+  // ADR 0422 wave 4: stylesheet animation events, the frame after they happen.
   transitionend: "transitionend",
   animationstart: "animationstart",
   animationiteration: "animationiteration",
@@ -133,7 +133,7 @@ const HEAD_TAGS = new Set(["head", "meta", "link", "base", "script", "style", "n
 
 /** Attributes HTML has that aren't UI fields: kept on the node (getAttribute sees them), never given to the cascade. */
 const HTML_ONLY = new Set(["type", "name", "for", "alt", "title", "role", "tabindex", "autocomplete", "lang", "dir", "hidden", "spellcheck", "inputmode", "autofocus", "form", "method", "action",
-  // ADR 0425: a link's and an inline element's attributes stay on the node (a game handles a link's click itself).
+  // ADR 0429: a link's and an inline element's attributes stay on the node (a game handles a link's click itself).
   "href", "target", "rel", "download", "hreflang", "cite", "datetime"]);
 
 type Handler = (this: unknown, e: unknown) => void;
@@ -142,7 +142,7 @@ type Handler = (this: unknown, e: unknown) => void;
 type Propagating = { type: string; bubbles?: boolean; eventPhase?: number; _stopped?: boolean; _stoppedNow?: boolean; _passive?: boolean; target?: unknown; currentTarget?: unknown };
 
 /**
- * ADR 0422: run `type`'s listeners on `el` for a phase (1 capture, 2 target, 3 bubble), `this` being the node. A
+ * ADR 0426: run `type`'s listeners on `el` for a phase (1 capture, 2 target, 3 bubble), `this` being the node. A
  * listener added with `once` is removed first; `stopImmediatePropagation` ends the run.
  */
 /**
@@ -366,7 +366,7 @@ function datasetProxy(el: UIRenderElement): Record<string, string | undefined> {
 
 /** An element: what Svelte creates for a tag, and what `bind:this`, actions and attachments receive. */
 export class UIRenderElement extends UINodeBase {
-  /** @internal The UI element it makes (ADR 0424: an `<input>`'s follows its `type`). */ _uiTag: UITag;
+  /** @internal The UI element it makes (ADR 0428: an `<input>`'s follows its `type`). */ _uiTag: UITag;
   /** @internal */ readonly _attrs = new Map<string, unknown>();
   /** @internal */ _children: UINode[] = [];
   /** @internal Listeners by DOM event type (any type: a UI event's, or one an action dispatches). */ readonly _listeners = new Map<string, UIListener<Handler>[]>();
@@ -374,7 +374,7 @@ export class UIRenderElement extends UINodeBase {
   /** @internal */ _hosted: UIHostElement | null = null;
   /** @internal Set on the container a view mounts into: the tree it hosts. */ _tree: UIHostTree | null = null;
   /** @internal An input's value set before its element was made (a binding, a script). */ _pendingValue: string | null = null;
-  /** @internal ADR 0424: `checked`, `indeterminate` and `selected` set before its element was made. */ _pendingState: Partial<Record<"checked" | "indeterminate" | "selected", boolean>> = {};
+  /** @internal ADR 0428: `checked`, `indeterminate` and `selected` set before its element was made. */ _pendingState: Partial<Record<"checked" | "indeterminate" | "selected", boolean>> = {};
   /**
    * @internal HTML's defaults, what a form reset puts back: a field's `defaultValue` (its template `value` or
    * `defaultValue`), a checkbox's `defaultChecked`. An option's is its `selected` attribute.
@@ -386,9 +386,9 @@ export class UIRenderElement extends UINodeBase {
   /** @internal HTML's dirty flags: the value or checked state was set (by a script, a binding or the player), so a new default leaves it. */ _dirty = { value: false, checked: false, selected: false };
   /** @internal A select's `defaultValue` (Svelte's, not the DOM's): the options a reset restores, chosen at first unless a value is bound. */ _selectDefault: { value: unknown } | null = null;
   /** @internal A select's bound value (`bind:value`), which options added later are chosen by; absent: none bound. */ _bound: { value: unknown } | null = null;
-  /** @internal ADR 0426: inside an <svg>, the CSS a Svelte transition is writing now (`draw`'s stroke dashes), by kebab-case property. */ _svgAnim: Readonly<Record<string, string>> | null = null;
-  /** @internal ADR 0426: a media element's media-event relays from its hosted element, by type. */ _mediaRelays = new Map<string, (e: UIMediaEvent) => void>();
-  /** @internal ADR 0426: media properties a script set before the element was made (`volume`, `muted`, `playbackRate`, `currentTime`). */ _pendingMedia = new Map<string, number | boolean>();
+  /** @internal ADR 0430: inside an <svg>, the CSS a Svelte transition is writing now (`draw`'s stroke dashes), by kebab-case property. */ _svgAnim: Readonly<Record<string, string>> | null = null;
+  /** @internal ADR 0430: a media element's media-event relays from its hosted element, by type. */ _mediaRelays = new Map<string, (e: UIMediaEvent) => void>();
+  /** @internal ADR 0430: media properties a script set before the element was made (`volume`, `muted`, `playbackRate`, `currentTime`). */ _pendingMedia = new Map<string, number | boolean>();
   readonly classList: RenderClassList = new RenderClassList(this);
   /** Its inline style, as the DOM's `CSSStyleDeclaration`: `style.color = "red"`, `style.setProperty("--x", "1")`. */
   readonly style: RenderStyle = styleProxy(new RenderStyle(this));
@@ -402,7 +402,7 @@ export class UIRenderElement extends UINodeBase {
     super();
     const ui = uiTagOfHtml(localName);
     // Head content (`<svelte:head>`) is warned about where it's inserted.
-    // ADR 0426: an <svg>'s shapes are kept as its SVG document (warned about where they're inserted outside one).
+    // ADR 0430: an <svg>'s shapes are kept as its SVG document (warned about where they're inserted outside one).
     if (!ui && !HEAD_TAGS.has(localName) && !SVG_CONTENT_TAGS.has(localName.toLowerCase())) warnOnce(`<${localName}> isn't an HTML tag the UI knows; it renders as a Panel (a <div>).`);
     this._uiTag = ui ?? "Panel";
     // A select iterates over its options (`const [first] = select`), as the DOM's does; other elements aren't iterable.
@@ -476,7 +476,7 @@ export class UIRenderElement extends UINodeBase {
     this.reflectFlag("inert", on);
   }
 
-  /** HTML's `disabled` (a boolean attribute; a disabled control isn't interactable, ADR 0424). */
+  /** HTML's `disabled` (a boolean attribute; a disabled control isn't interactable, ADR 0428). */
   get disabled(): boolean {
     return this.hasAttribute("disabled");
   }
@@ -645,7 +645,7 @@ export class UIRenderElement extends UINodeBase {
   }
 
   /**
-   * ADR 0425: replace its content with HTML, parsed by the inline HTML parser (phrasing elements inside a text element are
+   * ADR 0429: replace its content with HTML, parsed by the inline HTML parser (phrasing elements inside a text element are
    * its runs; block elements are panels; scripts, styles and event attributes are dropped).
    */
   set innerHTML(html: string) {
@@ -653,7 +653,7 @@ export class UIRenderElement extends UINodeBase {
     if (html !== "" && html !== null && html !== undefined) renderer.insert(this, htmlFragment(String(html)), null);
   }
 
-  /** ADR 0425: its text as shown: `textContent` with each `<br>` a line break. */
+  /** ADR 0429: its text as shown: `textContent` with each `<br>` a line break. */
   get innerText(): string {
     return this._children.map((c) => (c instanceof UIRenderText ? c.data : c instanceof UIRenderElement ? (c.localName.toLowerCase() === "br" ? "\n" : c.innerText) : "")).join("");
   }
@@ -666,7 +666,7 @@ export class UIRenderElement extends UINodeBase {
     return serialize(this);
   }
 
-  /** The first element inside this one a selector matches (the cascade's selector grammar, ADR 0418 wave 5). */
+  /** The first element inside this one a selector matches (the cascade's selector grammar, ADR 0422 wave 5). */
   querySelector(selector: string): UIRenderElement | null {
     return this.querySelectorAll(selector)[0] ?? null;
   }
@@ -721,7 +721,7 @@ export class UIRenderElement extends UINodeBase {
   }
 
   /**
-   * Dispatch `event` now (any type), as if it happened here (ADR 0422): through this node's ancestors in capture,
+   * Dispatch `event` now (any type), as if it happened here (ADR 0426): through this node's ancestors in capture,
    * target and (when `event.bubbles`) bubble phases, then, out of a mounted view, `<svelte:body>`, `<svelte:document>`
    * and `<svelte:window>`. Returns false if a listener called `preventDefault`.
    */
@@ -796,7 +796,7 @@ export class UIRenderElement extends UINodeBase {
     renderer.removeEventListener(this, type, handler, options as never);
   }
 
-  // --- Scrolling (ADR 0423): the hosted element's, once there is one ---------------------------------
+  // --- Scrolling (ADR 0427): the hosted element's, once there is one ---------------------------------
 
   /** How far its content is scrolled down, in UI pixels; set it to scroll. */
   get scrollTop(): number {
@@ -858,12 +858,12 @@ export class UIRenderElement extends UINodeBase {
   }
 
   /**
-   * Its box in its canvas's UI pixels from the last layout, through its transforms (ADR 0418 wave 3: the
+   * Its box in its canvas's UI pixels from the last layout, through its transforms (ADR 0422 wave 3: the
    * axis-aligned rectangle around the transformed box, not cut by clips), laid out first when the view changed since
    * (as the DOM's is). Zero size when nothing lays the World out.
    */
   getBoundingClientRect(): { x: number; y: number; width: number; height: number; top: number; left: number; right: number; bottom: number } {
-    // ADR 0426: a shape inside an <svg> reports its <svg>'s box.
+    // ADR 0430: a shape inside an <svg> reports its <svg>'s box.
     const at = this._hosted ?? svgRootOf(this)?._hosted ?? null;
     at?.tree.layoutNow(); // as reading layout does in the DOM: changes made since the last layout count
     const r = at?.bounds() ?? { x: 0, y: 0, width: 0, height: 0 };
@@ -871,7 +871,7 @@ export class UIRenderElement extends UINodeBase {
   }
 
   /**
-   * ADR 0426: an SVG shape's length in its user units (`path`, `rect`, `circle`, `ellipse`, `line`, `polyline`,
+   * ADR 0430: an SVG shape's length in its user units (`path`, `rect`, `circle`, `ellipse`, `line`, `polyline`,
    * `polygon`; the arc length of its path, `svgGeometry.ts`), as `svelte/transition`'s `draw` reads it. 0 for other tags.
    */
   getTotalLength(): number {
@@ -883,13 +883,13 @@ export class UIRenderElement extends UINodeBase {
     return pathLength(shapePath(tag, (n) => this.getAttribute(n)));
   }
 
-  /** ADR 0426: the point `distance` along an SVG shape, in its user units (the origin for other tags). */
+  /** ADR 0430: the point `distance` along an SVG shape, in its user units (the origin for other tags). */
   getPointAtLength(distance: number): { x: number; y: number } {
     const tag = this.localName.toLowerCase();
     return SVG_GEOMETRY_TAGS.has(tag) ? pointAtLength(shapePath(tag, (n) => this.getAttribute(n)), Number(distance) || 0) : { x: 0, y: 0 };
   }
 
-  // --- Media (ADR 0426): `<video>` and `<audio>`, through their hosted `UIVideo`/`UIAudio` --------------------
+  // --- Media (ADR 0430): `<video>` and `<audio>`, through their hosted `UIVideo`/`UIAudio` --------------------
 
   /** Start playing (resolves at once; a browser that refuses to play warns). */
   play(): Promise<void> {
@@ -980,7 +980,7 @@ export class UIRenderElement extends UINodeBase {
   }
 
   /**
-   * Input fields: their text (what the player typed). ADR 0424: a select's chosen value, a slider's number, a checkbox's
+   * Input fields: their text (what the player typed). ADR 0428: a select's chosen value, a slider's number, a checkbox's
    * or radio's `value` ("on" without one), an option's (its text without one). Setting it isn't a player change.
    */
   get value(): string {
@@ -1011,7 +1011,7 @@ export class UIRenderElement extends UINodeBase {
     else this._pendingValue = v;
   }
 
-  /** ADR 0424: a slider's or number field's value as a number (NaN when it isn't one). */
+  /** ADR 0428: a slider's or number field's value as a number (NaN when it isn't one). */
   get valueAsNumber(): number {
     const v = this.value;
     return v.trim() === "" ? NaN : Number(v);
@@ -1053,7 +1053,7 @@ export class UIRenderElement extends UINodeBase {
     this.value = String(Number(next.toFixed(decimals)));
   }
 
-  /** ADR 0424: a checkbox's or radio's state (a radio checked unchecks its group). Setting it isn't a player change. */
+  /** ADR 0428: a checkbox's or radio's state (a radio checked unchecks its group). Setting it isn't a player change. */
   get checked(): boolean {
     return this.state("checked");
   }
@@ -1091,7 +1091,7 @@ export class UIRenderElement extends UINodeBase {
     else renderer.removeAttribute(this, "selected");
   }
 
-  /** ADR 0424: a checkbox shown as neither (a dash) until the player toggles it. */
+  /** ADR 0428: a checkbox shown as neither (a dash) until the player toggles it. */
   get indeterminate(): boolean {
     return this.state("indeterminate");
   }
@@ -1100,7 +1100,7 @@ export class UIRenderElement extends UINodeBase {
     this.setState("indeterminate", !!on);
   }
 
-  /** ADR 0424: an option chosen in its select. */
+  /** ADR 0428: an option chosen in its select. */
   get selected(): boolean {
     return this.state("selected");
   }
@@ -1115,7 +1115,7 @@ export class UIRenderElement extends UINodeBase {
     this.setState(name, on);
   }
 
-  /** ADR 0424: a select's options (as nodes), and the index of its chosen one (-1: none). */
+  /** ADR 0428: a select's options (as nodes), and the index of its chosen one (-1: none). */
   get options(): UIRenderElement[] {
     const out: UIRenderElement[] = [];
     const walk = (el: UIRenderElement) => {
@@ -1146,13 +1146,13 @@ export class UIRenderElement extends UINodeBase {
     else for (const o of options) if (o.selected) o.selected = false;
   }
 
-  /** ADR 0424: the form a control is in (null outside forms). */
+  /** ADR 0428: the form a control is in (null outside forms). */
   get form(): UIRenderElement | null {
     for (let n = this._parent; n instanceof UIRenderElement && !n._tree; n = n._parent) if (n._uiTag === "Form") return n;
     return null;
   }
 
-  /** ADR 0424, forms: send `submit` as a submit button does (`requestSubmit`; `submit` sends none, as on the web). */
+  /** ADR 0428, forms: send `submit` as a submit button does (`requestSubmit`; `submit` sends none, as on the web). */
   requestSubmit(): void {
     const c = this._hosted?.component;
     if (c instanceof UIForm) c.requestSubmit();
@@ -1162,7 +1162,7 @@ export class UIRenderElement extends UINodeBase {
     // The DOM's `submit()` sends no event and a game has no page to send the form to: nothing happens.
   }
 
-  /** ADR 0424, forms: send `reset`, then (unless prevented) put the controls back as they were made. */
+  /** ADR 0428, forms: send `reset`, then (unless prevented) put the controls back as they were made. */
   reset(): void {
     const c = this._hosted?.component;
     if (c instanceof UIForm) c.reset();
@@ -1228,7 +1228,7 @@ function serialize(node: UINode): string {
 
 /** A compound of a node selector: all of it must match. */
 /**
- * The selector target a node is for `querySelector`, `matches` and `closest`: the cascade's grammar (ADR 0418 wave 5:
+ * The selector target a node is for `querySelector`, `matches` and `closest`: the cascade's grammar (ADR 0422 wave 5:
  * structural pseudo-classes, `:not()`/`:is()`, attribute operators, sibling combinators), matched by the UI core's own
  * matcher (`matchesUISelector`). Its ancestors run up to the view's mount node (the page's content, as Svelte's
  * `target`); positions count element siblings only. Built per query: the nodes change between queries.
@@ -1273,12 +1273,12 @@ function treeOf(node: UINode | UIRenderFragment | null): UIHostTree | null {
 }
 
 const isTextKind = (n: unknown): n is UIRenderElement => n instanceof UIRenderElement && n._uiTag === "Text";
-/** Elements with no children (ADR 0424: the form controls but a select, a label and a form; ADR 0426: an <svg>'s shapes are its document, and media). */
+/** Elements with no children (ADR 0428: the form controls but a select, a label and a form; ADR 0430: an <svg>'s shapes are its document, and media). */
 const LEAF_TAGS: ReadonlySet<UITag> = new Set(["Image", "InputField", "TextArea", "Toggle", "Radio", "Slider", "Progress", "Meter", "Svg", "Video", "Audio"]);
 const isLeafKind = (n: UIRenderElement) => LEAF_TAGS.has(n._uiTag);
 const isMediaNode = (n: unknown): n is UIRenderElement & { readonly _uiTag: "Video" | "Audio" } => n instanceof UIRenderElement && (n._uiTag === "Video" || n._uiTag === "Audio");
 
-// --- Inline SVG (ADR 0426) -------------------------------------------------------------------------
+// --- Inline SVG (ADR 0430) -------------------------------------------------------------------------
 
 /** The outermost `<svg>` above `node` (not itself): the hosted element its SVG document belongs to. Null outside one. */
 function svgRootOf(node: UINode): UIRenderElement | null {
@@ -1387,7 +1387,7 @@ function svgComputedStyle(node: UIRenderElement): Record<string, string> {
 }
 
 /**
- * ADR 0426: the shape of `svg` under a point of its box (its own pixels, from its corner), topmost first, by each shape's
+ * ADR 0430: the shape of `svg` under a point of its box (its own pixels, from its corner), topmost first, by each shape's
  * geometry and `pointer-events` (`visiblePainted` by default: its fill where it's filled, its stroke where it's stroked).
  * Null: none (the `<svg>` itself is hit).
  */
@@ -1434,7 +1434,7 @@ function svgPathBetween(svg: UIRenderElement, shape: UIRenderElement): UIRenderE
   return out;
 }
 
-// --- Media (ADR 0426) ------------------------------------------------------------------------------
+// --- Media (ADR 0430) ------------------------------------------------------------------------------
 
 /** A `<video>`'s or `<audio>`'s hosted component, once it's shown. */
 function mediaOf(node: UIRenderElement): UIVideo | UIAudio | null {
@@ -1506,7 +1506,7 @@ function bindMedia(node: UIRenderElement, name: string, get: () => unknown, set:
 }
 
 /**
- * ADR 0425: an inline run: a node whose parent is a text element or a text run (below the mount). ADR 0428: inside an
+ * ADR 0429: an inline run: a node whose parent is a text element or a text run (below the mount). ADR 0432: inside an
  * atomic inline box (a button, a control, a panel in a text) a node is that box's content again, not a run.
  */
 function isRun(node: UINode): boolean {
@@ -1514,27 +1514,27 @@ function isRun(node: UINode): boolean {
   return isTextKind(p) && !p._tree;
 }
 
-/** ADR 0425: an element whose content is text and runs: a text element or a text run. */
+/** ADR 0429: an element whose content is text and runs: a text element or a text run. */
 function holdsText(n: UINode | UIParent | null): n is UIRenderElement {
   return isTextKind(n) && !n._tree;
 }
 
 /**
- * The UI element a node makes: its own kind, inside a text too (ADR 0425: a phrasing element is a run; ADR 0428: any
+ * The UI element a node makes: its own kind, inside a text too (ADR 0429: a phrasing element is a run; ADR 0432: any
  * other element there is an atomic inline box, laid out on the text's lines by the UI core, as `display: inline-block`).
  */
 function hostedTag(el: UIRenderElement): UITag {
   return el._uiTag;
 }
 
-/** ADR 0425: the text element a run belongs to (the outermost), or the element itself. */
+/** ADR 0429: the text element a run belongs to (the outermost), or the element itself. */
 function rootText(el: UIRenderElement): UIRenderElement {
   let r = el;
   while (isRun(r) && r._parent instanceof UIRenderElement) r = r._parent;
   return r;
 }
 
-/** ADR 0425: `contenteditable` on the text element (not `"false"`): its whitespace is kept as typed. */
+/** ADR 0429: `contenteditable` on the text element (not `"false"`): its whitespace is kept as typed. */
 function isEditable(el: UIRenderElement): boolean {
   const v = rootText(el).getAttribute("contenteditable");
   return v !== null && v !== "false";
@@ -1568,7 +1568,7 @@ function cssText(value: unknown): string | null {
 /** The attributes the hosted element gets: HTML-only ones dropped, HTML's names mapped onto fields. */
 function hostAttributes(el: UIRenderElement): Map<string, string> {
   const out = new Map<string, string>();
-  // ADR 0426: an <svg>'s own attributes are its SVG document's (`refreshSvg`), but for its size and the cascade's.
+  // ADR 0430: an <svg>'s own attributes are its SVG document's (`refreshSvg`), but for its size and the cascade's.
   if (el._uiTag === "Svg") {
     for (const k of ["id", "class", "style", "width", "height"]) {
       const s = cssText(el._attrs.get(k));
@@ -1577,7 +1577,7 @@ function hostAttributes(el: UIRenderElement): Map<string, string> {
     }
     return out;
   }
-  // ADR 0426: media: `src` (or its first <source>'s), and HTML's boolean attributes as fields.
+  // ADR 0430: media: `src` (or its first <source>'s), and HTML's boolean attributes as fields.
   if (el._uiTag === "Video" || el._uiTag === "Audio") {
     for (const k of ["id", "class", "style", "width", "height"]) {
       const s = cssText(el._attrs.get(k));
@@ -1594,13 +1594,13 @@ function hostAttributes(el: UIRenderElement): Map<string, string> {
   for (const [k, v] of el._attrs) {
     const s = cssText(v);
     if (s === null || k.startsWith("aria-") || k.startsWith("data-")) continue;
-    // ADR 0424: HTML attributes that are form elements' fields.
+    // ADR 0428: HTML attributes that are form elements' fields.
     if (k === "type") {
       if (tag === "Button") out.set("type", s);
       else if (tag === "InputField") out.set("type", uiTagOfInput(s).fieldType);
       continue;
     }
-    // ADR 0425: an editable text element.
+    // ADR 0429: an editable text element.
     if (k === "contenteditable") {
       if (tag === "Text" && !isRun(el)) out.set("content-editable", s === "false" ? "false" : "true");
       else if (!isRun(el)) warnOnce(`contenteditable on <${el.localName}>: only a text element (<p>, <span>, <h1>…) is editable in a game's UI.`);
@@ -1613,7 +1613,7 @@ function hostAttributes(el: UIRenderElement): Map<string, string> {
     else if (k === "value" && tag === "Progress" && s === "") continue;
     else if (k === "value" && tag === "Button") continue; // an <input type="submit">'s label (`inputButtonLabel`)
     else if (k === "dir") {
-      // ADR 0428: `dir="ltr|rtl"` is the element's direction (`auto` and others: its parent's).
+      // ADR 0432: `dir="ltr|rtl"` is the element's direction (`auto` and others: its parent's).
       const d = s.toLowerCase();
       if (d === "ltr" || d === "rtl") out.set("direction", d);
     } else if (HTML_ONLY.has(k)) continue;
@@ -1626,10 +1626,10 @@ function hostAttributes(el: UIRenderElement): Map<string, string> {
   return out;
 }
 
-/** ADR 0424: the UI elements HTML's `disabled` applies to (it makes them not interactable). */
+/** ADR 0428: the UI elements HTML's `disabled` applies to (it makes them not interactable). */
 const FOCUSABLE_TAGS: ReadonlySet<UITag> = new Set(["Button", "InputField", "TextArea", "Toggle", "Radio", "Slider", "Select", "Option"]);
 
-/** Every attribute as written (HTML-only, `data-*` and `aria-*` ones too), which attribute selectors match (ADR 0418 wave 5). */
+/** Every attribute as written (HTML-only, `data-*` and `aria-*` ones too), which attribute selectors match (ADR 0422 wave 5). */
 function writtenAttributes(el: UIRenderElement): Map<string, string> {
   const out = new Map<string, string>();
   for (const [k, v] of el._attrs) {
@@ -1654,11 +1654,11 @@ const DOM_TYPES_OF = new Map<UIHostEventType, string[]>();
 for (const [dom, ui] of Object.entries(EVENTS)) DOM_TYPES_OF.set(ui, [...(DOM_TYPES_OF.get(ui) ?? []), dom]);
 
 /**
- * ADR 0422: relay a UI event type from `el`'s hosted element to its listeners, each phase: a capture listener on the
+ * ADR 0426: relay a UI event type from `el`'s hosted element to its listeners, each phase: a capture listener on the
  * host runs the node's capture listeners (while capturing, and first at the target), a bubble one its others. The
  * event's `target` and `relatedTarget` become nodes.
  */
-/** ADR 0426: the shape an event on an <svg> is under (or null), found once per event. */
+/** ADR 0430: the shape an event on an <svg> is under (or null), found once per event. */
 const svgTargets = new WeakMap<UIHostEvent, UIRenderElement | null>();
 
 function attachDispatcher(el: UIRenderElement, type: UIHostEventType): void {
@@ -1666,7 +1666,7 @@ function attachDispatcher(el: UIRenderElement, type: UIHostEventType): void {
   const make = (phase: 1 | 3) => (e: UIHostEvent) => {
     e.currentTarget = el;
     if (e.relatedTarget instanceof UIHostElement) e.relatedTarget = hostedNodes.get(e.relatedTarget) ?? null;
-    // ADR 0426: on an <svg>, a pointer event goes on to the shape under it, through the shapes' groups; its target is
+    // ADR 0430: on an <svg>, a pointer event goes on to the shape under it, through the shapes' groups; its target is
     // that shape for every element it passes (Svelte's delegated handlers read the path from the target).
     const hostedTarget = hostedNodes.get(e.element) ?? el;
     if (!svgTargets.has(e)) svgTargets.set(e, hostedTarget._uiTag === "Svg" && POSITIONED.has(type) ? svgShapeAt(hostedTarget, e.offsetX, e.offsetY) : null);
@@ -1701,7 +1701,7 @@ function attachDispatcher(el: UIRenderElement, type: UIHostEventType): void {
 function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   const parent = node._parent!;
   if (node instanceof UIRenderComment) return null;
-  // ADR 0426: inside an <svg>, nodes are its SVG document, not UI elements.
+  // ADR 0430: inside an <svg>, nodes are its SVG document, not UI elements.
   const svg = svgRootOf(node);
   if (svg) {
     refreshSvg(svg);
@@ -1715,7 +1715,7 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   if (node instanceof UIRenderElement && SVG_CONTENT_TAGS.has(node.localName.toLowerCase()) && !uiTagOfHtml(node.localName)) {
     warnOnce(`<${node.localName}> outside an <svg> isn't drawn; it renders as a Panel (a <div>).`);
   }
-  // ADR 0425: text in a text element (or a run) is its content: its text, or a text piece beside inline children.
+  // ADR 0429: text in a text element (or a run) is its content: its text, or a text piece beside inline children.
   if (node instanceof UIRenderText && holdsText(parent)) {
     refreshText(parent);
     return null;
@@ -1729,14 +1729,14 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
     if (!node.data.trim()) return null;
     const label = tree.create("#text", "Text", hp, hostedBefore(node), new Map(), { synthetic: true });
     node._hosted = label;
-    tree.setText(label, node.data); // ADR 0428: white space is the UI core's (by the text's `white-space`)
+    tree.setText(label, node.data); // ADR 0432: white space is the UI core's (by the text's `white-space`)
     return label;
   }
   if (parent instanceof UIRenderElement && isLeafKind(parent)) {
     warnOnce(`<${node.localName}> inside <${parent.localName}> isn't shown: a <${parent.localName}> has no children.`);
     return null;
   }
-  // ADR 0425: a phrasing element inside a text element is an inline run of it; ADR 0428: any other element, an atomic inline box.
+  // ADR 0429: a phrasing element inside a text element is an inline run of it; ADR 0432: any other element, an atomic inline box.
   const uiTag = hostedTag(node);
   const made = tree.create(node.localName, uiTag, hp, hostedBefore(node), hostAttributes(node), { source: sourceOf(node), written: writtenAttributes(node) });
   node._hosted = made;
@@ -1775,7 +1775,7 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   const text = holdsText(node);
   for (const c of node._children) if (!(text && c instanceof UIRenderText)) materialize(c, tree);
   if (text) refreshText(node);
-  // ADR 0424: state a binding or script set before the element was made.
+  // ADR 0428: state a binding or script set before the element was made.
   const pending = node._pendingState;
   node._pendingState = {};
   for (const k of ["checked", "indeterminate", "selected"] as const) if (pending[k] !== undefined) node._writeState(k, pending[k]!);
@@ -1786,7 +1786,7 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
 /** Forget the hosted elements of a subtree (its elements were removed with their parent's). */
 function forget(node: UINode): void {
   if (node instanceof UIRenderElement) {
-    // What the player changed stays with the node, for when it's made again (ADR 0424: a control's value and state too).
+    // What the player changed stays with the node, for when it's made again (ADR 0428: a control's value and state too).
     if (node._hosted && (node._uiTag === "InputField" || node._uiTag === "TextArea" || node._uiTag === "Slider" || node._uiTag === "Select")) node._pendingValue = node._hosted.value;
     if (node._hosted && (node._uiTag === "Toggle" || node._uiTag === "Radio")) node._pendingState = { checked: node.checked, indeterminate: node.indeterminate };
     if (node._mediaRelays.size) dropMediaRelays(node);
@@ -1820,7 +1820,7 @@ function detach(node: UINode): void {
 }
 
 /**
- * A text element's (or run's) content changed: write its text. ADR 0425: with inline children, its text nodes become text
+ * A text element's (or run's) content changed: write its text. ADR 0429: with inline children, its text nodes become text
  * pieces (runs of it beside them) and its own text is empty; with text only, that's its text (collapsed: trimmed for a
  * text element, ends kept for a run, which the text's layout joins; kept as typed when editable). A `<br>` is a line break.
  */
@@ -1828,13 +1828,13 @@ function refreshText(el: UIRenderElement | null): void {
   if (!el?._hosted) return;
   const tree = el._hosted.tree;
   if (el.localName.toLowerCase() === "br") return tree.setText(el._hosted, "\n");
-  // An empty Text with a `text` attribute shows the attribute (its white space as the text's `white-space` says, ADR 0428).
+  // An empty Text with a `text` attribute shows the attribute (its white space as the text's `white-space` says, ADR 0432).
   if (el._children.length === 0 && el.hasAttribute("text")) return;
   if (el._children.some((c) => c instanceof UIRenderElement)) {
     tree.setText(el._hosted, "");
     for (const c of el._children) {
       if (!(c instanceof UIRenderText)) continue;
-      const t = c.data; // ADR 0428: as written; the UI core applies `white-space` (an editable text keeps it as typed)
+      const t = c.data; // ADR 0432: as written; the UI core applies `white-space` (an editable text keeps it as typed)
       if (!c._hosted) {
         if (t === "") continue;
         c._hosted = tree.create("#text", "Text", el._hosted, hostedBefore(c), new Map(), { synthetic: true });
@@ -1855,7 +1855,7 @@ function refreshText(el: UIRenderElement | null): void {
 }
 
 /**
- * ADR 0425: an editable text the player edited: its nodes take the text the UI core wrote into its runs' components (each
+ * ADR 0429: an editable text the player edited: its nodes take the text the UI core wrote into its runs' components (each
  * text piece's, or a text-only element's own), so its `input` listeners read what was typed.
  */
 function reconcileEdit(el: UIRenderElement): void {
@@ -1882,7 +1882,7 @@ function reconcileEdit(el: UIRenderElement): void {
   }
 }
 
-/** ADR 0426: an attribute changed: an <svg>'s document, or a media element's <source>. */
+/** ADR 0430: an attribute changed: an <svg>'s document, or a media element's <source>. */
 function attributeChanged(el: UIRenderElement): void {
   svgChanged(el);
   if (el.localName === "input" && el._uiTag === "Button") inputButtonLabel(el);
@@ -1894,13 +1894,13 @@ function refreshTextOf(node: UINode | UIParent | null): void {
   if (holdsText(node)) refreshText(node);
 }
 
-/** ADR 0425: `el` and every text-holding element in it write their text again (`contenteditable` changed how it's kept). */
+/** ADR 0429: `el` and every text-holding element in it write their text again (`contenteditable` changed how it's kept). */
 function refreshTexts(el: UIRenderElement): void {
   if (holdsText(el)) refreshText(el);
   for (const c of el._children) if (c instanceof UIRenderElement) refreshTexts(c);
 }
 
-// --- Inline HTML (ADR 0425): `{@html}`, `innerHTML`, `bind:innerHTML` ------------------------------------
+// --- Inline HTML (ADR 0429): `{@html}`, `innerHTML`, `bind:innerHTML` ------------------------------------
 
 /** What the inline HTML parser gives (`htmlInline.ts`): elements with their attributes, and text, scripts and handlers gone. */
 export type { InlineHtmlNode };
@@ -1909,14 +1909,14 @@ export type { InlineHtmlNode };
 let htmlParser: ((html: string) => InlineHtmlNode[]) | null = null;
 
 /**
- * ADR 0425: give the renderer the inline HTML parser (`myco/ui-html`'s `parseInlineHtml`). `compileSvelteUI` adds the call to
+ * ADR 0429: give the renderer the inline HTML parser (`myco/ui-html`'s `parseInlineHtml`). `compileSvelteUI` adds the call to
  * every component that uses `{@html}` or `bind:innerHTML`, so a game without either never loads the parser.
  */
 export function useHtmlParser(parse: (html: string) => InlineHtmlNode[]): void {
   htmlParser = parse;
 }
 
-/** ADR 0425: an HTML string as detached renderer nodes in a fragment (an element's tag maps as the renderer maps tags). */
+/** ADR 0429: an HTML string as detached renderer nodes in a fragment (an element's tag maps as the renderer maps tags). */
 function htmlFragment(html: string): UIRenderFragment {
   const fragment = new UIRenderFragment();
   const nodes = htmlParser
@@ -1936,7 +1936,7 @@ function htmlFragment(html: string): UIRenderFragment {
 }
 
 /**
- * ADR 0425: `bind:textContent`, `bind:innerText` and `bind:innerHTML` on an editable text element: the bound value written
+ * ADR 0429: `bind:textContent`, `bind:innerText` and `bind:innerHTML` on an editable text element: the bound value written
  * to its content when it differs (or, when the value is unset, the content read into it), and read back on each `input`.
  */
 function bindContent(node: UIRenderElement, name: "textContent" | "innerText" | "innerHTML", get: () => unknown, set: (value: unknown) => void): () => void {
@@ -1954,7 +1954,7 @@ function listen(node: UIRenderElement, type: string, fn: () => void, onFormReset
   // A capture listener runs first at its target: the bound state is set before the element's own handlers read it (as a
   // DOM binding's listener runs before Svelte's delegated handlers).
   node.addEventListener(type, fn, true);
-  // ADR 0424: its form's reset puts it back without its own events; the binding reads it once the reset is done (as
+  // ADR 0428: its form's reset puts it back without its own events; the binding reads it once the reset is done (as
   // Svelte's DOM bindings do, a microtask later).
   const form = node.form;
   const onReset = () => queueMicrotask(() => {
@@ -2164,7 +2164,7 @@ function rawOptionValue(o: UIRenderElement): unknown {
   return o._attrs.has("value") ? o._attrs.get("value") : collapse(o.textContent);
 }
 
-/** ADR 0424: `bind:value` on a select: the option with the bound value is chosen; choosing sets it (an array with `multiple`). */
+/** ADR 0428: `bind:value` on a select: the option with the bound value is chosen; choosing sets it (an array with `multiple`). */
 function bindSelect(node: UIRenderElement, get: () => unknown, set: (value: unknown) => void, ownChange?: () => boolean): () => void {
   const multiple = node.hasAttribute("multiple");
   const value = get();
@@ -2188,7 +2188,7 @@ function bindSelect(node: UIRenderElement, get: () => unknown, set: (value: unkn
   });
 }
 
-/** ADR 0424: `bind:checked` and `bind:indeterminate` on a checkbox (and `checked` on a radio). */
+/** ADR 0428: `bind:checked` and `bind:indeterminate` on a checkbox (and `checked` on a radio). */
 function bindState(node: UIRenderElement, name: "checked" | "indeterminate", get: () => unknown, set: (value: unknown) => void): () => void {
   // Bound to nothing at first: the state takes the checkbox's (its `defaultChecked`), as Svelte's DOM binding does.
   if (name === "checked" && !bound.has(node) && (get() === null || get() === undefined)) set(node.checked);
@@ -2204,7 +2204,7 @@ function rawControlValue(node: UIRenderElement): unknown {
 }
 
 /**
- * ADR 0424: `bind:group`: a radio is checked while the bound value is its value, and checking it sets it; a checkbox is
+ * ADR 0428: `bind:group`: a radio is checked while the bound value is its value, and checking it sets it; a checkbox is
  * checked while the bound array holds its value, and toggling it adds or removes it.
  */
 function bindGroup(node: UIRenderElement, get: () => unknown, set: (value: unknown) => void): () => void {
@@ -2248,7 +2248,7 @@ function inputButtonLabel(el: UIRenderElement): void {
   made.tree.setText(label, text);
 }
 
-/** ADR 0424: an `<input>`'s `type` changed what it is (a checkbox made a text field…): it's made again as that, in place. */
+/** ADR 0428: an `<input>`'s `type` changed what it is (a checkbox made a text field…): it's made again as that, in place. */
 function retag(el: UIRenderElement): void {
   if (el.localName !== "input") return;
   const { tag, known } = uiTagOfInput(el.getAttribute("type"));
@@ -2281,7 +2281,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     node.data = text;
     if (svgRootOf(node)) return svgChanged(node);
     if (node._parent instanceof UIRenderElement && node._parent._uiTag === "TextArea") return textAreaContentChanged(node._parent);
-    // ADR 0425: text in a text element (or a run) is its content.
+    // ADR 0429: text in a text element (or a run) is its content.
     const p = node._parent;
     if (holdsText(p)) return refreshText(p);
     const tree = treeOf(node);
@@ -2345,8 +2345,8 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     // `muted={x}` on <audio>/<video>: Svelte's DOM output sets the property, which sends `volumechange` at once.
     if (key === "muted" && el._parent && isMediaNode(el)) setMediaField(el, "muted", true);
     el._attrs.set(key, value);
-    if (key === "type") retag(el); // ADR 0424
-    if (key === "contenteditable") refreshTexts(el); // ADR 0425: whitespace kept, or collapsed again
+    if (key === "type") retag(el); // ADR 0428
+    if (key === "contenteditable") refreshTexts(el); // ADR 0429: whitespace kept, or collapsed again
     if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));
     if (optionDefault) optionDefaultChanged(el);
     attributeChanged(el);
@@ -2389,7 +2389,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     const oldParent = node._parent;
     const oldTree = treeOf(node);
     const oldSvg = svgRootOf(node);
-    // ADR 0425: a text node leaving a text element takes its text piece with it; an element that stops (or starts) being
+    // ADR 0429: a text node leaving a text element takes its text piece with it; an element that stops (or starts) being
     // an inline run is made again, as the UI element it is now.
     if (node instanceof UIRenderText && node._hosted && holdsText(oldParent)) dematerialize(node, oldTree);
     const wasRun = isRun(node);
@@ -2413,7 +2413,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
       const made = materialize(node, tree);
       if (made) tree.restyle(made);
     }
-    // ADR 0425: the text element may have inline children now (its text becomes text pieces beside them).
+    // ADR 0429: the text element may have inline children now (its text becomes text pieces beside them).
     refreshTextOf(parent);
     if (oldSvg && oldSvg !== svgRootOf(node)) refreshSvg(oldSvg);
     if (node instanceof UIRenderElement && (node._uiTag === "Option" || node.localName.toLowerCase() === "optgroup")) selectOptionsChanged(selectAround(node));
@@ -2440,10 +2440,10 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     if (!ui && !el._listeners.has(type) && !(isMediaNode(el) && MEDIA_EVENT_SET.has(type))) warnIfNotYet(type);
     let list = el._listeners.get(type);
     if (!list) el._listeners.set(type, (list = []));
-    const o = uiListenerOptions(options); // ADR 0422: capture, once and passive
+    const o = uiListenerOptions(options); // ADR 0426: capture, once and passive
     addUIListener(list, handler as Handler, o.capture, o.once, o.passive);
     if (ui) {
-      // ADR 0426: a shape's listeners are heard through its <svg>.
+      // ADR 0430: a shape's listeners are heard through its <svg>.
       const svg = svgRootOf(el);
       attachDispatcher(svg ?? el, ui);
     }
@@ -2462,7 +2462,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     }
     const tag = node._uiTag;
     if (name === "value" && (tag === "InputField" || tag === "TextArea" || tag === "Slider" || tag === "Select")) return bindValue(node, get, set, ownChange);
-    // ADR 0424: checkboxes and radios.
+    // ADR 0428: checkboxes and radios.
     if ((name === "checked" && (tag === "Toggle" || tag === "Radio")) || (name === "indeterminate" && tag === "Toggle")) return bindState(node, name, get, set);
     if (name === "group" && (tag === "Toggle" || tag === "Radio")) return bindGroup(node, get, set);
     // `<details bind:open>` (and `<dialog>`): the `open` attribute, and its `toggle` events.
@@ -2470,9 +2470,9 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
       node.open = !!get();
       return listen(node, "toggle", () => set(node.open));
     }
-    // ADR 0425: an editable text's content.
+    // ADR 0429: an editable text's content.
     if ((name === "textContent" || name === "innerText" || name === "innerHTML") && tag === "Text") return bindContent(node, name, get, set);
-    // ADR 0426: <video> and <audio>'s media bindings.
+    // ADR 0430: <video> and <audio>'s media bindings.
     if (isMediaNode(node)) {
       const stop = bindMedia(node, name, get, set);
       if (stop) return stop;
@@ -2490,7 +2490,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     else warnOnce(`A component's injected CSS (${hash}) wasn't parsed when it compiled, and games have no CSS parser: compile it with the engine's compileSvelteUI, or use css: 'external'.`);
   },
   // `transition:`, `in:`, `out:` and `animate:` (`animation.ts`): keyframes on the UI animator, and geometry.
-  // ADR 0426: inside an <svg>, a shape's keyframes (`draw`'s stroke dashes) are written into its SVG document each frame.
+  // ADR 0430: inside an <svg>, a shape's keyframes (`draw`'s stroke dashes) are written into its SVG document each frame.
   animate: (node, keyframes, options) => {
     const svg = svgRootOf(node);
     if (!svg) return animateNode(node, keyframes, options);
@@ -2500,7 +2500,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     });
   },
   measure: (node) => measureNode(node, svgRootOf(node) ? svgComputedStyle(node) : undefined),
-  // ADR 0425: `{@html}`: the string as new nodes (inline HTML parsed into runs inside a text element, block elements as panels).
+  // ADR 0429: `{@html}`: the string as new nodes (inline HTML parsed into runs inside a text element, block elements as panels).
   html: (_anchor, value) => htmlFragment(value),
   // Svelte's frames and clock (`timing.ts`): `svelte/motion`, `tick` transitions and Svelte's loop on engine frames.
   requestAnimationFrame: requestFrame,
@@ -2521,21 +2521,21 @@ const head = new UIRenderElement("head");
 /** `<svelte:window>`, `<svelte:document>` and `<svelte:body>`. */
 const globals = new UIGlobals(head, (el) => hostedNodes.get(el) ?? null);
 
-/** DOM events UI elements don't have (ADR 0422's set covers the pointer as pointer and mouse events, not touch events). */
+/** DOM events UI elements don't have (ADR 0426's set covers the pointer as pointer and mouse events, not touch events). */
 const NOT_YET = new Set(["keypress", "touchstart", "touchmove", "touchend", "touchcancel", "auxclick", "beforeinput", "compositionstart", "compositionend"]);
 /** Warn (once per type) about a DOM event no UI element has; other types are custom events an action dispatches. */
 function warnIfNotYet(type: string): void {
   if (NOT_YET.has(type)) warnOnce(`on${type} doesn't happen on UI elements; touches arrive as pointer events (onpointerdown, onpointermove, onpointerup), and keys as onkeydown and onkeyup.`);
 }
 
-// ADR 0422: UI events that bubble out of a view's canvas go on through <svelte:body>, <svelte:document> and <svelte:window>
+// ADR 0426: UI events that bubble out of a view's canvas go on through <svelte:body>, <svelte:document> and <svelte:window>
 // (and the types the UI dispatched aren't fed to them again from the devices that frame).
 onUIHostBubbleOut((e, tree) => {
   if (!mountedTrees.has(tree)) return;
   globals._continue(e, DOM_TYPES_OF.get(e.type) ?? [e.type]);
 });
 
-// ADR 0425: the player edited an editable text: its nodes take the edit before its `input` listeners run.
+// ADR 0429: the player edited an editable text: its nodes take the edit before its `input` listeners run.
 onUIHostEdit((el) => {
   const node = hostedNodes.get(el);
   if (node) reconcileEdit(node);

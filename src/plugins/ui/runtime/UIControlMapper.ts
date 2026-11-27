@@ -22,13 +22,13 @@
  * focus: they're the screen's editing keys, like a text field's, not game actions (an action set
  * for them would show up in every list of actions, this screen's included).
  *
- * It is drawn by a built-in Svelte component (ADR 0419 wave B), `@myco/ui/ControlMapper.svelte`, mounted by a
+ * It is drawn by a built-in Svelte component (ADR 0423 wave B), `@myco/ui/ControlMapper.svelte`, mounted by a
  * `UIView` on a child node it makes: the mapper works out what the screen shows each frame and passes it in as the
  * view's props, and finds the rendered buttons by id (its cells', toggles', steppers', Unbind's, Reset's and Save's
  * `UIButton`s). The view has a screen canvas of its own (`sortOrder` 100, `autoFocus`); under a game's canvas, the
  * view's canvas takes that canvas's settings and draws just above it. Its node belongs to the mapper: it isn't in the
  * scene file and goes when the mapper does. The editor and Vitest compile the component with the engine's build; a game
- * build compiles it into the game's own code when the project uses a control mapper (ADR 0421).
+ * build compiles it into the game's own code when the project uses a control mapper (ADR 0425).
  */
 import { Component } from "../../../engine/core/Component";
 import { Color } from "../../../engine/core/math";
@@ -330,7 +330,7 @@ interface ViewModel {
   look: { width: string; fontSize: number; glyphSize: number; colors: Record<string, string> };
 }
 
-/** The built-in component the screen is drawn with (ADR 0419 wave B). */
+/** The built-in component the screen is drawn with (ADR 0423 wave B). */
 export const CONTROL_MAPPER_COMPONENT = "@myco/ui/ControlMapper.svelte";
 
 /** The UI actions' set (ADR 0340): listed only when `actions` names it. */

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The Sound Lab's spatial page text (ADR 0419): the page's heading lines and its readouts. The look is in lab.css,
+  // The Sound Lab's spatial page text (ADR 0423): the page's heading lines and its readouts. The look is in lab.css,
   // shared by every page.
   import "./lab.css";
 </script>

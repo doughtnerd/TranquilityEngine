@@ -1,4 +1,4 @@
-// ADR 0428 (wave G1), selectors and values: `:has()` with relative selectors, and `em`, `rem` and viewport lengths in
+// ADR 0432 (wave G1), selectors and values: `:has()` with relative selectors, and `em`, `rem` and viewport lengths in
 // every length and in `calc()`, through the way game UI is built (a UIView mounting a Svelte component: `buildUI`) and
 // the selector reader queries and rule data share.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,7 +43,7 @@ function childrenAt(ui: TestUI, ...path: number[]): TreeNode[] {
 
 const RED = Color.from("#ff0000");
 
-describe(":has() (ADR 0428)", () => {
+describe(":has() (ADR 0432)", () => {
   it("matches an element by what's inside or after it, with each leading combinator, in rules and queries", () => {
     const ui = buildUI(
       `<Canvas>
@@ -140,7 +140,7 @@ describe(":has() (ADR 0428)", () => {
   });
 });
 
-describe("relative lengths: em, rem and viewport units (ADR 0428)", () => {
+describe("relative lengths: em, rem and viewport units (ADR 0432)", () => {
   it("resolves em against the element's font size (its parent's inside font-size), in every length and in calc()", () => {
     const ui = buildUI(
       `<Canvas><div id="box" class="box"><p id="p" class="inner">x</p><div id="mixed" class="mixed"/></div></Canvas>`,

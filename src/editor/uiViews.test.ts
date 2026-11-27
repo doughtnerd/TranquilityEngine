@@ -1,4 +1,4 @@
-// Svelte UI in the editor (ADR 0419 wave C): a UIView's rendered elements as hierarchy rows addressed by template
+// Svelte UI in the editor (ADR 0423 wave C): a UIView's rendered elements as hierarchy rows addressed by template
 // location, picking, the Inspector's value sources, and editing the static parts back into the `.svelte` source
 // (one undo step each, the view hot-reloading), with dynamic parts view-only.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

@@ -1,6 +1,6 @@
-# 0417. Game UI is built only from UI documents; hand-built UI nodes, the screen `Text` component and `LocalizedText` are removed
+# 0421. Game UI is built only from UI documents; hand-built UI nodes, the screen `Text` component and `LocalizedText` are removed
 
-- **Status:** Accepted, amended by 0419 (UI components come only from a `UIView`'s Svelte render: wave D retired UI documents, and a saved `engine.UIDocument` fails to load naming 0419)
+- **Status:** Accepted, amended by 0423 (UI components come only from a `UIView`'s Svelte render: wave D retired UI documents, and a saved `engine.UIDocument` fails to load naming 0423)
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0020 (the interim screen `Text`), 0069 (authoring UI as hand-placed component nodes; the components stay as what document elements are made of), 0356 §4 (`LocalizedText` only; `t:` attributes stay)
@@ -23,7 +23,7 @@ Game UI can be made three ways today:
 - **UI components are made only by documents.**
   - `UICanvas`, `UIPanel`, `UIText`, `UIImage`, `UIButton` and `UIInputField` stay public. They are the types of document elements (`element.as(UIButton)`, field writes at runtime, `getBehavior` on a document's node).
   - Only a `UIDocument` building its tree creates them. Anything else is refused.
-  - `addComponent(UIPanel)` and the other UI types throw: `UI elements come from UI documents (ADR 0417): add the element to a *.ui.xml document, or use ui.list() for rows made at runtime.`
+  - `addComponent(UIPanel)` and the other UI types throw: `UI elements come from UI documents (ADR 0421): add the element to a *.ui.xml document, or use ui.list() for rows made at runtime.`
   - A scene or prefab that saves one of these components on a node fails to load. The error names the file, the node path and this record. There is no automatic migration.
   - Runtime-made UI (pooled markers, rows) uses `ui.list()` with a `<Template>`, with `{field}` bindings in attributes for positions and colours.
 - **The screen `Text` component (`engine.Text`) is removed.**

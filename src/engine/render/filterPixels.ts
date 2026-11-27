@@ -1,5 +1,5 @@
 /**
- * CSS filters worked out on pixels (ADR 0426): the drawing layer's fallback where the browser's Canvas2D has no
+ * CSS filters worked out on pixels (ADR 0430): the drawing layer's fallback where the browser's Canvas2D has no
  * `filter` (it draws the filtered subtree to an offscreen canvas, runs this on its pixels and draws the result). A pure,
  * renderer-neutral library function over ImageData-shaped data (unpremultiplied RGBA bytes, row by row).
  *

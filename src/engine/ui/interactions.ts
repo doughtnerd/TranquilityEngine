@@ -10,7 +10,7 @@
  * - Navigation's events (`engine.UINavigation`, in the input phase) are published for the current
  *   frame, which hasn't run a script yet, so the same rule holds for them.
  *
- * ADR 0422: beside the polled state, the log keeps the frame's event records (`events.ts`) in order, published by
+ * ADR 0426: beside the polled state, the log keeps the frame's event records (`events.ts`) in order, published by
  * the same rules: what the routing recorded (pointer and key events, with their default actions), the polled
  * events as they're published, and records a default action adds while the frame's events are dispatched (focus
  * moved by a press). `dispatchUIEvents` takes them with `nextRecord`.
@@ -26,7 +26,7 @@ type Target = UIFocusableElement | UICanvas | UIForm;
 
 /**
  * Who moved focus: a script (no events, ADR 0309), the pointer (events next frame), navigation (events this frame), or
- * a press's default action while the frame's events are dispatched (ADR 0422: events this frame, after the press's).
+ * a press's default action while the frame's events are dispatched (ADR 0426: events this frame, after the press's).
  */
 export type UIFocusCause = "script" | "pointer" | "navigation" | "press";
 
@@ -38,7 +38,7 @@ export interface UIPointerState {
   readonly hovered: UIButton | null;
   readonly pressed: UIButton | null;
   readonly clicked: UIButton | null;
-  /** ADR 0428: the text elements and inline runs under the pointer (`:hover`) and pressed in while a button is held (`:active`): the target's and its ancestors'. */
+  /** ADR 0432: the text elements and inline runs under the pointer (`:hover`) and pressed in while a button is held (`:active`): the target's and its ancestors'. */
   readonly hoveredText?: ReadonlySet<UIComponentType>;
   readonly pressedText?: ReadonlySet<UIComponentType>;
 }
@@ -49,7 +49,7 @@ export interface UILayoutSource {
   elements(): readonly UILaidOutElement[];
   /** The drawing canvas's size in CSS pixels at the last layout (what screen canvases cover). */
   readonly viewport?: { readonly width: number; readonly height: number };
-  /** Lay the World's UI out again now, at the last size (ADR 0419: the UI host reading geometry mid-frame). */
+  /** Lay the World's UI out again now, at the last size (ADR 0423: the UI host reading geometry mid-frame). */
   relayout?(): void;
 }
 
@@ -69,9 +69,9 @@ export class UIInteractions {
   /** The frame `published` is for. */
   private frame = -1;
   private published = new Map<Target, Set<UIInteractionType>>();
-  /** ADR 0422: records since the last routing, published by the next one. */
+  /** ADR 0426: records since the last routing, published by the next one. */
   private pendingRecords: UIEventRecord[] = [];
-  /** ADR 0422: the frame's records (the frame `published` is for), and how many were dispatched. */
+  /** ADR 0426: the frame's records (the frame `published` is for), and how many were dispatched. */
   private records: UIEventRecord[] = [];
   private cursor = 0;
 
@@ -89,24 +89,24 @@ export class UIInteractions {
     this.pending.push({ type, target: field });
   }
 
-  /** ADR 0422: an event record for the next routing to publish (the frame after: a scroll the last layout saw). */
+  /** ADR 0426: an event record for the next routing to publish (the frame after: a scroll the last layout saw). */
   queue(record: UIEventRecord): void {
     this.pendingRecords.push(record);
   }
 
-  /** ADR 0422: an event record of the World's current frame (a default action's, while the frame's events are dispatched). */
+  /** ADR 0426: an event record of the World's current frame (a default action's, while the frame's events are dispatched). */
   emit(record: UIEventRecord): void {
     this.stamp(this.world.time.frameCount);
     this.records.push(record);
   }
 
-  /** ADR 0422: the frame's next record not yet dispatched, or null. */
+  /** ADR 0426: the frame's next record not yet dispatched, or null. */
   nextRecord(): UIEventRecord | null {
     if (this.frame !== this.world.time.frameCount || this.cursor >= this.records.length) return null;
     return this.records[this.cursor++];
   }
 
-  /** ADR 0422: take back a polled event of this frame (a `submit` whose Enter a handler prevented). */
+  /** ADR 0426: take back a polled event of this frame (a `submit` whose Enter a handler prevented). */
   retract(type: UIInteractionType, target: Target): void {
     if (this.frame === this.world.time.frameCount) this.published.get(target)?.delete(type);
   }
@@ -134,7 +134,7 @@ export class UIInteractions {
     this.hoveredText = pointer.hoveredText ?? NONE;
     this.pressedText = pointer.pressedText ?? NONE;
     this.stamp(this.world.time.frameCount + 1);
-    // ADR 0422: the routing's records first (keys and the pointer), then what was recorded since the last routing.
+    // ADR 0426: the routing's records first (keys and the pointer), then what was recorded since the last routing.
     this.records.push(...records, ...this.pendingRecords);
     this.pendingRecords = [];
     for (const { type, target } of this.pending) {
@@ -160,18 +160,18 @@ export class UIInteractions {
     this.frame = frame;
   }
 
-  /** Publish a polled event; with `record`, its event record too (ADR 0422), the type's DOM rules decided by the front ends. */
+  /** Publish a polled event; with `record`, its event record too (ADR 0426), the type's DOM rules decided by the front ends. */
   private add(type: UIInteractionType, target: Target, record = true, related: Target | null = null, after?: (prevented: boolean) => void, before?: () => void): void {
     const types = this.published.get(target);
     if (types) types.add(type);
     else this.published.set(target, new Set([type]));
     if (!record) return;
-    // ADR 0424: a click navigation sends can be cancelled (its default action activates the control).
+    // ADR 0428: a click navigation sends can be cancelled (its default action activates the control).
     const cancelable = type === "click" && !!after;
     this.records.push({ type, target, bubbles: false, cancelable, data: related ? { related } : {}, prevented: false, after, before });
   }
 
-  /** ADR 0424: a polled event of the World's current frame without a record (a control's `change`, a form's `submit`: their records are sent apart). */
+  /** ADR 0428: a polled event of the World's current frame without a record (a control's `change`, a form's `submit`: their records are sent apart). */
   publishPolled(type: UIInteractionType, target: Target): void {
     this.stamp(this.world.time.frameCount);
     this.add(type, target, false);
@@ -236,12 +236,12 @@ export class UIInteractions {
     return this.pressedButton === button;
   }
 
-  /** ADR 0428: a text element or inline run is under the pointer (its `:hover`): the pointer's target or one it's inside. */
+  /** ADR 0432: a text element or inline run is under the pointer (its `:hover`): the pointer's target or one it's inside. */
   isTextHovered(c: UIComponentType): boolean {
     return this.hoveredText.has(c);
   }
 
-  /** ADR 0428: a text element or inline run was pressed in and the button is still held (its `:active`). */
+  /** ADR 0432: a text element or inline run was pressed in and the button is still held (its `:active`). */
   isTextPressed(c: UIComponentType): boolean {
     return this.pressedText.has(c);
   }

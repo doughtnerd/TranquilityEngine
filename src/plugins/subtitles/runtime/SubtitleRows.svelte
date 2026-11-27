@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The built-in subtitle and caption display's view (ADR 0357 §5, 0419 wave B), `@myco/ui/Subtitles.svelte`:
+  // The built-in subtitle and caption display's view (ADR 0357 §5, 0423 wave B), `@myco/ui/Subtitles.svelte`:
   // `SubtitleDisplay` passes in the rows on screen and their placement each frame; this draws them. A replacement
   // component (`SubtitleDisplay.component`) gets the same props. Themes set the `--subtitle-*` variables in a global
   // rule of any of the game's components (`:global(:root) { --subtitle-color: … }`); the values below are the fallbacks.

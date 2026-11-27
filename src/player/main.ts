@@ -78,7 +78,7 @@ async function boot(): Promise<void> {
     assets: { has: (p) => values.has(p), get: (p) => values.get(p), paths: () => values.keys() },
     scriptAssetRefs: manifest.assetRefs ?? [], // warmed up with every scene (ADR 0080)
     async loadScripts() {
-      // Svelte components (ADR 0419) are their `.svelte` files' asset values, which `UIView`s mount; their sources don't ship.
+      // Svelte components (ADR 0423) are their `.svelte` files' asset values, which `UIView`s mount; their sources don't ship.
       const components = new Map<string, unknown>();
       for (const script of manifest.scripts) {
         const module: unknown = await import(/* @vite-ignore */ urlOf(script.module));

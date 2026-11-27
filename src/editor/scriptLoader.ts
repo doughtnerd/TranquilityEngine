@@ -31,7 +31,7 @@ export interface LoadResult {
 
 /** The package specifiers the last load bundled. */
 let lastSpecifiers: readonly string[] = [];
-/** The Svelte components the last load served as their files' asset values (ADR 0419), by path. */
+/** The Svelte components the last load served as their files' asset values (ADR 0423), by path. */
 let lastComponents = new Map<string, unknown>();
 
 
@@ -41,7 +41,7 @@ let lastComponents = new Map<string, unknown>();
  * packages from `packages`; `extraPackages` are npm plugin entries to bundle with them (ADR 0139).
  * Registrations replace any with the same id or name (from the editor build or an earlier load). A
  * script that fails to compile or throws while loading is reported, as is anything importing it and a
- * plugin entry that can't be bundled; the others still load. `ui` is the project's UI code (ADR 0419:
+ * plugin entry that can't be bundled; the others still load. `ui` is the project's UI code (ADR 0423:
  * Svelte components, rune modules and `.css` files), compiled and loaded with the scripts; each component
  * that loads becomes its `.svelte` file's asset value (what `UIView` mounts), so a `UIView` showing one
  * mounts the new version in its next frame (hot reload).

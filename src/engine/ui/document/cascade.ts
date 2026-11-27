@@ -1,9 +1,9 @@
 /**
- * The UI cascade (ADR 0077, 0419): selector matching against the built element tree, and the cascade
+ * The UI cascade (ADR 0077, 0423): selector matching against the built element tree, and the cascade
  * that turns attributes, rules, inheritance and variables into component field values. It works on
  * parsed rule data (`UIStylesheet`), so it holds no CSS parser: Svelte components' styles are parsed with
  * `stylesheet.ts` (css-tree) when they compile, in the editor and at export, so games load this module and
- * never the parser (ADR 0419).
+ * never the parser (ADR 0423).
  */
 import { Color, Vector2 } from "../../core/math";
 import { AssetRef, getFields, type FieldInfo } from "../../core/registry";
@@ -58,7 +58,7 @@ export const PSEUDO: ReadonlySet<string> = new Set<UIPseudo>(["hover", "pressed"
 export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign", "textOutlineColor", "textOutlineWidth", "textShadowColor", "textShadowOffsetX", "textShadowOffsetY", "textShadowBlur", "fontStyle", "whiteSpaceCollapse", "textWrapMode"]);
 
 /**
- * ADR 0425: what HTML's own stylesheet gives phrasing elements, by tag as written: below every author declaration (an
+ * ADR 0429: what HTML's own stylesheet gives phrasing elements, by tag as written: below every author declaration (an
  * attribute or any rule), above inheritance, as the user-agent origin is. `fontSize` is a share of the parent's.
  */
 const TAG_DEFAULTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
@@ -84,10 +84,10 @@ const TAG_DEFAULTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> 
   mark: { backgroundColor: new Color(1, 1, 0, 1), color: new Color(0, 0, 0, 1) },
 };
 
-/** ADR 0425: the tag of a run of text between a text element's inline children (not an element: no rule matches it). */
+/** ADR 0429: the tag of a run of text between a text element's inline children (not an element: no rule matches it). */
 export const TEXT_PIECE_TAG = "#text";
 
-/** ADR 0425: an element's user-agent defaults (`TAG_DEFAULTS`), with a relative font size worked out from the parent's. */
+/** ADR 0429: an element's user-agent defaults (`TAG_DEFAULTS`), with a relative font size worked out from the parent's. */
 function tagDefaults(tag: string, parent: ReadonlyMap<string, ResolvedValue> | null): [string, unknown][] {
   const d = TAG_DEFAULTS[tag.toLowerCase()];
   if (!d || !Object.hasOwn(TAG_DEFAULTS, tag.toLowerCase())) return [];
@@ -100,10 +100,10 @@ function tagDefaults(tag: string, parent: ReadonlyMap<string, ResolvedValue> | n
 }
 /** String fields that hold a `UILength`. */
 const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left", "minWidth", "minHeight", "maxWidth", "maxHeight", "flexBasis"]);
-/** Length fields that take `none` (no maximum, ADR 0418). */
+/** Length fields that take `none` (no maximum, ADR 0422). */
 const NONE_LENGTH_FIELDS: ReadonlySet<string> = new Set(["maxWidth", "maxHeight"]);
 /**
- * Number fields where null means "not set here" (ADR 0418): a side takes the all-sides value, `flexShrink` its
+ * Number fields where null means "not set here" (ADR 0422): a side takes the all-sides value, `flexShrink` its
  * element kind's. `auto` and `none` write null.
  */
 const NULLABLE_NUMBER_FIELDS: ReadonlySet<string> = new Set([
@@ -144,7 +144,7 @@ function langMatches(language: string | undefined, range: string): boolean {
 }
 
 /**
- * ADR 0428: the pseudo-elements UI selectors style (`UIPseudoElement`). `before` and `after` are also read with one colon,
+ * ADR 0432: the pseudo-elements UI selectors style (`UIPseudoElement`). `before` and `after` are also read with one colon,
  * as CSS 2 wrote them.
  */
 export const PSEUDO_ELEMENTS: ReadonlySet<string> = new Set<UIPseudoElement>([
@@ -155,7 +155,7 @@ export const PSEUDO_ELEMENTS: ReadonlySet<string> = new Set<UIPseudoElement>([
 ]);
 
 /**
- * True when a selector matches an element (`:root` matches the tree's root: the element without a parent). ADR 0428: a
+ * True when a selector matches an element (`:root` matches the tree's root: the element without a parent). ADR 0432: a
  * selector with a pseudo-element matches only that pseudo-element's target, its parts matched against the originating
  * element (the target's parent).
  */
@@ -166,7 +166,7 @@ export function matchSelector(selector: Selector, target: StyleTarget): boolean 
   return matchFrom(selector, selector.parts.length - 1, target);
 }
 
-/** ADR 0428: the pseudo-elements the rules of these sheets style (empty: none). */
+/** ADR 0432: the pseudo-elements the rules of these sheets style (empty: none). */
 export function pseudoElementsUsed(sheets: readonly { rules: readonly StyleRule[] }[]): ReadonlySet<UIPseudoElement> {
   const out = new Set<UIPseudoElement>();
   for (const s of sheets) for (const r of s.rules) for (const sel of r.selectors) if (sel.pseudoElement) out.add(sel.pseudoElement);
@@ -174,7 +174,7 @@ export function pseudoElementsUsed(sheets: readonly { rules: readonly StyleRule[
 }
 
 /**
- * True when parts `0…index` of a selector match with part `index` on `target`. `anchor` (ADR 0428): the selector is
+ * True when parts `0…index` of a selector match with part `index` on `target`. `anchor` (ADR 0432): the selector is
  * relative, inside `:has()`, and its first part must stand to the anchor as its leading combinator says.
  */
 function matchFrom(selector: Selector, index: number, target: StyleTarget, anchor?: StyleTarget): boolean {
@@ -202,7 +202,7 @@ function matchFrom(selector: Selector, index: number, target: StyleTarget, ancho
   return false;
 }
 
-// --- :has() (ADR 0428) -------------------------------------------------------------------------------
+// --- :has() (ADR 0432) -------------------------------------------------------------------------------
 // A relative selector matches an element when some element after it (a descendant for `" "` and `>`, a later sibling
 // or a later sibling's descendant for `+` and `~`) matches the selector, with its first part standing to the anchor as
 // its leading combinator says. Targets that don't list their children can't say, so `:has()` doesn't match them.
@@ -247,7 +247,7 @@ function matchHas(rel: Selector, anchor: StyleTarget): boolean {
   return false;
 }
 
-// --- Structural and attribute selectors (ADR 0418 wave 5) --------------------------------------------
+// --- Structural and attribute selectors (ADR 0422 wave 5) --------------------------------------------
 // Positions count child elements (text isn't one), so a button's label text doesn't make its first span a second
 // child. The root counts as the only child of nothing, as in CSS. Targets without `children` (or `attributes`) can't
 // say, so the tests that need them don't match.
@@ -317,13 +317,13 @@ function matchAttribute(a: UIAttributeSelector, t: StyleTarget): boolean {
 
 /**
  * A selector's specificity from its parts: ids; classes, pseudo-classes and attribute selectors; tags (and a
- * pseudo-element, ADR 0428). `:is()`, `:not()` and `:nth-child(… of S)` add their most specific argument's, `:where()`
+ * pseudo-element, ADR 0432). `:is()`, `:not()` and `:nth-child(… of S)` add their most specific argument's, `:where()`
  * nothing.
  */
 export function selectorSpecificity(parts: Selector["parts"], pseudoElement?: UIPseudoElement | null): [number, number, number] {
   let ids = 0;
   let classes = 0;
-  let tags = pseudoElement ? 1 : 0; // ADR 0428: a pseudo-element counts as a type selector
+  let tags = pseudoElement ? 1 : 0; // ADR 0432: a pseudo-element counts as a type selector
   const addMost = (list: readonly Selector[]) => {
     const [a, b, c] = groupSpecificity({ selectors: list, zero: false });
     ids += a;
@@ -365,7 +365,7 @@ function mediaOf(t: StyleTarget): UIMediaEnvironment | null {
   return root.media ?? null;
 }
 
-/** ADR 0428: the canvas a target's viewport lengths resolve against: its root's (`viewport`, else `media`). */
+/** ADR 0432: the canvas a target's viewport lengths resolve against: its root's (`viewport`, else `media`). */
 function viewportOf(t: StyleTarget): UIMediaEnvironment | null {
   let root = t;
   while (root.parent) root = root.parent;
@@ -384,7 +384,7 @@ export function usesPseudo(sheets: readonly { rules: readonly StyleRule[] }[]): 
 }
 
 /**
- * ADR 0428: how changes inside the tree restyle the elements whose `:has()` may match differently, for sheets using it
+ * ADR 0432: how changes inside the tree restyle the elements whose `:has()` may match differently, for sheets using it
  * (null when none does). `anchors`: the compounds holding a `:has()` (tag, id and classes; `any` when one has none),
  * so only ancestors that could be one restyle. `deep`: a `:has()` compound isn't the subject of its selector (`.card:has(.x)
  * .title`), so an anchor restyles with its parent's subtree. `siblings`: a relative selector starts with `+` or `~`, so
@@ -420,13 +420,13 @@ export function hasUse(sheets: readonly { rules: readonly StyleRule[] }[]): UIHa
   return found ? { anchors, any, deep, siblings } : null;
 }
 
-/** ADR 0428: true when an element with this tag, id and classes could be the anchor of one of the sheets' `:has()`. */
+/** ADR 0432: true when an element with this tag, id and classes could be the anchor of one of the sheets' `:has()`. */
 export function couldAnchorHas(use: UIHasUse, tag: string, id: string | null, classes: readonly string[]): boolean {
   if (use.any) return true;
   return use.anchors.some((a) => (!a.tag || sameTag(a.tag, tag)) && (!a.id || a.id === id) && a.classes.every((c) => classes.includes(c)));
 }
 
-/** ADR 0428: true when any declaration of these sheets (keyframes included) has a viewport length, so a canvas resize restyles. */
+/** ADR 0432: true when any declaration of these sheets (keyframes included) has a viewport length, so a canvas resize restyles. */
 export function usesViewportUnits(sheets: readonly UIStylesheet[]): boolean {
   return sheets.some((s) => s.rules.some((r) => r.declarations.some((d) => hasViewportUnits(d.value))) || (s.keyframes ?? []).some((k) => k.frames.some((f) => f.declarations.some((d) => hasViewportUnits(d.value)))));
 }
@@ -436,7 +436,7 @@ export function usesLang(sheets: readonly { rules: readonly StyleRule[] }[]): bo
   return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => selectorUses(sel, (p) => p.lang.length > 0))));
 }
 
-// --- Selectors: :is(), :where() and tag names (ADR 0419) -----------------------------------------
+// --- Selectors: :is(), :where() and tag names (ADR 0423) -----------------------------------------
 // Svelte's scoped CSS emits `:where(.svelte-hash)` and lowercase HTML tags. `:is()` (the specificity of
 // its most specific argument) and `:where()` (no specificity) each hold a selector list matched against
 // the element itself. Tags match case-insensitively: the HTML tags Svelte components are written with (`div`,
@@ -490,7 +490,7 @@ function parseNumber(raw: string): number | undefined {
   return m ? parseFloat(m[1]) : undefined;
 }
 
-/** `aspect-ratio` (ADR 0418): `16 / 9`, `1.5`, or `auto` or `0` (none). Undefined for anything else. */
+/** `aspect-ratio` (ADR 0422): `16 / 9`, `1.5`, or `auto` or `0` (none). Undefined for anything else. */
 function parseAspectRatio(raw: string): number | undefined {
   if (raw === "auto") return 0;
   const m = /^(\d+\.?\d*|\.\d+)\s*(?:\/\s*(\d+\.?\d*|\.\d+))?$/.exec(raw);
@@ -527,7 +527,7 @@ export function convertValue(raw: string, info: FieldInfo, file: string): unknow
     return parts.length === 2 && parts[0] !== undefined && parts[1] !== undefined ? new Vector2(parts[0], parts[1]) : undefined;
   }
   if (type === AssetRef) {
-    // ADR 0425: `font-family` names a font file or a CSS generic family (`monospace`); of a list, the first.
+    // ADR 0429: `font-family` names a font file or a CSS generic family (`monospace`); of a list, the first.
     if (info.name === "font") {
       const first = unquote((v.split(",")[0] ?? "").trim());
       if (isGenericFontFamily(first)) return first;
@@ -543,7 +543,7 @@ export function convertValue(raw: string, info: FieldInfo, file: string): unknow
     if (LENGTH_FIELDS.has(info.name)) {
       if (s === "auto" || /^-?(\d+\.?\d*|\.\d+)%$/.test(s)) return s;
       if (s === "none" && NONE_LENGTH_FIELDS.has(info.name)) return s;
-      // `calc()` mixing % and px (ADR 0418 wave 5), in the form `resolveMath` writes: the UI core resolves it at layout.
+      // `calc()` mixing % and px (ADR 0422 wave 5), in the form `resolveMath` writes: the UI core resolves it at layout.
       if (linearLength(s)) return s;
       const n = parseNumber(s);
       return n === undefined ? undefined : String(n);
@@ -606,7 +606,7 @@ export function substituteVars(value: string, vars: ReadonlyMap<string, string>,
   return out;
 }
 
-// --- Paint values (ADR 0418 wave 2) --------------------------------------------------------------
+// --- Paint values (ADR 0422 wave 2) --------------------------------------------------------------
 
 /**
  * String fields whose value is CSS paint, checked and normalised as they're set: `backgroundImage` takes `none`,
@@ -663,12 +663,12 @@ export function expandPaintShorthand(property: string, value: string): PaintExpa
   return expand ? expand(value) : { ok: false, problem: `${property} isn't a paint shorthand.` };
 }
 
-// --- Transform values (ADR 0418 wave 3) ---------------------------------------------------------
+// --- Transform values (ADR 0422 wave 3) ---------------------------------------------------------
 //
 // `transform`, `translate`, `scale` and `transform-origin` are shorthands of the transform fields, expanded where they're
 // declared, as the paint shorthands are (typed values, parsed by `transformValues.ts`). `rotate` is a field itself and
 // takes an angle. A `transform` list folds into the fields, applied as translate, rotate, scale (`transform2d.ts`); a list
-// that can't fold (a skew, `matrix()`) is held in `transformMatrix` (ADR 0426). The `translate` attribute stays HTML's localisation marker
+// that can't fold (a skew, `matrix()`) is held in `transformMatrix` (ADR 0430). The `translate` attribute stays HTML's localisation marker
 // (ADR 0356 §4), so markup writes `transform="translate(…)"` or `translate-x`/`translate-y`.
 
 /** A px or % length, as a transform length field stores it (`"12"`, `"50%"`). Undefined when it isn't one. */
@@ -694,7 +694,7 @@ const TRANSFORM_VALUES: Readonly<Record<string, (value: string, file: string) =>
     const r = parseRotate(value);
     return r.ok ? r.value : undefined;
   },
-  // ADR 0426: `matrix(a, b, c, d, e, f)` (or six numbers), stored as `matrix()` text; "" or `none` for none.
+  // ADR 0430: `matrix(a, b, c, d, e, f)` (or six numbers), stored as `matrix()` text; "" or `none` for none.
   transformMatrix: (value) => {
     const v = value.trim();
     if (v === "" || v.toLowerCase() === "none") return "";
@@ -713,20 +713,20 @@ const TRANSFORM_SHORTHANDS: Readonly<Record<string, (value: string) => PaintExpa
   transformOrigin: (value) => fieldsFrom(parseTransformOrigin(value)),
 };
 
-/** ADR 0426: `filter` sets every filter field (`filterValues.ts`). */
+/** ADR 0430: `filter` sets every filter field (`filterValues.ts`). */
 const filterShorthand = (value: string): PaintExpansion => fieldsFrom(parseFilter(value));
 
-/** ADR 0428: a filter field's `backdrop-filter` counterpart (`filterBlur` → `backdropBlur`). */
+/** ADR 0432: a filter field's `backdrop-filter` counterpart (`filterBlur` → `backdropBlur`). */
 export const backdropField = (filterField: string): string => `backdrop${filterField.slice("filter".length)}`;
-/** ADR 0428: every field `backdrop-filter` sets. */
+/** ADR 0432: every field `backdrop-filter` sets. */
 export const BACKDROP_FIELDS: readonly string[] = FILTER_FIELDS.map(backdropField);
-/** ADR 0428: `backdrop-filter` takes `filter`'s functions into the backdrop fields. */
+/** ADR 0432: `backdrop-filter` takes `filter`'s functions into the backdrop fields. */
 const backdropShorthand = (value: string): PaintExpansion => {
   const r = parseFilter(value);
   return r.ok ? { ok: true, fields: Object.entries(r.value).map(([k, v]) => [backdropField(k), v] as const) } : r;
 };
 
-/** The expansion of a shorthand that sets typed values (paint, ADR 0418 wave 2; transforms, wave 3; filters, 0426), or undefined. */
+/** The expansion of a shorthand that sets typed values (paint, ADR 0422 wave 2; transforms, wave 3; filters, 0430), or undefined. */
 function typedShorthand(property: string): ((value: string) => PaintExpansion) | undefined {
   if (Object.prototype.hasOwnProperty.call(PAINT_SHORTHANDS, property)) return PAINT_SHORTHANDS[property];
   if (Object.prototype.hasOwnProperty.call(TRANSFORM_SHORTHANDS, property)) return TRANSFORM_SHORTHANDS[property];
@@ -736,7 +736,7 @@ function typedShorthand(property: string): ((value: string) => PaintExpansion) |
   return undefined;
 }
 
-// --- White space (ADR 0428) ----------------------------------------------------------------------
+// --- White space (ADR 0432) ----------------------------------------------------------------------
 //
 // `white-space` is a shorthand of `white-space-collapse` and `text-wrap-mode` (CSS Text 4), both inherited text fields
 // (`INHERITED_FIELDS`). It takes the CSS 2 keywords (`normal`, `nowrap`, `pre`, `pre-wrap`, `pre-line`, `break-spaces`)
@@ -776,7 +776,7 @@ const WHITE_SPACE_SHORTHANDS: Readonly<Record<string, (value: string) => PaintEx
   },
 };
 
-// --- Shorthands (ADR 0418 wave 1) ---------------------------------------------------------------
+// --- Shorthands (ADR 0422 wave 1) ---------------------------------------------------------------
 //
 // A shorthand (`padding: 4px 8px`, `border: 2px solid #fff`, `flex: 1 1 0`) expands to its longhand fields where it
 // is declared, in an attribute or a rule, so the cascade orders it with the longhands as CSS does: whichever comes
@@ -889,7 +889,7 @@ const FLEX: Shorthand = {
 };
 
 /**
- * ADR 0423: `overflow: <x> [<y>]`: one value is the field itself (both axes, the axes' own fields cleared), two set
+ * ADR 0427: `overflow: <x> [<y>]`: one value is the field itself (both axes, the axes' own fields cleared), two set
  * `overflowX` and `overflowY`. CSS's `clip` is `hidden` here.
  */
 const OVERFLOW: Shorthand = {
@@ -902,7 +902,7 @@ const OVERFLOW: Shorthand = {
   },
 };
 
-/** ADR 0423: `scrollbar-color: <thumb> <track>`, or `auto` (the defaults). */
+/** ADR 0427: `scrollbar-color: <thumb> <track>`, or `auto` (the defaults). */
 const SCROLLBAR_COLOR: Shorthand = {
   longhands: ["scrollbarThumbColor", "scrollbarTrackColor"],
   expand(value) {
@@ -912,10 +912,10 @@ const SCROLLBAR_COLOR: Shorthand = {
   },
 };
 
-/** ADR 0428: `scroll-padding`/`scroll-margin`'s `auto` is no inset here. */
+/** ADR 0432: `scroll-padding`/`scroll-margin`'s `auto` is no inset here. */
 const scrollInset = (p: string) => (p.toLowerCase() === "auto" ? "0" : p);
 
-/** ADR 0428: `scroll-padding` and `scroll-margin`: one to four values to the sides (`auto` is 0). */
+/** ADR 0432: `scroll-padding` and `scroll-margin`: one to four values to the sides (`auto` is 0). */
 function scrollEdges(prefix: "scrollPadding" | "scrollMargin"): Shorthand {
   const sides = SIDES.map((s) => `${prefix}${s}`);
   return {
@@ -927,7 +927,7 @@ function scrollEdges(prefix: "scrollPadding" | "scrollMargin"): Shorthand {
   };
 }
 
-/** ADR 0428: `scroll-padding-block`/`-inline` (and the margins'): `<start> [<end>]` on the vertical or horizontal sides. */
+/** ADR 0432: `scroll-padding-block`/`-inline` (and the margins'): `<start> [<end>]` on the vertical or horizontal sides. */
 function scrollAxisEdges(prefix: "scrollPadding" | "scrollMargin", axis: "block" | "inline"): Shorthand {
   const [a, b] = axis === "block" ? [`${prefix}Top`, `${prefix}Bottom`] : [`${prefix}Left`, `${prefix}Right`];
   return {
@@ -941,7 +941,7 @@ function scrollAxisEdges(prefix: "scrollPadding" | "scrollMargin", axis: "block"
 
 const SNAP_AXES: ReadonlySet<string> = new Set(["x", "y", "block", "inline", "both"]);
 
-/** ADR 0428: `scroll-snap-type: none | <axis> [mandatory | proximity]` (`scrollSnapAxis`, `scrollSnapStrictness`). */
+/** ADR 0432: `scroll-snap-type: none | <axis> [mandatory | proximity]` (`scrollSnapAxis`, `scrollSnapStrictness`). */
 const SCROLL_SNAP_TYPE: Shorthand = {
   longhands: ["scrollSnapAxis", "scrollSnapStrictness"],
   expand(value) {
@@ -953,7 +953,7 @@ const SCROLL_SNAP_TYPE: Shorthand = {
   },
 };
 
-/** ADR 0428: `scroll-snap-align: <block> [<inline>]` (one value both). */
+/** ADR 0432: `scroll-snap-align: <block> [<inline>]` (one value both). */
 const SCROLL_SNAP_ALIGN: Shorthand = {
   longhands: ["scrollSnapAlignBlock", "scrollSnapAlignInline"],
   expand(value) {
@@ -962,7 +962,7 @@ const SCROLL_SNAP_ALIGN: Shorthand = {
   },
 };
 
-/** ADR 0428: `scrollbar-gutter: auto | stable | stable both-edges` (either order). */
+/** ADR 0432: `scrollbar-gutter: auto | stable | stable both-edges` (either order). */
 const SCROLLBAR_GUTTER: Shorthand = {
   longhands: ["scrollbarGutter"],
   expand(value) {
@@ -1015,7 +1015,7 @@ export function fieldsOf(component: abstract new (...args: never[]) => object): 
 const passedOn = new WeakMap<ReadonlyMap<string, FieldInfo>, ReadonlyMap<string, FieldInfo>>();
 
 /**
- * ADR 0428: the inherited fields a component doesn't have, which it only passes on to its children (a panel's `color`),
+ * ADR 0432: the inherited fields a component doesn't have, which it only passes on to its children (a panel's `color`),
  * with a text element's field info for their types: what the UI animator animates for its children.
  */
 export function passedOnFields(fields: ReadonlyMap<string, FieldInfo>): ReadonlyMap<string, FieldInfo> {
@@ -1029,7 +1029,7 @@ export function passedOnFields(fields: ReadonlyMap<string, FieldInfo>): Readonly
   return out;
 }
 
-/** ADR 0428: an inherited value an element passes on (the text it was declared as, or a typed value) as `info`'s type, or undefined. */
+/** ADR 0432: an inherited value an element passes on (the text it was declared as, or a typed value) as `info`'s type, or undefined. */
 export function passedOnValue(value: unknown, info: FieldInfo, file: string): unknown {
   return typeof value === "string" && info.type !== String ? convertValue(value, info, file) : value;
 }
@@ -1058,7 +1058,7 @@ export function referenceField(attribute: MarkupAttribute): string | null {
 }
 
 /**
- * ADR 0428: the resolved-map key holding what an element's relative lengths resolved against (`UIRelativeUnits`: its
+ * ADR 0432: the resolved-map key holding what an element's relative lengths resolved against (`UIRelativeUnits`: its
  * font size for `em`, the root's for `rem`, the canvas for viewport units); never a field. Children read the root's
  * font size from their parent's, and keyframes convert with the element's.
  */
@@ -1081,14 +1081,14 @@ export function unitsOf(resolved: ReadonlyMap<string, ResolvedValue> | null | un
   return (resolved?.get(UNITS_KEY)?.value as UIElementUnits | undefined) ?? null;
 }
 
-/** ADR 0428: a value with an element's relative lengths in px (`em` inside `font-size` is its parent's), or undefined when a viewport length can't resolve. */
+/** ADR 0432: a value with an element's relative lengths in px (`em` inside `font-size` is its parent's), or undefined when a viewport length can't resolve. */
 export function withElementUnits(value: string, field: string, units: UIElementUnits | null): string | undefined {
   if (!units) return resolveRelativeUnits(value, { em: 16, rem: 16, viewport: null });
   return resolveRelativeUnits(value, field === "fontSize" ? { em: units.parentEm, rem: units.rem, viewport: units.viewport } : units);
 }
 
 /**
- * ADR 0428: the resolved-map key holding a pseudo-element's `content` (`UIContentPiece[]`, or null for `none`/`normal`);
+ * ADR 0432: the resolved-map key holding a pseudo-element's `content` (`UIContentPiece[]`, or null for `none`/`normal`);
  * never a field, never inherited. Only pseudo-element targets get it: `content` on an element does nothing, as in CSS.
  */
 export const CONTENT_KEY = "@content";
@@ -1121,7 +1121,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   // Matching declarations in cascade order: specificity, then rule order, then position in the rule.
   const matched: { rule: StyleRule; declaration: Declaration; file: string; spec: readonly [number, number, number]; index: number }[] = [];
   const env = mediaOf(target);
-  // ADR 0425: a run of text between inline elements (`#text`) isn't an element: no rule matches it (not even `*`); it
+  // ADR 0429: a run of text between inline elements (`#text`) isn't an element: no rule matches it (not even `*`); it
   // only inherits, as a DOM text node's style is its parent's.
   for (const sheet of target.tag === TEXT_PIECE_TAG ? [] : sheets) {
     for (const rule of sheet.rules) {
@@ -1150,7 +1150,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   const vars = new Map<string, string>();
   for (const [k, v] of out) vars.set(k, String(v.value));
 
-  // ADR 0428: relative lengths. `em` is the element's font size (its parent's inside `font-size`), `rem` the root's (the
+  // ADR 0432: relative lengths. `em` is the element's font size (its parent's inside `font-size`), `rem` the root's (the
   // initial 16px inside the root's own `font-size`), viewport units the canvas in UI pixels.
   const parentFont = fontSizeOf(parent?.get("fontSize")) ?? 16;
   const viewport = viewportOf(target);
@@ -1159,7 +1159,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   const fontUnits: UIRelativeUnits = { em: parentFont, rem, viewport };
   let units: UIRelativeUnits = fontUnits;
 
-  /** A declared value with variables substituted, relative lengths in px and math functions worked out (ADR 0418 wave 5, 0428); undefined, warned once, when it can't be. */
+  /** A declared value with variables substituted, relative lengths in px and math functions worked out (ADR 0422 wave 5, 0432); undefined, warned once, when it can't be. */
   const prepare = (raw: string, where: string, field?: string): string | undefined => {
     let substituted = substituteVars(raw, vars);
     if (substituted === undefined) {
@@ -1187,7 +1187,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     const substituted = prepare(raw, where, field);
     if (substituted === undefined) return false;
     if (shorthand) {
-      // ADR 0418: every longhand this element has, or none when one of them isn't valid.
+      // ADR 0422: every longhand this element has, or none when one of them isn't valid.
       const invalid = () => warnOnce(`${where}: "${substituted}" isn't a valid ${field} for <${target.tag}>.`);
       const longhands = shorthand.expand(substituted);
       if (!longhands) return invalid(), false;
@@ -1211,7 +1211,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     return true;
   };
 
-  // A paint or transform shorthand (ADR 0418 waves 2 and 3) sets its longhands: this element's own, and inherited ones it passes on.
+  // A paint or transform shorthand (ADR 0422 waves 2 and 3) sets its longhands: this element's own, and inherited ones it passes on.
   const setShorthand = (property: string, raw: string, source: ValueSource, where: string) => {
     const substituted = prepare(raw, where);
     if (substituted === undefined) return;
@@ -1225,7 +1225,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     }
   };
 
-  // ADR 0428: the element's own font size first (what `em` means in its other declarations): the winning `font-size`
+  // ADR 0432: the element's own font size first (what `em` means in its other declarations): the winning `font-size`
   // (attributes after rules), else HTML's default for its tag, else inherited, else the initial 16px.
   {
     let own: { raw: string; where: string } | null = null;
@@ -1242,7 +1242,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     out.set(UNITS_KEY, { field: UNITS_KEY, value: stored, source: { kind: "default" } });
   }
 
-  // Transitions and animations (ADR 0418 wave 4) are cascade data, ordered like the fields.
+  // Transitions and animations (ADR 0422 wave 4) are cascade data, ordered like the fields.
   const animation = new AnimationCascade();
 
   // Rules.
@@ -1308,7 +1308,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     set(field, a.value, { kind: "attribute", attribute: a, file: element.file }, `${element.file} <${element.tag} ${a.name}>`);
   }
 
-  // ADR 0425: HTML's own defaults for phrasing elements (`<b>` bold, `<a>` underlined…), below every declaration.
+  // ADR 0429: HTML's own defaults for phrasing elements (`<b>` bold, `<a>` underlined…), below every declaration.
   for (const [field, value] of tagDefaults(target.tag, parent)) {
     if (!out.has(field) && fields.has(field)) out.set(field, { field, value, source: { kind: "default" } });
   }
@@ -1345,13 +1345,13 @@ export function cloneValue(value: unknown): unknown {
   return value;
 }
 
-// --- Animation (ADR 0418 wave 4) ----------------------------------------------------------------
+// --- Animation (ADR 0422 wave 4) ----------------------------------------------------------------
 //
 // `transition`, `animation`, their longhands and `@keyframes` are cascade data, not component fields: declarations
 // (rules, then attributes, an inline style last) are ordered like the fields', and whichever comes later wins per
 // longhand (a shorthand resets all of its longhands). The resolved map carries them under two keys that are never
 // fields, `TRANSITION_KEY` and `ANIMATION_KEY`; the document and the UI host hand them to the UI animator
-// (`ui/animation/`), which runs them on the tween backend (ADR 0420). Keyframe values convert here, per element, as
+// (`ui/animation/`), which runs them on the tween backend (ADR 0424). Keyframe values convert here, per element, as
 // rule values do: shorthands expand, variables substitute, and a value that can't convert is warned about once.
 
 /** The resolved-map key holding an element's transitions (`UITransitionSpec[]`); never a field. */
@@ -1479,7 +1479,7 @@ export function keyframeTracks(
   resolved: ReadonlyMap<string, ResolvedValue>,
   file: string,
   warn: (message: string) => void,
-  /** ADR 0428: fields the component only passes on (`passedOnFields`), animated for its children. */
+  /** ADR 0432: fields the component only passes on (`passedOnFields`), animated for its children. */
   passed?: ReadonlyMap<string, FieldInfo>,
 ): Map<string, UIKeyframeStop[]> | null {
   const found = findKeyframes(sheets, name);
@@ -1537,7 +1537,7 @@ export function keyframeTracks(
 
 /**
  * A keyframe declaration's fields and values for an element with `fields` (none it lacks), or why it can't be read:
- * shorthands expand and values convert as rule values do. Also the UI host's for keyframes played at runtime (ADR 0419:
+ * shorthands expand and values convert as rule values do. Also the UI host's for keyframes played at runtime (ADR 0423:
  * Svelte transitions' CSS, through the renderer's `animate` hook).
  */
 export function keyframeValues(field: string, raw: string, fields: ReadonlyMap<string, FieldInfo>, file: string): (readonly [string, unknown])[] | string {

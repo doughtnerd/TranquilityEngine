@@ -1,7 +1,7 @@
 /**
  * `SubtitleDisplay` (ADR 0357 §5): the optional built-in subtitle and caption display. Add it to any node (a persistent
  * scene or a HUD prefab); it mounts its view on a child node: a `UIView` of the built-in Svelte component
- * (`@myco/ui/Subtitles.svelte`, ADR 0419 wave B) on its own screen canvas (`sortOrder` 1000), or of a replacement
+ * (`@myco/ui/Subtitles.svelte`, ADR 0423 wave B) on its own screen canvas (`sortOrder` 1000), or of a replacement
  * component (`component`), which gets the same props. It shows what `Audio.onLine` and `Audio.onCaption` report, timed
  * on the heard clock (`Audio.time`), obeying the player's `Subtitles` settings.
  *
@@ -28,7 +28,7 @@ import { UIView } from "../../ui/runtime";
 import { characterFit, fontSizeFor, showSpeakerNames, SubtitleBoard, type BoardRow, type SpeakerNameMode } from "./board";
 import { Subtitles } from "./Subtitles";
 
-/** The built-in component (ADR 0419 wave B). */
+/** The built-in component (ADR 0423 wave B). */
 export const SUBTITLES_COMPONENT = "@myco/ui/Subtitles.svelte";
 
 /** One row as the view gets it. */

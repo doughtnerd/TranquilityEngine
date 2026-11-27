@@ -34,7 +34,7 @@ export { canvasScale, uiLength } from "./layout";
 
 type ElementKind = Exclude<UIKind, "canvas">;
 
-/** Where an element sits among `overflow: hidden` clips and in the draw order (ADR 0418), from the last layout. */
+/** Where an element sits among `overflow: hidden` clips and in the draw order (ADR 0422), from the last layout. */
 interface Placement {
   /** The overlap of its `overflow: hidden` ancestors' padding boxes; null when unclipped. */
   clip: UIRect | null;
@@ -45,7 +45,7 @@ interface Placement {
   /** Its place in its canvas's draw order. */
   order: number;
   /**
-   * ADR 0418 wave 3: the clips a point must fall in to reach it, as each clipper's padding box in layout space with the
+   * ADR 0422 wave 3: the clips a point must fall in to reach it, as each clipper's padding box in layout space with the
    * inverse of that clipper's transform (null: untransformed). Clips in one frame are merged into one rectangle.
    */
   clips: readonly ClipStep[];
@@ -54,18 +54,18 @@ interface Placement {
   inverse: UIAffine | null;
   /** The axis-aligned bounds of what's drawn of it, in canvas UI pixels: transformed, then clipped. */
   bounds: UIRect;
-  /** ADR 0423: the clips that don't scroll (navigation reaches elements scrolled out of view), and `bounds` cut by those only. */
+  /** ADR 0427: the clips that don't scroll (navigation reaches elements scrolled out of view), and `bounds` cut by those only. */
   reachClips: readonly ClipStep[];
   reach: UIRect;
-  /** ADR 0423: a clipping element's scroll state; null otherwise. */
+  /** ADR 0427: a clipping element's scroll state; null otherwise. */
   scroll: UIScrollInfo | null;
-  /** ADR 0426: the filter drawn over it: its own steps, then its ancestors' (lengths in canvas UI pixels); null: none. */
+  /** ADR 0430: the filter drawn over it: its own steps, then its ancestors' (lengths in canvas UI pixels); null: none. */
   filter: readonly UIFilterStep[] | null;
-  /** ADR 0428: its `backdrop-filter` (its own steps only, lengths through its transform); null: none. */
+  /** ADR 0432: its `backdrop-filter` (its own steps only, lengths through its transform); null: none. */
   backdrop?: readonly UIFilterStep[] | null;
 }
 
-/** One clip (ADR 0418): a rectangle in layout space, tested after mapping the point through `inverse`. `empty`: hides everything (a clipper scaled to 0). */
+/** One clip (ADR 0422): a rectangle in layout space, tested after mapping the point through `inverse`. `empty`: hides everything (a clipper scaled to 0). */
 interface ClipStep {
   readonly rect: UIRect;
   readonly transform: UIAffine | null;
@@ -110,43 +110,43 @@ interface Entry {
   applied: unknown[];
   /** Last laid-out result, in its canvas's UI pixels. */
   box: { x: number; y: number; width: number; height: number; visible: boolean; opacity: number };
-  /** Clip and draw order from the last layout (ADR 0418). */
+  /** Clip and draw order from the last layout (ADR 0422). */
   place: Placement;
   /**
-   * ADR 0418 wave 5: the parent's content size its lengths mixing % and px (`calc()`) were last resolved against, or
+   * ADR 0422 wave 5: the parent's content size its lengths mixing % and px (`calc()`) were last resolved against, or
    * absent when it has none. Layout runs again once when the parent's size turns out different.
    */
   calcBasis?: { width: number; height: number };
   /**
-   * ADR 0424: a select's list: a Yoga root of its own that its options lay out in (the select's node is measured, for
+   * ADR 0428: a select's list: a Yoga root of its own that its options lay out in (the select's node is measured, for
    * its label, and has no children), placed below the select when it's read.
    */
   popup?: YogaNode;
-  /** ADR 0424: a form element's parts at the last layout, and their key (`formParts.ts`). */
+  /** ADR 0428: a form element's parts at the last layout, and their key (`formParts.ts`). */
   parts?: UIPart[] | null;
   partsKey?: string;
-  /** ADR 0424: what else a measured element's size depends on (a select's option labels, a text area's rows). */
+  /** ADR 0428: what else a measured element's size depends on (a select's option labels, a text area's rows). */
   measureKey?: string;
   /**
-   * ADR 0425: an inline run (a text's inline child): the element it's inside (its text, or an inline element), which events
+   * ADR 0429: an inline run (a text's inline child): the element it's inside (its text, or an inline element), which events
    * travel up through. It has no Yoga node in the tree; its box is its fragments' bounds, from its text's layout.
    */
   inlineIn?: Entry | null;
-  /** ADR 0425: a text with runs: its inline layout at its content width (null otherwise), and what it was laid out for. */
+  /** ADR 0429: a text with runs: its inline layout at its content width (null otherwise), and what it was laid out for. */
   inline?: UIInlineLayout | null;
   inlineFor?: { run: UITextRun; width: number; inset: string };
-  /** ADR 0425: its runs' fragments in canvas UI pixels (layout space): what hit-testing resolves a point on the text to. */
+  /** ADR 0429: its runs' fragments in canvas UI pixels (layout space): what hit-testing resolves a point on the text to. */
   inlineHits?: { x: number; y: number; width: number; height: number; owner: Entry | null }[];
-  /** ADR 0428: an atomic inline box: the text whose lines it's on (null otherwise), and its margin box's size and baseline at its last layout. */
+  /** ADR 0432: an atomic inline box: the text whose lines it's on (null otherwise), and its margin box's size and baseline at its last layout. */
   atomOf?: Entry | null;
   atomSize?: UIInlineAtomSize | null;
-  /** ADR 0428: a text's atomic inline boxes (inside its runs too), from the last sync. */
+  /** ADR 0432: a text's atomic inline boxes (inside its runs too), from the last sync. */
   atoms?: Entry[];
-  /** ADR 0425: a text's inline runs (every inline descendant), from the last sync. */
+  /** ADR 0429: a text's inline runs (every inline descendant), from the last sync. */
   inlineRuns?: Entry[];
 }
 
-/** ADR 0425: an editable text being edited: its selection (`anchor` to `focus`, offsets in its text), the hidden text area's text, what's shown. */
+/** ADR 0429: an editable text being edited: its selection (`anchor` to `focus`, offsets in its text), the hidden text area's text, what's shown. */
 interface EditState {
   readonly entry: Entry;
   anchor: number;
@@ -170,7 +170,7 @@ interface CollectWalk {
   readonly desired: Map<Entry, Entry[]>;
 }
 
-/** ADR 0425: the element events go up to from `e`: an inline run's text or inline element, else its Yoga parent. */
+/** ADR 0429: the element events go up to from `e`: an inline run's text or inline element, else its Yoga parent. */
 function up(e: Entry): Entry | null {
   return e.inlineIn ?? e.parent;
 }
@@ -182,16 +182,16 @@ interface CanvasEntry extends Entry {
   height: number;
   /** Elements in tree order (parents first), from the last sync. */
   elements: Entry[];
-  /** The same elements in draw order (ADR 0418: `zIndex`, then document order): picking walks it from the end. */
+  /** The same elements in draw order (ADR 0422: `zIndex`, then document order): picking walks it from the end. */
   painted: Entry[];
-  /** ADR 0423: `painted` with each scroller's scrollbars after its last descendant, as they're drawn: hit-testing walks it from the end. */
+  /** ADR 0427: `painted` with each scroller's scrollbars after its last descendant, as they're drawn: hit-testing walks it from the end. */
   hitOrder: HitItem[];
 }
 
-/** An element, or one of a scroller's scrollbars (ADR 0423), in hit-testing order. */
+/** An element, or one of a scroller's scrollbars (ADR 0427), in hit-testing order. */
 type HitItem = Entry | { readonly bar: "x" | "y"; readonly scroller: Entry };
 
-/** True for an element that draws its descendants together, ordered among themselves (ADR 0418): a non-zero `zIndex` or an `overflow` that clips. */
+/** True for an element that draws its descendants together, ordered among themselves (ADR 0422): a non-zero `zIndex` or an `overflow` that clips. */
 function stacks(e: Entry): boolean {
   if (e.kind === "canvas") return true;
   return zOf(e) !== 0 || clipsChildren(e.comp);
@@ -202,7 +202,7 @@ function zOf(e: Entry): number {
   return typeof z === "number" && Number.isFinite(z) ? z : 0;
 }
 
-/** The length fields that may hold a `calc()` mixing % and px (ADR 0418 wave 5). */
+/** The length fields that may hold a `calc()` mixing % and px (ADR 0422 wave 5). */
 const MIXED_FIELDS = ["width", "height", "top", "right", "bottom", "left", "minWidth", "maxWidth", "minHeight", "maxHeight", "flexBasis"] as const;
 
 function sameSize(a: { width: number; height: number }, b: { width: number; height: number }): boolean {
@@ -210,7 +210,7 @@ function sameSize(a: { width: number; height: number }, b: { width: number; heig
 }
 
 /**
- * A canvas's elements in draw order, as CSS paints stacking contexts (ADR 0418): within each group (the canvas, or an
+ * A canvas's elements in draw order, as CSS paints stacking contexts (ADR 0422): within each group (the canvas, or an
  * element that `stacks`), its members are its descendants down to (and including) nested groups, stably sorted by
  * `zIndex`, so equal ones keep document order and parents stay before their children; each nested group is followed
  * by its own members.
@@ -238,10 +238,10 @@ function paintOrder(root: Entry): Entry[] {
 
 const NO_PLACE: Placement = { clip: null, clipper: null, childClip: null, order: 0, clips: [], transform: null, inverse: null, bounds: { x: 0, y: 0, width: 0, height: 0 }, reachClips: [], reach: { x: 0, y: 0, width: 0, height: 0 }, scroll: null, filter: null };
 
-/** ADR 0423: scrollbar thickness in UI pixels by `scrollbarWidth`, and a thumb's shortest length. */
+/** ADR 0427: scrollbar thickness in UI pixels by `scrollbarWidth`, and a thumb's shortest length. */
 const SCROLLBAR_WIDTH = { auto: 10, thin: 6, none: 0 } as const;
 const MIN_THUMB = 18;
-/** ADR 0422/0423: how far (CSS pixels) a press moves before it's a drag: a mouse drag of a draggable element, a touch or pen drag scroll. */
+/** ADR 0426/0427: how far (CSS pixels) a press moves before it's a drag: a mouse drag of a draggable element, a touch or pen drag scroll. */
 const DRAG_THRESHOLD = 4;
 const TOUCH_SCROLL_THRESHOLD = 10;
 /** Two clicks this close (seconds, CSS pixels) on the same element make a `dblclick`. */
@@ -266,11 +266,11 @@ interface Hit {
   /** Where, in the target canvas's UI pixels. */
   readonly ux: number;
   readonly uy: number;
-  /** ADR 0423: the press is on the target's scrollbar (the target is the scroller). */
+  /** ADR 0427: the press is on the target's scrollbar (the target is the scroller). */
   readonly bar: "x" | "y" | null;
 }
 
-/** ADR 0422/0423: what a held press is doing: maybe a drag, scrolling by touch, a UI drag, or dragging a scrollbar. */
+/** ADR 0426/0427: what a held press is doing: maybe a drag, scrolling by touch, a UI drag, or dragging a scrollbar. */
 interface Gesture {
   kind: "pending" | "scroll" | "drag" | "thumb" | "slider" | "none";
   readonly pointerType: "mouse" | "touch" | "pen";
@@ -286,11 +286,11 @@ interface Gesture {
   readonly source: Entry | null;
   /** The scrollers at or above it, innermost first. */
   readonly chain: Entry[];
-  /** A touch drag: the scroller it moves; a thumb drag: the scroller and axis; ADR 0424, a slider drag: the slider (and `startScroll` its value at the press). */
+  /** A touch drag: the scroller it moves; a thumb drag: the scroller and axis; ADR 0428, a slider drag: the slider (and `startScroll` its value at the press). */
   scroller: Entry | null;
   axis: "x" | "y" | null;
   startScroll: number;
-  /** ADR 0428: a touch drag's or thumb drag's scroller's offsets when it took the gesture (where a snap measures `scroll-snap-stop` from). */
+  /** ADR 0432: a touch drag's or thumb drag's scroller's offsets when it took the gesture (where a snap measures `scroll-snap-stop` from). */
   scrollFrom: { x: number; y: number } | null;
   /** Recent positions (seconds, CSS pixels) for momentum. */
   samples: { t: number; x: number; y: number }[];
@@ -300,32 +300,32 @@ interface Gesture {
   accepts: boolean;
 }
 
-/** The Yoga node an entry's children are in: its own, or (ADR 0424) a select's list. */
+/** The Yoga node an entry's children are in: its own, or (ADR 0428) a select's list. */
 function holder(e: Entry): YogaNode {
   return e.popup ?? e.node;
 }
 
-/** ADR 0424: the open select whose list `e` is in (at or below one of its options), or null. */
+/** ADR 0428: the open select whose list `e` is in (at or below one of its options), or null. */
 function openSelectAbove(e: Entry): Entry | null {
   for (let at = e.parent; at && at.kind !== "canvas"; at = at.parent) if (at.kind === "select") return (at.comp as UISelect).open ? at : null;
   return null;
 }
 
-/** ADR 0422: an element and its ancestors below its canvas, the element first. */
+/** ADR 0426: an element and its ancestors below its canvas, the element first. */
 function pathOf(e: Entry): Entry[] {
   const out: Entry[] = [];
   for (let at: Entry | null = e; at && at.kind !== "canvas"; at = up(at)) out.push(at);
   return out;
 }
 
-/** ADR 0428: the text elements and inline runs at or above `e` (what `:hover` and `:active` apply to). */
+/** ADR 0432: the text elements and inline runs at or above `e` (what `:hover` and `:active` apply to). */
 function textsOn(e: Entry | null): ReadonlySet<UIComponentType> | undefined {
   let out: Set<UIComponentType> | undefined;
   for (let at = e; at && at.kind !== "canvas"; at = up(at)) if (at.kind === "text") (out ??= new Set()).add(at.comp);
   return out;
 }
 
-/** ADR 0422: the nearest element both are in (themselves included), below their canvas; null when they share none. */
+/** ADR 0426: the nearest element both are in (themselves included), below their canvas; null when they share none. */
 function commonAncestor(a: Entry, b: Entry): Entry | null {
   const path = pathOf(a);
   for (let at: Entry | null = b; at && at.kind !== "canvas"; at = up(at)) if (path.includes(at)) return at;
@@ -338,13 +338,13 @@ function inertEntry(e: Entry): boolean {
   return false;
 }
 
-/** ADR 0422: a press in a button (ADR 0424: any control) that isn't interactable doesn't click (the DOM's disabled controls). */
+/** ADR 0426: a press in a button (ADR 0428: any control) that isn't interactable doesn't click (the DOM's disabled controls). */
 function disabledPath(e: Entry): boolean {
   for (let at: Entry | null = e; at && at.kind !== "canvas"; at = up(at)) if (isFocusableUI(at.comp) && !at.comp.interactable) return true;
   return false;
 }
 
-/** ADR 0423: the elements at or above `e` the player scrolls (`overflow` `auto` or `scroll`), innermost first. */
+/** ADR 0427: the elements at or above `e` the player scrolls (`overflow` `auto` or `scroll`), innermost first. */
 function scrollChain(e: Entry): Entry[] {
   const out: Entry[] = [];
   for (let at: Entry | null = e; at && at.kind !== "canvas"; at = up(at)) {
@@ -355,7 +355,7 @@ function scrollChain(e: Entry): Entry[] {
 }
 
 /**
- * ADR 0423: the scroller in `chain` (innermost first) that takes a scroll of `dx`, `dy`: the first that scrolls that
+ * ADR 0427: the scroller in `chain` (innermost first) that takes a scroll of `dx`, `dy`: the first that scrolls that
  * way and can still move, chaining outward, unless a scroller that can't move has `overscroll-behavior` `contain` or
  * `none`, which ends the chain there.
  */
@@ -407,10 +407,10 @@ export class UICore implements UICoreLike {
 
   // Typing: one hidden DOM <input>, shared by whichever field is focused.
   private dom: HTMLInputElement | null = null;
-  /** ADR 0424: the hidden elements made so far: a one-line `<input>` and a `<textarea>`. */
+  /** ADR 0428: the hidden elements made so far: a one-line `<input>` and a `<textarea>`. */
   private readonly doms: { line?: HTMLInputElement; area?: HTMLInputElement } = {};
   private active: UIInputField | null = null;
-  /** ADR 0425: the editable text being edited, and the one the hidden text area holds. */
+  /** ADR 0429: the editable text being edited, and the one the hidden text area holds. */
   private editing: EditState | null = null;
   private editActive: UIText | null = null;
   private programmatic = false;
@@ -419,17 +419,17 @@ export class UICore implements UICoreLike {
   private swallowed: string[] = [];
   /** The pointer's position at the last routing: moving it ends navigation's focus colours (ADR 0340). */
   private lastPointer: { x: number; y: number } | null = null;
-  /** ADR 0422: the raycast target under the pointer at the last routing (pointerover/out/enter/leave follow it). */
+  /** ADR 0426: the raycast target under the pointer at the last routing (pointerover/out/enter/leave follow it). */
   private hoverTarget: Entry | null = null;
-  /** ADR 0422: the raycast target a left press began on (a click goes to what it and the release share). */
+  /** ADR 0426: the raycast target a left press began on (a click goes to what it and the release share). */
   private pressTarget: Entry | null = null;
-  /** ADR 0422: the last click, for `dblclick`. */
+  /** ADR 0426: the last click, for `dblclick`. */
   private lastClick: { comp: UIComponentType; time: number; x: number; y: number; count: number } | null = null;
-  /** ADR 0422/0423: what the held press is doing. */
+  /** ADR 0426/0427: what the held press is doing. */
   private gesture: Gesture | null = null;
-  /** ADR 0423: the scroller the last press landed in: with nothing focused, keys scroll it. */
+  /** ADR 0427: the scroller the last press landed in: with nothing focused, keys scroll it. */
   private activeScroller: Entry | null = null;
-  /** ADR 0423: each scroller's offsets at the last layout, and whether it was moving (for `scroll` and `scrollend`). */
+  /** ADR 0427: each scroller's offsets at the last layout, and whether it was moving (for `scroll` and `scrollend`). */
   private readonly lastScroll = new Map<Entry, { x: number; y: number; moving: boolean }>();
 
   /** Whether clicks press buttons and focus fields (false: the editor's scene view, where they select; ADR 0129). */
@@ -476,10 +476,10 @@ export class UICore implements UICoreLike {
     return this.elementList;
   }
 
-  /** Lay the last synced World's UI out again now, at the last size (the UI host reading geometry mid-frame, ADR 0419). */
+  /** Lay the last synced World's UI out again now, at the last size (the UI host reading geometry mid-frame, ADR 0423). */
   relayout(): void {
     if (!this.world || this.disposed) return;
-    // Layout only: scrolling moves on, and `scroll`/`scrollend` are noted, once a frame, in the frame's own sync (ADR 0423).
+    // Layout only: scrolling moves on, and `scroll`/`scrollend` are noted, once a frame, in the frame's own sync (ADR 0427).
     this.relayingOut = true;
     try {
       this.sync(this.world, this.width, this.height);
@@ -494,7 +494,7 @@ export class UICore implements UICoreLike {
     return this.dom.selectionStart ?? this.dom.value.length;
   }
 
-  /** ADR 0428: the selection (`[start, end)`) in the input field being typed in, or null when it isn't the one or nothing is selected. */
+  /** ADR 0432: the selection (`[start, end)`) in the input field being typed in, or null when it isn't the one or nothing is selected. */
   selectionOf(c: UIInputField): readonly [number, number] | null {
     if (!this.dom || this.active !== c) return null;
     const s = this.dom.selectionStart, e = this.dom.selectionEnd;
@@ -521,9 +521,9 @@ export class UICore implements UICoreLike {
     if (this.disposed || !this.yoga) return;
     const yoga = this.yoga;
     this.world = world;
-    // ADR 0423: smooth scrolls and momentum move on before layout reads the offsets (the routing core only).
+    // ADR 0427: smooth scrolls and momentum move on before layout reads the offsets (the routing core only).
     if (!this.passive && !this.relayingOut) advanceUIScrolling(world, deltaSeconds);
-    // The layout scripts' scrolling reads (ADR 0423) and navigation search: the routing core's, from its first layout.
+    // The layout scripts' scrolling reads (ADR 0427) and navigation search: the routing core's, from its first layout.
     if (!this.passive && this.interactiveMode && world._takesInput) uiInteractions(world).layout = this;
     this.width = width;
     this.height = height;
@@ -560,7 +560,7 @@ export class UICore implements UICoreLike {
     this.attach(desired);
 
     // Properties and layout.
-    // ADR 0428: an atomic inline box is laid out (it's a run of its text only by its size).
+    // ADR 0432: an atomic inline box is laid out (it's a run of its text only by its size).
     for (const entry of this.entries.values()) if (entry.canvas && (!entry.inlineIn || entry.atomOf)) this.applyProperties(yoga, entry);
     this.layoutAtoms(yoga);
     const canvases = [...this.canvasEntries.values()].sort((a, b) => a.comp.sortOrder - b.comp.sortOrder);
@@ -568,7 +568,7 @@ export class UICore implements UICoreLike {
       this.applyCanvas(canvas);
       canvas.node.calculateLayout(canvas.width, canvas.height, yoga.DIRECTION_LTR);
       this.readLayout(canvas);
-      // `calc()` mixing % and px (ADR 0418 wave 5) resolved against last frame's parent sizes: once more where they changed.
+      // `calc()` mixing % and px (ADR 0422 wave 5) resolved against last frame's parent sizes: once more where they changed.
       const stale = canvas.elements.filter((e) => e.calcBasis && e.parent && !sameSize(e.calcBasis, this.contentSize(e.parent)));
       if (stale.length) {
         for (const e of stale) this.applyProperties(yoga, e);
@@ -582,7 +582,7 @@ export class UICore implements UICoreLike {
   }
 
   /**
-   * ADR 0423: a scroller whose offsets changed since the last layout gets a `scroll` event, and one that stopped (no
+   * ADR 0427: a scroller whose offsets changed since the last layout gets a `scroll` event, and one that stopped (no
    * change, no gesture holding it, no smooth scroll or momentum) a `scrollend`, published with the next routing, so
    * they're dispatched the frame after (as the DOM fires them before the next frame's rendering).
    */
@@ -684,7 +684,7 @@ export class UICore implements UICoreLike {
     } else if (run) {
       node.setMeasureFunc((w, wm) => this.measure(entry, wm === yoga.MEASURE_MODE_UNDEFINED ? Infinity : w));
     }
-    // ADR 0424: a select's options lay out in a list of their own; a control's state as built is what a form resets to.
+    // ADR 0428: a select's options lay out in a list of their own; a control's state as built is what a form resets to.
     if (kind === "select") {
       entry.popup = yoga.Node.create(this.config ?? undefined);
       entry.popup.setFlexDirection(yoga.FLEX_DIRECTION_COLUMN);
@@ -720,12 +720,12 @@ export class UICore implements UICoreLike {
       entry.inlineIn = null;
       entry.atomOf = null;
       if (leaf?.kind === "text") {
-        // ADR 0428: an inline block, a control, an SVG or media element in a text is an atomic inline box of it.
+        // ADR 0432: an inline block, a control, an SVG or media element in a text is an atomic inline box of it.
         if (isInlineAtom(c)) {
           this.collectAtom(w, child, entry, leaf, leaf);
           continue;
         }
-        // ADR 0425: a text's inline children (texts and images, nested ones too) are its runs: no boxes of their own.
+        // ADR 0429: a text's inline children (texts and images, nested ones too) are its runs: no boxes of their own.
         if (c instanceof UIText || c instanceof UIImage) {
           this.collectInline(w, child, entry, leaf, leaf);
           continue;
@@ -754,7 +754,7 @@ export class UICore implements UICoreLike {
   }
 
   /**
-   * ADR 0428: an atomic inline box `entry` (on `node`) inside `within` (its text or an inline element) on `text`'s lines:
+   * ADR 0432: an atomic inline box `entry` (on `node`) inside `within` (its text or an inline element) on `text`'s lines:
    * events go up through `within`; its Yoga node is a root of its own, its subtree laid out in it, and its size a run of the text.
    */
   private collectAtom(w: CollectWalk, node: GameObject, entry: Entry, within: Entry, text: Entry): void {
@@ -764,7 +764,7 @@ export class UICore implements UICoreLike {
     this.collectChildren(w, node, entry, []);
   }
 
-  /** ADR 0425: an inline run `entry` (on `node`) inside `within` (its text or an inline element), and its own inline descendants. */
+  /** ADR 0429: an inline run `entry` (on `node`) inside `within` (its text or an inline element), and its own inline descendants. */
   private collectInline(w: CollectWalk, node: GameObject, entry: Entry, within: Entry, text: Entry): void {
     entry.inlineIn = within;
     (text.inlineRuns ??= []).push(entry);
@@ -860,11 +860,11 @@ export class UICore implements UICoreLike {
     if (put(2, (v = t.justify[c.justifyContent] ?? yoga.JUSTIFY_FLEX_START))) n.setJustifyContent(v as never);
     if (put(3, (v = t.align[c.alignItems] ?? yoga.ALIGN_STRETCH))) n.setAlignItems(v as never);
     if (put(4, (v = finite(c.gap)))) n.setGap(yoga.GUTTER_ALL, v as number);
-    // ADR 0418 wave 1: each side its own value, else the all-sides one (slots 5, 6 and 16 are the top edges).
+    // ADR 0422 wave 1: each side its own value, else the all-sides one (slots 5, 6 and 16 are the top edges).
     const pad = uiEdges(c.padding, c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft);
     const mar = uiEdges(c.margin, c.marginTop, c.marginRight, c.marginBottom, c.marginLeft);
     let bor = uiBorderEdges(c);
-    // ADR 0428: `scrollbar-gutter: stable` reserves the vertical scrollbar's space between the border and the padding:
+    // ADR 0432: `scrollbar-gutter: stable` reserves the vertical scrollbar's space between the border and the padding:
     // to Yoga, a wider border on that side (the padding box, `clientWidth`, shrinks; the drawn border doesn't change).
     const gutter = gutterOf(c, directionOf(entry) === "rtl");
     if (gutter.right || gutter.left) bor = [bor[0], bor[1] + gutter.right, bor[2], bor[3] + gutter.left];
@@ -874,7 +874,7 @@ export class UICore implements UICoreLike {
       if (put(i === 0 ? 6 : 19 + i, mar[i])) n.setMargin(edge, mar[i]);
       if (put(i === 0 ? 16 : 22 + i, bor[i])) n.setBorder(edge, bor[i]);
     }
-    // ADR 0418 wave 5: lengths mixing % and px resolve in pixels against the parent's content size (last layout's).
+    // ADR 0422 wave 5: lengths mixing % and px resolve in pixels against the parent's content size (last layout's).
     const basis = MIXED_FIELDS.some((f) => isMixedLength(c[f])) && entry.parent ? this.contentSize(entry.parent) : undefined;
     entry.calcBasis = basis;
     const bw = basis?.width, bh = basis?.height;
@@ -887,7 +887,7 @@ export class UICore implements UICoreLike {
     if (put(13, (v = autoToUndefined(uiLength(c.left, bw))))) n.setPosition(yoga.EDGE_LEFT, v as never);
     if (put(14, (v = finite(c.flexGrow)))) n.setFlexGrow(v as number);
     // Null: the kind's (text wraps to what's left; other boxes keep their size).
-    // ADR 0423: in a parent the player scrolls along its main axis, content lays out unconstrained: a kind's default shrink is 0 there.
+    // ADR 0427: in a parent the player scrolls along its main axis, content lays out unconstrained: a kind's default shrink is 0 there.
     if (put(15, (v = c.flexShrink === null || c.flexShrink === undefined ? (scrollsMainAxis(entry.parent) ? 0 : flexShrinkOf(entry.kind)) : finite(c.flexShrink)))) n.setFlexShrink(v as number);
     if (put(26, (v = uiLimit(c.minWidth, bw)))) n.setMinWidth(v as never);
     if (put(27, (v = uiLimit(c.maxWidth, bw)))) n.setMaxWidth(v as never);
@@ -900,7 +900,7 @@ export class UICore implements UICoreLike {
     if (put(33, (v = uiLength(c.flexBasis, rowParent ? bw : bh) ?? "auto"))) n.setFlexBasis(v as never);
     if (put(34, (v = Number.isFinite(c.aspectRatio) && c.aspectRatio > 0 ? c.aspectRatio : undefined))) n.setAspectRatio(v as never);
     if (put(35, (v = isUserScroller(c) ? yoga.OVERFLOW_SCROLL : clipsChildren(c) ? yoga.OVERFLOW_HIDDEN : yoga.OVERFLOW_VISIBLE))) n.setOverflow(v as never);
-    // ADR 0428: `direction` (null inherits, Yoga's own inheritance from the canvas's LTR).
+    // ADR 0432: `direction` (null inherits, Yoga's own inheritance from the canvas's LTR).
     if (put(36, (v = c.direction === "rtl" ? yoga.DIRECTION_RTL : c.direction === "ltr" ? yoga.DIRECTION_LTR : yoga.DIRECTION_INHERIT))) n.setDirection(v as never);
 
     if (entry.run) this.updateRun(entry);
@@ -914,10 +914,10 @@ export class UICore implements UICoreLike {
     const c = entry.comp;
     const run = textRunOf(c, this.atomSizes)!;
     const epoch = fontEpoch();
-    // ADR 0424: a select's size follows every option's label, a text area's its rows.
+    // ADR 0428: a select's size follows every option's label, a text area's its rows.
     const key = entry.kind === "select" ? selectLabels(c as UISelect).join("\u0000") : entry.kind === "textarea" ? String((c as UITextArea).rows) : undefined;
     if (!sameTextRun(run, entry.run) || epoch !== entry.measuredEpoch || key !== entry.measureKey) {
-      // ADR 0425: runs that changed only colour, decoration or background (a link's hover) are drawn again, not measured.
+      // ADR 0429: runs that changed only colour, decoration or background (a link's hover) are drawn again, not measured.
       const remeasure = !sameTextMeasure(run, entry.run) || epoch !== entry.measuredEpoch || key !== entry.measureKey;
       entry.run = run;
       entry.measuredEpoch = epoch;
@@ -926,11 +926,11 @@ export class UICore implements UICoreLike {
     }
   }
 
-  /** ADR 0428: atomic inline boxes' sizes, from their own layouts, for their texts' runs. */
+  /** ADR 0432: atomic inline boxes' sizes, from their own layouts, for their texts' runs. */
   private readonly atomSizes: UIInlineAtomSizes = (c) => this.entries.get(c)?.atomSize ?? null;
 
   /**
-   * ADR 0428: lay every atomic inline box out in its own Yoga tree at its content's size (CSS's shrink-to-fit with room to
+   * ADR 0432: lay every atomic inline box out in its own Yoga tree at its content's size (CSS's shrink-to-fit with room to
    * spare), innermost first, each text holding atoms taking their sizes into its runs before the box it's in is laid out.
    */
   private layoutAtoms(yoga: Yoga): void {
@@ -965,7 +965,7 @@ export class UICore implements UICoreLike {
   }
 
   /**
-   * ADR 0428: an atomic inline box's baseline, down from its border box's top: its last line of text's (a text, a
+   * ADR 0432: an atomic inline box's baseline, down from its border box's top: its last line of text's (a text, a
    * button's label, a field's value: the last such element in it), or its bottom margin edge when it has none or doesn't
    * show its overflow (as CSS's inline blocks; an image, an SVG, a video, a checkbox).
    */
@@ -991,7 +991,7 @@ export class UICore implements UICoreLike {
     return find(atom, 0) ?? bottom;
   }
 
-  /** ADR 0425: a string's width in a run's font: the host's exact measure, else an estimate (Node). */
+  /** ADR 0429: a string's width in a run's font: the host's exact measure, else an estimate (Node). */
   private readonly runWidth: RunMeasure = (text, run) => {
     const exact = this.host.measureRunWidth?.(text, inlineFont(run));
     if (exact !== undefined) return exact;
@@ -1000,7 +1000,7 @@ export class UICore implements UICoreLike {
     return n * 0.55 * run.fontSize;
   };
 
-  /** ADR 0425: a text run with inline runs laid out at `maxWidth` (and aligned in `alignWidth`). */
+  /** ADR 0429: a text run with inline runs laid out at `maxWidth` (and aligned in `alignWidth`). */
   private layoutRuns(run: UITextRun, maxWidth: number, alignWidth?: number): UIInlineLayout {
     return layoutInline(run.runs!, { maxWidth: run.wrap === "none" ? Infinity : maxWidth, alignWidth, wrap: run.wrap, lineHeight: run.lineHeight, align: run.align, direction: run.direction, fontSize: run.fontSize, keepTrailingBreak: !!run.editable, boxes: run.boxes }, this.runWidth);
   }
@@ -1024,7 +1024,7 @@ export class UICore implements UICoreLike {
     if (!run) return { width: 0, height: 0 };
     const measure = (r: TextMeasureRequest) => this.host.measureText?.(r) ?? estimateText(r);
     const lineHeight = run.fontSize * run.lineHeight;
-    // ADR 0424: a select fits its widest option's label; a text area is `rows` lines tall whatever its text (which scrolls).
+    // ADR 0428: a select fits its widest option's label; a text area is `rows` lines tall whatever its text (which scrolls).
     if (entry.kind === "select") {
       let width = 0;
       for (const text of selectLabels(entry.comp as UISelect)) width = Math.max(width, measure({ ...run, text, maxWidth: Infinity }).width);
@@ -1034,7 +1034,7 @@ export class UICore implements UICoreLike {
       const rows = Math.max(1, Math.round((entry.comp as UITextArea).rows) || 1);
       return { width: Number.isFinite(maxWidth) ? maxWidth : 20 * run.fontSize * 0.55, height: rows * lineHeight };
     }
-    // ADR 0425: inline runs measure together, as they're laid out and drawn.
+    // ADR 0429: inline runs measure together, as they're laid out and drawn.
     if (run.runs) {
       const laid = this.layoutRuns(run, maxWidth);
       return { width: laid.width, height: laid.height };
@@ -1045,7 +1045,7 @@ export class UICore implements UICoreLike {
 
   /**
    * Read Yoga's boxes into the entries' absolute (canvas UI pixel) boxes, visibility and opacity, in tree order; then
-   * their clips (`overflow: hidden` ancestors' padding boxes) and draw order (ADR 0418).
+   * their clips (`overflow: hidden` ancestors' padding boxes) and draw order (ADR 0422).
    */
   private readLayout(canvas: CanvasEntry): void {
     canvas.elements = [];
@@ -1073,21 +1073,21 @@ export class UICore implements UICoreLike {
           childClip = { x: x + bl, y: y + bt, width: Math.max(0, width - bl - br), height: Math.max(0, height - bt - bb) };
           scroll = this.scrollOf(e, childClip, bl, bt);
         }
-        // ADR 0418 wave 3: its transform composes its parent's with its own; layout above ignored both.
+        // ADR 0422 wave 3: its transform composes its parent's with its own; layout above ignored both.
         const transform = compose(parentTransform, localTransform(c as unknown as UITransformFields, e.box));
         const inverse = transform ? invert(transform) : null;
-        // ADR 0426: its own filter (lengths through its transform) applies to it and its descendants, before its ancestors'.
+        // ADR 0430: its own filter (lengths through its transform) applies to it and its descendants, before its ancestors'.
         const own = filterStepsOf(c as unknown as UIFilterFields);
         const filter = own.length ? [...transformFilterSteps(own, transform), ...(parentFilter ?? [])] : parentFilter;
-        // ADR 0428: its backdrop filter, its own only (what's behind it, not its subtree).
+        // ADR 0432: its backdrop filter, its own only (what's behind it, not its subtree).
         const backdropOwn = filterStepsOf(backdropFilterFields(c));
         const backdrop = backdropOwn.length ? transformFilterSteps(backdropOwn, transform) : null;
         e.place = { clip, clipper, childClip, order: 0, clips, transform, inverse, bounds: drawnBounds(e.box, transform, clips), reachClips, reach: drawnBounds(e.box, transform, reachClips), scroll, filter, backdrop };
         canvas.elements.push(e);
-        // ADR 0425: a text with inline runs is laid out at its content width; its runs get their fragments' bounds.
+        // ADR 0429: a text with inline runs is laid out at its content width; its runs get their fragments' bounds.
         if (e.kind === "text") this.placeInline(e);
         if (e.popup) {
-          // ADR 0424: a select's list lays out at least as wide as the select, below it (above it where it wouldn't fit),
+          // ADR 0428: a select's list lays out at least as wide as the select, below it (above it where it wouldn't fit),
           // outside every clip; shown only while the select is open.
           const list = e.popup;
           list.setMinWidth(width);
@@ -1098,12 +1098,12 @@ export class UICore implements UICoreLike {
           walk(e, x - list.getComputedLeft(), top - list.getComputedTop(), v && (c as UISelect).open, o, null, null, [], [], transform, filter);
           return;
         }
-        // ADR 0423: its children are drawn moved by its scroll; only a clip that doesn't scroll keeps navigation out.
+        // ADR 0427: its children are drawn moved by its scroll; only a clip that doesn't scroll keeps navigation out.
         const sx = scroll?.x ?? 0, sy = scroll?.y ?? 0;
         const nextClips = childClip ? withClip(clips, childClip, transform, inverse) : clips;
         const nextReach = childClip && !isUserScroller(c) ? withClip(reachClips, childClip, transform, inverse) : reachClips;
         const inner: Parameters<Walk> = [v, o, childClip ? intersectRect(childClip, clip) : clip, childClip ? e : clipper, nextClips, nextReach, transform, filter];
-        // ADR 0428: a text's atomic inline boxes, where its lines put them (each its own laid-out subtree), as its children.
+        // ADR 0432: a text's atomic inline boxes, where its lines put them (each its own laid-out subtree), as its children.
         for (const atom of e.kind === "text" ? (e.atoms ?? []) : []) {
           const at = this.atomPlace(e, atom);
           if (at) visit(atom, at.x, at.y, ...inner);
@@ -1113,14 +1113,14 @@ export class UICore implements UICoreLike {
     };
     walk(canvas, 0, 0, cv, 1, null, null, [], [], null, null);
     canvas.painted = paintOrder(canvas);
-    // ADR 0424: open selects' lists draw (and take the pointer) above everything else in their canvas.
+    // ADR 0428: open selects' lists draw (and take the pointer) above everything else in their canvas.
     const lists = canvas.painted.filter((e) => openSelectAbove(e));
     if (lists.length) canvas.painted = [...canvas.painted.filter((e) => !lists.includes(e)), ...lists];
     canvas.painted.forEach((e, i) => (e.place.order = i));
     canvas.hitOrder = hitOrderOf(canvas.painted);
   }
 
-  /** ADR 0428: where an atomic inline box's border box goes on its text's lines (canvas UI pixels), or null when it's on none. */
+  /** ADR 0432: where an atomic inline box's border box goes on its text's lines (canvas UI pixels), or null when it's on none. */
   private atomPlace(text: Entry, atom: Entry): { x: number; y: number } | null {
     const laid = text.inline, runs = text.run?.runs;
     if (!laid || !runs) return null;
@@ -1138,7 +1138,7 @@ export class UICore implements UICoreLike {
   }
 
   /**
-   * ADR 0425: lay a text's runs out at its content width (again only when its run, width or insets changed), and give each
+   * ADR 0429: lay a text's runs out at its content width (again only when its run, width or insets changed), and give each
    * of its inline runs a box (its fragments' bounds; at the text's content corner with no size when it has none) and the
    * text's placement, so events, `getBoundingClientRect` and hit-testing reach the run.
    */
@@ -1178,7 +1178,7 @@ export class UICore implements UICoreLike {
         }
       }
     }
-    // ADR 0428: an inline box's parts (its padding and border, past its glyphs) are its element's too, hit after the
+    // ADR 0432: an inline box's parts (its padding and border, past its glyphs) are its element's too, hit after the
     // fragments inside them (inner boxes before the boxes they're in).
     const boxHits: (typeof hits)[number][] = [];
     for (const line of laid.lines) {
@@ -1203,12 +1203,12 @@ export class UICore implements UICoreLike {
   }
 
   /**
-   * ADR 0423: a clipping element's scroll state. Its content's extent is the union of its children's margin boxes (from
+   * ADR 0427: a clipping element's scroll state. Its content's extent is the union of its children's margin boxes (from
    * its padding box's corner) plus its end padding, at least the padding box; its offsets are clamped to that, and the
    * routing core writes the clamped values back. Scrollbars show on an axis the player scrolls: always for `scroll`,
    * for `auto` when the content overflows, never with `scrollbar-width: none`.
    *
-   * ADR 0428: an axis whose content starts at its far end (`row-reverse`, `column-reverse`, `direction: rtl`) reaches
+   * ADR 0432: an axis whose content starts at its far end (`row-reverse`, `column-reverse`, `direction: rtl`) reaches
    * past its start edge instead, with offsets from a negative `min` to 0 (CSSOM's); the vertical bar is on the left in
    * `rtl`, and in a reserved gutter (`scrollbar-gutter: stable`) outside the padding box. A snapping scroller's snap
    * areas are measured here, and (the routing core, nothing holding it) it snaps again to what the layout moved.
@@ -1223,7 +1223,7 @@ export class UICore implements UICoreLike {
     // The content's edges from the padding box's corner (the start ones from the content box, so none reach nothing).
     let left = pl, top = pt, right = 0, bottom = 0;
     if (e.kind === "textarea" && e.run) {
-      // ADR 0424: a text area's content is its text, wrapped at its content width (inside its padding).
+      // ADR 0428: a text area's content is its text, wrapped at its content width (inside its padding).
       const inner = Math.max(0, client.width - pl - pr);
       const text = this.host.measureText?.({ ...e.run, maxWidth: e.run.wrap === "none" ? Infinity : inner }) ?? estimateText({ ...e.run, maxWidth: e.run.wrap === "none" ? Infinity : inner });
       right = pl + text.width;
@@ -1247,7 +1247,7 @@ export class UICore implements UICoreLike {
     const userX = userScrollsAxis(axes.x), userY = userScrollsAxis(axes.y);
     const base: UIScrollInfo = { x, y, minX, minY, maxX, maxY, clientWidth: client.width, clientHeight: client.height, scrollWidth, scrollHeight, userX, userY, client, barX: null, barY: null, snap: this.snapOf(e, client, bl, bt) };
     if (!this.passive) {
-      // ADR 0428: snapping again after a layout change, unless a drag or thumb holds it.
+      // ADR 0432: snapping again after a layout change, unless a drag or thumb holds it.
       const held = this.gesture?.scroller === e && (this.gesture.kind === "scroll" || this.gesture.kind === "thumb");
       if (this.world && !held) ({ x, y } = uiResnap(this.world, c, base, x, y));
       if (c.scrollX !== x) c.scrollX = x;
@@ -1276,7 +1276,7 @@ export class UICore implements UICoreLike {
   }
 
   /**
-   * ADR 0428: a scroller's snapping (`scroll-snap-type`): its snapport (the padding box inset by `scroll-padding`) and
+   * ADR 0432: a scroller's snapping (`scroll-snap-type`): its snapport (the padding box inset by `scroll-padding`) and
    * the snap areas of the descendants it's the nearest clipping ancestor of (border box plus `scroll-margin`, transforms
    * aside), each with its snap positions per `scroll-snap-align`. Null when it doesn't snap.
    */
@@ -1328,7 +1328,7 @@ export class UICore implements UICoreLike {
       canvasList.push({ comp: c, mode: c.mode, sortOrder: c.sortOrder, width: canvas.width, height: canvas.height, scale: canvas.scale, pixelSize: c.mode === "world" ? c.pixelSize : 1, worldMatrix, visible: c.isActiveAndEnabled });
       for (const e of canvas.elements) {
         const b = e.box, p = e.place;
-        // ADR 0424: a form element's parts, the same array while they don't change (the drawing layer compares by identity).
+        // ADR 0428: a form element's parts, the same array while they don't change (the drawing layer compares by identity).
         const parts = b.visible ? formPartsOf(e.comp, b.width, b.height, world.time.realtimeSinceStartup) : null;
         const key = partsKey(parts);
         if (key !== e.partsKey) {
@@ -1358,7 +1358,7 @@ export class UICore implements UICoreLike {
     return null;
   }
 
-  /** The hidden element a field types in: an `<input>`, or (ADR 0424) a `<textarea>` for a text area, where Enter starts a line. */
+  /** The hidden element a field types in: an `<input>`, or (ADR 0428) a `<textarea>` for a text area, where Enter starts a line. */
   private ensureDom(multiline = false): HTMLInputElement | null {
     const have = multiline ? this.doms.area : this.doms.line;
     if (have) return have;
@@ -1371,7 +1371,7 @@ export class UICore implements UICoreLike {
     el.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;";
     // The player's typing: the value now, the change event for the World's next frame (ADR 0309).
     const onInput = () => {
-      // ADR 0425: an editable text's edit goes into its runs' components; `input` follows in the next frame.
+      // ADR 0429: an editable text's edit goes into its runs' components; `input` follows in the next frame.
       if (this.editing && this.editActive && this.dom === el) return this.editInput(el);
       const c = this.active;
       if (!c) return;
@@ -1387,7 +1387,7 @@ export class UICore implements UICoreLike {
     // Enter submits; Tab, Shift+Tab and Escape leave the field through navigation (ADR 0340), and their
     // presses stay the UI's until released, so the game (and the `ui` context) never sees them as new ones.
     const onKey = (e: KeyboardEvent) => {
-      // ADR 0425: Escape leaves an editable text (Enter starts a line in it); Tab leaves it for navigation.
+      // ADR 0429: Escape leaves an editable text (Enter starts a line in it); Tab leaves it for navigation.
       if (this.editing && this.editActive && this.dom === el && !e.isComposing && e.keyCode !== 229) {
         if (e.key === "Escape" || e.key === "Tab") {
           if (e.key === "Tab") e.preventDefault?.();
@@ -1441,7 +1441,7 @@ export class UICore implements UICoreLike {
   /** Move DOM focus to or from the wanted field's hidden input, and mirror `value` and `maxLength` into it. */
   private syncDom(): void {
     if (this.passive || typeof document === "undefined") return;
-    // ADR 0425: an editable text being edited holds the hidden text area (its runs' text, images as U+FFFC).
+    // ADR 0429: an editable text being edited holds the hidden text area (its runs' text, images as U+FFFC).
     const ed = this.editing;
     if (ed && (!this.entries.has(ed.entry.comp) || !ed.entry.canvas || !ed.entry.box.visible || !ed.entry.run?.runs || !(ed.entry.comp as UIText).contentEditable)) this.endEditing();
     if (this.editing) return this.syncEditDom(this.editing);
@@ -1480,7 +1480,7 @@ export class UICore implements UICoreLike {
     if (el.value !== wantComp.value) el.value = wantComp.value; // a script changed it
   }
 
-  // --- Editable text (ADR 0425) ----------------------------------------------------------------
+  // --- Editable text (ADR 0429) ----------------------------------------------------------------
 
   /** The text area an editable text types in: its text mirrored, focused, and the selection either way between them. */
   private syncEditDom(ed: EditState): void {
@@ -1612,12 +1612,12 @@ export class UICore implements UICoreLike {
    * the pointer against last frame's layout, claim it for UI, and hand the World's interaction log
    * (ADR 0309) what the pointer did; the log publishes the frame's events.
    *
-   * ADR 0422: it also records the frame's UI events in order, each on the raycast target it happened on (the element
+   * ADR 0426: it also records the frame's UI events in order, each on the raycast target it happened on (the element
    * that claims the pointer, 0385): `pointerover`/`pointerout`/`pointerenter`/`pointerleave` as the target changes,
    * `pointermove`, `pointerdown`/`pointerup` for each button, `click` on what the left press and release share (and
    * `dblclick`), `contextmenu`, `wheel`, `keydown`/`keyup` on the focused element (else the scroller last pressed in),
    * `pointercancel` when a touch drag starts scrolling, and UI drags. Default actions ride on them, run after their
-   * dispatch unless a handler prevents them: focus on press, scrolling (ADR 0423), a drag starting, submit on Enter.
+   * dispatch unless a handler prevents them: focus on press, scrolling (ADR 0427), a drag starting, submit on Enter.
    */
   private route(raw: PointerFrame): InputClaim | void {
     this.pointerHeld = raw.down(0) || raw.held(0);
@@ -1646,7 +1646,7 @@ export class UICore implements UICoreLike {
     this.lastPointer = { x: raw.x, y: raw.y };
     const now = world.time.realtimeSinceStartup;
 
-    // ADR 0422: the frame's records, with what each needs.
+    // ADR 0426: the frame's records, with what each needs.
     const records: UIEventRecord[] = [];
     const mods = { shiftKey: raw.keyHeld("shift"), ctrlKey: raw.keyHeld("control"), altKey: raw.keyHeld("alt"), metaKey: raw.keyHeld("meta") };
     const buttons = (raw.held(0) ? 1 : 0) | (raw.held(2) ? 2 : 0) | (raw.held(1) ? 4 : 0);
@@ -1674,8 +1674,8 @@ export class UICore implements UICoreLike {
       log.navigating = false;
       this.pressed = usable(hit) ? hit : null;
       // A press focuses what it hit (an input field starts typing); elsewhere it unfocuses, unless a modal canvas keeps focus.
-      // ADR 0422: that's the pointerdown's default action, after its dispatch.
-      // ADR 0424: every control takes focus this way, but an option (in a select's list) leaves it on its select.
+      // ADR 0426: that's the pointerdown's default action, after its dispatch.
+      // ADR 0428: every control takes focus this way, but an option (in a select's list) leaves it on its select.
       const target = hit && isFocusableUI(hit.comp) && hit.kind !== "option" ? (hit.comp as UIFocusableElement) : null;
       const press = pointerFocus(this, target);
       const typing = hit?.kind === "input" || hit?.kind === "textarea";
@@ -1688,7 +1688,7 @@ export class UICore implements UICoreLike {
       const gesture: Gesture = { kind: "pending", pointerType: raw.pointerType, startX: raw.x, startY: raw.y, lastX: raw.x, lastY: raw.y, armed: true, target: over, source, chain, scroller: null, axis: null, startScroll: 0, scrollFrom: null, samples: [{ t: now, x: raw.x, y: raw.y }], data: null, dropTarget: null, accepts: false };
       let barAction: (() => void) | null = null;
       if (blocked?.bar && over) barAction = this.pressBar(world, gesture, over, blocked.bar, blocked.ux, blocked.uy);
-      // ADR 0424: a press on a slider drags its thumb (not a scroll or a UI drag).
+      // ADR 0428: a press on a slider drags its thumb (not a scroll or a UI drag).
       const slider = !blocked?.bar && hit?.kind === "slider" && (hit.comp as UISlider).interactable ? hit : null;
       if (slider) {
         gesture.kind = "slider";
@@ -1707,18 +1707,18 @@ export class UICore implements UICoreLike {
           barAction?.();
           if (press.focus) log.focus(target, "press", typing);
           else if (!press.trapped) log.focus(null, "press");
-          // ADR 0424: a press outside an open select's list closes it; on a slider, the thumb jumps there.
+          // ADR 0428: a press outside an open select's list closes it; on a slider, the thumb jumps there.
           const path = over ? pathOf(over) : [];
           for (const e of this.entries.values()) if (e.kind === "select" && (e.comp as UISelect).open && !path.includes(e)) setSelectOpen(e.comp as UISelect, false);
           if (slider && gesture.kind === "slider") this.slideTo(world, slider, ux, uy, null);
-          // ADR 0425: a press on an editable text puts its caret there (and edits it); a press elsewhere ends editing.
+          // ADR 0429: a press on an editable text puts its caret there (and edits it); a press elsewhere ends editing.
           const editable = this.editableOf(over);
           if (editable && !press.trapped) this.beginEditing(world, editable, ux, uy, mods.shiftKey);
           else if (this.editing) this.endEditing();
         }),
       );
     }
-    // ADR 0425: dragging from a press in an editable text selects.
+    // ADR 0429: dragging from a press in an editable text selects.
     const ed = this.editing;
     if (ed?.dragging) {
       if (raw.held(0) && !raw.down(0) && moved) {
@@ -1757,10 +1757,10 @@ export class UICore implements UICoreLike {
     let clicked: UIButton | null = null;
     if (raw.up(0)) {
       const done = this.gesture;
-      // ADR 0424: a slider let go after its value moved: `change` (its `input`s were sent as it moved).
+      // ADR 0428: a slider let go after its value moved: `change` (its `input`s were sent as it moved).
       const slid = done?.kind === "slider" ? live(done.scroller) : null;
       if (slid && (slid.comp as UISlider).value !== done!.startScroll) log.record("change", slid.comp as UISlider);
-      // ADR 0428: a scrollbar thumb let go snaps (as a gesture's end).
+      // ADR 0432: a scrollbar thumb let go snaps (as a gesture's end).
       if (done?.kind === "thumb" && done.scroller && done.scrollFrom && this.entries.has(done.scroller.comp)) uiEndScrollGesture(world, done.scroller.comp as UIScrollable, 0, 0, done.scrollFrom.x, done.scrollFrom.y);
       if (done?.kind === "scroll" && done.scroller) this.fling(world, done);
       else if (done?.kind === "drag") {
@@ -1771,7 +1771,7 @@ export class UICore implements UICoreLike {
       } else if (done?.kind !== "thumb" || over) {
         if (over) records.push(uiEventRecord("pointerup", over.comp, pdata(over, { button: 0 })));
         if (this.pressed && this.pressed === hit) clicked = this.pressed.comp as UIButton;
-        // ADR 0422: `click` on the element the press and the release share, unless a disabled button holds it.
+        // ADR 0426: `click` on the element the press and the release share, unless a disabled button holds it.
         const pressedOn = live(this.pressTarget);
         const target = pressedOn && over ? commonAncestor(pressedOn, over) : null;
         if (target && !disabledPath(target)) {
@@ -1779,7 +1779,7 @@ export class UICore implements UICoreLike {
           const again = prev && prev.comp === target.comp && now - prev.time <= DBLCLICK_SECONDS && Math.hypot(raw.x - prev.x, raw.y - prev.y) <= DBLCLICK_DISTANCE;
           const count = again ? prev.count + 1 : 1;
           this.lastClick = { comp: target.comp, time: now, x: raw.x, y: raw.y, count };
-          // ADR 0424: its default action activates the control it's on (a checkbox toggles, an option is chosen…).
+          // ADR 0428: its default action activates the control it's on (a checkbox toggles, an option is chosen…).
           const clickData = pdata(target, { button: 0, detail: count });
           const on = target.comp;
           records.push(uiClickRecord(world, on, clickData));
@@ -1792,7 +1792,7 @@ export class UICore implements UICoreLike {
     } else if (this.pressed && !raw.held(0) && !raw.down(0)) this.pressed = null; // released without an up (focus lost)
     if (this.gesture && !raw.held(0) && !raw.down(0) && !raw.up(0)) this.gesture = null;
 
-    // The wheel (ADR 0423): the innermost scroller under the pointer that can still move that way takes it, as its default action.
+    // The wheel (ADR 0427): the innermost scroller under the pointer that can still move that way takes it, as its default action.
     let wheelTaken = false;
     if ((raw.wheelX !== 0 || raw.wheelY !== 0) && over) {
       const scale = over.canvas?.comp.mode === "screen" ? over.canvas.scale : 1;
@@ -1811,9 +1811,9 @@ export class UICore implements UICoreLike {
       );
     }
 
-    // Keys (ADR 0422): to the focused element, else (ADR 0423) the scroller the last press landed in.
+    // Keys (ADR 0426): to the focused element, else (ADR 0427) the scroller the last press landed in.
     const focusedEntry = live(log.focused ? (this.entries.get(log.focused) ?? null) : null);
-    // ADR 0425: an editable text being edited has the keys, as a focused contenteditable does.
+    // ADR 0429: an editable text being edited has the keys, as a focused contenteditable does.
     const editingEntry = this.editing ? live(this.editing.entry) : null;
     const keyTarget = editingEntry ?? focusedEntry ?? live(this.activeScroller);
     if (keyTarget) {
@@ -1830,7 +1830,7 @@ export class UICore implements UICoreLike {
               if (k.key === "enter" && field) log.retract("submit", field); // Enter's default: the submit
               return;
             }
-            // ADR 0424: Page Up/Down and Home/End move a focused slider; a typing number field's arrows step it; Enter in a
+            // ADR 0428: Page Up/Down and Home/End move a focused slider; a typing number field's arrows step it; Enter in a
             // one-line field submits its form.
             const c = keyTarget.comp;
             if (focusedEntry && c instanceof UISlider && this.keySlider(world, c, k.key)) return;
@@ -1848,7 +1848,7 @@ export class UICore implements UICoreLike {
       }
     }
 
-    // ADR 0428: text elements and runs on the hovered path are `:hover`; on the pressed path while held, `:active`.
+    // ADR 0432: text elements and runs on the hovered path are `:hover`; on the pressed path while held, `:active`.
     const heldOn = raw.held(0) ? live(this.pressTarget) : null;
     log.route({ hovered: usable(hit) ? (hit.comp as UIButton) : null, pressed: (this.pressed?.comp as UIButton | undefined) ?? null, clicked, hoveredText: textsOn(live(this.hoverTarget)), pressedText: textsOn(heldOn) }, records);
 
@@ -1857,7 +1857,7 @@ export class UICore implements UICoreLike {
     return { pointer: !!blocked, keyboard: typing || !!this.editing, keys, wheel: wheelTaken };
   }
 
-  /** ADR 0422: a point's position for an event on `e`: the target canvas's UI pixels, and `e`'s own (through its transform). */
+  /** ADR 0426: a point's position for an event on `e`: the target canvas's UI pixels, and `e`'s own (through its transform). */
   private pointAt(e: Entry | null, hit: Hit | null, x: number, y: number): UIEventData {
     let ux = hit?.ux ?? x, uy = hit?.uy ?? y;
     if (e?.canvas && hit && e.canvas !== hit.target.canvas && e.canvas.comp.mode === "screen") [ux, uy] = [x / e.canvas.scale, y / e.canvas.scale];
@@ -1874,7 +1874,7 @@ export class UICore implements UICoreLike {
   }
 
   /**
-   * ADR 0423: a press on a scrollbar. On the thumb it starts dragging it; on the track it pages toward the press (the
+   * ADR 0427: a press on a scrollbar. On the thumb it starts dragging it; on the track it pages toward the press (the
    * pointerdown's default action, returned to run after its dispatch).
    */
   private pressBar(world: World, g: Gesture, scroller: Entry, axis: "x" | "y", ux: number, uy: number): (() => void) | null {
@@ -1896,7 +1896,7 @@ export class UICore implements UICoreLike {
     return () => uiScrollBy(world, scroller.comp as UIScrollable, axis === "x" ? page : 0, axis === "y" ? page : 0);
   }
 
-  /** ADR 0422/0423: a held press moved (the frames after it went down). */
+  /** ADR 0426/0427: a held press moved (the frames after it went down). */
   private moveGesture(world: World, g: Gesture, raw: PointerFrame, records: UIEventRecord[], pdata: (e: Entry | null, extra?: UIEventData) => UIEventData): void {
     const now = world.time.realtimeSinceStartup;
     g.samples.push({ t: now, x: raw.x, y: raw.y });
@@ -1935,7 +1935,7 @@ export class UICore implements UICoreLike {
         );
       }
     } else if (g.kind === "slider" && g.scroller && this.entries.has(g.scroller.comp)) {
-      // ADR 0424: the thumb follows the pointer; each new value sends `input`.
+      // ADR 0428: the thumb follows the pointer; each new value sends `input`.
       const at = this.canvasPoint(g.scroller, raw.x, raw.y);
       if (at) this.slideTo(world, g.scroller, at.x, at.y, records);
     } else if (g.kind === "scroll" && g.scroller) {
@@ -1968,7 +1968,7 @@ export class UICore implements UICoreLike {
   }
 
   /**
-   * ADR 0424: move a slider's thumb to a point (its canvas's UI pixels): the value there, snapped to its steps. A new
+   * ADR 0428: move a slider's thumb to a point (its canvas's UI pixels): the value there, snapped to its steps. A new
    * value sends `input`: into `records` from the routing, else now (a press's default action).
    */
   private slideTo(world: World, e: Entry, ux: number, uy: number, records: UIEventRecord[] | null): void {
@@ -1984,7 +1984,7 @@ export class UICore implements UICoreLike {
     else fireUIEvent(world, uiEventRecord("input", s));
   }
 
-  /** ADR 0424: a key's default action on a focused slider (Page Up/Down a tenth of its range, Home/End its ends). Returns whether it was one. */
+  /** ADR 0428: a key's default action on a focused slider (Page Up/Down a tenth of its range, Home/End its ends). Returns whether it was one. */
   private keySlider(world: World, s: UISlider, key: string): boolean {
     if (key !== "pageup" && key !== "pagedown" && key !== "home" && key !== "end") return false;
     if (!s.interactable) return true;
@@ -1999,7 +1999,7 @@ export class UICore implements UICoreLike {
   }
 
   /**
-   * ADR 0423: a touch or pen drag scroll let go: it keeps moving at the speed of its last tenth of a second (ADR 0428:
+   * ADR 0427: a touch or pen drag scroll let go: it keeps moving at the speed of its last tenth of a second (ADR 0432:
    * or, snapping, eases to the snap position nearest where that would end).
    */
   private fling(world: World, g: Gesture): void {
@@ -2016,7 +2016,7 @@ export class UICore implements UICoreLike {
   }
 
   /**
-   * ADR 0423: keyboard scrolling, a keydown's default action. Page Up/Down and Home/End scroll the scroller the target is
+   * ADR 0427: keyboard scrolling, a keydown's default action. Page Up/Down and Home/End scroll the scroller the target is
    * in (not while an input field types, for Home/End); with nothing focused (the target is the scroller last pressed
    * in), the arrow keys scroll too (with something focused they're navigation's, ADR 0340).
    */
@@ -2052,7 +2052,7 @@ export class UICore implements UICoreLike {
         const e = canvas.painted[i];
         if (!this.hittable(e)) continue;
         if (!onDrawnBox(e, px, py)) continue;
-        const run = this.runAt(e, px, py); // ADR 0425: the run under the point first, then its text
+        const run = this.runAt(e, px, py); // ADR 0429: the run under the point first, then its text
         if (run) out.push(run.comp);
         out.push(e.comp);
       }
@@ -2109,7 +2109,7 @@ export class UICore implements UICoreLike {
    * Editor (ADR 0077 wave B): an element's box corners (top-left, top-right, bottom-right,
    * bottom-left) from the last layout: canvas CSS pixels `[x, y]` on a screen canvas, world points
    * `[x, y, z]` on a world canvas, with the box's size in UI pixels. Null when it isn't laid out. `clip` has the
-   * corners of the part that's drawn when an `overflow: hidden` ancestor clips it (ADR 0418).
+   * corners of the part that's drawn when an `overflow: hidden` ancestor clips it (ADR 0422).
    */
   cornersOf(c: UIComponentType): UICorners | null {
     const entry = this.entries.get(c);
@@ -2117,7 +2117,7 @@ export class UICore implements UICoreLike {
     if (!entry || !canvas || !this.yoga) return null;
     const b = entry.box;
     const p = entry.place;
-    // ADR 0418 wave 3: the corners as drawn (its transform), and as laid out in its parent's frame (its ancestors' only).
+    // ADR 0422 wave 3: the corners as drawn (its transform), and as laid out in its parent's frame (its ancestors' only).
     const clipRect = p.clips.length ? localClip(b, p) : null;
     const drawn = transformRect(p.transform, b);
     const laid = transformRect(entry.parent?.place.transform ?? null, b);
@@ -2165,7 +2165,7 @@ export class UICore implements UICoreLike {
    * `raycastTarget` is on and that is a graphic), screen canvases from the highest `sortOrder`, then the nearest in
    * world canvases; and the button or input field that takes it (`handler`: the target or its nearest such ancestor,
    * as Unity's events bubble to their handler), null when the target only blocks. Null when no target is there.
-   * ADR 0423: a scroller's scrollbars, drawn over its content, are met before it (the target is the scroller, `bar` the axis).
+   * ADR 0427: a scroller's scrollbars, drawn over its content, are met before it (the target is the scroller, `bar` the axis).
    */
   private hit(x: number, y: number): Hit | null {
     for (let k = this.screenList.length - 1; k >= 0; k--) {
@@ -2202,7 +2202,7 @@ export class UICore implements UICoreLike {
       }
       if (!this.hittable(item) || !isRaycastTarget(item.comp)) continue;
       if (onDrawnBox(item, ux, uy)) {
-        // ADR 0425: on a text with runs, the run under the point (its element) is the target.
+        // ADR 0429: on a text with runs, the run under the point (its element) is the target.
         const run = this.runAt(item, ux, uy);
         const target = run && this.hittable(run) && isRaycastTarget(run.comp) ? run : item;
         return { target, handler: handlerOf(target), ux, uy, bar: null };
@@ -2211,7 +2211,7 @@ export class UICore implements UICoreLike {
     return null;
   }
 
-  /** ADR 0425: the inline run (its element) under a canvas point on a text with runs, or null (between runs, or plain text). */
+  /** ADR 0429: the inline run (its element) under a canvas point on a text with runs, or null (between runs, or plain text). */
   private runAt(e: Entry, ux: number, uy: number): Entry | null {
     const hits = e.inlineHits;
     if (!hits?.length) return null;
@@ -2237,7 +2237,7 @@ function yogaTables(yoga: Yoga) {
     flexDirections: { row: yoga.FLEX_DIRECTION_ROW, column: yoga.FLEX_DIRECTION_COLUMN, "row-reverse": yoga.FLEX_DIRECTION_ROW_REVERSE, "column-reverse": yoga.FLEX_DIRECTION_COLUMN_REVERSE } as Record<string, number>,
     justify: { "flex-start": yoga.JUSTIFY_FLEX_START, center: yoga.JUSTIFY_CENTER, "flex-end": yoga.JUSTIFY_FLEX_END, "space-between": yoga.JUSTIFY_SPACE_BETWEEN, "space-around": yoga.JUSTIFY_SPACE_AROUND, "space-evenly": yoga.JUSTIFY_SPACE_EVENLY } as Record<string, number>,
     align: { "flex-start": yoga.ALIGN_FLEX_START, center: yoga.ALIGN_CENTER, "flex-end": yoga.ALIGN_FLEX_END, stretch: yoga.ALIGN_STRETCH, baseline: yoga.ALIGN_BASELINE } as Record<string, number>,
-    // ADR 0418 wave 1.
+    // ADR 0422 wave 1.
     edges: [yoga.EDGE_TOP, yoga.EDGE_RIGHT, yoga.EDGE_BOTTOM, yoga.EDGE_LEFT] as const,
     wrap: { nowrap: yoga.WRAP_NO_WRAP, wrap: yoga.WRAP_WRAP, "wrap-reverse": yoga.WRAP_WRAP_REVERSE } as Record<string, number>,
     alignSelf: { auto: yoga.ALIGN_AUTO, "flex-start": yoga.ALIGN_FLEX_START, center: yoga.ALIGN_CENTER, "flex-end": yoga.ALIGN_FLEX_END, stretch: yoga.ALIGN_STRETCH, baseline: yoga.ALIGN_BASELINE } as Record<string, number>,
@@ -2245,7 +2245,7 @@ function yogaTables(yoga: Yoga) {
   };
 }
 
-/** ADR 0423: true when the player scrolls `parent` along its flex direction (its children then keep their size along it). */
+/** ADR 0427: true when the player scrolls `parent` along its flex direction (its children then keep their size along it). */
 function scrollsMainAxis(parent: Entry | null): boolean {
   if (!parent || parent.kind === "canvas") return false;
   const c = parent.comp as UIScrollable;
@@ -2287,7 +2287,7 @@ function sameScroll(a: UIScrollInfo | null, b: UIScrollInfo | null): boolean {
   return a.x === b.x && a.y === b.y && a.minX === b.minX && a.minY === b.minY && a.maxX === b.maxX && a.maxY === b.maxY && a.userX === b.userX && a.userY === b.userY && sameRect(a.client, b.client) && bar(a.barX, b.barX) && bar(a.barY, b.barY) && sameSnap(a.snap, b.snap);
 }
 
-/** ADR 0428: true when two scrollers' snapping is the same. */
+/** ADR 0432: true when two scrollers' snapping is the same. */
 function sameSnap(a: UIScrollSnap | null, b: UIScrollSnap | null): boolean {
   if (!a || !b) return a === b;
   if (a.x !== b.x || a.y !== b.y || a.mandatory !== b.mandatory || !sameRect(a.port, b.port) || a.areas.length !== b.areas.length) return false;
@@ -2297,7 +2297,7 @@ function sameSnap(a: UIScrollSnap | null, b: UIScrollSnap | null): boolean {
   });
 }
 
-/** ADR 0428: an element's direction: its own `direction`, else its nearest ancestor's, else `ltr` (the canvas's). */
+/** ADR 0432: an element's direction: its own `direction`, else its nearest ancestor's, else `ltr` (the canvas's). */
 function directionOf(e: Entry | null): "ltr" | "rtl" {
   for (let at = e; at && at.kind !== "canvas"; at = at.parent) {
     const d = (at.comp as UIScrollable).direction;
@@ -2307,7 +2307,7 @@ function directionOf(e: Entry | null): "ltr" | "rtl" {
 }
 
 /**
- * ADR 0428: the axes of a scroller whose content starts at the far end, so it scrolls from there (CSS's scroll origin):
+ * ADR 0432: the axes of a scroller whose content starts at the far end, so it scrolls from there (CSS's scroll origin):
  * horizontally in `rtl` (unless `row-reverse` turns it back) or `row-reverse`, vertically in `column-reverse`.
  */
 function endOrigin(e: Entry): { x: boolean; y: boolean } {
@@ -2315,7 +2315,7 @@ function endOrigin(e: Entry): { x: boolean; y: boolean } {
   return { x: (directionOf(e) === "rtl") !== (c.flexDirection === "row-reverse"), y: c.flexDirection === "column-reverse" };
 }
 
-/** ADR 0428: the scrollbar gutter `scrollbar-gutter: stable` reserves on each side (UI pixels): the bar's side (left in `rtl`), or both. */
+/** ADR 0432: the scrollbar gutter `scrollbar-gutter: stable` reserves on each side (UI pixels): the bar's side (left in `rtl`), or both. */
 function gutterOf(c: UIScrollable, rtl: boolean): { left: number; right: number } {
   const g = c.scrollbarGutter;
   if ((g !== "stable" && g !== "stable both-edges") || !clipsChildren(c)) return { left: 0, right: 0 };
@@ -2325,7 +2325,7 @@ function gutterOf(c: UIScrollable, rtl: boolean): { left: number; right: number 
 }
 
 /**
- * ADR 0423: hit-testing order: the draw order with each scroller's scrollbars right after its last descendant (they're
+ * ADR 0427: hit-testing order: the draw order with each scroller's scrollbars right after its last descendant (they're
  * drawn over its content, under whatever is drawn after it). A scroller's descendants follow it in `painted`.
  */
 function hitOrderOf(painted: readonly Entry[]): HitItem[] {
@@ -2363,7 +2363,7 @@ function sameAffine(a: UIAffine | null, b: UIAffine | null): boolean {
   return a.every((v, i) => v === b[i]);
 }
 
-/** A clipper's clip added to the chain (ADR 0418): merged into the last one when both are in the same (untransformed) frame. */
+/** A clipper's clip added to the chain (ADR 0422): merged into the last one when both are in the same (untransformed) frame. */
 function withClip(clips: readonly ClipStep[], rect: UIRect, transform: UIAffine | null, inverse: UIAffine | null): readonly ClipStep[] {
   const last = clips[clips.length - 1];
   if (!transform && last && !last.transform && !last.empty) return [...clips.slice(0, -1), { ...last, rect: intersectRect(rect, last.rect) }];

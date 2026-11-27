@@ -102,10 +102,10 @@ export async function loadProjectCode(project: EditorProject, options: { runtime
   await applyProjectAudioEffects(project, plan);
   // ADR 0370 (T45t): the plugins' animation node modules, metered and in the node catalogue before Play or a graph compiles.
   await applyProjectAnimationNodes(plan);
-  const result = await replaceScripts(plan.code, json, packages, plan.npmEntries, uiFiles(project)); // Svelte UI compiles with the scripts (ADR 0419)
+  const result = await replaceScripts(plan.code, json, packages, plan.npmEntries, uiFiles(project)); // Svelte UI compiles with the scripts (ADR 0423)
 
   const applied = applyEditorPlugins(disabled, { thirdParty: await toSetPlugins(plan.loaded), keepRuntime: !runtime });
-  // ADR 0419 wave B: the built-in UI components the active plugins' editor halves started loading, before Play can start.
+  // ADR 0423 wave B: the built-in UI components the active plugins' editor halves started loading, before Play can start.
   await builtinUIReady();
   const whereOf = (problem: PluginSetProblem) => plan.plugins.find((p) => p.manifest.name === problem.plugin)?.where ?? `plugins (${problem.plugin})`;
   const failed = applied.problems.map((p): PluginProblem => ({ plugin: p.plugin, where: whereOf(p), message: p.message }));

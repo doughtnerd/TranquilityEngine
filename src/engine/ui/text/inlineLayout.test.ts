@@ -1,4 +1,4 @@
-// ADR 0425: a text's inline runs laid out together (wrapping across runs, line boxes, alignment, direction), and the
+// ADR 0429: a text's inline runs laid out together (wrapping across runs, line boxes, alignment, direction), and the
 // caret, hit-testing and selection on that layout.
 import { describe, expect, it } from "vitest";
 import { caretAt, indexAt, inlineFont, layoutInline, selectionRects, type InlineLayoutOptions } from "./inlineLayout";
@@ -108,7 +108,7 @@ describe("inline layout: caret, hit-testing and selection", () => {
   });
 });
 
-describe("inline layout: white space by run (ADR 0428)", () => {
+describe("inline layout: white space by run (ADR 0432)", () => {
   it("doesn't break after a nowrap run's characters, and wraps around it", () => {
     expect(texts([run("aa "), run("bb cc", { nowrap: true }), run(" dd")], { maxWidth: 6 })).toEqual(["aa", "bb cc", "dd"]);
     // A nowrap run wider than the line overflows on its own line, as an overlong word does.
@@ -128,7 +128,7 @@ describe("inline layout: white space by run (ADR 0428)", () => {
   });
 });
 
-describe("inline layout: inline boxes (ADR 0428)", () => {
+describe("inline layout: inline boxes (ADR 0432)", () => {
   const box = (first: number, last: number, extra: Partial<UIInlineBox> = {}): UIInlineBox => ({
     owner: null as unknown as UIInlineBox["owner"], first, last, margin: [1, 2], border: [1, 1, 1, 1], padding: [2, 3, 2, 3], fontSize: 10, shift: 0, background: "red", borderColor: "black", radius: 0, ...extra,
   });
@@ -166,7 +166,7 @@ describe("inline layout: inline boxes (ADR 0428)", () => {
   });
 });
 
-describe("inline layout: atomic inline boxes (ADR 0428)", () => {
+describe("inline layout: atomic inline boxes (ADR 0432)", () => {
   it("places an atomic box on the line by its own baseline and size", () => {
     const atom = run("￼", { atom: { width: 6, height: 20, baseline: 15 } });
     const laid = layoutInline([run("ab "), atom, run(" c")], opts(), measure);

@@ -1,4 +1,4 @@
-// ADR 0426: CSS filters on UI elements: the `filter` property's values and the cascade that expands them into the filter
+// ADR 0430: CSS filters on UI elements: the `filter` property's values and the cascade that expands them into the filter
 // fields, the chain the UI core composes for a subtree, transitions on the fields, and the pixel fallback the drawing
 // layer runs where Canvas2D has no `filter`.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -29,7 +29,7 @@ afterEach(() => {
 
 const value = <T,>(r: { ok: true; value: T } | { ok: false; problem: string }) => (r.ok ? r.value : r.problem);
 
-describe("filter values (ADR 0426)", () => {
+describe("filter values (ADR 0430)", () => {
   it("reads each function into its field, others at their initial values", () => {
     const v = value(parseFilter("blur(3px) brightness(150%) contrast(0.5) grayscale(1) hue-rotate(0.25turn) invert(0.2) opacity(50%) saturate(2) sepia(0.3)"));
     expect(v).toMatchObject({ filterBlur: 3, filterBrightness: 1.5, filterContrast: 0.5, filterGrayscale: 1, filterHueRotate: 90, filterInvert: 0.2, filterOpacity: 0.5, filterSaturate: 2, filterSepia: 0.3, filterDropShadowColor: null });
@@ -59,7 +59,7 @@ describe("filter values (ADR 0426)", () => {
   });
 });
 
-describe("filters in the cascade and the UI core (ADR 0426)", () => {
+describe("filters in the cascade and the UI core (ADR 0430)", () => {
   it("expands filter from a stylesheet, a later filter replacing every field", () => {
     const doc = buildUI(`<Canvas><div id="p" class="a b"/></Canvas>`, { css: `.a { filter: blur(2px) sepia(1) } .b { filter: saturate(3) }` });
     const p = byId(doc, "p", UIPanel);
@@ -95,7 +95,7 @@ describe("filters in the cascade and the UI core (ADR 0426)", () => {
   });
 });
 
-describe("the pixel fallback (ADR 0426, filterPixels)", () => {
+describe("the pixel fallback (ADR 0430, filterPixels)", () => {
   const image = (w: number, h: number, rgba: number[]) => ({ width: w, height: h, data: new Uint8ClampedArray(Array.from({ length: w * h }, () => rgba).flat()) });
 
   it("applies colour functions as Filter Effects defines them", () => {
@@ -135,7 +135,7 @@ describe("the pixel fallback (ADR 0426, filterPixels)", () => {
   });
 });
 
-describe("backdrop-filter (ADR 0428)", () => {
+describe("backdrop-filter (ADR 0432)", () => {
   it("expands into the backdrop fields, transitions them, shows as CSS, and reaches the UI core through the element's transform only", async () => {
     await uiAnimationReady(World.require());
     const doc = buildUI(`<Canvas><div id="p" scale="2"><div id="q" class="g" style="backdrop-filter: blur(2px) saturate(1.5)"/></div><div id="r" class="t"/></Canvas>`, {

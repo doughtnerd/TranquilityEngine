@@ -97,7 +97,7 @@ function localisedPath(p: string): string {
 /** Listeners of `Assets.onChanged`. */
 const changeListeners = new Set<(path: string) => void>();
 
-/** Compiled modules served as their source files' values (ADR 0419: a `.svelte` component's module), by path. */
+/** Compiled modules served as their source files' values (ADR 0423: a `.svelte` component's module), by path. */
 let compiledModules: ReadonlyMap<string, unknown> = new Map();
 
 
@@ -142,7 +142,7 @@ export const Assets = {
   },
 
   /**
-   * @internal A host linked the project's code: serve each compiled module (a Svelte component's, ADR 0419) as
+   * @internal A host linked the project's code: serve each compiled module (a Svelte component's, ADR 0423) as
    * the asset value of its source file, in place of the file's text, replacing what the last link set.
    */
   setCompiledModules(modules: ReadonlyMap<string, unknown>): void {

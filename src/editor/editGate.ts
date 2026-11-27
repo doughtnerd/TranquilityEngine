@@ -13,7 +13,7 @@ import { beginUndoStep, undoStep, type UndoStep } from "./undoStep";
 export type EditTarget =
   /** A scene document: `scene`, or the open one when absent. */
   | { readonly kind: "scene"; readonly scene?: OpenScene | null }
-  /** The open scene's UI (ADR 0419 wave C): the views' `.svelte` files in the project, written through the scene's undo stack. */
+  /** The open scene's UI (ADR 0423 wave C): the views' `.svelte` files in the project, written through the scene's undo stack. */
   | { readonly kind: "ui" }
   /** The project's files (`project`, or the current one). `removes`: the edit deletes or moves files, which the running game may be reading. */
   | { readonly kind: "project-files"; readonly project?: EditorProject | null; readonly removes?: boolean };

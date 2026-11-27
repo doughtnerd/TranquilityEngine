@@ -121,7 +121,7 @@ describe("the system catalog (T2)", () => {
     // The physics restores still run before the fixedUpdate scripts; adding the ragdoll systems (ADR 0375) moved them after
     // the network tick systems, which they don't depend on.
     // The animation systems (ADR 0370, 0372) do nothing in a World without Animators, tweens or timelines.
-    // The UI systems (ADR 0419) do nothing in a World without UI views.
+    // The UI systems (ADR 0423) do nothing in a World without UI views.
     expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.NetReceiveTick", "engine.NetInputTick", "engine.PhysicsRestoreInterpolated", "engine.Physics3DRestoreInterpolated", "engine.InputTick", "engine.PredictionTick", "engine.InputNetSend", "engine.InputNetApply", "engine.InputTickEventScripts", "engine.InputNetReplay", "engine.FixedUpdateScripts", "engine.NavSync", "engine.NavStep", "engine.NavWriteBack", "animation.PredictedRootMotion", "animation.FixedEvaluate", "ragdoll.Drive", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents", "engine.Buoyancy", "engine.Physics3DPush", "engine.Physics3DStep", "engine.Physics3DWriteBack", "ragdoll.ReadBack", "engine.Physics3DEvents"]);
     // The input systems (ADR 0335–0337) do nothing in a World without input devices or action sets;
     // UI navigation (ADR 0340) does nothing without a focused element or laid-out UI.

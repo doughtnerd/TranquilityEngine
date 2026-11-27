@@ -1,4 +1,4 @@
-// ADR 0420: the tween backend over the standalone tween module, through the interface its callers use
+// ADR 0424: the tween backend over the standalone tween module, through the interface its callers use
 // (`openStandaloneTweenBackend`, what `openTweenBackend` opens when no provider is installed: UI animation without the
 // animation plugin), in Node with the committed wasm. Times are binary fractions, so values compare exactly.
 import { describe, expect, it } from "vitest";

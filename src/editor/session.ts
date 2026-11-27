@@ -391,14 +391,14 @@ export function reloadScripts(options: { outside?: boolean; quiet?: boolean } = 
   return play.reloadScripts(options);
 }
 
-// ADR 0419 wave C: an edit of Svelte UI code from the Inspector, the Hierarchy or the scene view (and its undo and
+// ADR 0423 wave C: an edit of Svelte UI code from the Inspector, the Hierarchy or the scene view (and its undo and
 // redo) compiles the project's code again, so mounted views hot-reload; a compile error still reports itself.
 onUICodeWritten(() => reloadScripts({ quiet: true }));
 
 /**
  * Save a file from the Code panel: a script (then scripts reload), or a JSON (which must parse)
  * or JavaScript file. Scripts also reload after saving JSON one of them mentions, since scripts
- * can import JSON, and after saving UI code (ADR 0419: a Svelte component or rune module, or a `.css`
+ * can import JSON, and after saving UI code (ADR 0423: a Svelte component or rune module, or a `.css`
  * file one of them mentions), which compiles with them: mounted `UIView`s show the new version.
  */
 

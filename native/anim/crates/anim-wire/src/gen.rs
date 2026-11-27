@@ -4,7 +4,7 @@
 //!   constants, and per record its opcode, version, stride and field offsets and types. `core.ts`
 //!   also carries the header layout shared by every record.
 //! - `native/anim/crates/anim-wire/vectors/<family>.json`: the family's byte vectors.
-//! - `src/engine/tween/wasm/wire/{core,tween,sequence}.ts` (ADR 0420): what the engine's tween
+//! - `src/engine/tween/wasm/wire/{core,tween,sequence}.ts` (ADR 0424): what the engine's tween
 //!   backend speaks to the standalone tween module (`native/tween`) with, written the same way: the
 //!   header, statuses and passes of `core`, the whole `tween` family, and the sequence records and
 //!   constants of `timeline` ([`ENGINE_TWEEN`]).
@@ -23,7 +23,7 @@ pub const TS_DIR: &str = "src/plugins/animation/runtime/wasm/wire";
 /// Where the vectors go, relative to the repository root.
 pub const VECTOR_DIR: &str = "native/anim/crates/anim-wire/vectors";
 
-/// Where the engine's tween backend's copies go (ADR 0420), relative to the repository root.
+/// Where the engine's tween backend's copies go (ADR 0424), relative to the repository root.
 pub const ENGINE_TWEEN_DIR: &str = "src/engine/tween/wasm/wire";
 
 /// What the engine's tween backend needs of a family: its file name, the family, and which of its
@@ -35,7 +35,7 @@ pub struct Subset {
     pub records: Option<&'static [&'static str]>,
 }
 
-/// The engine tween backend's files (ADR 0420): the standalone tween module takes these records.
+/// The engine tween backend's files (ADR 0424): the standalone tween module takes these records.
 pub const ENGINE_TWEEN: [Subset; 3] = [
     Subset {
         file: "core",
@@ -225,7 +225,7 @@ pub fn typescript(family: &FamilyDesc) -> String {
     out
 }
 
-/// An engine tween backend file (ADR 0420): the subset's constants and records, written as
+/// An engine tween backend file (ADR 0424): the subset's constants and records, written as
 /// [`typescript`] writes a family's.
 pub fn engine_typescript(subset: &Subset) -> String {
     let mut out = String::new();
@@ -240,7 +240,7 @@ pub fn engine_typescript(subset: &Subset) -> String {
     );
     let _ = writeln!(
         out,
-        "// Internal to the engine's tween backend (ADR 0420): never part of the public API."
+        "// Internal to the engine's tween backend (ADR 0424): never part of the public API."
     );
     let _ = writeln!(out);
     body(&mut out, subset.family, subset.consts, subset.records);

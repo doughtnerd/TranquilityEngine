@@ -5,7 +5,7 @@ import { World } from "../core/World";
 import { UIPointer, stubDocument } from "./uiPointer";
 import { buildUI, loadUITestSupport, uiAs, type TestUI } from "./uiMarkup";
 
-// ADR 0428, scrolling: CSS Scroll Snap (wheel, touch momentum, keys, scrollTo/scrollBy, scrollIntoView and navigation,
+// ADR 0432, scrolling: CSS Scroll Snap (wheel, touch momentum, keys, scrollTo/scrollBy, scrollIntoView and navigation,
 // snapping again after layout changes), `scrollbar-gutter`, and scrolling from the end for `*-reverse` directions and
 // `direction: rtl` (CSSOM's negative offsets). Driven through `Input`'s DOM adapter (`UIPointer`), the elements' DOM
 // scrolling members and the components' fields.
@@ -50,7 +50,7 @@ function list(listAttrs = `scroll-snap-type="y mandatory"`, css = `.row { scroll
 const panel = (doc: TestUI, id = "list") => uiAs(doc.query(`#${id}`)!, UIPanel);
 const laid = (p: UIPointer, doc: TestUI, id = "list") => p.core.elements().find((e) => e.comp === panel(doc, id))!.scroll!;
 
-describe("the snap properties (ADR 0428)", () => {
+describe("the snap properties (ADR 0432)", () => {
   it("reads scroll-snap-type, scroll-snap-align, scroll-snap-stop, scroll-padding, scroll-margin and scrollbar-gutter", () => {
     const doc = buildUI(`<Canvas><div id="a" class="a"><div id="b" class="b"/></div><div id="c" class="c"/></Canvas>`, {
       css: `.a { scroll-snap-type: x mandatory; scroll-padding: 4px 8px; scrollbar-gutter: both-edges stable; }
@@ -67,7 +67,7 @@ describe("the snap properties (ADR 0428)", () => {
   });
 });
 
-describe("scroll snapping (ADR 0428)", () => {
+describe("scroll snapping (ADR 0432)", () => {
   it("snaps scrollTo to the nearest position and scrollBy (directional) on to the next one, smoothly where asked", async () => {
     const doc = list();
     const p = await pointer();
@@ -241,7 +241,7 @@ describe("scroll snapping (ADR 0428)", () => {
   });
 });
 
-describe("scrollbar-gutter (ADR 0428)", () => {
+describe("scrollbar-gutter (ADR 0432)", () => {
   it("stable keeps the bar's room whether or not it shows: clientWidth shrinks and the content doesn't move when it overflows", async () => {
     const doc = buildUI(`<Canvas><div id="g" width="200" height="100" flex-direction="column" overflow="auto" scrollbar-gutter="stable"><div id="row" height="40"/></div><div id="b" width="200" height="100" overflow-y="scroll" overflow-x="hidden" class="b"/></Canvas>`, { css: `.b { scrollbar-gutter: stable both-edges; scrollbar-width: thin; }` });
     const p = await pointer();
@@ -260,7 +260,7 @@ describe("scrollbar-gutter (ADR 0428)", () => {
   });
 });
 
-describe("scrolling from the end (ADR 0428)", () => {
+describe("scrolling from the end (ADR 0432)", () => {
   it("column-reverse starts at the bottom with scrollTop 0, scrolls up through negative offsets, and hit-tests and draws its bar there", async () => {
     const rows = Array.from({ length: 10 }, (_, i) => `<button id="r${i}" height="40" width="180" padding="0">Row ${i}</button>`).join("");
     const doc = buildUI(`<Canvas><div id="list" width="200" height="100" flex-direction="column-reverse" align-items="flex-start" overflow="auto">${rows}</div></Canvas>`);

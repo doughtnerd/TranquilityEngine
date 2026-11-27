@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The heads-up display (ADR 0419), on the HUD node of prefabs/hud.prefab.json. scripts/behaviors/Hud.ts works out
+  // The heads-up display (ADR 0423), on the HUD node of prefabs/hud.prefab.json. scripts/behaviors/Hud.ts works out
   // what it shows each frame and passes it in as `hud` (texts, the leaderboard, the results, the minimap's dots, bars,
   // colours and marker positions), with `on` for the "Leave the match?" dialog's buttons. Banners and the dialog are
   // shown and hidden with the "hidden" class (display: none). Dynamic texts go in the `text` attribute, which keeps their

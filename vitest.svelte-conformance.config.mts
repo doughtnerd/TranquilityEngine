@@ -6,7 +6,7 @@ import { defaultServerConditions, type Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 import { MYCO_ALIASES, typescriptTranspile } from "./vite.shared.ts";
 
-// The Svelte conformance harness (ADR 0419): Svelte 5.59.2's runtime-runes fixtures run against the engine's
+// The Svelte conformance harness (ADR 0423): Svelte 5.59.2's runtime-runes fixtures run against the engine's
 // renderer. `npm run test:svelte-conformance` (which fetches the fixtures first); never part of `npm test`.
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -25,7 +25,7 @@ function fixtureImports(): Plugin {
     enforce: "pre",
     async resolveId(source, importer, options) {
       // `svelte/motion`'s own `svelte/reactivity` import (its `prefersReducedMotion`) is the engine's too, as the
-      // engine's builds resolve it (ADR 0419 wave Z3, vite.shared.ts and the UI bundle).
+      // engine's builds resolve it (ADR 0423 wave Z3, vite.shared.ts and the UI bundle).
       if (source === "svelte/reactivity" && importer?.split("?")[0].endsWith("/svelte/src/motion/index.js")) return join(root, "src/plugins/ui/svelte/reactivity.ts");
       if (!importer || !isConformancePath(importer)) return null;
       if (source === "../../test" || source === "../../test.ts") return join(root, "tools/svelte-conformance/testShim.ts");

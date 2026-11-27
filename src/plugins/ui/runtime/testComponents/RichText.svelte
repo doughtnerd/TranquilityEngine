@@ -1,5 +1,5 @@
 <script>
-  // ADR 0425: inline runs in a text element, links, {@html} and contenteditable.
+  // ADR 0429: inline runs in a text element, links, {@html} and contenteditable.
   let { log = () => {}, html = "Hi <b>there</b>", label = "world", width = "auto" } = $props();
   const block = "<div class='box'><p>block <b>x</b></p></div><scr" + "ipt>alert(1)</scr" + "ipt><span onclick=\"evil()\">ok</span>";
   let plain = $state("Edit me");

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ADR 0427: the player's UI preferences as user-preference media features: canvas `@media`, Svelte's
+  // ADR 0431: the player's UI preferences as user-preference media features: canvas `@media`, Svelte's
   // `prefersReducedMotion` and `MediaQuery`.
   import { prefersReducedMotion } from "svelte/motion";
   import { MediaQuery } from "svelte/reactivity";

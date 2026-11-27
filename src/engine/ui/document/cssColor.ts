@@ -1,6 +1,6 @@
 /**
  * CSS colours for UI stylesheets (ADR 0077): the colour values a declaration, an attribute or a paint value (a shadow,
- * a gradient stop, ADR 0418) takes. Pure and renderer-neutral.
+ * a gradient stop, ADR 0422) takes. Pure and renderer-neutral.
  */
 import { Color } from "../../core/math";
 

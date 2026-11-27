@@ -1,11 +1,11 @@
 /**
- * Canvas media queries (ADR 0418 wave 5): a hand-written reader for media query lists (`(min-width: 600px) and
+ * Canvas media queries (ADR 0422 wave 5): a hand-written reader for media query lists (`(min-width: 600px) and
  * (orientation: landscape), print`) into data (`UIMediaQuery`), and their evaluation against a canvas in UI pixels.
  * No CSS parser: the stylesheet parser reads `@media` preludes with it when styles compile, and the Svelte renderer's
  * `window.matchMedia` reads queries with it in games.
  *
  * Features: `width`, `height`, `aspect-ratio` (each with `min-`/`max-`, and in range form `(400px <= width < 800px)`)
- * and `orientation`, and (ADR 0427) the user-preference features `prefers-reduced-motion` (`no-preference`, `reduce`)
+ * and `orientation`, and (ADR 0431) the user-preference features `prefers-reduced-motion` (`no-preference`, `reduce`)
  * and `prefers-color-scheme` (`light`, `dark`) from `UIPreferences`, which match with or without a canvas. Lengths are `px` (`em`/`rem` are 16px, as in browsers' media queries); ratios are `16/9` or a
  * number. Media types `all` and `screen` match, any other never does. An unknown feature is unknown, which never
  * matches (`not` of it neither), as in Media Queries level 4; a query that can't be read matches nothing (`not all`).
@@ -77,7 +77,7 @@ function evaluate(c: UIMediaCondition, env: UIMediaEnvironment | null | undefine
   return feature(c.feature, c.op, c.value, env);
 }
 
-/** User-preference features (ADR 0427): their values, the first being the one that's false in a boolean context. */
+/** User-preference features (ADR 0431): their values, the first being the one that's false in a boolean context. */
 const PREFERENCES: Readonly<Record<string, readonly string[]>> = {
   "prefers-reduced-motion": ["no-preference", "reduce"],
   "prefers-color-scheme": ["light", "dark"],

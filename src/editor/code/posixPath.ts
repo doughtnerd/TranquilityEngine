@@ -1,4 +1,4 @@
-// Node's `path` (POSIX) for svelte2tsx in the browser (ADR 0428): it imports `path` for file names (`basename`), and
+// Node's `path` (POSIX) for svelte2tsx in the browser (ADR 0432): it imports `path` for file names (`basename`), and
 // the editor's builds resolve that import here (`svelteCheckPath()` in vite.shared.ts). Project paths are POSIX
 // (`ui/Hud.svelte`), so only the POSIX half is written.
 

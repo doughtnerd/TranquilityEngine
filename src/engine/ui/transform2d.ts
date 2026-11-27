@@ -1,5 +1,5 @@
 /**
- * UI transforms (ADR 0418 wave 3): the one place an element's 2D affine transform is worked out. The UI core composes
+ * UI transforms (ADR 0422 wave 3): the one place an element's 2D affine transform is worked out. The UI core composes
  * each element's with its ancestors' (a transform applies to the element and its descendants, as in CSS) after layout,
  * and everything that has to agree with what's drawn reads the result: drawing (Babylon GUI), hit-testing, editor
  * picking, the outline and handles, and navigation. Layout ignores transforms (siblings don't move).
@@ -7,7 +7,7 @@
  * Coordinates are a canvas's UI pixels, y down. An element's transform maps a point of its laid-out box (where layout
  * put it) to where it's drawn. Its own part is, as CSS composes the individual `translate`, `rotate` and `scale`
  * properties with `transform`: move to the origin, translate, rotate (clockwise, degrees), scale, apply the full matrix
- * (ADR 0426: a `transform` list that doesn't fold into the three, such as one with `skew()` or `matrix()`), move back:
+ * (ADR 0430: a `transform` list that doesn't fold into the three, such as one with `skew()` or `matrix()`), move back:
  * `T(origin) · T(translate) · R(rotate) · S(scaleX, scaleY) · M · T(−origin)`. Its whole transform is its parent's times its own.
  *
  * Pure and renderer-neutral: numbers in, numbers out. Not public API.
@@ -36,7 +36,7 @@ export interface UITransformFields {
   readonly transformOriginX: UITransformLength;
   readonly transformOriginY: UITransformLength;
   /**
-   * ADR 0426: the full 2D matrix applied after translate, rotate and scale, as `matrix(a, b, c, d, e, f)` text (lengths
+   * ADR 0430: the full 2D matrix applied after translate, rotate and scale, as `matrix(a, b, c, d, e, f)` text (lengths
    * in px); "" (or absent) for none.
    */
   readonly transformMatrix?: string;
@@ -84,7 +84,7 @@ export function resolveTransformLength(v: UITransformLength | null | undefined, 
 const finiteOr = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
 
 /**
- * ADR 0426: a matrix field's value as a map: `matrix(a, b, c, d, e, f)` (commas or spaces), or six bare numbers. Null for
+ * ADR 0430: a matrix field's value as a map: `matrix(a, b, c, d, e, f)` (commas or spaces), or six bare numbers. Null for
  * "", `none`, the identity, or text that isn't one.
  */
 export function parseMatrixText(text: string | null | undefined): UIAffine | null {
@@ -129,7 +129,7 @@ export function localTransform(f: UITransformFields, box: UIRect): UIAffine | nu
   const cos = Math.cos(rad), sin = Math.sin(rad);
   // R·S, then the translation that keeps the origin fixed and adds `translate`.
   let a = cos * sx, b = sin * sx, c = -sin * sy, d = cos * sy, e = 0, g = 0;
-  // ADR 0426: R·S·M.
+  // ADR 0430: R·S·M.
   const m = parseMatrixText(f.transformMatrix);
   if (m) [a, b, c, d, e, g] = multiply([a, b, c, d, 0, 0], m);
   return [a, b, c, d, ox + tx + e - (a * ox + c * oy), oy + ty + g - (b * ox + d * oy)];
@@ -183,7 +183,7 @@ export function decompose(m: UIAffine): { rotation: number; scaleX: number; scal
 }
 
 /**
- * ADR 0426: a map decomposed as CSS Transforms 1 decomposes a 2D matrix for interpolation ("unmatrix"): a translation,
+ * ADR 0430: a map decomposed as CSS Transforms 1 decomposes a 2D matrix for interpolation ("unmatrix"): a translation,
  * scales, a rotation (degrees) and a shear, recomposed as `T(translate) · R(rotate) · Shear(skew) · S(scale)`. A
  * reflection shows as a negative scale. Null for a map that flattens (no inverse).
  */
@@ -231,7 +231,7 @@ export function recompose(p: UIDecomposed): UIAffine {
 }
 
 /**
- * ADR 0426: the map `t` of the way from `from` to `to` (null: identity), interpolated as CSS interpolates matrices:
+ * ADR 0430: the map `t` of the way from `from` to `to` (null: identity), interpolated as CSS interpolates matrices:
  * decomposed, each part interpolated (the rotation the short way round, a reflection on one side flipping the other
  * side's axes as CSS does), and recomposed. A map without an inverse jumps at the midpoint.
  */

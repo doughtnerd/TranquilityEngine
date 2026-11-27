@@ -1,5 +1,5 @@
 /**
- * How UI field values animate (ADR 0418 wave 4): a pair of values (a transition's ends, or two neighbouring keyframes)
+ * How UI field values animate (ADR 0422 wave 4): a pair of values (a transition's ends, or two neighbouring keyframes)
  * as the floats a tween runs from and to, and the floats it outputs back as the field's value. Pure.
  *
  * - Numbers interpolate (`zIndex` rounds). A per-side edge left null takes its all-sides field, a corner left at -1
@@ -8,11 +8,11 @@
  *   values it can't interpolate. They write back as the fields store them (`"12.5"`, `"40%"`).
  * - Colours interpolate in linear RGB, alpha linearly. A colour that's none (a shadow's, a background's) animates as
  *   the other colour fully transparent.
- * - ADR 0426: the transform matrix (`transformMatrix`) interpolates as CSS interpolates matrices: decomposed into
+ * - ADR 0430: the transform matrix (`transformMatrix`) interpolates as CSS interpolates matrices: decomposed into
  *   translation, rotation, shear and scales, each mixed, and recomposed (`transform2d.ts`). It tweens one float, the
  *   progress, and the mix is worked out as it's read back. "" (none) is the identity.
  * - Anything else (choices, booleans, strings, assets) is discrete: it jumps at the midpoint of the eased progress,
- *   except `display` to or from `none` (ADR 0428, as CSS animates it): the value that isn't `none` shows throughout.
+ *   except `display` to or from `none` (ADR 0432, as CSS animates it): the value that isn't `none` shows throughout.
  */
 import { Color } from "../../core/math";
 import { interpolateAffine, matrixText, parseMatrixText } from "../transform2d";

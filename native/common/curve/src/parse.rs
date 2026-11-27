@@ -1,4 +1,4 @@
-//! The host's curve keys, read and baked (feature `alloc`, ADR 0420; moved from `anim-sample`'s
+//! The host's curve keys, read and baked (feature `alloc`, ADR 0424; moved from `anim-sample`'s
 //! `curve`).
 //!
 //! [`KEY_FLOATS`] f32 per key, sorted by x: `x, y, interp, inDx, inDy, outDx, outDy`. `interp`

@@ -1,4 +1,4 @@
-// Svelte components type-checked as the Code panel's TypeScript service checks them (ADR 0428): the generated
+// Svelte components type-checked as the Code panel's TypeScript service checks them (ADR 0432): the generated
 // TypeScript beside the engine's declarations and the project's files, with the scripts' settings, through the
 // TypeScript compiler here (Monaco's worker runs the same checker in the editor).
 import { readFileSync } from "node:fs";
@@ -63,7 +63,7 @@ async function check(project: Record<string, string>): Promise<Found[]> {
 }
 
 // Each check builds a TypeScript program with the engine's declarations and the DOM library: seconds, more under a full run.
-describe("type checking inside Svelte components (ADR 0428)", { timeout: 60_000 }, () => {
+describe("type checking inside Svelte components (ADR 0432)", { timeout: 60_000 }, () => {
   it("finds errors in the script and the template, at their places in the component", async () => {
     const found = await check({
       "ui/Hud.svelte": `<script lang="ts">

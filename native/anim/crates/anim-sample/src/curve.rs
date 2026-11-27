@@ -13,7 +13,7 @@
 //! value reads as linear, as `curve.ts`'s default. The handles are a Bézier key's offsets (`in`,
 //! `out`), ignored for other keys. At most [`MAX_KEYS`] keys (`TRACK_LIMITS.keys`).
 
-// The key parser is `myco-curve`'s (feature `alloc`, ADR 0420: the standalone tween module's curve
+// The key parser is `myco-curve`'s (feature `alloc`, ADR 0424: the standalone tween module's curve
 // store needs it, and that module doesn't link this crate); re-exported unchanged.
 pub use myco_curve::{eval, parse_keys, CurveError, Key, KEY_FLOATS, MAX_KEYS};
 

@@ -9,7 +9,7 @@
 //! `0 = in`, `1 = out`, `2 = inOut` ([`LAST_ID`] is 30). An unknown id is linear. The ids are
 //! [`crate::wire`]'s `EASE_*` constants (a test in `anim-wasm` holds the two equal).
 //!
-//! Moved here from `anim-math` (ADR 0420 spike). `2^x` ([`exp2`]) stayed in `anim-math`
+//! Moved here from `anim-math` (ADR 0424 spike). `2^x` ([`exp2`]) stayed in `anim-math`
 //! (`anim_math::trig::exp2`): `anim-match`'s springs use it too.
 //!
 //! # Formulas

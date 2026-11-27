@@ -52,7 +52,7 @@ export async function createProjectFile(options: CreateFileOptions): Promise<str
   }
   docVersion.value++;
   messages.info(options.created ? options.created(path) : `Created ${fileName(path)}.`);
-  // UI code (ADR 0419) compiles with the scripts: a new component loads (and a UIView's field can take it) once they reload.
+  // UI code (ADR 0423) compiles with the scripts: a new component loads (and a UIView's field can take it) once they reload.
   if (isUISourcePath(path)) await (await import("./session")).reloadScripts();
   return path;
 }

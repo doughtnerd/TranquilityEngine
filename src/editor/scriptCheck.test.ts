@@ -58,7 +58,7 @@ describe("type-checking scripts before Play (ADR 0125)", () => {
     expect(check).not.toHaveBeenCalled();
   });
 
-  it("checks a project whose only code is Svelte UI, and stops on a component's error (ADR 0428)", async () => {
+  it("checks a project whose only code is Svelte UI, and stops on a component's error (ADR 0432)", async () => {
     const ui = { scripts: new Map(), files: ["ui/Hud.svelte", "scenes/main.scene.json"] } as unknown as EditorProject;
     const found: ScriptDiagnostic[] = [{ path: "ui/Hud.svelte", line: 7, column: 9, message: "Type 'string' is not assignable to type 'number'." }];
     let asked: ConfirmOptions | null = null;

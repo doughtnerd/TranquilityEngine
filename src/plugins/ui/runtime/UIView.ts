@@ -1,10 +1,10 @@
 /**
- * `UIView` (ADR 0419): game UI from a Svelte component. It makes a canvas under its node (components never
+ * `UIView` (ADR 0423): game UI from a Svelte component. It makes a canvas under its node (components never
  * write a canvas tag), mounts the component onto it through the engine's renderer, and passes data in
  * through `props`, which is reactive. The component's elements are ordinary UI elements: laid out, drawn
  * and clicked by the UI core, styled by every component's CSS.
  *
- * `UIView` never imports Svelte (ADR 0421): a compiled component's module mounts itself (its `$mount`, made
+ * `UIView` never imports Svelte (ADR 0425): a compiled component's module mounts itself (its `$mount`, made
  * by compile.mjs) with the Svelte and renderer it was linked with, the editor's shared runtime or the game's
  * own bundle at export. The cascade loads the first time a World has a view. The view mounts once it has
  * (`ready`); it unmounts when disabled or removed, and mounts again (fresh state) when enabled. A new
@@ -83,7 +83,7 @@ export class UIView extends Component {
   @field(Number) player = -1;
 
   /**
-   * Svelte's `transformError` (ADR 0419): turns an error a `<svelte:boundary>` catches into what its `failed` snippet
+   * Svelte's `transformError` (ADR 0423): turns an error a `<svelte:boundary>` catches into what its `failed` snippet
    * and `onerror` get (a framework's error hook: a message safe to show, an error id). Read when an error is caught,
    * so setting it takes effect at once; null passes errors through unchanged.
    */

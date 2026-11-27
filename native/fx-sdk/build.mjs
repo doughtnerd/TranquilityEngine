@@ -35,7 +35,7 @@ for (const p of PLUGINS) {
   execFileSync(
     "cargo",
     ["+1.99.1", "build", "--release", "--target", "wasm32-unknown-unknown", "--manifest-path", p.manifest, "-p", p.pkg, "--target-dir", target],
-    // Paths remapped, so any checkout builds the same bytes (ADR 0428).
+    // Paths remapped, so any checkout builds the same bytes (ADR 0432).
     { stdio: "inherit", env: wasmBuildEnv(flags) },
   );
   const built = join(target, "wasm32-unknown-unknown", "release", p.wasm);

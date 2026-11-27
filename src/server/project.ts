@@ -52,7 +52,7 @@ export interface ServerProject {
   readonly json: ReadonlyMap<string, string>;
   /** The scripts' source, by path. */
   readonly scripts: ReadonlyMap<string, string>;
-  /** The UI code's text, by path (ADR 0419): Svelte components, rune modules and `.css` files, for game builds (the server doesn't load UI). */
+  /** The UI code's text, by path (ADR 0423): Svelte components, rune modules and `.css` files, for game builds (the server doesn't load UI). */
   readonly ui: ReadonlyMap<string, string>;
 
   /** Every file read, project-relative and sorted (hidden files and dependency and build folders left out). For game builds (ADR 0041). */

@@ -1,5 +1,5 @@
 /**
- * Inline text layout (ADR 0425): a text element's styled runs laid out together as one paragraph flow, the way a browser
+ * Inline text layout (ADR 0429): a text element's styled runs laid out together as one paragraph flow, the way a browser
  * lays out phrasing content. The UI core measures with it (Yoga's measure of a text element with runs), publishes its
  * lines for the drawing layer to draw as they are, hit-tests runs with it and places the caret of editable text, so what's
  * measured, drawn, hit and edited is one layout.
@@ -8,10 +8,10 @@
  *   kinsoku rules, Thai words; anywhere for `wrap: "anywhere"`), so a word split between runs (`<b>bo</b>ld`) stays
  *   whole and a break can fall inside a run. An inline object (an image, or an atomic inline box) is a place to break on
  *   both sides; a line break (`\n`: a `<br>` run, or one kept by `white-space`) ends the line. Lines fill greedily;
- *   trailing spaces hang past the width; a piece wider than the width overflows. ADR 0428: a run with `nowrap` has no
+ *   trailing spaces hang past the width; a piece wider than the width overflows. ADR 0432: a run with `nowrap` has no
  *   break after its characters, and a run with `keepSpaces` keeps its trailing spaces on the line, taking room (and a
  *   break after each of them).
- * - **Inline boxes (ADR 0428).** An inline element with margins, borders or padding (`UITextRun.boxes`) takes room for its
+ * - **Inline boxes (ADR 0432).** An inline element with margins, borders or padding (`UITextRun.boxes`) takes room for its
  *   start side before its first character and for its end side after its last; a box broken across lines is sliced, and
  *   each line reports its parts (`UIInlineLine.boxes`), border boxes around the element's glyph box, for drawing and
  *   hit-testing. Vertical padding and borders are drawn, not laid out, as in CSS.
@@ -50,7 +50,7 @@ export interface UIInlineFragment {
   readonly height: number;
 }
 
-/** ADR 0428: one line's part of an inline box (`UITextRun.boxes[box]`): its border box, from the content box's corner. */
+/** ADR 0432: one line's part of an inline box (`UITextRun.boxes[box]`): its border box, from the content box's corner. */
 export interface UIInlineBoxPart {
   readonly box: number;
   readonly x: number;
@@ -76,7 +76,7 @@ export interface UIInlineLine {
   readonly x: number;
   readonly width: number;
   readonly fragments: readonly UIInlineFragment[];
-  /** ADR 0428: its parts of inline boxes, outer boxes before the boxes inside them. Absent: none. */
+  /** ADR 0432: its parts of inline boxes, outer boxes before the boxes inside them. Absent: none. */
   readonly boxes?: readonly UIInlineBoxPart[];
 }
 
@@ -108,7 +108,7 @@ export interface InlineLayoutOptions {
   readonly fontSize: number;
   /** A line break at the very end starts an empty last line (editable text); otherwise it makes none, as in HTML. */
   readonly keepTrailingBreak?: boolean;
-  /** ADR 0428: the text's inline boxes (`UITextRun.boxes`). */
+  /** ADR 0432: the text's inline boxes (`UITextRun.boxes`). */
   readonly boxes?: readonly UIInlineBox[];
 }
 
@@ -186,7 +186,7 @@ function metricsOf(run: UIInlineRun, lineHeight: number, base: number): Metrics 
   return { above, below: h - above, height: h, half };
 }
 
-/** ADR 0428: the room inline boxes take at each run's start and end, and each box's effective run range (runs with text). */
+/** ADR 0432: the room inline boxes take at each run's start and end, and each box's effective run range (runs with text). */
 interface Edges {
   /** By run: the boxes starting at it (outer first) and ending at it (inner first). */
   readonly opens: (readonly number[])[];
@@ -238,7 +238,7 @@ export function layoutInline(runs: readonly UIInlineRun[], o: InlineLayoutOption
   const wraps = o.wrap !== "none" && Number.isFinite(o.maxWidth);
   // A width Yoga reports (float32) can come back a hair under the one measured: lines laid out at it wrap as measured.
   const maxWidth = o.maxWidth + Math.max(1e-3, o.maxWidth * 1e-6);
-  // ADR 0428: each character's run, for the white space rules that differ by run (no break, spaces that take room).
+  // ADR 0432: each character's run, for the white space rules that differ by run (no break, spaces that take room).
   const special = runs.some((r) => r.nowrap || r.keepSpaces);
   const runOf = special ? new Int32Array(text.length) : null;
   if (runOf) runs.forEach((r, k) => runOf.fill(k, starts[k], starts[k] + r.text.length));
@@ -386,7 +386,7 @@ export function layoutInline(runs: readonly UIInlineRun[], o: InlineLayoutOption
 const BASE_STRUT: UIInlineRun = { text: "", fontSize: 16, fontWeight: "400", fontStyle: "normal", fontFamily: "", color: "", decoration: "", background: null, verticalAlign: "baseline", shift: 0, image: null, owner: null, source: null };
 
 /**
- * Greedy wrapping of the paragraph `[ps, pe)` into `out`. `trim` moves an end back over hanging spaces; ADR 0428:
+ * Greedy wrapping of the paragraph `[ps, pe)` into `out`. `trim` moves an end back over hanging spaces; ADR 0432:
  * `noBreakAfter(i)` is true where the character at `i` has no break after it (`nowrap`), `breakAfter(i)` where it has one
  * (a space that takes room: `break-spaces`).
  */

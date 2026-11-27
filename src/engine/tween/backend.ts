@@ -1,5 +1,5 @@
 /**
- * The tween backend (ADR 0420): one interface over a tween table, whichever module holds it. The animation plugin
+ * The tween backend (ADR 0424): one interface over a tween table, whichever module holds it. The animation plugin
  * provides one over its core's table when it's active (`TWEEN_BACKEND_PROVIDER`); without it, the standalone tween
  * module (`native/tween`, committed in `./wasm/`) is loaded the first time one is opened (`./standalone.ts`). Both run
  * `myco-tween` through the same wire records (`./wasm/wire/*.ts`: the `tween` family and the `timeline` family's
@@ -9,7 +9,7 @@
  * its outputs read after each `update` until the next `update` of any backend on the page (each module clears its
  * outputs at the start of an update, as the animation core does at each World's evaluate).
  *
- * Internal: not public API. UI animation (0418 wave 4) is its first user.
+ * Internal: not public API. UI animation (0422 wave 4) is its first user.
  */
 import type { Curve } from "../core/curve";
 import { encodeRecord, type RecordFields, type RecordValues } from "../wasm/wireRecords";

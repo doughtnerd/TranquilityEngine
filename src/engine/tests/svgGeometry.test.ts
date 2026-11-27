@@ -1,11 +1,11 @@
-// ADR 0426: SVG geometry for inline SVG: path data, shapes as paths, arc lengths (what `getTotalLength()` and
+// ADR 0430: SVG geometry for inline SVG: path data, shapes as paths, arc lengths (what `getTotalLength()` and
 // `draw` read), hit-testing geometry, SVG transforms and the viewBox map.
 import { describe, expect, it } from "vitest";
 import { distanceToOutline, flattenPath, insideFill, parsePathData, parseSvgTransform, pathLength, pointAtLength, shapePath, viewBoxMap } from "../ui/svg/svgGeometry";
 
 const attrs = (o: Record<string, string>) => (n: string) => o[n] ?? null;
 
-describe("SVG path data and lengths (ADR 0426)", () => {
+describe("SVG path data and lengths (ADR 0430)", () => {
   it("reads relative, shorthand and implicit commands as absolute ones", () => {
     expect(parsePathData("m10 10 h20 v10 l-5 5 z")).toEqual([
       { c: "M", x: 10, y: 10 }, { c: "L", x: 30, y: 10 }, { c: "L", x: 30, y: 20 }, { c: "L", x: 25, y: 25 }, { c: "Z" },
@@ -38,7 +38,7 @@ describe("SVG path data and lengths (ADR 0426)", () => {
   });
 });
 
-describe("SVG hit geometry, transforms and the viewBox (ADR 0426)", () => {
+describe("SVG hit geometry, transforms and the viewBox (ADR 0430)", () => {
   it("tests fills by nonzero or evenodd, and distance to the outline for strokes", () => {
     // A square with a square hole drawn the same way round: nonzero fills the hole, evenodd doesn't.
     const polys = flattenPath(parsePathData("M0 0 H30 V30 H0 Z M10 10 H20 V20 H10 Z"));

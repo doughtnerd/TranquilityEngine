@@ -78,7 +78,7 @@ impl Fixture {
         self.write("crates/a/README.md", "# a\n");
         self.write("build.mjs", "export {};\n");
         // The shared crates the core links (ADR 0370): hashed under `../common/`, with the same skips;
-        // another shared crate beside them (ADR 0420) is left out.
+        // another shared crate beside them (ADR 0424) is left out.
         self.write("../common/curve/Cargo.toml", "[package]\nname = \"c\"\n");
         self.write("../common/curve/src/lib.rs", &fix("pub fn c() {}\r\n"));
         self.write("../common/curve/target/debug/y.rs", "fn y() {}\n");

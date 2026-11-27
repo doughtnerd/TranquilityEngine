@@ -6,7 +6,7 @@ import { UIPointer } from "../../../engine/tests/uiPointer";
 import { UIView } from "./UIView";
 import * as StructureModule from "./testComponents/Structure.svelte";
 
-// ADR 0418 wave 5 through a UIView: structural, attribute and sibling selectors restyle as Svelte adds, removes and
+// ADR 0422 wave 5 through a UIView: structural, attribute and sibling selectors restyle as Svelte adds, removes and
 // reorders elements and changes attributes; `calc()` mixing % and px resolves at layout; canvas `@media` and Svelte's
 // `MediaQuery` follow the canvas in UI pixels as it's resized (the view's canvas is 1280×720 reference pixels,
 // matching height).

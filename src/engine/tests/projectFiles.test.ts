@@ -19,7 +19,7 @@ describe("project files", () => {
     ["tools/a.js", "text"],
     ["tools/a.cjs", "text"],
     ["tools/a.mts", "text"],
-    ["ui/Hud.svelte", "text"], // Svelte UI sources (ADR 0419): compiled from their text
+    ["ui/Hud.svelte", "text"], // Svelte UI sources (ADR 0423): compiled from their text
     ["ui/store.svelte.ts", "text"],
 
     ["images/bird.png", "url"],

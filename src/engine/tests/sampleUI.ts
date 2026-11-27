@@ -1,4 +1,4 @@
-// Sample projects' Svelte UI (ADR 0419) in tests: Vitest compiles a sample's components (`import.meta.glob` of its
+// Sample projects' Svelte UI (ADR 0423) in tests: Vitest compiles a sample's components (`import.meta.glob` of its
 // `ui/*.svelte`, eager, through vitest.config.mts's `svelteUI()`), and this serves each module as its file's asset
 // value, as the editor and the player serve a project's compiled components (`Assets.setCompiledModules`).
 import { Assets } from "../scene/Assets";

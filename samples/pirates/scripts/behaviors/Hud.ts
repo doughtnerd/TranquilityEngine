@@ -103,7 +103,7 @@ interface HudState {
  * edge for the flag and (outside) the way back, a note while this ship hides in fog, and the
  * "Leave the match?" dialog (Escape). It reads this client's ship and the replicated match.
  *
- * The screens are a Svelte component (ADR 0419), ui/Hud.svelte, mounted by the node's UIView: each
+ * The screens are a Svelte component (ADR 0423), ui/Hud.svelte, mounted by the node's UIView: each
  * frame the script works out what it shows (texts, the leaderboard, the results, the minimap's dots,
  * bars, colours and marker positions) and passes it in as the `hud` prop when it changed; the
  * dialog's buttons call back through the `on` prop.

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `npm run build:tween` (ADR 0420): compiles the standalone tween module (native/tween: myco-tween's table, a curve
+// `npm run build:tween` (ADR 0424): compiles the standalone tween module (native/tween: myco-tween's table, a curve
 // store and a sequence player, for UI animation without the animation plugin) to WebAssembly with simd128, and writes
 // the module, its wasm-bindgen glue and hash.json to src/engine/tween/wasm/, which is committed, so the engine builds
 // without Rust. First regenerates the wire constants the engine's tween backend speaks to it with
@@ -20,11 +20,11 @@ const TARGET = "wasm32-unknown-unknown";
 const CRATE = "myco_tween_wasm";
 const OUT_NAME = "myco_tween";
 /**
- * The wasm's size tripwire (ADR 0420): a guard against accidental growth, not a design limit (CLAUDE.md). Set from the
+ * The wasm's size tripwire (ADR 0424): a guard against accidental growth, not a design limit (CLAUDE.md). Set from the
  * first full build plus 20%, rounded. The spike's module (tweens and curves only) measured 30,077 bytes (36 KB gate in
- * the ADR); the accepted build adds the sequence player (the owner's choice in 0420), its timeline records and the
+ * the ADR); the accepted build adds the sequence player (the owner's choice in 0424), its timeline records and the
  * source hash: 45,584 bytes (2026-11-26, after keeping general sorts and float formatting out), + 20% = 54,701 B -> 53 KB.
- * Raise it with a line in docs/architecture/implementation-status.md's 0420 row saying why; never cut a feature to stay
+ * Raise it with a line in docs/architecture/implementation-status.md's 0424 row saying why; never cut a feature to stay
  * under it.
  */
 const SIZE_LIMIT = 53 * 1024;
@@ -83,7 +83,7 @@ function checkToolchain() {
 async function main() {
   checkToolchain();
   run("cargo", ["run", "-p", "anim-wire", "--bin", "gen_wire"], animRoot);
-  // .cargo/config.toml's +simd128, and the paths remapped so any checkout builds the same bytes (ADR 0428).
+  // .cargo/config.toml's +simd128, and the paths remapped so any checkout builds the same bytes (ADR 0432).
   run("cargo", ["build", "--target", TARGET, "--release"], root, wasmBuildEnv(configRustflags(root)));
   mkdirSync(out, { recursive: true });
   // As build:anim: the name and producers sections are dropped (nothing at run time).

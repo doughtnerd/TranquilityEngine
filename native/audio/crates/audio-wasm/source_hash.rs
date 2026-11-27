@@ -8,7 +8,7 @@
 //! - Shared crates (ADR 0370, T70): the same files under each `../common/<crate>/` the audio core
 //!   links ([`SHARED_CRATES`]: `native/common/curve`, `myco-curve`), keyed `../common/` plus their
 //!   path below it, with the same skips. Other shared crates (the animation core's `myco-wire` and
-//!   `myco-tween`, ADR 0420) aren't hashed: they never reach the audio wasm. A root without a
+//!   `myco-tween`, ADR 0424) aren't hashed: they never reach the audio wasm. A root without a
 //!   `../common/` hashes as before.
 //! - Each file's key is its path relative to the root with `/` separators. Files are taken in
 //!   ascending byte order of their keys.

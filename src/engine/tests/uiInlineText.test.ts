@@ -1,4 +1,4 @@
-// ADR 0428 (G3, text): `white-space` on plain texts and inline runs, run `:hover`/`:active`, inline boxes (padding, borders,
+// ADR 0432 (G3, text): `white-space` on plain texts and inline runs, run `:hover`/`:active`, inline boxes (padding, borders,
 // margins on runs) and atomic inline boxes (inline blocks, controls, SVG and media inside text), through a Svelte view
 // (`uiMarkup.ts`) laid out by the UI core and drawn by the Babylon layer.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
@@ -41,7 +41,7 @@ async function laidOut(): Promise<{ core: UICore; el: (c: UIComponentType) => UI
 const lines = (e: UILaidOutElement) => e.inline!.lines.map((l) => l.fragments.map((f) => f.text).join(""));
 const shown = (ui: TestUI, id: string) => textRunOf(byId(ui, id, UIText))!.text;
 
-describe("white-space (ADR 0428)", () => {
+describe("white-space (ADR 0432)", () => {
   it("collapses, keeps or keeps only line breaks in a plain text, as each keyword says", async () => {
     const ui = buildUI(`<Canvas><div flex-direction="column" align-items="flex-start"><p id="n">  a   b\n c  </p><p id="pre" class="pre">  a   b\n c</p><p id="line" class="line">  a   b \n  c</p><p id="ps" class="ps">a\tb</p></div></Canvas>`, {
       css: `.pre { white-space: pre; } .line { white-space: pre-line; } .ps { white-space: preserve nowrap; }`,
@@ -92,7 +92,7 @@ describe("white-space (ADR 0428)", () => {
   });
 });
 
-describe("run :hover and :active (ADR 0428)", () => {
+describe("run :hover and :active (ADR 0432)", () => {
   let pointer: UIPointer | null = null;
   beforeEach(() => Input.reset());
   afterEach(() => {
@@ -126,7 +126,7 @@ describe("run :hover and :active (ADR 0428)", () => {
   });
 });
 
-describe("inline boxes: padding, borders and margins on runs (ADR 0428)", () => {
+describe("inline boxes: padding, borders and margins on runs (ADR 0432)", () => {
   it("lays a run's start and end sides out on the line, and gives it (not its glyphs' runs) its background", async () => {
     const ui = buildUI(`<Canvas><p id="t">Go <span id="s" class="tag">now</span>!</p></Canvas>`, {
       css: `.tag { padding: 2px 4px; border: 1px solid #ff0000; background-color: #0000ff; margin: 0 3px; border-radius: 3px; }`,
@@ -151,7 +151,7 @@ describe("inline boxes: padding, borders and margins on runs (ADR 0428)", () => 
   });
 });
 
-describe("atomic inline boxes (ADR 0428)", () => {
+describe("atomic inline boxes (ADR 0432)", () => {
   let pointer: UIPointer | null = null;
   beforeEach(() => Input.reset());
   afterEach(() => {
@@ -214,7 +214,7 @@ describe("atomic inline boxes (ADR 0428)", () => {
   });
 });
 
-describe("Babylon UI: drawing inline boxes and atomic boxes (ADR 0428)", () => {
+describe("Babylon UI: drawing inline boxes and atomic boxes (ADR 0432)", () => {
   /** A 2D context that records what's drawn and measures half an em per character. */
   function recordingContext(drawn: string[]) {
     const ctx: Record<string, unknown> = { font: "16px sans-serif", canvas: null, fillStyle: "", strokeStyle: "", lineWidth: 1 };
@@ -271,7 +271,7 @@ describe("Babylon UI: drawing inline boxes and atomic boxes (ADR 0428)", () => {
   });
 });
 
-describe("a text's base direction from `direction` (ADR 0428)", () => {
+describe("a text's base direction from `direction` (ADR 0432)", () => {
   it("lays runs out right to left under dir=\"rtl\" (its own or an ancestor's), else in the language's direction", async () => {
     const ui = buildUI(`<Canvas><div flex-direction="column" align-items="flex-start"><div dir="rtl"><p id="r" width="100">ab <b>cd</b></p></div><p id="l" width="100">ab <b>cd</b></p><p id="own" dir="rtl" width="100">plain</p></div></Canvas>`);
     engine.step(DT);

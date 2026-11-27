@@ -4,7 +4,7 @@
 // file's history and Ctrl+Z in the panel undoes the chosen table's last edit. Tables audio data names are the Studio's
 // (0357 §1): while the Studio holds the project they show read-only with "Edit in the Studio". The Report adds Svelte
 // UI's unkeyed text (dismissals kept in `.myco/localisation-ignore.json`) and, on request, the text fit check over what
-// the open scene's views render (ADR 0419 wave F).
+// the open scene's views render (ADR 0423 wave F).
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { gatherKeys } from "../../../engine/localisation/exchange/gather";

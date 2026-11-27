@@ -1,4 +1,4 @@
-/* The Inspector for a UI element a view rendered (ADR 0419 wave C): fields with where each value comes from. Colours are editor.css's tokens. */
+/* The Inspector for a UI element a view rendered (ADR 0423 wave C): fields with where each value comes from. Colours are editor.css's tokens. */
 .ui-element-inspector .ui-element-name { font-weight: 600; color: var(--text-strong); }
 .ui-element-inspector .ui-element-note { margin: 0 0 8px; font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
 .ui-element-inspector .ui-element-from { color: var(--muted); }

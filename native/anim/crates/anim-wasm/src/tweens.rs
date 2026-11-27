@@ -3,7 +3,7 @@
 //! commands, views and timing).
 //!
 //! The table, its value function and the easings are `myco-tween`'s (`native/common/tween`, ADR
-//! 0420 spike), shared with the standalone tween module; this module is the core's side of it: the
+//! 0424 spike), shared with the standalone tween module; this module is the core's side of it: the
 //! table's share of `init`'s memory, and the asset arena as the table's curve lookup (curve assets
 //! are arena handles, T70).
 

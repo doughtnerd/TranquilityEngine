@@ -1,4 +1,4 @@
-// Text edits on Svelte component sources (ADR 0419 wave C): each edit changes only its own text, found through
+// Text edits on Svelte component sources (ADR 0423 wave C): each edit changes only its own text, found through
 // `parse()` spans, and refuses the dynamic parts (`{…}`, `{#each}` rows, snippets).
 import { beforeAll, describe, expect, it } from "vitest";
 import {
@@ -147,7 +147,7 @@ describe("the component's <style>", () => {
   });
 });
 
-describe("localised text (ADR 0356 §9, 0419 wave F)", () => {
+describe("localised text (ADR 0356 §9, 0423 wave F)", () => {
   const LOC = `<script lang="ts">
   import { Locale } from "myco";
   import Badge from "./Badge.svelte";

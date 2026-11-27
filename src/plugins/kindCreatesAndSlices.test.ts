@@ -28,8 +28,8 @@ describe("the New… menu's file entries (ADR 0149)", () => {
   it("include an active plugin's creates after the core ones, and drop them when it is disabled", () => {
     const labels = kindCreators().map((c) => c.label);
     expect(labels.slice(0, 2)).toEqual(["New Scene", "New Render Texture"]);
-    expect(labels).not.toContain("New UI Document"); // retired with UI documents (ADR 0419 wave D)
-    expect(labels).toContain("New Svelte Component"); // ADR 0419
+    expect(labels).not.toContain("New UI Document"); // retired with UI documents (ADR 0423 wave D)
+    expect(labels).toContain("New Svelte Component"); // ADR 0423
     expect(labels).toContain("New Material");
     halves.off();
     expect(kindCreators().map((c) => c.label)).not.toContain("New Svelte Component");

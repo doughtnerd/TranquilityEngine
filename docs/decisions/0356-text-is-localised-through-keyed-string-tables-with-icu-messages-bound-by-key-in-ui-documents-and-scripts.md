@@ -1,6 +1,6 @@
 # 0356. Text is localised through keyed string tables with ICU messages, bound by key in UI documents and scripts
 
-- **Status:** Accepted, amended by 0391 (a fallback message is formatted with its source language's rules; build string files name that language in `sources`), partly superseded by 0417 (`LocalizedText` removed) and by 0419 (UI documents' `t:` attributes, and the unkeyed-text list and fit check read from their markup, retired in its wave D; Svelte UI binds keys with `t()`/`tHtml()` from `myco`, which key gathering reads)
+- **Status:** Accepted, amended by 0391 (a fallback message is formatted with its source language's rules; build string files name that language in `sources`), partly superseded by 0421 (`LocalizedText` removed) and by 0423 (UI documents' `t:` attributes, and the unkeyed-text list and fit check read from their markup, retired in its wave D; Svelte UI binds keys with `t()`/`tHtml()` from `myco`, which key gathering reads)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

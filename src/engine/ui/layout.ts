@@ -39,7 +39,7 @@ export function canvasScale(canvasWidth: number, canvasHeight: number, refWidth:
 
 /**
  * A length field as Yoga takes it: pixels, a percentage, `"auto"`, or undefined when empty or unreadable. A `calc()`
- * mixing % and px (ADR 0418 wave 5, `calc(50% + -12px)`) becomes pixels against `basis`, the size its percentages are
+ * mixing % and px (ADR 0422 wave 5, `calc(50% + -12px)`) becomes pixels against `basis`, the size its percentages are
  * of (the parent's content box along the field's axis); 0 when it isn't known yet.
  */
 export function uiLength(v: UILength | null | undefined, basis?: number): number | `${number}%` | "auto" | undefined {
@@ -56,7 +56,7 @@ export function uiLength(v: UILength | null | undefined, basis?: number): number
   return px !== "" && Number.isFinite(n) ? n : undefined;
 }
 
-// 0418 wave 1: layout
+// 0422 wave 1: layout
 
 /** A finite number, else 0. */
 function finiteOr0(n: number | null | undefined): number {
@@ -83,7 +83,7 @@ export function uiLimit(v: UILength | null | undefined, basis?: number): number 
   return l === "auto" ? undefined : l;
 }
 
-/** True for a length that mixes % and px (`calc()`, ADR 0418 wave 5): it resolves against the parent's size at layout. */
+/** True for a length that mixes % and px (`calc()`, ADR 0422 wave 5): it resolves against the parent's size at layout. */
 export function isMixedLength(v: UILength | null | undefined): boolean {
   return typeof v === "string" && linearLength(v) !== null;
 }

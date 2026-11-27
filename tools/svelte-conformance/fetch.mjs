@@ -1,4 +1,4 @@
-// Fetches Svelte's own runtime test fixtures at the pinned version (ADR 0419) for the conformance harness
+// Fetches Svelte's own runtime test fixtures at the pinned version (ADR 0423) for the conformance harness
 // (`npm run test:svelte-conformance`): a sparse, shallow checkout of the svelte repository's tag into
 // node_modules/.cache/svelte-conformance/<version>/, kept between runs. The fixtures aren't in the npm package.
 import { execFileSync } from "node:child_process";

@@ -5,7 +5,7 @@ import { World } from "../core/World";
 import { UIPointer, stubDocument } from "./uiPointer";
 import { buildUI, loadUITestSupport, uiAs, type TestUI } from "./uiMarkup";
 
-// ADR 0423: elements scroll with `overflow: auto | scroll`: layout, clipping and drawing offsets, hit-testing, the
+// ADR 0427: elements scroll with `overflow: auto | scroll`: layout, clipping and drawing offsets, hit-testing, the
 // wheel (with chaining and `overscroll-behavior`), touch drags with momentum, keys, scrollbars, the DOM's scrolling
 // members on document elements, smooth scrolling, `scroll`/`scrollend` events and navigation. Driven through a UI core
 // routing `Input`'s DOM adapter (`UIPointer`) and documents built from markup.
@@ -50,7 +50,7 @@ function list(attrs = "", css?: string): TestUI {
 
 const panel = (doc: TestUI, id = "list") => uiAs(doc.query(`#${id}`)!, UIPanel);
 
-describe("layout and drawing (ADR 0423)", () => {
+describe("layout and drawing (ADR 0427)", () => {
   it("measures the content past the padding box, offsets the children by the scroll, clamps it, and hit-tests what's shown", async () => {
     const doc = list();
     const p = await pointer();
@@ -98,7 +98,7 @@ describe("layout and drawing (ADR 0423)", () => {
   });
 });
 
-describe("the wheel (ADR 0423)", () => {
+describe("the wheel (ADR 0427)", () => {
   it("scrolls the list under the pointer as the wheel event's default action, which a handler can prevent; the game doesn't see it", async () => {
     const doc = list();
     const p = await pointer();
@@ -136,7 +136,7 @@ describe("the wheel (ADR 0423)", () => {
   });
 });
 
-describe("touch and pen drags (ADR 0423)", () => {
+describe("touch and pen drags (ADR 0427)", () => {
   it("scrolls by a touch drag past the threshold, cancelling the row's press (no click), then keeps going with momentum", async () => {
     const doc = list();
     const p = await pointer();
@@ -178,7 +178,7 @@ describe("touch and pen drags (ADR 0423)", () => {
   });
 });
 
-describe("keys (ADR 0423)", () => {
+describe("keys (ADR 0427)", () => {
   it("scrolls the list a press landed in with the arrows, Page Down and End while nothing is focused; Page Up from a focused row", async () => {
     stubDocument();
     // A gap between the rows: a press there lands on the list itself, which focuses nothing.
@@ -204,7 +204,7 @@ describe("keys (ADR 0423)", () => {
   });
 });
 
-describe("navigation (ADR 0423, 0340)", () => {
+describe("navigation (ADR 0427, 0340)", () => {
   it("finds rows scrolled out of view and scrolls the one it focuses into view", async () => {
     const doc = list();
     const p = await pointer();
@@ -222,7 +222,7 @@ describe("navigation (ADR 0423, 0340)", () => {
   });
 });
 
-describe("scrollbars (ADR 0423)", () => {
+describe("scrollbars (ADR 0427)", () => {
   it("shows a bar for scroll always and for auto when the content overflows, styled by scrollbar-width and scrollbar-color", async () => {
     const doc = buildUI(`<Canvas><div id="auto" width="100" height="100" overflow="auto"/><div id="scroll" class="s" width="100" height="100" overflow-y="scroll" overflow-x="hidden"/><div id="none" width="100" height="100" overflow="scroll" scrollbar-width="none"/></Canvas>`, { css: `.s { scrollbar-color: #ff0000 #00ff00; scrollbar-width: thin; }` });
     const p = await pointer();
@@ -258,7 +258,7 @@ describe("scrollbars (ADR 0423)", () => {
   });
 });
 
-describe("the script API and events (ADR 0423)", () => {
+describe("the script API and events (ADR 0427)", () => {
   it("scrollTo, scrollBy and scrollIntoView on document elements; smooth scrolling eases over frames", async () => {
     const doc = list();
     const p = await pointer();

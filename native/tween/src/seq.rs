@@ -1,4 +1,4 @@
-//! The standalone module's sequence player (ADR 0420): sequences and parallel groups without the
+//! The standalone module's sequence player (ADR 0424): sequences and parallel groups without the
 //! animation core, with the core's records and semantics.
 //!
 //! The program is `myco_tween::seq`'s (members at offsets, their evaluation and completion order),

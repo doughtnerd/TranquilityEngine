@@ -1,4 +1,4 @@
-// ADR 0425: the inline HTML parser `{@html}`, `innerHTML` and `bind:innerHTML` use: elements, attributes and text with
+// ADR 0429: the inline HTML parser `{@html}`, `innerHTML` and `bind:innerHTML` use: elements, attributes and text with
 // entities decoded; comments kept; scripts, styles, event attributes and script URLs dropped; HTML's implied closes.
 import { describe, expect, it } from "vitest";
 import { decodeEntities, parseInlineHtml, type InlineHtmlNode } from "./htmlInline";

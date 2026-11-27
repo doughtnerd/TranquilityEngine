@@ -40,7 +40,7 @@
 //!
 //! Off by default. It adds [`parse_keys`] (the host's flat key floats read, checked and baked into
 //! a `Vec<Key<f32>>`), for hosts that keep curves as slices: the animation core (`anim-sample`'s
-//! `curve`) and the tween crate (`myco-tween`'s curve store, ADR 0420). The audio core keeps fixed
+//! `curve`) and the tween crate (`myco-tween`'s curve store, ADR 0424). The audio core keeps fixed
 //! [`Curve`] tables and links this crate without it.
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]

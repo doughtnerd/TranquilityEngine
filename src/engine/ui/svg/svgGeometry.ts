@@ -1,5 +1,5 @@
 /**
- * SVG geometry for inline SVG in UI (ADR 0426): shapes as path commands, a path's length and the point at a length
+ * SVG geometry for inline SVG in UI (ADR 0430): shapes as path commands, a path's length and the point at a length
  * (`getTotalLength()`/`getPointAtLength()`, which Svelte's `draw` transition reads), shapes flattened for hit-testing
  * (`pointer-events` on shapes), SVG `transform` attributes and the `viewBox` map. Pure and renderer-neutral: the
  * drawing itself is the browser's (the subtree is rasterised as an SVG image). Not public API.

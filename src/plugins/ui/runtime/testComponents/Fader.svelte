@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ADR 0418 wave 4 through Svelte: a class change starts a stylesheet transition; `ontransitionend` hears its end.
+  // ADR 0422 wave 4 through Svelte: a class change starts a stylesheet transition; `ontransitionend` hears its end.
   let { on = false, ended }: { on?: boolean; ended: (name: string) => void } = $props();
 </script>
 

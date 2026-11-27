@@ -1,5 +1,5 @@
 /**
- * UI event propagation (ADR 0422): what the UI host (Svelte views) uses to dispatch UI events through capture, target
+ * UI event propagation (ADR 0426): what the UI host (Svelte views) uses to dispatch UI events through capture, target
  * and bubble phases over an element's ancestors, as DOM events are. Nothing here is public API; the event objects the
  * front ends make from it are.
  *
@@ -71,7 +71,7 @@ export function uiEventCancelable(type: string): boolean {
   return RULES[type]?.[1] ?? false;
 }
 
-/** A UI drag's data (ADR 0422, UI-to-UI drags): the DOM's `DataTransfer`, held in memory for the drag. */
+/** A UI drag's data (ADR 0426, UI-to-UI drags): the DOM's `DataTransfer`, held in memory for the drag. */
 export class UIDataTransfer {
   private readonly data = new Map<string, string>();
   /** What a drop target says it would do (`dragover` handlers set it); `none` refuses. */
@@ -161,7 +161,7 @@ export function uiEventRecord(type: string, target: UIComponentType | null, data
 export const UI_EVENT_PHASE = { NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 } as const;
 
 /**
- * A UI event as handlers see it (ADR 0422): the DOM `Event`'s propagation and cancellation members, and the pointer,
+ * A UI event as handlers see it (ADR 0426): the DOM `Event`'s propagation and cancellation members, and the pointer,
  * wheel and keyboard fields of `PointerEvent`, `WheelEvent` and `KeyboardEvent` (zero or empty when the event has none).
  * Each front end extends it with its own `target` and `currentTarget` types.
  */
@@ -291,7 +291,7 @@ export class UIEventBase {
     return !this.prevented;
   }
 
-  /** Cancels the engine's default action (focus on press, scrolling, a drag, submit on Enter: ADR 0422), when the event is cancelable. */
+  /** Cancels the engine's default action (focus on press, scrolling, a drag, submit on Enter: ADR 0426), when the event is cancelable. */
   preventDefault(): void {
     if (!this.cancelable || this._passive) return;
     this.prevented = true;
@@ -427,7 +427,7 @@ function dispatchRecord(r: UIEventRecord): void {
 }
 
 /**
- * ADR 0424: send an event a default action or a script makes (a checkbox's `change`, a form's `submit`): at once while
+ * ADR 0428: send an event a default action or a script makes (a checkbox's `change`, a form's `submit`): at once while
  * the frame's events are being dispatched or once they were this frame (a script in `update`, or outside a frame), as
  * the DOM dispatches them; before that (navigation, in the input phase) with the frame's events.
  */

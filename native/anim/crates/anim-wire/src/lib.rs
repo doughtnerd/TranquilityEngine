@@ -22,7 +22,7 @@
 //! `vectors/<family>.json`; the Vitest round-trip test reads both.
 //!
 //! The record mechanism lives in `myco-wire` (`native/common/wire`) and the `tween` family in
-//! `myco-tween` (`native/common/tween`), both re-exported here unchanged (ADR 0420 spike), so
+//! `myco-tween` (`native/common/tween`), both re-exported here unchanged (ADR 0424 spike), so
 //! `anim_wire::record`, `anim_wire::wire_record!` and `anim_wire::tween` read as before.
 
 pub mod gen;

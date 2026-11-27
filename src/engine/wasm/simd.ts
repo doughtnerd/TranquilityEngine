@@ -1,5 +1,5 @@
 // Feature detection of WebAssembly `simd128` (ADR 0370: the animation core is built for it and has no scalar build; so is
-// the standalone tween module, ADR 0420). The test module is the smallest that needs the proposal: one function returning
+// the standalone tween module, ADR 0424). The test module is the smallest that needs the proposal: one function returning
 // `i8x16.popcnt(i8x16.splat(0))`, as wasm-feature-detect checks it. `WebAssembly.validate` compiles nothing and allocates no instance.
 
 const SIMD_PROBE = new Uint8Array([

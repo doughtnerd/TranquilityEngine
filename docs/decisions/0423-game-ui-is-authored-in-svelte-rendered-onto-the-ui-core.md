@@ -1,14 +1,14 @@
-# 0419. Game UI is authored as Svelte components, rendered onto the UI core; UI documents are retired
+# 0423. Game UI is authored as Svelte components, rendered onto the UI core; UI documents are retired
 
-- **Status:** Accepted, amended by 0421 (the Svelte runtime and renderer are bundled into each game's code at export)
+- **Status:** Accepted, amended by 0425 (the Svelte runtime and renderer are bundled into each game's code at export)
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0077 (the `*.ui.xml` markup format, `{name}` bindings, `ui.data`/`ui.list()`, and markup-only scene-view editing; its CSS subset and its event core stay), 0077 §6 (Preact for dynamic parts)
-- **Related:** 0020, 0076, 0309, 0340, 0356, 0417, 0418, 0420
+- **Related:** 0020, 0076, 0309, 0340, 0356, 0421, 0422, 0424
 
 ## Context
 
-0417 made UI documents (`*.ui.xml`, `*.ui.css`, `UIDocument`, scripts) the only way to build game UI. The owner prefers to author UI in Svelte instead and retire UI documents.
+0421 made UI documents (`*.ui.xml`, `*.ui.css`, `UIDocument`, scripts) the only way to build game UI. The owner prefers to author UI in Svelte instead and retire UI documents.
 
 0077 rejected Svelte because it had no custom renderer. That has changed. The spike (`spikes/svelte-ui/README.md`, Svelte 5.59.2) found:
 
@@ -27,7 +27,7 @@
 - **Bindings:** `bind:` on elements is refused under a custom renderer, even on HTML tag names (`<input bind:value>` compiles in DOM mode and is refused with `customRenderer`). `bind:` on component props compiles. The refusal is in `phases/2-analyze/visitors/BindDirective.js`, because the client binding helpers (`internal/client/dom/elements/bindings/`) are DOM code.
 - **Every refusal under a custom renderer,** from the compiler's `incompatible_with_custom_renderer` checks: element `bind:`, `transition:`/`in:`/`out:`, `animate:`, `{@html}`, `<svelte:window>`, `<svelte:document>`, `<svelte:body>`, `<svelte:head>`, legacy `on:`, and `css: 'injected'`.
 
-The UI core needs to grow anyway (0418), whatever authors it.
+The UI core needs to grow anyway (0422), whatever authors it.
 
 ## Decision
 
@@ -52,7 +52,7 @@ The UI core needs to grow anyway (0418), whatever authors it.
 - **The UI core's external tree host.**
   - The renderer creates, changes, moves and removes ordinary UI elements through a host the UI core gives the UI plugin. It is internal, not game API. This is the spike's `ui.host`, made real.
   - The host also handles: restyling in the same frame; mounting again after a hot reload; registering elements for editor picking; and a flush system ordered before the UI sync, so Svelte's microtask updates show in the frame of the click that caused them.
-  - **0417 is amended:** UI components are created only by a `UIView`'s render (and, until retired, by a `UIDocument` build). `addComponent` stays refused.
+  - **0421 is amended:** UI components are created only by a `UIView`'s render (and, until retired, by a `UIDocument` build). `addComponent` stays refused.
 - **Element bindings: patch Svelte, offer it upstream.**
   - `patches/svelte+5.59.2.patch` (`patch-package`, as for Babylon) makes `bind:` on elements work under a custom renderer.
   - The renderer interface gains an optional `bind(node, name, get, set) → cleanup`. The compiler emits it for element `bind:` when a custom renderer is set, and keeps refusing when the renderer has no `bind`. `bind:this` gives the renderer's node.
@@ -67,8 +67,8 @@ The UI core needs to grow anyway (0418), whatever authors it.
     - plain `.css` files imported from a component's script (`import "./theme.css"`), as in any Svelte project.
   - **What `:global` reaches:** a global rule, or an imported `.css` file, applies to every `UIView` in the World, as global CSS applies to the whole page on the web. A HUD and a pause menu share one theme. Scoped rules apply only to their component's elements.
   - **Styles are parsed at export, not in games.** The editor and the export step parse every component's CSS and every imported `.css` with css-tree into the cascade's rule data, which games load as data. Games ship no CSS parser; css-tree stays an editor and export dependency. In the editor, CSS is parsed on compile, so hot reload works as it does today.
-  - 0418 wave 5's `:where()`, `:is()` and case-insensitive tag matching become prerequisites, because Svelte's scoping emits them.
-  - Svelte transitions run through the `animate` hook on 0418 wave 4's keyframe engine, beside CSS transitions and keyframes.
+  - 0422 wave 5's `:where()`, `:is()` and case-insensitive tag matching become prerequisites, because Svelte's scoping emits them.
+  - Svelte transitions run through the `animate` hook on 0422 wave 4's keyframe engine, beside CSS transitions and keyframes.
 - **Localisation and navigation.**
   - `t("key", args)` from `myco` is reactive to the language (0356). `t:` attributes go.
   - Navigation (0340) keeps its attributes: `nav-up`, `focusable`, and so on.
@@ -87,7 +87,7 @@ The UI core needs to grow anyway (0418), whatever authors it.
 
 - **Every compile-time refusal becomes a renderer hook in the same patch.** Each hook is optional: the compiler keeps refusing when a renderer lacks it. Each is offered upstream on its own, and each is deleted if upstream ships an equivalent.
   - `bind(node, name, get, set)`: element `bind:`, including size bindings (`clientWidth`, `contentRect`…).
-  - `animate(node, keyframes, options) → handle` and `measure(node)`: `transition:`, `in:`, `out:`, `animate:`. The engine renderer runs keyframes on the shared tween core (0420).
+  - `animate(node, keyframes, options) → handle` and `measure(node)`: `transition:`, `in:`, `out:`, `animate:`. The engine renderer runs keyframes on the shared tween core (0424).
   - `globalTarget(kind)`: `<svelte:window>`, `<svelte:document>`, `<svelte:body>`, with events and bindings. The engine routes keys from the device snapshot (respecting UI claims) and `resize` and sizes from the canvas.
   - `html(anchor, string) → nodes`: `{@html}`.
   - `addStyles(css)`: `css: 'injected'`.
@@ -105,7 +105,7 @@ The UI core needs to grow anyway (0418), whatever authors it.
   - pointer, mouse, keyboard, focus, wheel and drag events;
   - Svelte's root event delegation.
 - **Renderer nodes offer an Element subset**, so actions, attachments and `bind:this` code work: `setAttribute`/`getAttribute`, `classList`, `style`, `dataset`, `addEventListener`, `getBoundingClientRect`, `focus`/`blur`, `scrollIntoView`, `closest`, `querySelector`/`querySelectorAll`, `contains`, `parentElement`/`children`. It is not a whole DOM.
-- **UI core work this needs beyond 0418,** each in its own record:
+- **UI core work this needs beyond 0422,** each in its own record:
   - event bubbling and capture
   - scrolling containers
   - filters (`blur` transitions, `filter`)
@@ -123,7 +123,7 @@ The UI core needs to grow anyway (0418), whatever authors it.
 **Owner decisions (confirmed 2026-11-26):**
 1. Visual editing covers static parts only; dynamic parts are view-only.
 2. UI documents keep working during migration and are removed in wave D, not in one cut-over.
-3. 0418 waves 1–2 (format-neutral) run first or in parallel with wave A. 0418 wave 5's `:where`/`:is`/tag-case items are pulled forward into wave A.
+3. 0422 waves 1–2 (format-neutral) run first or in parallel with wave A. 0422 wave 5's `:where`/`:is`/tag-case items are pulled forward into wave A.
 
 **As built (conformance engine round, 2026-11-26; coordinator decision under the full-compatibility goal):** `UIView`
 gains two public members for what Svelte's `mount` gives and takes. `view.exports` (read-only) is what `mount`
@@ -177,8 +177,8 @@ attributes, `<Use>`/`<Style>`/`<Template>`, the `UIEvents` buffer and the editor
 **Negative / costs**
 - The only UI format rests on an experimental Svelte API, plus our patch. Mitigated by pinning exact versions, keeping the renderer and patch small, and having upstream as the way out.
 - Visual editing gets partial: dynamic parts can't be edited in the scene view.
-- A migration larger than 0417's: built-in UI, five samples, localisation attributes and the editor's UI tooling.
-- Full compatibility is a large program beyond 0418: event bubbling, scrolling, filters, rich text, SVG, video, form elements and an Element subset on renderer nodes, each its own record, plus a patch carrying several hooks until upstream takes them.
+- A migration larger than 0421's: built-in UI, five samples, localisation attributes and the editor's UI tooling.
+- Full compatibility is a large program beyond 0422: event bubbling, scrolling, filters, rich text, SVG, video, form elements and an Element subset on renderer nodes, each its own record, plus a patch carrying several hooks until upstream takes them.
 - The editor carries `svelte/compiler` (219 KB gzip).
 
 ## Deprecates
@@ -196,4 +196,4 @@ attributes, `<Use>`/`<Style>`/`<Template>`, the `UIEvents` buffer and the editor
 
 - `spikes/svelte-ui/README.md`, `spikes/svelte-ui/src/{host,renderer}.ts`
 - Svelte 5.59.2: `src/compiler/phases/2-analyze/visitors/BindDirective.js`, `src/internal/client/dom/elements/bindings/`, `src/internal/client/custom-renderer/`, `types/index.d.ts` (`svelte/renderer`)
-- 0417, 0418, 0077, 0309, 0340, 0356; `patches/@babylonjs+core+9.32.0.patch` (how patches are carried)
+- 0421, 0422, 0077, 0309, 0340, 0356; `patches/@babylonjs+core+9.32.0.patch` (how patches are carried)

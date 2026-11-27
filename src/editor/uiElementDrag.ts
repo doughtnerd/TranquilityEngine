@@ -1,4 +1,4 @@
-// Dragging UI elements in the hierarchy (ADR 0077 §4, ADR 0419 wave C): an element a UIView rendered drags within its
+// Dragging UI elements in the hierarchy (ADR 0077 §4, ADR 0423 wave C): an element a UIView rendered drags within its
 // `.svelte` file: near a row's top or bottom edge places it before or after a static element; the middle of a
 // container's row puts it inside, last. Not across files, nor into scene nodes; view-only elements don't drag, nor
 // take drops; releasing elsewhere, or Escape, does nothing. One undo step, through `moveUIViewElement`. The gesture is

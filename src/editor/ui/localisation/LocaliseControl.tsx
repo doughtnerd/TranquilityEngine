@@ -1,4 +1,4 @@
-// The Inspector's Localise control for a Svelte element's text (ADR 0356 §9, ADR 0419 wave F): its text content or a
+// The Inspector's Localise control for a Svelte element's text (ADR 0356 §9, ADR 0423 wave F): its text content or a
 // text attribute. Shows the key it's written with (`{t("key")}`) and its text in the preview language (Unlink writes
 // the reference text back as literal text), or offers to pick a key (search keys and text, each with its preview) or
 // Extract to string table (a suggested key in a chosen table, the literal text as its reference text). A view: matches

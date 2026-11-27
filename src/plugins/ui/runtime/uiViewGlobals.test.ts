@@ -7,7 +7,7 @@ import { UIView } from "./UIView";
 import * as GlobalsModule from "./testComponents/Globals.svelte";
 import * as LegacyModule from "./testComponents/Legacy.svelte";
 
-// ADR 0419 wave X2: the Svelte patch's hooks through a UIView and the engine's renderer — <svelte:window>,
+// ADR 0423 wave X2: the Svelte patch's hooks through a UIView and the engine's renderer — <svelte:window>,
 // <svelte:document> and <svelte:body> (events from the device snapshot, size bindings from the canvas), <svelte:head>'s
 // title, `css: 'injected'`, legacy `on:` — plus `t()` from "myco" and the Element subset on renderer nodes.
 
@@ -50,7 +50,7 @@ const text = (v: UIView, selector: string) => v.query(selector)!.as(UIText).text
 
 describe("UIView: the Svelte patch's hooks", () => {
   it("binds the window's size and pixel ratio to the canvas in UI pixels, and sends resize when it changes", async () => {
-    // The coordinator's units ruling (ADR 0418 wave 5): the window is the view's canvas after the canvas scaler (1280×720
+    // The coordinator's units ruling (ADR 0422 wave 5): the window is the view's canvas after the canvas scaler (1280×720
     // reference pixels, matching height), and the pixel ratio is device pixels per UI pixel, as getBoundingClientRect
     // and canvas @media measure.
     const log: string[] = [];

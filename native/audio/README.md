@@ -21,8 +21,8 @@ On the TypeScript side: `runtime/core/` is the host and backend (`context.ts`, `
 
 - Rust through rustup. `rust-toolchain.toml` pins the toolchain (and the `wasm32-unknown-unknown` target); rustup installs both on first use. If it doesn't, `rustup target add wasm32-unknown-unknown`.
 - Node, for `npm run build:audio` and the Vitest and Playwright suites (`npm install` first).
-- No `wasm-bindgen`. `wasm-opt` is off: `build.mjs` runs `-O3` only with `MYCO_WASM_OPT=1` (and `wasm-opt` on `PATH`), for measuring, never for committed builds; it used to run whenever `wasm-opt` was on `PATH`, so the wasm depended on the machine (ADR 0428). The committed wasm is built without it; see decision 22 in `owner-review.md` before changing that.
-- Paths are remapped (`../rustflags.mjs`, ADR 0428): the repository root becomes `/myco` and CARGO_HOME `/cargo` in the wasm, so any checkout builds the same bytes.
+- No `wasm-bindgen`. `wasm-opt` is off: `build.mjs` runs `-O3` only with `MYCO_WASM_OPT=1` (and `wasm-opt` on `PATH`), for measuring, never for committed builds; it used to run whenever `wasm-opt` was on `PATH`, so the wasm depended on the machine (ADR 0432). The committed wasm is built without it; see decision 22 in `owner-review.md` before changing that.
+- Paths are remapped (`../rustflags.mjs`, ADR 0432): the repository root becomes `/myco` and CARGO_HOME `/cargo` in the wasm, so any checkout builds the same bytes.
 
 ## Build and test
 

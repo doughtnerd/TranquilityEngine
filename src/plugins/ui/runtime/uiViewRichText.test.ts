@@ -7,7 +7,7 @@ import { UIPointer, stubDocument } from "../../../engine/tests/uiPointer";
 import { UIView } from "./UIView";
 import * as RichTextModule from "./testComponents/RichText.svelte";
 
-// ADR 0425 in Svelte views: a text element's inline children are styled runs of it, laid out and drawn together; a link
+// ADR 0429 in Svelte views: a text element's inline children are styled runs of it, laid out and drawn together; a link
 // run takes clicks; `{@html}` parses inline HTML into runs (block elements into panels, scripts and handlers dropped);
 // `contenteditable` edits the runs through the hidden text area, with `bind:textContent` and `bind:innerHTML`. Driven
 // through a UI core routing `Input`'s DOM adapter (`UIPointer`), as a player drives them, and read from what the core
@@ -45,7 +45,7 @@ const comp = (v: UIView, selector: string): UIComponentType => v.query(selector)
 const laid = (v: UIView, selector: string): UILaidOutElement | undefined => pointer!.core.elements().find((e) => e.comp === comp(v, selector));
 const runTexts = (el: UILaidOutElement | undefined) => el?.text?.runs?.map((r) => r.text);
 
-describe("UIView: inline runs (ADR 0425)", () => {
+describe("UIView: inline runs (ADR 0429)", () => {
   it("makes a text's inline children styled runs of it, measured and laid out as one paragraph", async () => {
     const { v } = await view();
     const para = laid(v, "#para")!;
@@ -109,7 +109,7 @@ describe("UIView: inline runs (ADR 0425)", () => {
   });
 });
 
-describe("UIView: {@html} (ADR 0425)", () => {
+describe("UIView: {@html} (ADR 0429)", () => {
   it("parses inline HTML into runs of the text it's in, and follows the value", async () => {
     const { v } = await view();
     expect(runTexts(laid(v, "#html"))).toEqual(["Hi ", "there"]);
@@ -135,7 +135,7 @@ describe("UIView: {@html} (ADR 0425)", () => {
   });
 });
 
-describe("UIView: contenteditable (ADR 0425)", () => {
+describe("UIView: contenteditable (ADR 0429)", () => {
   it("edits a text from a press and typing, with input events and bind:textContent", async () => {
     const fake = stubDocument();
     const { v } = await view();

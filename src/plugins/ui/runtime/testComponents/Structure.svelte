@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ADR 0418 wave 5: structural, attribute and sibling selectors, `calc()` and canvas `@media` on hosted elements, and
+  // ADR 0422 wave 5: structural, attribute and sibling selectors, `calc()` and canvas `@media` on hosted elements, and
   // Svelte's `MediaQuery` following the canvas.
   import { MediaQuery } from "svelte/reactivity";
 

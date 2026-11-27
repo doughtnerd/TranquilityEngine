@@ -1,6 +1,6 @@
 /**
- * The UI animator (ADR 0418 wave 4): runs the transitions and keyframe animations the cascade declares on UI
- * elements and on the UI host's elements (Svelte views), on the tween backend (ADR 0420: the animation core's tween
+ * The UI animator (ADR 0422 wave 4): runs the transitions and keyframe animations the cascade declares on UI
+ * elements and on the UI host's elements (Svelte views), on the tween backend (ADR 0424: the animation core's tween
  * table when the animation plugin is on, else the standalone tween module), on the World's unscaled clock.
  *
  * - **Starting.** After restyling an element, its owner (a `UIHostTree`) hands over what changed
@@ -9,7 +9,7 @@
  *   `animation-name`, or an element appearing with one, starts that animation; a name gone stops it.
  * - **Running.** One World's animator owns one backend (a World id in its module). Each frame, in `engine.UIAnimation`
  *   (late update, right after the UI host's sync, so a class change starts its transition the same frame,
- *   and outside any World's animation evaluate-to-apply span, as the core-backed backend's update needs, 0420 as built)
+ *   and outside any World's animation evaluate-to-apply span, as the core-backed backend's update needs, 0424 as built)
  *   it advances its runs, creates the tweens due, updates the backend once (`PASS_NORMAL`, tweens on `TIME_UNSCALED`)
  *   and writes the values back to the fields.
  * - **Segments.** A transition is one segment; an animation's track (one field) is its keyframes' segments, iteration
@@ -19,18 +19,18 @@
  *   a resumed animation, the backend still loading, a last iteration cut short) is evaluated here from the same curve.
  * - **Time.** The animator keeps each run's time itself (seconds since it started, unscaled), so delays, iterations,
  *   fill modes, play state and ends are decided here, and the backend only eases values.
- * - **Reversing** (ADR 0428, CSS's reversing shortening): a transition whose element changes back to the value it
+ * - **Reversing** (ADR 0432, CSS's reversing shortening): a transition whose element changes back to the value it
  *   started from, part-way, runs back over the share of its duration it had covered (its eased progress, carried
  *   through repeated reversals), not the whole duration.
- * - **Discrete values** (ADR 0428): with `transition-behavior: allow-discrete`, a field whose values don't interpolate
+ * - **Discrete values** (ADR 0432): with `transition-behavior: allow-discrete`, a field whose values don't interpolate
  *   transitions too, flipping half way (`display` shows its value that isn't `none` throughout, as CSS's does).
- * - **Inheritance** (ADR 0428): each value written to a field children inherit goes to the owner's `_animatedWrite`,
+ * - **Inheritance** (ADR 0432): each value written to a field children inherit goes to the owner's `_animatedWrite`,
  *   so the children that inherit it show it in the same frame.
  * - **Scripts win.** A field a script writes directly (its value isn't what the animator last wrote) stops that field's
  *   transition, or that field of an animation, as an inline style would.
  * - **Events** (`transitionend`, `animationstart`, `animationiteration`, `animationend`) are queued for their owner,
  *   which delivers them in the next frame's event step, like other UI events.
- * - **Played keyframes** (`play`, ADR 0419: a Svelte transition's or `animate:`'s keyframes, through the renderer's
+ * - **Played keyframes** (`play`, ADR 0423: a Svelte transition's or `animate:`'s keyframes, through the renderer's
  *   `animate` hook) run as an animation of the element's own, kept across restyles and drawn over its stylesheet
  *   animations: one iteration, linear between keyframes (Svelte samples its easing into them), its last values held
  *   until it's stopped, no CSS events. Its hooks run after the frame's values are written: `onFrame` while it runs,
@@ -64,7 +64,7 @@ export interface UIAnimationEvent {
   readonly elapsedTime: number;
 }
 
-/** What an owner may also do: hear every value the animator writes (ADR 0428: so inherited values reach children per frame). */
+/** What an owner may also do: hear every value the animator writes (ADR 0432: so inherited values reach children per frame). */
 export interface UIAnimationOwner {
   _animatedWrite?(element: object, field: string, value: unknown): void;
 }
@@ -80,7 +80,7 @@ export interface UIStyledElement {
   /** False in a scene being edited: nothing animates there, values are set at once. */
   readonly animate: boolean;
   /**
-   * ADR 0428: fields of `fields` the component doesn't have, which it only passes on to its children (a panel's
+   * ADR 0432: fields of `fields` the component doesn't have, which it only passes on to its children (a panel's
    * `color`): their animated values go to the owner's `_animatedWrite`, never to the component.
    */
   readonly virtual?: ReadonlySet<string>;
@@ -187,7 +187,7 @@ interface Run {
   held: boolean;
   /** A played animation's hooks (`play`); null for the stylesheet's. */
   readonly played: UIPlayHooks | null;
-  /** A transition's reversing-adjusted start value and reversing shortening factor (ADR 0428, CSS Transitions 1 §3). */
+  /** A transition's reversing-adjusted start value and reversing shortening factor (ADR 0432, CSS Transitions 1 §3). */
   reversingStart?: unknown;
   shortening?: number;
 }
@@ -205,7 +205,7 @@ interface ElementState {
   readonly base: Map<string, unknown>;
   /** What the animator last wrote to each field, to tell a script's write. */
   readonly written: Map<string, unknown>;
-  /** ADR 0428: fields it only passes on (`UIStyledElement.virtual`), and the values shown for them. */
+  /** ADR 0432: fields it only passes on (`UIStyledElement.virtual`), and the values shown for them. */
   virtual: ReadonlySet<string>;
   readonly values: Map<string, unknown>;
 }
@@ -328,7 +328,7 @@ function valueAt(run: Run, track: Track, k: number, p: number, others: (field: s
   return pair.decode(f, 0);
 }
 
-/** ADR 0428: a transition's eased progress now (its timing function's output; 0 in its delay), for reversing shortening. */
+/** ADR 0432: a transition's eased progress now (its timing function's output; 0 in its delay), for reversing shortening. */
 function easedProgress(run: Run): number {
   const local = run.time - run.delay;
   if (local <= 0) return 0;
@@ -508,7 +508,7 @@ export class UIAnimator {
       for (const w of writes) {
         const spec = covered.get(w.field);
         const running = s.transitions.get(w.field);
-        // ADR 0428: CSS's reversing shortening: a change back to where a running transition started (its
+        // ADR 0432: CSS's reversing shortening: a change back to where a running transition started (its
         // reversing-adjusted start value) runs back over the share of the duration it had covered.
         let shortening = 1;
         let reversingStart: unknown = w.before;
@@ -534,7 +534,7 @@ export class UIAnimator {
         if (!info || same(w.before, w.after)) continue;
         const kind = animatedKind(w.field, info.type);
         const pair = animatedPair(w.field, kind, w.before, w.after, (f) => comp[f]);
-        // Only a mixed pair of lengths jumps at the midpoint (0418), or any discrete pair with `allow-discrete` (0428).
+        // Only a mixed pair of lengths jumps at the midpoint (0422), or any discrete pair with `allow-discrete` (0432).
         if (pair.discrete && kind !== "length" && !spec.allowDiscrete) continue;
         const track = newTrack(w.field, kind, [
           { offset: 0, value: clone(w.before), timing: spec.timing },

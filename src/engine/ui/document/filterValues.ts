@@ -1,5 +1,5 @@
 /**
- * The `filter` property of UI stylesheets (ADR 0426), parsed from CSS text into the filter fields (`ui/filters.ts`).
+ * The `filter` property of UI stylesheets (ADR 0430), parsed from CSS text into the filter fields (`ui/filters.ts`).
  * The cascade expands it where it's declared, as the paint and transform shorthands. Pure: a value that can't be read
  * comes back as a message saying why.
  *

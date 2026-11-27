@@ -35,7 +35,7 @@ describe("asset browser: folders and search", () => {
     expect(assetKind("music/town.mp3")).toBe("audio");
     expect(assetKind("ui/Menu.svelte")).toBe("svelte");
     expect(assetKind("ui/theme.css")).toBe("stylesheet");
-    expect(assetKind("ui/menu.ui.xml")).toBe("xml"); // a retired UI document (ADR 0419): plain XML
+    expect(assetKind("ui/menu.ui.xml")).toBe("xml"); // a retired UI document (ADR 0423): plain XML
     expect(opensInCodePanel(assetKind("ui/Menu.svelte"))).toBe(true);
     expect(opensInCodePanel(assetKind("ui/theme.css"))).toBe(true);
     expect(assetKind("project.json")).toBe("json");

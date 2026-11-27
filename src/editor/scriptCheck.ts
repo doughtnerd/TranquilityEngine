@@ -1,4 +1,4 @@
-// Type-checking project scripts (and Svelte UI, ADR 0428) before Play (ADR 0125). Play asks Monaco's TypeScript service, the
+// Type-checking project scripts (and Svelte UI, ADR 0432) before Play (ADR 0125). Play asks Monaco's TypeScript service, the
 // one behind the Code panel's squiggles (strict, the engine's declarations, every script, JSON
 // file and npm package's declarations), for each script's errors. With errors, a dialog lists
 // them: clicking one opens the script at that line, Play anyway starts the game, and a checkbox
@@ -68,7 +68,7 @@ const describeDiagnostic = (d: ScriptDiagnostic) => `${d.path}:${d.line}: ${d.me
  * to run doesn't stop Play; the status bar says so.
  */
 export async function checkBeforePlay(project: EditorProject, options: CheckOptions = {}): Promise<boolean> {
-  // Svelte UI sources are checked too (ADR 0428): components and rune modules, wherever they are.
+  // Svelte UI sources are checked too (ADR 0432): components and rune modules, wherever they are.
   if (!checkScriptsBeforePlay.value || (project.scripts.size === 0 && !(project.files ?? []).some(isUISourcePath))) return true;
   if (!options.check && typeof document === "undefined") return true;
   status.value = { kind: "info", text: "Checking scripts…" };

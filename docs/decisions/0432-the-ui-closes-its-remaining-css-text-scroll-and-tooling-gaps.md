@@ -1,14 +1,14 @@
-# 0428. The UI closes its remaining CSS, text, scrolling and tooling gaps
+# 0432. The UI closes its remaining CSS, text, scrolling and tooling gaps
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0418, 0419, 0423, 0424, 0425, 0426, 0370
+- **Related:** 0422, 0423, 0427, 0428, 0429, 0430, 0370
 
 ## Context
 
-The UI program (0417–0427) is built. Its records and their as-built notes list what was left out. The owner asked to cover those gaps. Some were deferred by a record ("part pseudo-elements in a later record", 0424; "`backdrop-filter` is left out", 0426). Others were left as not built in as-built notes:
+The UI program (0421–0431) is built. Its records and their as-built notes list what was left out. The owner asked to cover those gaps. Some were deferred by a record ("part pseudo-elements in a later record", 0428; "`backdrop-filter` is left out", 0430). Others were left as not built in as-built notes:
 
 - **Selectors and values:** `:has()`; `em`/`rem`/viewport units; `transition-behavior`, `linear()`, shortening a reversed transition, and inheritance passing through children mid-transition.
 - **Text:** `white-space` modes; `:hover`/`:pressed`, padding, margins and borders on inline runs; inline blocks (a button inside a paragraph); SVG and media inside text.
@@ -20,22 +20,22 @@ The UI program (0417–0427) is built. Its records and their as-built notes list
 
 **We will close every gap above, following the web standards where they exist.**
 
-- **Selectors and values (0418's cascade):**
+- **Selectors and values (0422's cascade):**
   - `:has()`, with relative selectors, restyling when descendants change;
-  - `em` (the element's font size), `rem` (the root canvas element's), and `vw`/`vh`/`vmin`/`vmax` (the canvas in UI pixels, as 0418 wave 5's `@media` uses), anywhere a length is accepted, including `calc()`;
+  - `em` (the element's font size), `rem` (the root canvas element's), and `vw`/`vh`/`vmin`/`vmax` (the canvas in UI pixels, as 0422 wave 5's `@media` uses), anywhere a length is accepted, including `calc()`;
   - `transition-behavior: allow-discrete`, and the `linear()` easing as engine curve keys;
   - CSS's shortening of a transition reversed partway (the reversing-shortening factor);
   - inherited values passing through to children while a parent's property transitions.
 - **Pseudo-elements:**
   - `::before` and `::after` with `content` (strings, `attr()`, counters out of scope), generated as hosted elements the cascade styles and the UI core lays out;
   - `::placeholder` and `::selection`;
-  - **form part pseudo-elements** with standard names where they exist (`::file-selector-button` doesn't apply) and the WebKit and Blink names authors already use: `::-webkit-slider-thumb`, `::-webkit-slider-runnable-track`, `::-webkit-progress-bar`/`-value`, `::-webkit-meter-*-value`, a checkbox's mark through `accent-color` plus `::checkmark`, a select's arrow through `::picker-icon`. 0424's parts become styleable through them.
-- **`backdrop-filter`:** 0426's filter functions applied to what's drawn behind the element, within its box. Drawn by sampling the canvas texture under the box into an offscreen canvas, filtering it with `ctx.filter` or the fallback, then drawing it under the element's background. It costs a readback per backdrop element per redraw.
-- **Text (0425's inline layout):**
+  - **form part pseudo-elements** with standard names where they exist (`::file-selector-button` doesn't apply) and the WebKit and Blink names authors already use: `::-webkit-slider-thumb`, `::-webkit-slider-runnable-track`, `::-webkit-progress-bar`/`-value`, `::-webkit-meter-*-value`, a checkbox's mark through `accent-color` plus `::checkmark`, a select's arrow through `::picker-icon`. 0428's parts become styleable through them.
+- **`backdrop-filter`:** 0430's filter functions applied to what's drawn behind the element, within its box. Drawn by sampling the canvas texture under the box into an offscreen canvas, filtering it with `ctx.filter` or the fallback, then drawing it under the element's background. It costs a readback per backdrop element per redraw.
+- **Text (0429's inline layout):**
   - `white-space`: `normal | nowrap | pre | pre-wrap | pre-line | break-spaces`, with `white-space-collapse`/`text-wrap-mode` as longhands;
   - runs gain `:hover`/`:active` (pointer state per run), and padding, margins and borders, laid out as inline boxes;
   - `display: inline-block` (and form controls, buttons, SVG and media inside text) lay out as atomic inline boxes on the line, with their own Yoga subtree.
-- **Scrolling (0423):**
+- **Scrolling (0427):**
   - `scroll-snap-type`, `scroll-snap-align`, `scroll-snap-stop`, `scroll-padding` and `scroll-margin`, honoured by wheel, drag momentum, keys, `scrollTo` and navigation;
   - `scrollbar-gutter: stable [both-edges]`;
   - `*-reverse` directions and right-to-left text start and scroll from the end, as in CSS.
@@ -104,7 +104,7 @@ Nothing.
 
 ## References
 
-0418 (all waves and as-built notes), 0423, 0424, 0425, 0426 (as-built "not built" lists), 0419 (Compatibility target), `native/*/build.mjs`; CSS Selectors 4 (`:has()`), CSS Values 4, CSS Pseudo-Elements 4, CSS Text 4 (`white-space`), CSS Scroll Snap 1, CSS Filter Effects 2 (`backdrop-filter`).
+0422 (all waves and as-built notes), 0427, 0428, 0429, 0430 (as-built "not built" lists), 0423 (Compatibility target), `native/*/build.mjs`; CSS Selectors 4 (`:has()`), CSS Values 4, CSS Pseudo-Elements 4, CSS Text 4 (`white-space`), CSS Scroll Snap 1, CSS Filter Effects 2 (`backdrop-filter`).
 
 ## As built (G5)
 

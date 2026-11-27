@@ -1,6 +1,6 @@
 // A persistent, tree-shaped edit history over one text value (ADR 0027 for asset documents, ADR
 // 0141): the `HistoryTree` (ADR 0267) with each step stored as a text patch of the file (the
-// `FilePatch` the scene's history keeps for UI edits, ADR 0077, 0419) instead of a node diff. The
+// `FilePatch` the scene's history keeps for UI edits, ADR 0077, 0423) instead of a node diff. The
 // asset document (assetDocuments.ts) turns values into text with its format and back.
 import { HISTORY_LIMIT, HistoryTree, type AgeOptions, type HistoryFile, type HistoryMove, type HistoryState, type StepAdapter } from "./HistoryTree";
 import { hashText } from "./patch";

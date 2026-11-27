@@ -1,9 +1,9 @@
 /**
- * CSS timing functions as engine curves (ADR 0418 wave 4, 0420): what UI transitions and keyframe segments ease
+ * CSS timing functions as engine curves (ADR 0422 wave 4, 0424): what UI transitions and keyframe segments ease
  * through on the tween backend. A `cubic-bezier()` (and `ease`, `ease-in`, `ease-out`, `ease-in-out`) is exactly one
  * Bézier segment of an engine curve (0346): key (0, 0) with its `out` handle at (x1, y1), key (1, 1) with its `in`
  * handle at (x2, y2), and the curve evaluator's bisection finds the parameter as a CSS engine does. `steps()` is step
- * keys, and `linear()` (ADR 0428) linear keys at its points. `linear` needs no curve (the tween's linear easing).
+ * keys, and `linear()` (ADR 0432) linear keys at its points. `linear` needs no curve (the tween's linear easing).
  *
  * A reversed curve is what a segment traversed backwards (`animation-direction: reverse`, an alternate iteration)
  * eases through from its later keyframe to its earlier one: `1 − f(1 − x)`. Pure.
@@ -48,7 +48,7 @@ export function timingCurve(tf: UITimingFunction, reversed = false): Curve | nul
     ];
   }
   if (tf.kind === "points") {
-    // ADR 0428: `linear()` is its points as linear keys (a repeated input is a jump: the evaluator takes the last key
+    // ADR 0432: `linear()` is its points as linear keys (a repeated input is a jump: the evaluator takes the last key
     // at an input). Reversed: each point mirrored, `(1 − x, 1 − y)`, in reverse order.
     const points = reversed ? tf.points.map(([x, y]) => [1 - x, 1 - y] as const).reverse() : tf.points;
     if (points.length === 2 && points[0][0] === 0 && points[0][1] === 0 && points[1][0] === 1 && points[1][1] === 1) return null;

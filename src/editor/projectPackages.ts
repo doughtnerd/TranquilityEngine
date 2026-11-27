@@ -23,7 +23,7 @@ function editorEsbuild(): Promise<EsbuildApi> {
 }
 
 /**
- * The engine's Svelte runtime and renderer, which the editor's exports bundle a game's UI code with (ADR 0421): the
+ * The engine's Svelte runtime and renderer, which the editor's exports bundle a game's UI code with (ADR 0425): the
  * engine's files `npm run export` reads from its checkout, served with the editor (`virtual:myco-ui-runtime`, loaded
  * on the first export of a project with Svelte UI).
  */

@@ -1,6 +1,6 @@
-// ADR 0418 wave 4: transitions, `@keyframes` and `animation` in UI stylesheets — their values as CSS text, the
+// ADR 0422 wave 4: transitions, `@keyframes` and `animation` in UI stylesheets — their values as CSS text, the
 // cascade that orders them, the timing functions as engine curves against CSS's own definitions, and what built
-// documents and hosted elements show frame by frame as the engine steps, on both tween backends (ADR 0420: the
+// documents and hosted elements show frame by frame as the engine steps, on both tween backends (ADR 0424: the
 // animation core's table with the animation plugin on, the standalone tween module without it). Frame times are
 // binary fractions (1/64 s), so the clock adds up exactly.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -58,7 +58,7 @@ const EASE = [0.25, 0.1, 0.25, 1] as const;
 
 // --- Values -----------------------------------------------------------------------------------------
 
-describe("animation values (ADR 0418 wave 4)", () => {
+describe("animation values (ADR 0422 wave 4)", () => {
   it("reads times in s and ms (a bare 0 too)", () => {
     expect(parseTime("0.25s")).toBe(0.25);
     expect(parseTime("250ms")).toBe(0.25);
@@ -134,7 +134,7 @@ function element(tag: UITag, attributes: Record<string, string> = {}): MarkupEle
   return { tag, attributes: Object.entries(attributes).map(([name, value]) => ({ name, value, span, valueSpan: span })), file: "ui/t.svelte" };
 }
 
-describe("linear() and transition-behavior (ADR 0428)", () => {
+describe("linear() and transition-behavior (ADR 0432)", () => {
   const points = (v: string) => {
     const r = parseTimingFunction(v);
     if (!r.ok) return r.problem;
@@ -165,7 +165,7 @@ describe("linear() and transition-behavior (ADR 0428)", () => {
   });
 });
 
-describe("@keyframes and the cascade (ADR 0418 wave 4)", () => {
+describe("@keyframes and the cascade (ADR 0422 wave 4)", () => {
   it("parses @keyframes blocks: from, to, percentages and lists, and reports what it can't read", () => {
     const sheet = parseStylesheet(`@keyframes pulse { from { opacity: 0 } 50%, 75% { opacity: .5; animation-timing-function: ease-in } to { opacity: 1 } }
       @keyframes bad { 120% { opacity: 1 } }
@@ -217,7 +217,7 @@ describe("@keyframes and the cascade (ADR 0418 wave 4)", () => {
 
 // --- Timing functions as engine curves ---------------------------------------------------------------
 
-describe("timing functions as engine curves (ADR 0418 wave 4)", () => {
+describe("timing functions as engine curves (ADR 0422 wave 4)", () => {
   const xs = Array.from({ length: 41 }, (_, i) => i / 40);
 
   it.each([
@@ -237,7 +237,7 @@ describe("timing functions as engine curves (ADR 0418 wave 4)", () => {
     }
   });
 
-  it("linear() is CSS's linear easing function over its points, forwards and reversed (ADR 0428)", () => {
+  it("linear() is CSS's linear easing function over its points, forwards and reversed (ADR 0432)", () => {
     /** CSS Easing 2's linear easing function at `x`: the segment of the last point at or before it, extended at the ends. */
     const cssLinear = (pts: readonly (readonly [number, number])[], x: number) => {
       let a = 0;
@@ -338,7 +338,7 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
     });
 
     it("start from a built tree's settled styles when the sheets use structural selectors, but not for its own build", async () => {
-      // ADR 0418 wave 5 restyles a built tree once its siblings exist (each element is styled as it's rendered, as the
+      // ADR 0422 wave 5 restyles a built tree once its siblings exist (each element is styled as it's rendered, as the
       // last child so far): that restyle, in the frame's late sync, isn't a change and doesn't transition; a class a
       // script adds after it is one, and does.
       const doc = await animatedUI(`<Canvas><div id="p" class="a"/><div id="q" class="a"/><div id="r" class="a"/></Canvas>`, `.a { opacity: 1; transition: opacity 1s linear } .a:last-child { opacity: 0.5 } .a.on { opacity: 0 }`);
@@ -363,7 +363,7 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
       expect([a.opacity, b.opacity]).toEqual([0.75, 0]);
     });
 
-    it("turn back from the value shown when the change is undone mid-way, over the share of the duration covered (ADR 0428)", async () => {
+    it("turn back from the value shown when the change is undone mid-way, over the share of the duration covered (ADR 0432)", async () => {
       // CSS's reversing shortening: half way through, the way back takes half the duration.
       const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear } .on { opacity: 0 }`);
       const p = byId(doc, "p", UIPanel);
@@ -432,7 +432,7 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
       expect([p.width, p.paddingTop, p.translateX, p.rotate, p.boxShadowOffsetY, p.borderTopLeftRadius]).toEqual(["200", 12, "10", 90, 4, 8]);
     });
 
-    it("shorten again when reversed again, carrying the share covered (ADR 0428)", async () => {
+    it("shorten again when reversed again, carrying the share covered (ADR 0432)", async () => {
       const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear } .on { opacity: 0 }`);
       const p = byId(doc, "p", UIPanel);
       const el = doc.query("#p")!;
@@ -450,7 +450,7 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
       expect(p.opacity).toBe(0);
     });
 
-    it("ease through linear() as engine curve keys (ADR 0428)", async () => {
+    it("ease through linear() as engine curve keys (ADR 0432)", async () => {
       const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear(0, 0.25 75%, 1) } .on { opacity: 0 }`);
       const p = byId(doc, "p", UIPanel);
       classList(doc.query("#p")!).add("on");
@@ -462,7 +462,7 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
       expect(p.opacity).toBe(0);
     });
 
-    it("transition discrete values only with allow-discrete: half way, and display keeps the value that isn't none (ADR 0428)", async () => {
+    it("transition discrete values only with allow-discrete: half way, and display keeps the value that isn't none (ADR 0432)", async () => {
       const doc = await animatedUI(
         `<Canvas><div id="d" class="d"/><div id="f" class="f"/><div id="n" class="n"/></Canvas>`,
         `.d { transition: display 1s allow-discrete } .d.on { display: none }
@@ -487,7 +487,7 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
       expect(d.display).toBe("flex");
     });
 
-    it("pass a parent's transitioning inherited values to its children frame by frame (ADR 0428)", async () => {
+    it("pass a parent's transitioning inherited values to its children frame by frame (ADR 0432)", async () => {
       const doc = await animatedUI(
         `<Canvas><div id="box" class="box"><p id="t">a</p><p id="own" class="own">b</p><div><p id="deep">c</p></div></div><p id="lone" class="lone">d</p></Canvas>`,
         `.box { color: #000000; font-size: 10px; transition: color 1s linear, font-size 1s linear } .box.on { color: #ffffff; font-size: 20px }

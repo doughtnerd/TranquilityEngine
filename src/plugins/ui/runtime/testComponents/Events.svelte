@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ADR 0422 and 0423 through the renderer: propagation, capture, the window hearing what bubbles out of the view,
+  // ADR 0426 and 0427 through the renderer: propagation, capture, the window hearing what bubbles out of the view,
   // pointer and key events, and a scrolling list with the DOM's scrolling members.
   type Ev = { target: { id: string } | null; currentTarget: { id: string } | null; eventPhase: number; stopPropagation(): void; preventDefault(): void; defaultPrevented: boolean; key?: string };
   let { log, onnode }: { log: (entry: string) => void; onnode: (name: string, node: unknown) => void } = $props();

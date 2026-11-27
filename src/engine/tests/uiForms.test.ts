@@ -6,7 +6,7 @@ import { UIPointer, stubDocument } from "./uiPointer";
 import { buildUI, byId, loadUITestSupport, type TestUI } from "./uiMarkup";
 import type { UIHostEvent } from "../ui/host/UIHost";
 
-// ADR 0424: HTML's form elements as UI core kinds, rendered by a view: checkboxes, radios, sliders, number and password
+// ADR 0428: HTML's form elements as UI core kinds, rendered by a view: checkboxes, radios, sliders, number and password
 // fields, text areas, selects with their popup list, progress bars and meters, labels and forms; their `input`/`change`
 // events and default actions, keyboard and gamepad navigation, the `:checked`, `:indeterminate`, `:disabled` and
 // `:placeholder-shown` pseudo-classes and the parts each draws. Driven through a UI core routing `Input`'s DOM adapter
@@ -70,7 +70,7 @@ function record(doc: TestUI, types: readonly string[]): string[] {
 
 const COLUMN = `flex-direction="column" align-items="flex-start" gap="8"`;
 
-describe("checkboxes and radios (ADR 0424)", () => {
+describe("checkboxes and radios (ADR 0428)", () => {
   it("toggles a checkbox on click with input then change, clears indeterminate, and polls changed", async () => {
     const doc = buildUI(`<Canvas><div ${COLUMN}><input type="checkbox" id="a" indeterminate="true"/></div></Canvas>`);
     const p = await pointer();
@@ -170,7 +170,7 @@ describe("checkboxes and radios (ADR 0424)", () => {
   });
 });
 
-describe("labels (ADR 0424)", () => {
+describe("labels (ADR 0428)", () => {
   it("toggles the checkbox it wraps, clicks it once, and focuses a field by `for`", async () => {
     stubDocument();
     const doc = buildUI(`<Canvas><div ${COLUMN}>
@@ -193,7 +193,7 @@ describe("labels (ADR 0424)", () => {
   });
 });
 
-describe("sliders (ADR 0424)", () => {
+describe("sliders (ADR 0428)", () => {
   it("jumps to a press, follows a drag with input, sends change on release, and snaps to its step", async () => {
     // 216 wide and 16 tall: the thumb's centre runs from 8 to 208, 2 pixels a unit.
     const doc = buildUI(`<Canvas><div ${COLUMN}><input type="range" id="s" width="216" step="5"/></div></Canvas>`);
@@ -241,7 +241,7 @@ describe("sliders (ADR 0424)", () => {
   });
 });
 
-describe("fields: number, password and text areas (ADR 0424)", () => {
+describe("fields: number, password and text areas (ADR 0428)", () => {
   it("draws a password as dots, one per character", async () => {
     const doc = buildUI(`<Canvas><input id="pw" type="password" value="hunter2"/></Canvas>`);
     const p = await pointer();
@@ -295,7 +295,7 @@ describe("fields: number, password and text areas (ADR 0424)", () => {
   });
 });
 
-describe("selects (ADR 0424)", () => {
+describe("selects (ADR 0428)", () => {
   const SELECT = `<Canvas><div flex-direction="row" align-items="flex-start" gap="8" width="400" height="300" overflow="hidden">
     <select id="s"><option id="o1" value="r">Red</option><option id="o2" value="g" selected="true">Green</option><option id="o3" interactable="false">Blue</option></select>
     <button id="other" width="100" height="30">Other</button>
@@ -360,7 +360,7 @@ describe("selects (ADR 0424)", () => {
   });
 });
 
-describe("progress bars and meters (ADR 0424)", () => {
+describe("progress bars and meters (ADR 0428)", () => {
   it("fills a progress bar to value / max, sweeps an indeterminate one, and colours a meter by its regions", async () => {
     const doc = buildUI(`<Canvas><div ${COLUMN}>
       <progress id="p" value="0.25" width="100"/><progress id="q" width="100"/>
@@ -379,7 +379,7 @@ describe("progress bars and meters (ADR 0424)", () => {
   });
 });
 
-describe("forms (ADR 0424)", () => {
+describe("forms (ADR 0428)", () => {
   it("submits on a submit button and on Enter in a field, and resets its controls as built unless prevented", async () => {
     const fake = stubDocument();
     const doc = buildUI(`<Canvas><form id="f" ${COLUMN}>

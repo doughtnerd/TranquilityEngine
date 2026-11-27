@@ -1,4 +1,4 @@
-//! `myco-wire` (ADR 0420 spike): the boundary-record mechanism of Myco's wasm cores, defined once.
+//! `myco-wire` (ADR 0424 spike): the boundary-record mechanism of Myco's wasm cores, defined once.
 //!
 //! Moved out of `anim-wire` (where it was `record` and `vector`) so a family can live in a crate
 //! of its own: `myco-tween` holds the `tween` family and `anim-wire` re-exports it, which needs the

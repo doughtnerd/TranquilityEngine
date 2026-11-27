@@ -1,4 +1,4 @@
-// ADR 0428 (wave G2), pseudo-elements: `::before`/`::after` with `content`, `::placeholder`, `::selection` and form
+// ADR 0432 (wave G2), pseudo-elements: `::before`/`::after` with `content`, `::placeholder`, `::selection` and form
 // controls' part pseudo-elements, through the way game UI is built (a UIView mounting a Svelte component: `buildUI`), the
 // UI core that lays it out and routes the pointer (`UIPointer`), and the selector readers rule data and queries share.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,7 +40,7 @@ function compOf<T extends UIComponentType>(node: GameObject, type: abstract new 
   return c;
 }
 
-describe("pseudo-element selectors (ADR 0428)", () => {
+describe("pseudo-element selectors (ADR 0432)", () => {
   it("reads a trailing pseudo-element in rule data and queries alike, counting it as a type selector", () => {
     for (const text of ["p::before", "button:hover::after", ".a > p:first-child::before", "div:before", "input::placeholder", "input::-webkit-slider-thumb", "select::picker-icon", "input::checkmark"]) {
       const sheet = parseStylesheet(`${text} {}`, "t.css");
@@ -65,7 +65,7 @@ describe("pseudo-element selectors (ADR 0428)", () => {
   });
 });
 
-describe("::before and ::after (ADR 0428)", () => {
+describe("::before and ::after (ADR 0432)", () => {
   it("generates boxes first and last in an element, styled by their rules, with their content as a label", async () => {
     const ui = buildUI(`<Canvas><div id="d" data-tip="tip" position="absolute" left="0" top="0" flex-direction="row"><div id="c" width="10" height="10"/></div></Canvas>`, {
       css: `#d::before { content: "A " attr(data-tip) "!"; width: 20px; height: 10px; background-color: #ff0000; color: #0000ff }
@@ -186,7 +186,7 @@ describe("::before and ::after (ADR 0428)", () => {
   });
 });
 
-describe("::placeholder and ::selection (ADR 0428)", () => {
+describe("::placeholder and ::selection (ADR 0432)", () => {
   it("style an input's placeholder (colour faded by opacity, slant) and selection, keeping the defaults otherwise", () => {
     const ui = buildUI(`<Canvas><input id="a" placeholder="Name"/><input id="b"/><textarea id="t"></textarea><p id="p" contenteditable="true">x</p></Canvas>`, {
       css: `#a::placeholder { color: #ff0000; opacity: 0.5; font-style: italic }
@@ -214,7 +214,7 @@ describe("::placeholder and ::selection (ADR 0428)", () => {
   });
 });
 
-describe("form part pseudo-elements (ADR 0428)", () => {
+describe("form part pseudo-elements (ADR 0432)", () => {
   async function partsOf(c: UIComponentType) {
     const pointer = await UIPointer.create(World.require());
     try {

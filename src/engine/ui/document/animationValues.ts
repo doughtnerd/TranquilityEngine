@@ -1,5 +1,5 @@
 /**
- * Animation values of UI stylesheets (ADR 0418 wave 4): `transition` and `animation` with their longhands, times and
+ * Animation values of UI stylesheets (ADR 0422 wave 4): `transition` and `animation` with their longhands, times and
  * timing functions, parsed from CSS text into plain data the cascade (`cascade.ts`) orders and the UI animator
  * (`ui/animation/`) runs. Pure: a value that can't be read comes back as a message saying why.
  *
@@ -9,7 +9,7 @@
 import { splitTopLevel, type PaintParse } from "./paintValues";
 
 /**
- * A CSS timing function: `linear`, a cubic Bézier (the keywords are ones), `steps()`, or (ADR 0428) the `linear()`
+ * A CSS timing function: `linear`, a cubic Bézier (the keywords are ones), `steps()`, or (ADR 0432) the `linear()`
  * function: its points `[input, output]` after CSS's normalisation (inputs filled in and never decreasing).
  */
 export type UITimingFunction =
@@ -18,7 +18,7 @@ export type UITimingFunction =
   | { readonly kind: "steps"; readonly steps: number; readonly position: "jump-start" | "jump-end" | "jump-none" | "jump-both" }
   | { readonly kind: "points"; readonly points: readonly (readonly [number, number])[] };
 
-/** ADR 0428: `transition-behavior`: `allow-discrete` lets values that don't interpolate transition (they flip part-way). */
+/** ADR 0432: `transition-behavior`: `allow-discrete` lets values that don't interpolate transition (they flip part-way). */
 export type UITransitionBehavior = "normal" | "allow-discrete";
 
 export type UIAnimationDirection = "normal" | "reverse" | "alternate" | "alternate-reverse";
@@ -31,7 +31,7 @@ export interface UITransitionSpec {
   readonly duration: number;
   readonly delay: number;
   readonly timing: UITimingFunction;
-  /** ADR 0428: `transition-behavior: allow-discrete`; absent for `normal`. */
+  /** ADR 0432: `transition-behavior: allow-discrete`; absent for `normal`. */
   readonly allowDiscrete?: true;
 }
 
@@ -90,7 +90,7 @@ export function parseTime(raw: string): number | undefined {
 const looksLikeTime = (raw: string) => TIME_WITH_UNIT.test(raw.trim());
 
 /**
- * ADR 0428: `linear()`'s arguments: stops of an output number with up to two input percentages, normalised as CSS
+ * ADR 0432: `linear()`'s arguments: stops of an output number with up to two input percentages, normalised as CSS
  * Easing 2 does (the first input defaults to 0%, the last to 100%, an input below an earlier one rises to it, and stops
  * without inputs are spread evenly between their neighbours).
  */
@@ -123,7 +123,7 @@ function parseLinearPoints(args: readonly string[]): PaintParse<UITimingFunction
   return ok({ kind: "points", points: stops.map((s) => [s.x!, s.y] as const) });
 }
 
-/** A timing function: the keywords, `cubic-bezier(x1, y1, x2, y2)` (x in 0–1), `steps(n[, position])` or `linear(…)` (ADR 0428). */
+/** A timing function: the keywords, `cubic-bezier(x1, y1, x2, y2)` (x in 0–1), `steps(n[, position])` or `linear(…)` (ADR 0432). */
 export function parseTimingFunction(raw: string): PaintParse<UITimingFunction> {
   const v = raw.trim().toLowerCase();
   const keyword = KEYWORD_TIMING[v];
@@ -180,7 +180,7 @@ export interface UITransitionLonghands {
   duration?: readonly number[];
   timing?: readonly UITimingFunction[];
   delay?: readonly number[];
-  /** ADR 0428: `transition-behavior`. */
+  /** ADR 0432: `transition-behavior`. */
   behavior?: readonly UITransitionBehavior[];
 }
 
@@ -195,7 +195,7 @@ export function parseTransitionProperty(raw: string): PaintParse<string[]> {
 
 /**
  * `transition`: comma-separated single transitions, each `[property] [duration] [timing] [delay] [behavior]` in any
- * order (the first time is the duration, the second the delay; `allow-discrete` or `normal`, ADR 0428). `none` alone
+ * order (the first time is the duration, the second the delay; `allow-discrete` or `normal`, ADR 0432). `none` alone
  * is no transition. `behavior` is set only when one is written, so shorthands without it read as before.
  */
 export function parseTransition(raw: string): PaintParse<Required<Omit<UITransitionLonghands, "behavior">> & Pick<UITransitionLonghands, "behavior">> {

@@ -1,4 +1,4 @@
-// Svelte UI in the editor (ADR 0419 wave C): the model between the editor's selection, the elements a `UIView`
+// Svelte UI in the editor (ADR 0423 wave C): the model between the editor's selection, the elements a `UIView`
 // renders in the Editor World (`UIHostElement`s, through the UI core's tree host) and the `.svelte` source they're
 // written in, with where each field's value comes from (`uiFieldSources.ts`); editing is `uiViewEdits.ts`.
 //
@@ -8,7 +8,7 @@
 // So a selection survives re-renders and hot reload while the source keeps the element where it was, and an edit
 // that moves it says where it went.
 //
-// What's editable follows owner decision 1 of ADR 0419: static parts of the view's own component are; expressions,
+// What's editable follows owner decision 1 of ADR 0423: static parts of the view's own component are; expressions,
 // `{#each}` rows, snippets and child components' insides (written in another file) are view-only, with the reason.
 import { signal } from "@preact/signals";
 import type { GameObject } from "../engine";
@@ -218,7 +218,7 @@ export function viewElementSource(lookup: NodeLookup, ref: UIViewRef): ViewEleme
 const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /**
- * Why the element `ref` names is view-only (owner decision 1 of ADR 0419), or null when its static parts can be
+ * Why the element `ref` names is view-only (owner decision 1 of ADR 0423), or null when its static parts can be
  * edited: it's written in a child component's file, renders more than once, or its file changed shape.
  */
 export function whyViewOnly(lookup: NodeLookup, ref: UIViewRef): string | null {

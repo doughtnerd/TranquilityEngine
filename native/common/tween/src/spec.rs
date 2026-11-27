@@ -5,7 +5,7 @@
 //! Elapsed time is f64; values are f32 (`from·(1 − e) + to·e`, so the end values are exact;
 //! quaternions use `anim-math`'s nlerp or slerp with the same endpoint rule).
 //!
-//! Moved from `anim-wasm/src/tweens.rs` (ADR 0420 spike), unchanged but for the curve lookup, which
+//! Moved from `anim-wasm/src/tweens.rs` (ADR 0424 spike), unchanged but for the curve lookup, which
 //! was the animation core's asset arena and is now the [`Curves`] type parameter.
 
 use anim_math::AosQuat;

@@ -22,11 +22,11 @@
 .tree .row.filter-context .name { opacity: 0.55; }
 .tree .row.scene-hidden .name { font-style: italic; opacity: 0.55; }
 
-/* Elements a UI view renders (ADR 0419): the component file's, not the scene's, so muted. */
+/* Elements a UI view renders (ADR 0423): the component file's, not the scene's, so muted. */
 .tree .row.ui-element { color: var(--muted); font-style: italic; }
 .tree .row.ui-element.selected { color: var(--selection-text); }
 .tree .row.ui-element .ui-element-icon { flex: none; width: 12px; margin-right: 3px; font-size: 9px; font-style: normal; color: var(--accent); opacity: 0.8; }
-.tree .row.ui-view-element.view-only .ui-element-icon { color: var(--muted); } /* ADR 0419 wave C: a row of an {#each}, a snippet or a child component: view-only */
+.tree .row.ui-view-element.view-only .ui-element-icon { color: var(--muted); } /* ADR 0423 wave C: a row of an {#each}, a snippet or a child component: view-only */
 /* A Skeleton's bones (ADR 0373): read-only rows from the skeleton asset. */
 .tree .row.bone-row { color: var(--muted); }
 .tree .row.bone-row.selected { color: var(--selection-text); }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Flappy's HUD (ADR 0419): the score, the ready / game over message and the music readout, which
+  // Flappy's HUD (ADR 0423): the score, the ready / game over message and the music readout, which
   // scripts/behaviors/GameManager.ts passes in through its UIView's props.
   let { score = "", message = "", music = "" }: { score?: string; message?: string; music?: string } = $props();
 </script>
@@ -16,7 +16,7 @@
     text-outline-color: rgb(23%, 17%, 10%);
     /* Labels over the game let the pointer through to it (ADR 0385). */
     raycast-target: false;
-    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0428 white-space). */
+    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0432 white-space). */
     white-space: pre-wrap;
   }
 

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { CAPTURE_CODEC, DEBUG_LINK, lazyOnly, playerFileList, typescriptTranspile, uiHostEntry } from "./vite.shared.ts";
 
-// ADR 0421: the player carries no Svelte. A game's UI bundle (Svelte and the renderer) imports the engine pieces the
+// ADR 0425: the player carries no Svelte. A game's UI bundle (Svelte and the renderer) imports the engine pieces the
 // renderer uses from this fixed-name entry, myco-ui-host.js, sharing the engine instance with myco.js.
 const uiHost = uiHostEntry();
 

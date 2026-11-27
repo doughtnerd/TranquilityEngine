@@ -1,6 +1,6 @@
 // Stories (ADR 0219) for the Localisation panel's Report tab over the fixture project: progress per language and the
 // gathering's lists, each row opening its file (at its line), Svelte UI's unkeyed text with Dismiss, and running the fit
-// check (a fixed box for the component's `#start`, the UI core's estimate as the measurer) (ADR 0356 §7–§9, 0419 wave F).
+// check (a fixed box for the component's `#start`, the UI core's estimate as the measurer) (ADR 0356 §7–§9, 0423 wave F).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useEffect, useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";

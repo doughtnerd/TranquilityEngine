@@ -65,7 +65,7 @@ export class ExternalTree {
     const type = uiTypeOfTag(tag);
     const el = new UIDocumentElement(this.document); // INTERNAL: the constructor is @internal
     const node = this.world._createNode(attributes.get("id") ?? tag, p.node.entity); // INTERNAL
-    // INTERNAL: the only sanctioned way to make a UI component (ADR 0417) is a document build; a host is a second one.
+    // INTERNAL: the only sanctioned way to make a UI component (ADR 0421) is a document build; a host is a second one.
     const comp = this.world._addComponent(node.entity, type);
     el._alive = true;
     el._node = node;

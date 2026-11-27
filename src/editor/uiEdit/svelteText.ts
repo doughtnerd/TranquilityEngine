@@ -1,9 +1,9 @@
-// Text edits on a Svelte component's source (ADR 0419 wave C): every edit
+// Text edits on a Svelte component's source (ADR 0423 wave C): every edit
 // re-parses the file with `parse(src, { modern: true })` and changes only the text its spans name, so comments,
 // formatting and hand edits stay. Elements are found by where they start (the offset of their `<`), which is
 // what Svelte's dev-mode template location names (line, column).
 //
-// Only static parts are edited (owner decision 1 of ADR 0419): literal attribute values, literal text, the static
+// Only static parts are edited (owner decision 1 of ADR 0423): literal attribute values, literal text, the static
 // `class` attribute, a literal `style` attribute's declarations, the elements of the component's own template
 // (not inside `{#each}` or a `{#snippet}`, which render more than once) and the component's `<style>` rules.
 // Anything in `{…}` is refused with the reason (`SvelteEditError`).
@@ -49,7 +49,7 @@ export interface LiteralValue {
 }
 
 /**
- * A `t("key")` or `tHtml("key", …)` call with a literal key (`myco`'s localised text, ADR 0356, 0419): the key, which
+ * A `t("key")` or `tHtml("key", …)` call with a literal key (`myco`'s localised text, ADR 0356, 0423): the key, which
  * function, and whether it passes message arguments.
  */
 export interface KeyCall {

@@ -1,5 +1,5 @@
-// ADR 0425: a text element's inline runs (phrasing elements inside a text element, styled like any element, as a Svelte
-// component renders them, ADR 0419), measured and laid out by the UI core as one paragraph and drawn by the Babylon
+// ADR 0429: a text element's inline runs (phrasing elements inside a text element, styled like any element, as a Svelte
+// component renders them, ADR 0423), measured and laid out by the UI core as one paragraph and drawn by the Babylon
 // layer from that layout; messages carrying the inline subset (`tHtml` escapes arguments).
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { Scene } from "@babylonjs/core/scene.js";
@@ -22,7 +22,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("inline runs in a text element (ADR 0425)", () => {
+describe("inline runs in a text element (ADR 0429)", () => {
   beforeEach(async () => {
     engine = await Engine.create({ headless: true });
     await loadUITestSupport();
@@ -61,7 +61,7 @@ describe("inline runs in a text element (ADR 0425)", () => {
   });
 });
 
-describe("messages with the inline subset (ADR 0425)", () => {
+describe("messages with the inline subset (ADR 0429)", () => {
   const FILES = {
     "strings/ui.strings.json": { format: "myco.strings@1", language: "en", strings: [{ key: "hud.hello", text: "Hi <b>{name}</b>, you have <i>{count, plural, one {# coin} other {# coins}}</i>" }] },
   };
@@ -77,7 +77,7 @@ describe("messages with the inline subset (ADR 0425)", () => {
   });
 });
 
-describe("Babylon UI: drawing inline runs (ADR 0425)", () => {
+describe("Babylon UI: drawing inline runs (ADR 0429)", () => {
   /** A 2D context that records what's drawn and measures half an em per character. */
   function recordingContext(drawn: string[]) {
     const ctx: Record<string, unknown> = { font: "16px sans-serif", canvas: null, fillStyle: "" };

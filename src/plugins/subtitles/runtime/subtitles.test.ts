@@ -7,7 +7,7 @@ import { Assets, Audio, Engine, GameObject, Locale, MemoryStorage, SceneManager,
 import { parseLanguages } from "../../../engine/localisation/languages";
 import { setAudioBackend } from "../../audio/runtime/backend";
 import { endAudioSession, makeFakeBackend, type FakeVoice } from "../../audio/runtime/testing";
-// The built-in UI components, as the editor provides them (ADR 0419 wave B).
+// The built-in UI components, as the editor provides them (ADR 0423 wave B).
 import "../builtinUI";
 import * as MySubtitles from "./testComponents/MySubtitles.svelte";
 import { SUBTITLE_LOOK } from "./look";
@@ -99,7 +99,7 @@ describe("SubtitleDisplay", () => {
     const hex = (c: { r: number; g: number; b: number }) => `#${[c.r, c.g, c.b].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("")}`;
     expect(hex(themed.doc.queryAll(".line")[0].as(UIText).color)).toBe(SUBTITLE_LOOK.color);
     expect(hex(speakers(themed.doc)[0].color)).toBe("#ff0000"); // the speaker's own colour
-    // A component's global rules reach every view (ADR 0419), so a game's component can carry the theme.
+    // A component's global rules reach every view (ADR 0423), so a game's component can carry the theme.
     await import("./testComponents/SubtitleTheme.svelte");
     frame();
     expect(hex(themed.doc.queryAll(".line")[0].as(UIText).color)).toBe("#00ff00");

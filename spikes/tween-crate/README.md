@@ -1,6 +1,6 @@
-# Tween crate split spike (ADR 0420)
+# Tween crate split spike (ADR 0424)
 
-The spike ADR 0420 calls for before it can be accepted. It is a prototype split, not finished engine code. It checks two things:
+The spike ADR 0424 calls for before it can be accepted. It is a prototype split, not finished engine code. It checks two things:
 
 1. Does moving tweening out of the animation core into a shared crate cost the core anything? Speed, size and behaviour are all checked.
 2. How big is a standalone tween module built from that crate? UI would load it when the animation plugin isn't enabled.
@@ -19,7 +19,7 @@ The wire format, the core's exports and its JS glue are unchanged. `npm run buil
 ## How the numbers were taken
 
 - **Machine:** this session's container, a shared 4-vCPU VM, 2026-11-26 04:38–05:05 UTC. Nothing else heavy ran during the timed runs.
-- **Before:** a clean checkout of `a6530aa8`, the commit that proposes 0420, in a separate worktree. Its `native/` and `src/plugins/animation/` are identical to this branch's base, `d73ad72d`.
+- **Before:** a clean checkout of `a6530aa8`, the commit that proposes 0424, in a separate worktree. Its `native/` and `src/plugins/animation/` are identical to this branch's base, `d73ad72d`.
 - **After:** this branch.
 - **Benches:** `cargo bench -p anim-bench --bench budgets`, natively, criterion defaults. Three rounds, alternating before and after (B, A, B, A, B, A), so drift hits both sides. A second set ran `tweens_1000` alone with `--measurement-time 10`, four alternating rounds. The tables show criterion's point estimates. The raw output is in [results/](results/) (`python3 results/summarise.py results/all`).
 - **Noise:** the `characters_100` crowd scenarios run no tween code at all, yet they move ±10% between rounds of the *same* tree. Read every Δ below against that.
@@ -122,7 +122,7 @@ The previous run's log recorded 14.8 µs (linear) and 22.0 µs (eased) on the un
 
 ## Recommendation
 
-**Accept 0420, with changes.** The split costs the animation core nothing measurable:
+**Accept 0424, with changes.** The split costs the animation core nothing measurable:
 
 - benches within noise;
 - 320 B smaller raw;

@@ -1,7 +1,7 @@
 //! Family `tween`: the tween table's create and control commands and its output records (ADR
 //! 0371, 0372).
 //!
-//! Moved here from `anim-wire` (ADR 0420 spike); `anim_wire::tween` re-exports this module, and
+//! Moved here from `anim-wire` (ADR 0424 spike); `anim_wire::tween` re-exports this module, and
 //! `anim-wire`'s generator still writes `wire/tween.ts` from [`FAMILY`] (byte for byte as before:
 //! the family's doc string is unchanged, so it still names its old path).
 //!

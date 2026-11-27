@@ -1,4 +1,4 @@
-// A game's UI code bundle (ADR 0421): at export, the project's compiled Svelte UI modules (components, rune
+// A game's UI code bundle (ADR 0425): at export, the project's compiled Svelte UI modules (components, rune
 // modules and the `.css` modules components import) are bundled with the parts of Svelte's runtime and the
 // engine's renderer they use, tree-shaken, into the game's own code. One build of every UI module, each an
 // entry at its own address, with code splitting: the game gets one Svelte instance, and scripts that import
@@ -55,9 +55,9 @@ async function probeTs(resolver: PackageResolver, base: string): Promise<string 
  */
 async function resolveRuntimeImport(resolver: PackageResolver, specifier: string, importer: string): Promise<RuntimeImport> {
   if (specifier === "myco/ui-renderer") return { file: UI_RENDERER_SOURCE };
-  if (specifier === "myco/ui-html") return { file: UI_HTML_SOURCE }; // ADR 0425
-  // UI code's `svelte/reactivity` is Svelte's with `MediaQuery` on the canvas (ADR 0418 wave 5); that module imports Svelte's.
-  // Svelte's `svelte/motion` gets it too, so its `prefersReducedMotion` follows the engine's setting (ADR 0419 wave Z3).
+  if (specifier === "myco/ui-html") return { file: UI_HTML_SOURCE }; // ADR 0429
+  // UI code's `svelte/reactivity` is Svelte's with `MediaQuery` on the canvas (ADR 0422 wave 5); that module imports Svelte's.
+  // Svelte's `svelte/motion` gets it too, so its `prefersReducedMotion` follows the engine's setting (ADR 0423 wave Z3).
   if (specifier === "svelte/reactivity" && (importer === "" || importer.endsWith("svelte/src/motion/index.js"))) return { file: UI_REACTIVITY_SOURCE };
   if (importer.endsWith(".ts") && (specifier.startsWith("./") || specifier.startsWith("../"))) {
     const base = join(dirname(importer), specifier);
@@ -162,7 +162,7 @@ export async function bundleUI(modules: ReadonlyMap<string, string>, source: UIR
 }
 
 /**
- * The engine's files a game's UI bundle can read (ADR 0421), by path from the engine's root: every runtime module
+ * The engine's files a game's UI bundle can read (ADR 0425), by path from the engine's root: every runtime module
  * compiled UI code may import, the files they import in turn, the renderer and its own imports, and the
  * `package.json` files resolving them reads, and the built-in UI components' sources. The editor serves these (it can't read the engine's folder), so its
  * exports bundle exactly what `npm run export` does from the folder itself.
@@ -189,7 +189,7 @@ export async function collectUIRuntimeFiles(files: PackageFiles): Promise<Map<st
     if (code === null || result.file.endsWith(".json") || result.file.endsWith(".d.ts")) continue;
     for (const imp of importSites(ts, code)) queue.push({ specifier: imp.specifier, importer: result.file });
   }
-  // The engine's built-in UI components' sources (ADR 0419 wave B), which a build compiles when the project uses them.
+  // The engine's built-in UI components' sources (ADR 0423 wave B), which a build compiles when the project uses them.
   for (const c of BUILTIN_UI_COMPONENTS) await files.read(c.source).then((text) => text !== null && read.set(c.source, text));
   return read;
 }

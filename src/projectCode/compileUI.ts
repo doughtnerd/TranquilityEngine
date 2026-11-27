@@ -1,4 +1,4 @@
-// Compiling a project's Svelte UI code (ADR 0419) in the project code linker: components (`*.svelte`)
+// Compiling a project's Svelte UI code (ADR 0423) in the project code linker: components (`*.svelte`)
 // with the engine's custom renderer and external CSS, rune modules (`*.svelte.ts`/`.svelte.js`), and plain
 // `.css` files components import. Every host links through here, so the editor (dev: template locations)
 // and the export (dev: false) emit the same code. CSS is parsed into the cascade's rule data now and written

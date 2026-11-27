@@ -1,4 +1,4 @@
-# `myco-tween` (ADR 0420): the tween table, its value function, the Penner easings, sequence
+# `myco-tween` (ADR 0424): the tween table, its value function, the Penner easings, sequence
 # programs and the `tween` wire family, shared by the animation core (native/anim, anim-wasm) and the
 # standalone tween module (native/tween). A path dependency of both, and its own workspace so
 # `cargo test` runs here.

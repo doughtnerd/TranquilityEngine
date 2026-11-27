@@ -1,5 +1,5 @@
 /**
- * CSS math functions (ADR 0418 wave 5): `calc()`, `min()`, `max()` and `clamp()` in a value, worked out where it's
+ * CSS math functions (ADR 0422 wave 5): `calc()`, `min()`, `max()` and `clamp()` in a value, worked out where it's
  * declared, after `var()` substitution. Each function is replaced by its result:
  *
  * - numbers and single-unit lengths and angles resolve to a plain value (`calc(2 * 8px)` → `16px`);
@@ -43,10 +43,10 @@ export function resolveMath(value: string): { readonly ok: true; readonly value:
   return { ok: true, value: out + value.slice(i) };
 }
 
-// --- Relative lengths (ADR 0428) ------------------------------------------------------------------
+// --- Relative lengths (ADR 0432) ------------------------------------------------------------------
 
 /**
- * What relative lengths resolve against (ADR 0428): `em` the element's font size (its parent's, in `font-size` itself),
+ * What relative lengths resolve against (ADR 0432): `em` the element's font size (its parent's, in `font-size` itself),
  * `rem` the root canvas element's, and the canvas in UI pixels for `vw`/`vh`/`vmin`/`vmax` (null: not known, so a
  * viewport length can't resolve).
  */

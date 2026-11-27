@@ -78,7 +78,7 @@ async function make(): Promise<BabylonUIFeature> {
   return feature;
 }
 
-/** A screen canvas with a button, rendered by a UI view (ADR 0417, 0419). */
+/** A screen canvas with a button, rendered by a UI view (ADR 0421, 0423). */
 function menu() {
   const doc = buildUI(`<Canvas id="Canvas"><button id="Play" width="200" height="50"/></Canvas>`);
   return { canvas: byId(doc, "Canvas", UICanvas), play: byId(doc, "Play", UIButton) };

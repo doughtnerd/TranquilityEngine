@@ -1,4 +1,4 @@
-// Svelte UI's text for the Localisation panel (ADR 0356 §7, §8, ADR 0419 wave F): the unkeyed literal text written in
+// Svelte UI's text for the Localisation panel (ADR 0356 §7, §8, ADR 0423 wave F): the unkeyed literal text written in
 // the project's components (`uiEdit/svelteStrings.ts` over each file's `parse()`), and the fit check's targets: every
 // element the open scene's views rendered whose text is one keyed message, with its text's font and its content box
 // from the scene view's layout (`textFit.ts` lays each language out in it).

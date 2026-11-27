@@ -2,7 +2,7 @@
 // then the lists — keys used but missing a translation, keys used but defined nowhere, unused keys, unkeyed text in
 // Svelte UI, keys defined twice, and the text fit check's overflows — each row naming the file (and line) that opens it.
 // Built from the engine's key gathering (`exchange/gather.ts`), the components' unkeyed text
-// (`uiEdit/svelteStrings.ts`, ADR 0419 wave F) and the fit check (`textFit.ts`).
+// (`uiEdit/svelteStrings.ts`, ADR 0423 wave F) and the fit check (`textFit.ts`).
 //
 // Pure.
 import type { GatherReport } from "../../../engine/localisation/exchange/gather";

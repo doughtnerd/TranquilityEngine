@@ -1,9 +1,9 @@
-// The Inspector's Localise control's keys (ADR 0356 §9, ADR 0419 wave F): bind a Svelte element's literal text (its
+// The Inspector's Localise control's keys (ADR 0356 §9, ADR 0423 wave F): bind a Svelte element's literal text (its
 // text content or a text attribute) to a string key — pick one (search keys and their text, with each one's text in the
 // preview language), or **Extract to string table**: a key suggested from the component's file name and the element's
 // id, added to a chosen table with the literal text as its reference text, while the source says `{t("key")}` instead
 // (one undo step; `uiViewEdits.ts` writes both files). Each choice is refused or next (0313). Restored from what
-// UI documents had (`localiseModel.ts`, retired with them by ADR 0419 wave D).
+// UI documents had (`localiseModel.ts`, retired with them by ADR 0423 wave D).
 //
 // Pure.
 import { fallbackChain, type LanguageSettings } from "../../../engine/localisation/languages";

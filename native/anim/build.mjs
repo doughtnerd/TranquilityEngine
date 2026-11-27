@@ -119,7 +119,7 @@ function checkToolchain() {
  * isn't for committing.
  */
 function buildWasm(crate, dir, name) {
-  // .cargo/config.toml's +simd128, and the paths remapped so any checkout builds the same bytes (ADR 0428).
+  // .cargo/config.toml's +simd128, and the paths remapped so any checkout builds the same bytes (ADR 0432).
   run("cargo", ["build", "-p", crate, "--target", TARGET, "--release"], wasmBuildEnv(configRustflags(root)));
   mkdirSync(dir, { recursive: true });
   const strip = process.env.MYCO_ANIM_KEEP_NAMES === "1" ? [] : ["--remove-name-section", "--remove-producers-section"];

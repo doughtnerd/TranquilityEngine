@@ -1,4 +1,4 @@
-// The text fit check (ADR 0356 §8, ADR 0419 wave F), best effort: every element of Svelte UI whose text is one keyed
+// The text fit check (ADR 0356 §8, ADR 0423 wave F), best effort: every element of Svelte UI whose text is one keyed
 // message (`<p>{t("menu.start")}</p>`) and whose rendered box is fixed, laid out in each language and the
 // pseudo-language with the engine's line breaking and a text measurer (the editor passes the engine's canvas measuring,
 // `render/babylon/ui.ts` `measureText`; tests the UI core's estimate), and reported when its text doesn't fit: more
@@ -8,7 +8,7 @@
 // strings `WWWWWWWW`). A language without the key falls back through its chain, as the runtime does. The boxes come
 // from what the editor rendered (`uiViewEdits.ts` `fitTargets`): an element that sizes to its text in a direction isn't
 // fixed in it, and one with no fixed width is skipped and counted. Restored from UI documents' fit check
-// (`fitCheck.ts`, retired with them by ADR 0419 wave D), which read sizes from markup attributes instead.
+// (`fitCheck.ts`, retired with them by ADR 0423 wave D), which read sizes from markup attributes instead.
 //
 // Pure: no DOM; the measurer is a port.
 import { fallbackChain, intlTagOf, shippedLanguages, type LanguageSettings } from "../../../engine/localisation/languages";

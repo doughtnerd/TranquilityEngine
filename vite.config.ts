@@ -30,7 +30,7 @@ export default defineConfig({
     // tsc (typescriptTranspile) adds, so on a cold cache it was found late, re-bundled, and every open
     // page reloaded: both desktop windows started over (ADR 0082).
     include: ["preact/jsx-runtime"],
-    // svelte2tsx's `path` (ADR 0428), in the bundle of dependencies as in the build.
+    // svelte2tsx's `path` (ADR 0432), in the bundle of dependencies as in the build.
     rolldownOptions: { plugins: [svelteCheckPath()] },
   },
 });

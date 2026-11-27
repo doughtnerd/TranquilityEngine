@@ -1,4 +1,4 @@
-// ADR 0418 wave 4, performance sanity: 500 elements transitioning two properties each (a colour and a number), frame
+// ADR 0422 wave 4, performance sanity: 500 elements transitioning two properties each (a colour and a number), frame
 // cost against the same document with no transitions, on both tween backends. Medians over several class changes,
 // since a single frame's time is mostly the garbage collector's mood. Logs the numbers (the build log quotes them);
 // the bound is loose, a tripwire against an accidental per-frame blow-up, not a budget.

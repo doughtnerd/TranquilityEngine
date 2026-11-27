@@ -1,4 +1,4 @@
-# `myco-wire` (ADR 0420 spike): the boundary-record mechanism (fixed-stride versioned records, the
+# `myco-wire` (ADR 0424 spike): the boundary-record mechanism (fixed-stride versioned records, the
 # `wire_record!` macro, byte vectors), moved out of `anim-wire` so the `tween` family can live in
 # `myco-tween` while `anim-wire` re-exports it. A path dependency of anim-wire and myco-tween, and its
 # own workspace so `cargo test` runs here. No dependencies.

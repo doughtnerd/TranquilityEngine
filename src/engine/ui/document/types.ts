@@ -1,5 +1,5 @@
 /**
- * The contract between the stylesheet parser (`stylesheet.ts`, ADR 0077, 0419), the cascade (`cascade.ts`) and the UI
+ * The contract between the stylesheet parser (`stylesheet.ts`, ADR 0077, 0423), the cascade (`cascade.ts`) and the UI
  * host that styles rendered elements with it (`host/UIHost.ts`). Pure and renderer-neutral. Spans let the editor patch
  * the source files in place. Nothing here is public API except `UITag`, which the UI plugin re-exports.
  */
@@ -21,11 +21,11 @@ export interface SourceProblem {
 // --- Elements -------------------------------------------------------------------------------------
 
 /** The UI element kinds (ADR 0069 components) the HTML tags a Svelte component writes map onto (`host/htmlTags.ts`). */
-/** ADR 0426: `Svg`, `Video` and `Audio` are the HTML `svg`, `video` and `audio` elements. */
+/** ADR 0430: `Svg`, `Video` and `Audio` are the HTML `svg`, `video` and `audio` elements. */
 export type UITag = "Canvas" | "Panel" | "Text" | "Image" | "Button" | "InputField"
-  // ADR 0424: form elements.
+  // ADR 0428: form elements.
   | "TextArea" | "Toggle" | "Radio" | "Slider" | "Select" | "Option" | "Progress" | "Meter" | "Label" | "Form"
-  // ADR 0426: inline SVG and media.
+  // ADR 0430: inline SVG and media.
   | "Svg" | "Video" | "Audio";
 
 export interface MarkupAttribute {
@@ -51,16 +51,16 @@ export interface MarkupElement {
 
 /** A simple selector: a tag, an id, classes, pseudo-classes and `:lang()` ranges, all of which must match. */
 export interface SimpleSelector {
-  /** As written, matched case-insensitively (ADR 0419: `button` is `Button`; Svelte's HTML tags such as `div` match as written). */
+  /** As written, matched case-insensitively (ADR 0423: `button` is `Button`; Svelte's HTML tags such as `div` match as written). */
   readonly tag: string | null;
   readonly id: string | null;
   readonly classes: readonly string[];
   readonly pseudo: readonly UIPseudo[];
   /** `:lang(de)` (ADR 0356 §4): language ranges the current text language must match by BCP 47 prefix. */
   readonly lang: readonly string[];
-  /** `:is()` and `:where()` (ADR 0419): each a selector list, one of which must match the element; `zero` for `:where()`. */
+  /** `:is()` and `:where()` (ADR 0423): each a selector list, one of which must match the element; `zero` for `:where()`. */
   readonly is?: readonly { readonly selectors: readonly Selector[]; readonly zero: boolean }[];
-  // ADR 0418 wave 5. Each is absent when the compound doesn't use it, so rule data stays small.
+  // ADR 0422 wave 5. Each is absent when the compound doesn't use it, so rule data stays small.
   /** `:not()`: each a selector list, none of which may match the element. */
   readonly not?: readonly (readonly Selector[])[];
   /** `:first-child`, `:nth-child(an+b [of S])`, `:last-of-type`…: the element's position among its siblings. */
@@ -72,7 +72,7 @@ export interface SimpleSelector {
   /** `:root`: the tree's root (a hosted tree's canvas, a document's root element). */
   readonly root?: boolean;
   /**
-   * ADR 0428: `:has()`: each a list of relative selectors, one of which must match an element relative to this one.
+   * ADR 0432: `:has()`: each a list of relative selectors, one of which must match an element relative to this one.
    * A relative selector's first part carries its leading combinator (`>`, `+`, `~`, or `" "` for descendants); no
    * `:has()` inside them.
    */
@@ -80,7 +80,7 @@ export interface SimpleSelector {
 }
 
 /**
- * A structural pseudo-class (ADR 0418 wave 5): the element is at a position `a·n + b` (n = 0, 1, 2…; 1-based) among
+ * A structural pseudo-class (ADR 0422 wave 5): the element is at a position `a·n + b` (n = 0, 1, 2…; 1-based) among
  * its parent's child elements, counted from the end with `last`, only among elements with its tag with `ofType`, and
  * only among elements matching `of` (`:nth-child(2 of .item)`). `:first-child` is `{ a: 0, b: 1 }`.
  */
@@ -92,7 +92,7 @@ export interface UINthSelector {
   readonly of?: readonly Selector[];
 }
 
-/** An attribute selector (ADR 0418 wave 5): the attribute is present, or its value compares by `op` (`insensitive`: ASCII case-insensitively, the `i` flag). */
+/** An attribute selector (ADR 0422 wave 5): the attribute is present, or its value compares by `op` (`insensitive`: ASCII case-insensitively, the `i` flag). */
 export interface UIAttributeSelector {
   /** Matched case-insensitively, as HTML attribute names are. */
   readonly name: string;
@@ -102,13 +102,13 @@ export interface UIAttributeSelector {
 }
 
 export type UIPseudo = "hover" | "pressed" | "focus" | "disabled" | "checked" | "indeterminate" | "placeholder-shown";
-/** An element's pseudo-class state: the first four always, ADR 0424's form states where the element has them (absent: false). */
+/** An element's pseudo-class state: the first four always, ADR 0428's form states where the element has them (absent: false). */
 export type UIPseudoState = Record<"hover" | "pressed" | "focus" | "disabled", boolean> & Partial<Record<"checked" | "indeterminate" | "placeholder-shown", boolean>>;
 
 /**
- * ADR 0428: the pseudo-elements UI selectors style, by their names without the colons. `before` and `after` are generated
+ * ADR 0432: the pseudo-elements UI selectors style, by their names without the colons. `before` and `after` are generated
  * elements (with `content`); `placeholder` and `selection` style an input's placeholder and selected text; the rest are
- * form controls' parts (ADR 0424), by the standard name where there is one and the WebKit/Blink names authors use.
+ * form controls' parts (ADR 0428), by the standard name where there is one and the WebKit/Blink names authors use.
  */
 export type UIPseudoElement =
   | "before" | "after" | "placeholder" | "selection"
@@ -117,7 +117,7 @@ export type UIPseudoElement =
   | "-webkit-meter-optimum-value" | "-webkit-meter-suboptimum-value" | "-webkit-meter-even-less-good-value"
   | "checkmark" | "picker-icon";
 
-/** How a compound joins the one on its left: descendant, child, next sibling or any later sibling (ADR 0418 wave 5). */
+/** How a compound joins the one on its left: descendant, child, next sibling or any later sibling (ADR 0422 wave 5). */
 export type Combinator = " " | ">" | "+" | "~";
 
 /** A complex selector: compound parts joined by combinators, rightmost last. */
@@ -128,7 +128,7 @@ export interface Selector {
   /** The selector is `:root` alone, where variables are declared (its compound says `root` too). */
   readonly root: boolean;
   /**
-   * ADR 0428: the pseudo-element it styles (`p:hover::before` is `before`, its parts matching the originating element);
+   * ADR 0432: the pseudo-element it styles (`p:hover::before` is `before`, its parts matching the originating element);
    * absent: it styles elements. It counts as a tag in `specificity`, as in CSS.
    */
   readonly pseudoElement?: UIPseudoElement;
@@ -151,13 +151,13 @@ export interface StyleRule {
   /** Order across all of a document's sheets (later wins ties). */
   readonly order: number;
   /**
-   * The `@media` blocks the rule is in (ADR 0418 wave 5), outermost first: each a query list, one of whose queries must
+   * The `@media` blocks the rule is in (ADR 0422 wave 5), outermost first: each a query list, one of whose queries must
    * match the canvas; every block must. Absent outside `@media`.
    */
   readonly media?: readonly (readonly UIMediaQuery[])[];
 }
 
-/** A media query (ADR 0418 wave 5): an optional media type (`not` negates the whole query) and a condition. */
+/** A media query (ADR 0422 wave 5): an optional media type (`not` negates the whole query) and a condition. */
 export interface UIMediaQuery {
   readonly not?: boolean;
   /** `all` and `screen` match; any other type never does. Absent: `all`. */
@@ -185,7 +185,7 @@ export interface UIStylesheet {
   readonly file: string;
   readonly rules: readonly StyleRule[];
   readonly problems: readonly SourceProblem[];
-  /** `@keyframes` blocks (ADR 0418 wave 4), in source order; absent when the sheet has none. */
+  /** `@keyframes` blocks (ADR 0422 wave 4), in source order; absent when the sheet has none. */
   readonly keyframes?: readonly UIKeyframes[];
 }
 
@@ -196,7 +196,7 @@ export interface UIKeyframe {
   readonly span: SourceSpan;
 }
 
-/** A `@keyframes` block (ADR 0418 wave 4): the last one with a name, across a document's sheets, is the one used. */
+/** A `@keyframes` block (ADR 0422 wave 4): the last one with a name, across a document's sheets, is the one used. */
 export interface UIKeyframes {
   readonly name: string;
   readonly frames: readonly UIKeyframe[];
@@ -208,7 +208,7 @@ export type ParseStylesheet = (source: string, file: string, firstOrder?: number
 
 /** What a selector is matched against: an element in the built tree. */
 export interface StyleTarget {
-  /** The HTML tag a Svelte component wrote (`button`, `div`; ADR 0419), or a UI element name (`Button`). */
+  /** The HTML tag a Svelte component wrote (`button`, `div`; ADR 0423), or a UI element name (`Button`). */
   readonly tag: string;
   readonly id: string | null;
   readonly classes: readonly string[];
@@ -216,7 +216,7 @@ export interface StyleTarget {
   readonly parent: StyleTarget | null;
   /** The current text language (ADR 0356 §4), for `:lang()`; absent: no `:lang()` rule matches. */
   readonly lang?: string;
-  // ADR 0418 wave 5. Absent: the structural, attribute and `@media` tests that need them don't match.
+  // ADR 0422 wave 5. Absent: the structural, attribute and `@media` tests that need them don't match.
   /** The attributes as written (markup attributes; a Svelte element's renderer attributes), for attribute selectors. */
   readonly attributes?: ReadonlyMap<string, string>;
   /** Its child elements in order (text isn't an element), for structural selectors and sibling combinators. */
@@ -226,12 +226,12 @@ export interface StyleTarget {
   /** On the root target: the canvas `@media` rules are matched against; null before its size is known. */
   readonly media?: UIMediaEnvironment | null;
   /**
-   * ADR 0428: on the root target, the canvas `vw`/`vh`/`vmin`/`vmax` resolve against (UI pixels): its size, or before
+   * ADR 0432: on the root target, the canvas `vw`/`vh`/`vmin`/`vmax` resolve against (UI pixels): its size, or before
    * the first layout its reference resolution. Absent: `media`.
    */
   readonly viewport?: UIMediaEnvironment | null;
   /**
-   * ADR 0428: the target is this pseudo-element of its `parent`, the originating element: only selectors naming it match,
+   * ADR 0432: the target is this pseudo-element of its `parent`, the originating element: only selectors naming it match,
    * their compounds matched against the parent. Absent: an element, which selectors with a pseudo-element never match.
    */
   readonly pseudoElement?: UIPseudoElement;

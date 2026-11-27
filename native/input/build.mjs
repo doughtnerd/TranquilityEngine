@@ -24,7 +24,7 @@ if (installed !== pinned) {
   process.exit(1);
 }
 
-// Paths remapped, so any checkout builds the same bytes (ADR 0428).
+// Paths remapped, so any checkout builds the same bytes (ADR 0432).
 run("cargo", ["build", "-p", "input-wasm", "--target", "wasm32-unknown-unknown", "--release"], wasmBuildEnv());
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });

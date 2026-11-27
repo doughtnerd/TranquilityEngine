@@ -30,7 +30,7 @@ export class UIPointer {
     return p;
   }
 
-  /** Lay the World's UI out again (the renderer does every frame), `dt` seconds on: smooth scrolls and momentum move on by it (ADR 0423). */
+  /** Lay the World's UI out again (the renderer does every frame), `dt` seconds on: smooth scrolls and momentum move on by it (ADR 0427). */
   sync(dt = 0): void {
     this.core.sync(this.world, this.width, this.height, dt);
   }

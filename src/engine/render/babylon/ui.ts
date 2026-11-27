@@ -16,16 +16,16 @@
 // - A world canvas is a plane with its own texture at `WORLD_RESOLUTION` times the reference
 //   resolution, its root container scaled by that factor.
 //
-// Transforms (ADR 0418 wave 3): the core gives each element its whole transform (ancestors' and its own, `transform2d.ts`).
+// Transforms (ADR 0422 wave 3): the core gives each element its whole transform (ancestors' and its own, `transform2d.ts`).
 // Controls stay flat (each in its canvas root, or in its clipper's clip container) so the draw order stays the core's, and
 // Babylon GUI composes a control's transform with its parent control's only. So each control gets its transform relative
 // to the control it's drawn in (`inverse(clipper's) · its own`): placed at where that takes its box's top-left corner,
 // turned and scaled about that corner (`transformCenterX/Y` 0) by the map's rotation and scales. A clip container moves
-// with its clipper, so what it clips is clipped where the clipper is drawn. ADR 0426: a map that skews (`skew()`,
+// with its clipper, so what it clips is clipped where the clipper is drawn. ADR 0430: a map that skews (`skew()`,
 // `matrix()`, a rotation inside an unequal scale) isn't a rotation and scales: such a control is placed where layout put
 // it and drawn through the whole map, its `_transform` overridden with the element's Matrix2D (`Drawn`).
 //
-// ADR 0426 also draws CSS filters (the context's `filter`, or an offscreen pass where Canvas2D lacks it), inline SVG (an
+// ADR 0430 also draws CSS filters (the context's `filter`, or an offscreen pass where Canvas2D lacks it), inline SVG (an
 // SVG image rasterised from `UISvg.markup`) and video (a `UIVideo`'s media element's current frame) — `Drawn`,
 // `MediaImage`.
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
@@ -88,7 +88,7 @@ export interface BabylonUIOptions {
 }
 
 /**
- * What `sync` asks the UI core about input fields: the caret index of the one being typed in, and (ADR 0428) its selection
+ * What `sync` asks the UI core about input fields: the caret index of the one being typed in, and (ADR 0432) its selection
  * (`[start, end)` in its value).
  */
 export interface UIDrawExtra {
@@ -123,12 +123,12 @@ interface ElementEntry {
   control: Control;
   /** Input fields: the text inside and the caret. Images: nothing. */
   label: TextBlock | null;
-  /** Panels whose `backgroundImage` is a `url()` (ADR 0418 wave 2): the image filling the box, under any children. */
+  /** Panels whose `backgroundImage` is a `url()` (ADR 0422 wave 2): the image filling the box, under any children. */
   backdrop: Image | null;
   caret: Rectangle | null;
-  /** ADR 0424: a form element's parts, drawn over its box (`syncParts`), made on first need. */
+  /** ADR 0428: a form element's parts, drawn over its box (`syncParts`), made on first need. */
   parts: Rectangle[] | null;
-  /** Panels whose border sides differ (ADR 0418): one filled rectangle per side (top, right, bottom, left), made on first need. */
+  /** Panels whose border sides differ (ADR 0422): one filled rectangle per side (top, right, bottom, left), made on first need. */
   edges: Rectangle[] | null;
   last: Last;
   stamp: number;
@@ -136,7 +136,7 @@ interface ElementEntry {
 }
 
 /**
- * ADR 0418: an `overflow: hidden` element's clip, a container at its padding box that clips what's drawn inside it.
+ * ADR 0422: an `overflow: hidden` element's clip, a container at its padding box that clips what's drawn inside it.
  * The elements it clips are drawn in it, offset by its corner; a nested clip sits in its clipper's.
  */
 interface ClipEntry {
@@ -145,12 +145,12 @@ interface ClipEntry {
   /** Its corner in its canvas's UI pixels: its children's offset. */
   x: number;
   y: number;
-  /** ADR 0418 wave 3: its clipper's whole transform (null: none), which the controls drawn in it are placed relative to. */
+  /** ADR 0422 wave 3: its clipper's whole transform (null: none), which the controls drawn in it are placed relative to. */
   transform: UIAffine | null;
   stamp: number;
 }
 
-/** ADR 0423: a scroller's drawn scrollbars: a track and a thumb per axis it shows. */
+/** ADR 0427: a scroller's drawn scrollbars: a track and a thumb per axis it shows. */
 interface BarsEntry {
   canvas: CanvasEntry;
   x: { track: Rectangle; thumb: Rectangle } | null;
@@ -158,11 +158,11 @@ interface BarsEntry {
   stamp: number;
 }
 
-/** ADR 0423: scrollbar colours without `scrollbar-color`: a light thumb on a faint dark track. */
+/** ADR 0427: scrollbar colours without `scrollbar-color`: a light thumb on a faint dark track. */
 const DEFAULT_THUMB = new Color(0.78, 0.8, 0.84, 0.75);
 const DEFAULT_TRACK = new Color(0, 0, 0, 0.22);
 
-/** What `Drawn` reaches of Babylon GUI's protected and private control state (checked when Babylon is upgraded, ADR 0426). */
+/** What `Drawn` reaches of Babylon GUI's protected and private control state (checked when Babylon is upgraded, ADR 0430). */
 interface ControlInternals {
   _currentMeasure: Measure;
   _evaluatedMeasure: Measure;
@@ -174,13 +174,13 @@ interface ControlInternals {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ControlClass = new (...args: any[]) => Control;
 
-/** True when a Canvas2D context draws `filter` itself (ADR 0426): `CanvasRenderingContext2D.filter` is a string there. */
+/** True when a Canvas2D context draws `filter` itself (ADR 0430): `CanvasRenderingContext2D.filter` is a string there. */
 function drawsFilters(ctx: ICanvasRenderingContext): boolean {
   return typeof (ctx as unknown as { filter?: unknown }).filter === "string";
 }
 
 /**
- * ADR 0426: a control drawn with what Babylon GUI's own state can't express.
+ * ADR 0430: a control drawn with what Babylon GUI's own state can't express.
  * - **A full matrix** (`affine`): the map from its parent control's frame (UI pixels, the parent's corner at 0, 0) to where
  *   it's drawn, replacing Babylon's left/top, rotation and scales: `_transform` sets it on the context and in its
  *   `_transformMatrix` (which redraw regions, clipping checks and its children use), so skew draws as the core hits it.
@@ -188,7 +188,7 @@ function drawsFilters(ctx: ICanvasRenderingContext): boolean {
  *   drawing where the browser supports `CanvasRenderingContext2D.filter`; otherwise it's drawn to an offscreen canvas and
  *   filtered there (`filterPixels.ts`). `filterReach` (texture pixels) grows its redraw region and clip for blur and
  *   drop shadows, as Babylon grows them for its own shadow.
- * - **A backdrop filter** (`backdrop`, ADR 0428): before it draws, what's already drawn under its box (grown by the
+ * - **A backdrop filter** (`backdrop`, ADR 0432): before it draws, what's already drawn under its box (grown by the
  *   filter's reach) is copied from the texture's canvas into an offscreen canvas, filtered there (the context's `filter`,
  *   or `filterPixels` reading it back), and drawn back clipped to its box and rounded corners, so its own background goes
  *   over it. A redraw that touches it redraws all of it and what it samples (`growForBackdrops`), so it never samples its
@@ -201,7 +201,7 @@ function Drawn<T extends ControlClass>(Base: T) {
     /** The filter's steps, lengths in texture pixels: the offscreen fallback's. */
     filterSteps: readonly UIFilterStep[] = [];
     filterReach = 0;
-    /** ADR 0428: its backdrop filter (CSS text and steps, lengths in texture pixels; reach in texture pixels; corner radii in UI pixels, top-left first), or null. */
+    /** ADR 0432: its backdrop filter (CSS text and steps, lengths in texture pixels; reach in texture pixels; corner radii in UI pixels, top-left first), or null. */
     backdrop: Backdrop | null = null;
     private readonly local = Matrix2D.Identity();
     private offscreen: { canvas: ICanvas; width: number; height: number } | null = null;
@@ -249,7 +249,7 @@ function Drawn<T extends ControlClass>(Base: T) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args);
-      // `_clip` is private in Babylon's declarations, so it's replaced on the instance (ADR 0426, checked on upgrades).
+      // `_clip` is private in Babylon's declarations, so it's replaced on the instance (ADR 0430, checked on upgrades).
       const own = (Base.prototype as unknown as { _clip(c: ICanvasRenderingContext, r?: Nullable<Measure>): void })._clip;
       (this as unknown as { _clip(c: ICanvasRenderingContext, r?: Nullable<Measure>): void })._clip = (c, r) => (this.filterReach > 0 ? this.clipFiltered(c) : own.call(this, c, r));
     }
@@ -272,7 +272,7 @@ function Drawn<T extends ControlClass>(Base: T) {
       return this.renderFiltered(context, invalidatedRectangle);
     }
 
-    /** ADR 0428: what's drawn behind its box, filtered, drawn back under it (see `Drawn`). */
+    /** ADR 0432: what's drawn behind its box, filtered, drawn back under it (see `Drawn`). */
     private drawBackdrop(context: ICanvasRenderingContext): void {
       const b = this.backdrop!;
       const self = this as unknown as ControlInternals;
@@ -368,7 +368,7 @@ function Drawn<T extends ControlClass>(Base: T) {
 const DrawnRectangle = Drawn(Rectangle);
 const DrawnImage = Drawn(Image);
 
-/** ADR 0428: a control's backdrop filter as `Drawn` draws it. */
+/** ADR 0432: a control's backdrop filter as `Drawn` draws it. */
 interface Backdrop {
   readonly text: string;
   readonly steps: readonly UIFilterStep[];
@@ -398,11 +398,11 @@ function roundedBoxPath(ctx: ICanvasRenderingContext, x: number, y: number, w: n
   ctx.closePath();
 }
 
-/** ADR 0428: the controls with a backdrop filter on each texture, whose redraws `growForBackdrops` widens. */
+/** ADR 0432: the controls with a backdrop filter on each texture, whose redraws `growForBackdrops` widens. */
 const backdropControls = new WeakMap<AdvancedDynamicTexture, Set<Control & { backdrop: Backdrop | null }>>();
 
 /**
- * ADR 0428: after layout, before the texture clears what it redraws: a redraw region touching a backdrop element's box or
+ * ADR 0432: after layout, before the texture clears what it redraws: a redraw region touching a backdrop element's box or
  * what it samples (its box grown by its filter's reach) grows to cover both, so the element is redrawn whole over freshly
  * drawn pixels. Repeated until no backdrop element is partly in it.
  */
@@ -434,7 +434,7 @@ function growForBackdrops(adt: AdvancedDynamicTexture, set: Set<Control & { back
 type Drawable = { readonly width?: number; readonly height?: number };
 
 /**
- * ADR 0426: an inline SVG's rasterised image or a video's current frame, drawn into the box by `fit` (`fill` stretches,
+ * ADR 0430: an inline SVG's rasterised image or a video's current frame, drawn into the box by `fit` (`fill` stretches,
  * `contain` fits it whole, `cover` fills the box and crops). Babylon's `Image` waits for an image's `onload`, which a
  * video never fires, and drops its picture while a new source loads (an SVG re-rasterised each frame of a `draw`
  * transition would flicker), so this draws whatever it holds.
@@ -474,7 +474,7 @@ class MediaImage extends Drawn(Control) {
 }
 
 /**
- * ADR 0426: an inline SVG's text made ready to rasterise at `w × h` pixels: the root's `width` and `height` set to that
+ * ADR 0430: an inline SVG's text made ready to rasterise at `w × h` pixels: the root's `width` and `height` set to that
  * (keeping its `viewBox`, or making one from the size it had, so it scales rather than crops), and `color` for
  * `currentColor`.
  */
@@ -542,23 +542,23 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
     return super._computeAdditionalOffsetY() + this.overflow;
   }
 
-  /** ADR 0425: the element's own `background-color`, painted over its box under the text (CSS text); null: none. */
+  /** ADR 0429: the element's own `background-color`, painted over its box under the text (CSS text); null: none. */
   boxBackground: string | null = null;
   /**
-   * ADR 0425: inline runs to draw instead of the block's own text: the core's layout (lines and fragments, from the content
+   * ADR 0429: inline runs to draw instead of the block's own text: the core's layout (lines and fragments, from the content
    * box's corner `inset`), the runs, and an editable text's caret and selection. Null: plain text, drawn by Babylon.
    */
   inline: { layout: UIInlineLayout; runs: readonly UIInlineRun[]; boxes: readonly UIInlineBox[]; editing: UIInlineEditing | null } | null = null;
-  /** ADR 0425: an inline image's picture by texture path (null while it loads). */
+  /** ADR 0429: an inline image's picture by texture path (null while it loads). */
   inlineImage: (src: string) => CanvasImageSource | null = () => null;
-  /** ADR 0428: the element's own border (widths top, right, bottom, left in UI pixels), its colour and corner radius; null: none. */
+  /** ADR 0432: the element's own border (widths top, right, bottom, left in UI pixels), its colour and corner radius; null: none. */
   boxBorder: { readonly widths: readonly [number, number, number, number]; readonly color: string } | null = null;
   boxRadius = 0;
-  /** ADR 0428 (`::selection`): the selection's highlight (CSS colour) and its glyphs' colour (null: their own). */
+  /** ADR 0432 (`::selection`): the selection's highlight (CSS colour) and its glyphs' colour (null: their own). */
   selectionFill = SELECTION_COLOR;
   selectionText: string | null = null;
   /**
-   * ADR 0428: an input field's selected text (its plain text, not runs), as rectangles from the block's corner (UI pixels):
+   * ADR 0432: an input field's selected text (its plain text, not runs), as rectangles from the block's corner (UI pixels):
    * highlighted under the glyphs, and with `selectionText` the glyphs drawn again in that colour inside them. Null: none.
    */
   fieldSelection: readonly { readonly x: number; readonly y: number; readonly width: number; readonly height: number }[] | null = null;
@@ -578,7 +578,7 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
     context.restore();
   }
 
-  /** ADR 0428: an input field's text with its selection: highlight, glyphs, then the selected glyphs again in `selectionText`. */
+  /** ADR 0432: an input field's text with its selection: highlight, glyphs, then the selected glyphs again in `selectionText`. */
   private drawFieldSelection(context: ICanvasRenderingContext, rects: NonNullable<LocalisedTextBlock["fieldSelection"]>): void {
     const m = this._currentMeasure;
     context.save();
@@ -603,7 +603,7 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
   }
 
   /**
-   * ADR 0425: the runs as the core laid them out: selection, backgrounds, then each fragment's glyphs (outline under the
+   * ADR 0429: the runs as the core laid them out: selection, backgrounds, then each fragment's glyphs (outline under the
    * fill, the block's shadow under both) or image, and its decorations; the caret last. In UI pixels (the canvas's scale
    * is the context's transform), from the content box's corner.
    */
@@ -611,7 +611,7 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
     const m = this._currentMeasure;
     const { layout, runs, editing } = inline;
     const ox = m.left + (layout.inset?.x ?? 0), oy = m.top + (layout.inset?.y ?? 0);
-    // ADR 0428: inline boxes (outer ones first), each line's part with its sides where the box starts and ends.
+    // ADR 0432: inline boxes (outer ones first), each line's part with its sides where the box starts and ends.
     for (const line of layout.lines) {
       for (const part of line.boxes ?? []) {
         const b = inline.boxes[part.box];
@@ -639,7 +639,7 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
       ctx.shadowOffsetY = this.shadowOffsetY * ratio;
     }
     this.drawFragments(context, layout, runs, ox, oy, null);
-    // ADR 0428 (`::selection`'s `color`): the selected glyphs again in that colour, inside the selection.
+    // ADR 0432 (`::selection`'s `color`): the selected glyphs again in that colour, inside the selection.
     const selected = editing?.selection ?? [];
     if (this.selectionText && selected.length) {
       context.save();
@@ -671,7 +671,7 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
           if (picture) context.drawImage(picture, x, oy + f.top, f.width, f.height);
           continue;
         }
-        if (r.atom) continue; // ADR 0428: an atomic inline box is an element of its own, drawn as itself
+        if (r.atom) continue; // ADR 0432: an atomic inline box is an element of its own, drawn as itself
         context.font = inlineFont(r);
         context.fillStyle = color ?? r.color;
         if (this.outlineWidth && !color) context.strokeText(f.text, x, oy + f.baseline);
@@ -688,7 +688,7 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
   }
 }
 
-/** ADR 0425: an editable text's selection, painted under its glyphs. */
+/** ADR 0429: an editable text's selection, painted under its glyphs. */
 const SELECTION_COLOR = "rgba(80, 140, 255, 0.45)";
 
 const NO_BORDER = [0, 0, 0, 0] as const;
@@ -713,7 +713,7 @@ function roundedPath(context: ICanvasRenderingContext, x: number, y: number, w: 
 }
 
 /**
- * ADR 0428: a box's background and border in its border box: a text's own, or one line's part of an inline box, whose
+ * ADR 0432: a box's background and border in its border box: a text's own, or one line's part of an inline box, whose
  * left and right sides (and their corners) are drawn only where `left`/`right` say (a box broken across lines is sliced).
  * Borders are filled per side; with rounded corners and one width all round, the border is stroked along the curve.
  */
@@ -746,7 +746,7 @@ function paintInlineBox(ctx: ICanvasRenderingContext, x: number, y: number, w: n
 }
 
 /**
- * A panel's rectangle with the paint of ADR 0418 wave 2. A Babylon gradient is placed in the texture's pixels, not the
+ * A panel's rectangle with the paint of ADR 0422 wave 2. A Babylon gradient is placed in the texture's pixels, not the
  * control's, so the rectangle rebuilds its gradient for the box it's drawn in, the moment it draws (assigned to the
  * protected field, as a setter would mark it dirty again mid-draw).
  */
@@ -795,9 +795,9 @@ export class BabylonUI {
   readonly screen: AdvancedDynamicTexture;
   private readonly canvases = new Map<UICanvas, CanvasEntry>();
   private readonly elements = new Map<UIComponentType, ElementEntry>();
-  /** ADR 0418: clips of `overflow: hidden` elements, by the element. */
+  /** ADR 0422: clips of `overflow: hidden` elements, by the element. */
   private readonly clips = new Map<UIComponentType, ClipEntry>();
-  /** ADR 0423: scrollers' scrollbars, by the element. */
+  /** ADR 0427: scrollers' scrollbars, by the element. */
   private readonly bars = new Map<UIComponentType, BarsEntry>();
   private readonly warned = new Set<string>();
   private stamp = 0;
@@ -982,7 +982,7 @@ export class BabylonUI {
     }
     e.stamp = stamp;
     const ctl = e.control;
-    // ADR 0418: inside its clipper's clip (if any), offset by the clip's corner.
+    // ADR 0422: inside its clipper's clip (if any), offset by the clip's corner.
     const into = this.clipOf(el, canvas);
     const parent = into?.container ?? canvas.root;
     if (ctl.parent !== parent) {
@@ -1003,7 +1003,7 @@ export class BabylonUI {
     switch (el.kind) {
       case "panel":
       case "button":
-      // ADR 0424: form elements are panels with parts (`syncParts`); a select and a text area have text as a field does.
+      // ADR 0428: form elements are panels with parts (`syncParts`); a select and a text area have text as a field does.
       case "option":
       case "toggle":
       case "radio":
@@ -1018,7 +1018,7 @@ export class BabylonUI {
         this.syncUIText(e, c as UIText, el.text!, canvas.root.scaleX, el.transform ?? null, el);
         break;
       case "image":
-        // ADR 0426: an inline SVG's image and a video's frame; else a texture.
+        // ADR 0430: an inline SVG's image and a video's frame; else a texture.
         if (c instanceof UISvg) this.syncSvg(e, c, el, canvas.root.scaleX);
         else if (c instanceof UIVideo) this.syncVideo(e, c);
         else this.syncImage(e, c as UIImage, el);
@@ -1033,7 +1033,7 @@ export class BabylonUI {
   }
 
   /**
-   * ADR 0424: a form element's parts (a checkbox's fill and mark, a slider's track, fill and thumb, a bar's fill, a
+   * ADR 0428: a form element's parts (a checkbox's fill and mark, a slider's track, fill and thumb, a bar's fill, a
    * select's arrow), from the core's `parts`: filled rectangles over its box, made as needed and reused.
    */
   private syncParts(e: ElementEntry, el: UILaidOutElement, scale: number): void {
@@ -1070,7 +1070,7 @@ export class BabylonUI {
       const [cr, cg, cb, ca] = p.color;
       const css = `rgba(${Math.round(cr * 255)}, ${Math.round(cg * 255)}, ${Math.round(cb * 255)}, ${ca})`;
       if (put(r, "color", css)) r.background = css;
-      // ADR 0428: part pseudo-elements' borders and shadows.
+      // ADR 0432: part pseudo-elements' borders and shadows.
       const rgbaCss = (c: readonly number[]) => `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${c[3]})`;
       const bw = p.border?.width ?? 0;
       if (put(r, "bw", bw)) r.thickness = bw;
@@ -1136,7 +1136,7 @@ export class BabylonUI {
 
   /**
    * Place a control whose untransformed box has its top-left corner at (x, y) in canvas UI pixels, drawn in `into` (a
-   * clip container) or its canvas root, with its whole transform `transform` (ADR 0418 wave 3, see the head comment).
+   * clip container) or its canvas root, with its whole transform `transform` (ADR 0422 wave 3, see the head comment).
    */
   private place(ctl: Control, x: number, y: number, into: ClipEntry | undefined, transform: UIAffine | null, _name: string): void {
     const frame = into?.transform ?? null;
@@ -1147,7 +1147,7 @@ export class BabylonUI {
     }
     const ix = into?.x ?? 0, iy = into?.y ?? 0;
     const d = rel ? decompose(rel) : null;
-    // ADR 0426: a skew (a rotation inside an unequal scale, `skew()`, `matrix()`) isn't Babylon's rotation and scales: the
+    // ADR 0430: a skew (a rotation inside an unequal scale, `skew()`, `matrix()`) isn't Babylon's rotation and scales: the
     // control is placed where layout put it and drawn through the whole map, in its parent's frame (`Drawn`).
     const drawn = ctl as Control & { affine?: UIAffine | null };
     if (rel && d && Math.abs(d.skew) > 1e-6 && "affine" in drawn) {
@@ -1195,7 +1195,7 @@ export class BabylonUI {
     e.control.dispose();
   }
 
-  // --- overflow: hidden (ADR 0418) ---
+  // --- overflow: hidden (ADR 0422) ---
 
   /** The clip an element is drawn in: its clipper's, or undefined (drawn in its canvas's root). */
   private clipOf(el: UILaidOutElement, canvas: CanvasEntry): ClipEntry | undefined {
@@ -1234,7 +1234,7 @@ export class BabylonUI {
       parent.addControl(ctl);
     }
     ctl.isVisible = el.visible;
-    // ADR 0418 wave 3: it moves with its clipper (placed before `clip` takes the clipper's transform for its own children).
+    // ADR 0422 wave 3: it moves with its clipper (placed before `clip` takes the clipper's transform for its own children).
     this.place(ctl, box.x, box.y, into, el.transform ?? null, el.comp.owner.name);
     clip.x = box.x;
     clip.y = box.y;
@@ -1252,7 +1252,7 @@ export class BabylonUI {
     clip.container.dispose();
   }
 
-  // --- scrollbars (ADR 0423) ---
+  // --- scrollbars (ADR 0427) ---
 
   /**
    * A scroller's scrollbars: a track and a thumb per axis the core shows one on, drawn where the scroller is drawn
@@ -1340,7 +1340,7 @@ export class BabylonUI {
     let background = c.backgroundColor;
     let border = c.borderColor;
     // Focus colours (ADR 0340) show while the last UI input was navigation: a button's fill, a field's border.
-    // ADR 0424: every control shows it, a button (and an option) by its fill, the others by their border.
+    // ADR 0428: every control shows it, a button (and an option) by its fill, the others by their border.
     const showsFocus = isFocusableUI(c) && uiInteractions(c._world).showsFocus(c);
     if (c instanceof UIButton && c.interactable) {
       // Pressed needs hovered too (a press dragged off the button shows it unpressed).
@@ -1350,7 +1350,7 @@ export class BabylonUI {
     } else if (!(c instanceof UIButton) && isFocusableUI(c) && showsFocus) border = c.focusColor;
     const bk = background ? colorKey(background) : -1;
     if (put(r, "bg", bk)) r.background = background ? background.toCss() : "";
-    // ADR 0418 wave 2: a corner's own radius, or (at -1) borderRadius. Babylon's corners, by how Rectangle draws them:
+    // ADR 0422 wave 2: a corner's own radius, or (at -1) borderRadius. Babylon's corners, by how Rectangle draws them:
     // X top-left, Y top-right, Z bottom-right, W bottom-left (its declarations' comments swap Z and W).
     const corner = (v: number) => (v >= 0 ? v : c.borderRadius);
     const tl = corner(c.borderTopLeftRadius);
@@ -1383,7 +1383,7 @@ export class BabylonUI {
     }
   }
 
-  /** A panel's `backgroundImage` (ADR 0418 wave 2): a gradient fill, a texture under its children, or neither. */
+  /** A panel's `backgroundImage` (ADR 0422 wave 2): a gradient fill, a texture under its children, or neither. */
   private setBackgroundImage(e: ElementEntry, r: PaintedRectangle, value: string, el: UILaidOutElement): void {
     const parsed = parseBackgroundImage(value);
     if (!parsed.ok) this.warnOnce(`bgimg|${value}`, `UI backgroundImage "${value}" ${parsed.problem}`);
@@ -1424,7 +1424,7 @@ export class BabylonUI {
   }
 
   /**
-   * A panel's border (ADR 0418): the Rectangle's own stroke while every side is as wide; unequal sides draw each side
+   * A panel's border (ADR 0422): the Rectangle's own stroke while every side is as wide; unequal sides draw each side
    * as a filled edge rectangle inside the box (top and bottom across it, left and right down it), the stroke off.
    */
   private syncBorder(e: ElementEntry, r: Rectangle, sides: readonly [number, number, number, number], color: Color): void {
@@ -1463,21 +1463,21 @@ export class BabylonUI {
    */
   private syncUIText(e: ElementEntry, c: UIText, run: UITextRun, scale: number, transform: UIAffine | null, el: UILaidOutElement): void {
     const t = e.control as LocalisedTextBlock;
-    // ADR 0425: runs are drawn from the core's layout (the block's own text stays empty); the box's background under them.
+    // ADR 0429: runs are drawn from the core's layout (the block's own text stays empty); the box's background under them.
     this.syncInline(t, el);
     const shown = el.inline ? "" : run.text;
     if (put(t, "text", shown)) t.text = shown;
     this.setFont(t, run);
     const ck = colorKey(c.color);
     if (put(t, "color", ck)) t.color = c.color.toCss();
-    // ADR 0417: in UI pixels like the font size, so the canvas's scale scales it too. Stroked twice as wide, centred on
+    // ADR 0421: in UI pixels like the font size, so the canvas's scale scales it too. Stroked twice as wide, centred on
     // the glyph edge: `textOutlineWidth` shows outside it.
     const outline = c.textOutlineColor && c.textOutlineWidth > 0 ? c.textOutlineWidth : 0;
     if (put(t, "outline", `${outline}|${outline ? colorKey(c.textOutlineColor!) : -1}`)) {
       t.outlineWidth = outline * 2;
       if (outline) t.outlineColor = c.textOutlineColor!.toCss();
     }
-    // ADR 0418 wave 2: one shadow under the glyphs, scaled by the canvas like a panel's.
+    // ADR 0422 wave 2: one shadow under the glyphs, scaled by the canvas like a panel's.
     const shadow = c.textShadowColor;
     if (put(t, "shadow", shadow ? `${colorKey(shadow)}|${c.textShadowOffsetX}|${c.textShadowOffsetY}|${c.textShadowBlur}|${scale}|${linearKey(transform)}` : "none")) {
       const reach = applyShadow(t, shadow, c.textShadowOffsetX, c.textShadowOffsetY, c.textShadowBlur, scale, transform);
@@ -1497,7 +1497,7 @@ export class BabylonUI {
     }
   }
 
-  /** ADR 0425: a text's box background and inline runs, redrawn when the core's layout, runs or editing state change. */
+  /** ADR 0429: a text's box background and inline runs, redrawn when the core's layout, runs or editing state change. */
   private syncInline(t: LocalisedTextBlock, el: UILaidOutElement): void {
     const c = el.comp as UIText;
     const bg = c.backgroundColor && c.backgroundColor.a > 0 ? c.backgroundColor.toCss() : null;
@@ -1505,7 +1505,7 @@ export class BabylonUI {
       t.boxBackground = bg;
       t._markAsDirty();
     }
-    // ADR 0428: its own border and rounded corners.
+    // ADR 0432: its own border and rounded corners.
     const widths = uiBorderEdges(c);
     const border = widths.some((w) => w > 0) && c.borderColor && c.borderColor.a > 0 ? { widths, color: c.borderColor.toCss() } : null;
     if (put(t, "boxBorder", border ? `${widths.join(",")}|${border.color}|${c.borderRadius}` : `-|${c.borderRadius}`)) {
@@ -1513,7 +1513,7 @@ export class BabylonUI {
       t.boxRadius = Math.max(0, c.borderRadius || 0);
       t._markAsDirty();
     }
-    // ADR 0428: `::selection`'s colours for an editable text's selection.
+    // ADR 0432: `::selection`'s colours for an editable text's selection.
     const fill = c.selectionBackgroundColor ? c.selectionBackgroundColor.toCss() : SELECTION_COLOR;
     const text = c.selectionColor ? c.selectionColor.toCss() : null;
     if (put(t, "selection", `${fill}|${text}`)) {
@@ -1531,10 +1531,10 @@ export class BabylonUI {
     }
   }
 
-  /** ADR 0425: inline images' pictures by texture path, and the text blocks waiting for each to load. */
+  /** ADR 0429: inline images' pictures by texture path, and the text blocks waiting for each to load. */
   private readonly inlineImages = new Map<string, { picture: CanvasImageSource | null; waiting: Set<Control> }>();
 
-  /** ADR 0425: an inline image's picture, loading it the first time (the text is drawn again once it's there). */
+  /** ADR 0429: an inline image's picture, loading it the first time (the text is drawn again once it's there). */
   private inlineImageOf(src: string, t: Control): CanvasImageSource | null {
     const ref = src ? splitSpriteRef(src).path : "";
     if (!ref) return null;
@@ -1605,7 +1605,7 @@ export class BabylonUI {
   }
 
   /**
-   * ADR 0426: an inline SVG, rasterised as an SVG image at its box's size in texture pixels, again only when its text,
+   * ADR 0430: an inline SVG, rasterised as an SVG image at its box's size in texture pixels, again only when its text,
    * colour or size changed. The image it had stays drawn until the new one has loaded.
    */
   private syncSvg(e: ElementEntry, c: UISvg, el: UILaidOutElement, scale: number): void {
@@ -1634,7 +1634,7 @@ export class BabylonUI {
     picture.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgForRaster(c.markup, color, w, h))}`;
   }
 
-  /** ADR 0426: a video's current frame, redrawn each frame while it plays (and when it seeks while paused). */
+  /** ADR 0430: a video's current frame, redrawn each frame while it plays (and when it seeks while paused). */
   private syncVideo(e: ElementEntry, c: UIVideo): void {
     const img = e.control as MediaImage;
     if (put(img, "fit", c.fit)) img.fit = c.fit;
@@ -1653,14 +1653,14 @@ export class BabylonUI {
   }
 
   /**
-   * An input field's box, text and caret. ADR 0424: a select's too (its chosen option's label, no caret), and a text
+   * An input field's box, text and caret. ADR 0428: a select's too (its chosen option's label, no caret), and a text
    * area's: its lines from the top, wrapped, moved up by its scroll, the caret on the line it's in (soft wraps aside).
    */
   private syncInput(e: ElementEntry, c: UIInputField | UISelect, el: UILaidOutElement, extra: UIDrawExtra): void {
     this.syncPanel(e, c, el, e.canvas.root.scaleX);
     const label = e.label!;
     const caret = e.caret!;
-    // Insets per side (ADR 0418). The Rectangle insets its children by its stroke, which it has only while the border's sides are equal.
+    // Insets per side (ADR 0422). The Rectangle insets its children by its stroke, which it has only while the border's sides are equal.
     const [bt, br, bb, bl] = uiBorderEdges(c);
     const stroke = bt === br && bt === bb && bt === bl ? bt : 0;
     const [pt, pr, , pl] = uiEdges(c.padding, c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft);
@@ -1682,7 +1682,7 @@ export class BabylonUI {
     const field = c instanceof UIInputField ? c : null;
     const color = !field || field.value ? c.color : field.placeholderColor;
     if (put(label, "color", colorKey(color))) label.color = color.toCss();
-    // ADR 0428: `::placeholder`'s `font-style` slants the placeholder.
+    // ADR 0432: `::placeholder`'s `font-style` slants the placeholder.
     const slant = field && !field.value && field.placeholderFontStyle !== "normal" ? "italic" : "";
     if (put(label, "slant", slant)) label.fontStyle = slant;
     if (put(label, "wrap", run.wrap)) label.textWrapping = run.wrap === "none" ? WRAP_CLIP : WRAP_WORD;
@@ -1722,7 +1722,7 @@ export class BabylonUI {
   }
 
   /**
-   * ADR 0428: an input field's selection while typing (`[start, end)` in its value), as rectangles in its text block's
+   * ADR 0432: an input field's selection while typing (`[start, end)` in its value), as rectangles in its text block's
    * frame: per line by line breaks in a text area (soft wraps aside, as the caret), measured as the caret is; with
    * `::selection`'s colours (the default highlight, the glyphs' own colour). Marks the block dirty when it changed.
    */
@@ -1813,7 +1813,7 @@ function linearKey(m: UIAffine | null): string {
 }
 
 /**
- * A control's shadow (ADR 0418 wave 2) from UI-pixel values, in texture pixels (`scale` per UI pixel: Canvas2D draws
+ * A control's shadow (ADR 0422 wave 2) from UI-pixel values, in texture pixels (`scale` per UI pixel: Canvas2D draws
  * shadows untransformed). Returns how far it reaches past the box, in texture pixels. Null: none. `transform` (wave 3) is
  * the element's whole transform: as in CSS, the offset turns and scales with the element and the blur scales.
  */
@@ -1835,7 +1835,7 @@ function applyShadow(ctl: Control, color: Color | null, offsetX: number, offsetY
 }
 
 /**
- * ADR 0426: a control's filter from the core's chain (lengths in UI pixels), in texture pixels (`scale` per UI pixel), as
+ * ADR 0430: a control's filter from the core's chain (lengths in UI pixels), in texture pixels (`scale` per UI pixel), as
  * the context's `filter` text and the steps the offscreen fallback draws. Marks it dirty when it changed.
  */
 function applyFilter(ctl: Control, steps: readonly UIFilterStep[] | null, scale: number): void {
@@ -1853,7 +1853,7 @@ function applyFilter(ctl: Control, steps: readonly UIFilterStep[] | null, scale:
 }
 
 /**
- * ADR 0428: a control's backdrop filter from the core's steps (UI pixels) in texture pixels, with the element's corner
+ * ADR 0432: a control's backdrop filter from the core's steps (UI pixels) in texture pixels, with the element's corner
  * radii; registers it with its texture so redraws touching it redraw it whole. Marks it dirty when it changed.
  */
 function applyBackdrop(ctl: Control, steps: readonly UIFilterStep[] | null, scale: number, comp: UIComponentType): void {
@@ -1889,7 +1889,7 @@ function applyBackdrop(ctl: Control, steps: readonly UIFilterStep[] | null, scal
 function placeBox(c: Control): void {
   c.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
   c.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-  // Turned and scaled about the top-left corner: canvas roots by their scale, elements by their transform (ADR 0418 wave 3).
+  // Turned and scaled about the top-left corner: canvas roots by their scale, elements by their transform (ADR 0422 wave 3).
   c.transformCenterX = 0;
   c.transformCenterY = 0;
 }
@@ -2099,7 +2099,7 @@ export function measureText(req: TextMeasureRequest): { width: number; height: n
 }
 
 /**
- * ADR 0425: one line of text's width in UI pixels in a CSS font (`UICoreHost.measureRunWidth`), the 2D canvas's exact
+ * ADR 0429: one line of text's width in UI pixels in a CSS font (`UICoreHost.measureRunWidth`), the 2D canvas's exact
  * measure the inline runs' layout positions with; drawn with the same font, so fragments sit where they were laid out.
  * Without a canvas (Node) it estimates per character.
  */

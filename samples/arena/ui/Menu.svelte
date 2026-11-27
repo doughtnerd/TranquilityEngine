@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The arena's menu (ADR 0419): the title, the two choices and a status line. scripts/behaviors/Menu.ts passes
+  // The arena's menu (ADR 0423): the title, the two choices and a status line. scripts/behaviors/Menu.ts passes
   // `join` (the Join item's text) and `status` (the message line) in through its UIView's props.
   let { join = "", status = "" }: { join?: string; status?: string } = $props();
 </script>
@@ -68,7 +68,7 @@
   /* Labels over the game let the pointer through to it (ADR 0385). */
   span {
     raycast-target: false;
-    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0428 white-space). */
+    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0432 white-space). */
     white-space: pre-wrap;
   }
 </style>

@@ -1,6 +1,6 @@
-// ADR 0418 wave 3: transforms. The affine module everything reads (composition, inversion, origin), the CSS values
+// ADR 0422 wave 3: transforms. The affine module everything reads (composition, inversion, origin), the CSS values
 // (`transform`, `translate`, `scale`, `rotate`, `transform-origin`) and the cascade that expands them, and the UI core's
-// hit-testing, picking, clipping, corners and keyboard navigation on transformed elements. ADR 0426: the full matrix
+// hit-testing, picking, clipping, corners and keyboard navigation on transformed elements. ADR 0430: the full matrix
 // (skew, `matrix()`), held when a list doesn't fold, hit exactly and interpolated as CSS interpolates matrices.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, Input } from "../index";
@@ -49,7 +49,7 @@ const fields = (over: Partial<UITransformFields> = {}): UITransformFields => ({ 
 const near = (p: readonly number[], q: readonly number[]) => p.forEach((v, i) => expect(v).toBeCloseTo(q[i], 6));
 const at = (m: UIAffine | null, x: number, y: number) => (m ? applyAffine(m, x, y) : [x, y]);
 
-describe("the transform module (ADR 0418 wave 3)", () => {
+describe("the transform module (ADR 0422 wave 3)", () => {
   const box = { x: 100, y: 50, width: 200, height: 100 };
 
   it("is null (the identity) for untransformed fields", () => {
@@ -100,7 +100,7 @@ describe("the transform module (ADR 0418 wave 3)", () => {
   });
 });
 
-describe("transform values (ADR 0418 wave 3)", () => {
+describe("transform values (ADR 0422 wave 3)", () => {
   const value = <T,>(r: { ok: true; value: T } | { ok: false; problem: string }) => (r.ok ? r.value : r.problem);
 
   it("folds a transform list, composed left to right, into translate, rotate and scale", () => {
@@ -114,7 +114,7 @@ describe("transform values (ADR 0418 wave 3)", () => {
     expect(value(parseTransform("rotate(0.25turn) rotate(-1.5707963267948966rad)"))).toMatchObject({ rotate: 0 });
   });
 
-  it("holds a list that doesn't fold as the full matrix, after its leading translates (ADR 0426)", () => {
+  it("holds a list that doesn't fold as the full matrix, after its leading translates (ADR 0430)", () => {
     const t = Math.round(Math.tan(Math.PI / 18) * 1e6) / 1e6;
     expect(value(parseTransform("skewX(10deg)"))).toEqual({ translateX: "0", translateY: "0", scaleX: 1, scaleY: 1, rotate: 0, transformMatrix: `matrix(1, 0, ${t}, 1, 0, 0)` });
     expect(value(parseTransform("skewY(10deg)"))).toMatchObject({ transformMatrix: `matrix(1, ${t}, 0, 1, 0, 0)` });
@@ -154,7 +154,7 @@ describe("transform values (ADR 0418 wave 3)", () => {
   });
 });
 
-describe("transforms in the cascade (ADR 0418 wave 3)", () => {
+describe("transforms in the cascade (ADR 0422 wave 3)", () => {
   it("expands transform, translate, scale and transform-origin, and takes rotate as an angle", () => {
     const doc = buildUI(`<Canvas><div id="a" class="a"/><div id="b" class="b"/><div id="c" transform="rotate(-0.25turn) scale(3)" transform-origin="right bottom" translate-x="25%"/></Canvas>`, {
       css: `.a { transform: translate(10px, 20%) rotate(45deg) scale(2, 1); transform-origin: left top }
@@ -198,7 +198,7 @@ describe("transforms in the cascade (ADR 0418 wave 3)", () => {
   });
 });
 
-describe("hit-testing and picking transformed elements (ADR 0418 wave 3)", () => {
+describe("hit-testing and picking transformed elements (ADR 0422 wave 3)", () => {
   /** A 200 × 50 button at (100, 100), written as `attrs`. */
   function button(attrs: string) {
     const doc = buildUI(`<Canvas><button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" ${attrs}/></Canvas>`);
@@ -290,7 +290,7 @@ describe("hit-testing and picking transformed elements (ADR 0418 wave 3)", () =>
   });
 });
 
-describe("navigation between transformed elements (ADR 0418 wave 3)", () => {
+describe("navigation between transformed elements (ADR 0422 wave 3)", () => {
   it("searches the transformed boxes' centres", async () => {
     // a and b side by side as laid out; b is translated below a, c is to the right of a.
     const doc = buildUI(`<Canvas>
@@ -318,7 +318,7 @@ describe("navigation between transformed elements (ADR 0418 wave 3)", () => {
   });
 });
 
-describe("the editor's view of transforms (ADR 0418 wave 3)", () => {
+describe("the editor's view of transforms (ADR 0422 wave 3)", () => {
   it("picks from the drawn box in z order", async () => {
     const doc = buildUI(`<Canvas><button id="under" position="absolute" left="0" top="0" width="100" height="100" padding="0"/>
         <button id="over" position="absolute" left="200" top="0" width="100" height="100" padding="0" translate-x="-150"/></Canvas>`);
@@ -329,7 +329,7 @@ describe("the editor's view of transforms (ADR 0418 wave 3)", () => {
   });
 });
 
-describe("matrix transforms with skew (ADR 0426)", () => {
+describe("matrix transforms with skew (ADR 0430)", () => {
   const box = { x: 100, y: 100, width: 200, height: 50 };
 
   it("applies the full matrix after translate, rotate and scale, about the origin", () => {

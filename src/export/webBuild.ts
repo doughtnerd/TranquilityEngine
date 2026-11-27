@@ -44,13 +44,13 @@ export interface BuildSource {
   /** The JSON files' text by path (scripts can import them). */
   readonly json: ReadonlyMap<string, string>;
   /**
-   * The UI code's text by path (ADR 0419): Svelte components and rune modules, which compile (dev: false) into the
+   * The UI code's text by path (ADR 0423): Svelte components and rune modules, which compile (dev: false) into the
    * build's code like scripts and don't ship as files, and `.css` files, which components may import.
    */
   readonly ui?: ReadonlyMap<string, string>;
   /**
    * The engine's Svelte runtime and renderer, which the UI code is bundled with into the build's code, tree-shaken
-   * (ADR 0421); without it, a project with Svelte UI can't be built.
+   * (ADR 0425); without it, a project with Svelte UI can't be built.
    */
   readonly uiRuntime?: UIRuntimeSource;
 
@@ -171,7 +171,7 @@ const EDITOR_FILES = new Set(["tsconfig.json", "jsconfig.json", "sample.json"]);
 /**
  * True if a file goes into builds as it is: every project file (ADR 0254: not hidden, not in a
  * dependency or build folder, not a script, which ships compiled) but the editor-only ones and
- * TypeScript tool modules (`.mts`, `.cts`), which nothing in a build can run, and Svelte UI sources (ADR 0419),
+ * TypeScript tool modules (`.mts`, `.cts`), which nothing in a build can run, and Svelte UI sources (ADR 0423),
  * which ship compiled. Asset sidecars (`<asset>.meta.json`) are ordinary files and go in.
  */
 const isExportedFile = (path: string) => isProjectFile(path) && !EDITOR_FILES.has(path) && !/\.(mts|cts)$/i.test(path) && !isUISourcePath(path);
@@ -448,9 +448,9 @@ ${lan}${pairing}});
 }
 
 /**
- * The project's UI code, plus the engine's built-in UI components it uses (ADR 0419 wave B): those whose engine
+ * The project's UI code, plus the engine's built-in UI components it uses (ADR 0423 wave B): those whose engine
  * component (`UIControlMapper`, `SubtitleDisplay`) a scene, prefab, script or UI source names. They compile into the
- * game's own code with the project's components (the player carries no Svelte, ADR 0421), each at its `@myco/ui/` path,
+ * game's own code with the project's components (the player carries no Svelte, ADR 0425), each at its `@myco/ui/` path,
  * from the engine's files the UI runtime comes from.
  */
 async function withBuiltinUI(source: BuildSource): Promise<ReadonlyMap<string, string> | undefined> {

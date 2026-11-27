@@ -30,7 +30,7 @@ const CODE_LANGUAGES: ReadonlyMap<string, CodeLanguage> = new Map([
   ["md", "markdown"],
   ["xml", "xml"],
   ["css", "css"],
-  // Svelte UI (ADR 0419): components edit as HTML (markup with <script> and <style>), rune modules (`*.svelte.ts`) as TypeScript.
+  // Svelte UI (ADR 0423): components edit as HTML (markup with <script> and <style>), rune modules (`*.svelte.ts`) as TypeScript.
   ["svelte", "html"],
   ["ts", "typescript"],
 ]);

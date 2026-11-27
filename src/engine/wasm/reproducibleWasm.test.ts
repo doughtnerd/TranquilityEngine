@@ -1,4 +1,4 @@
-// ADR 0428: the committed wasm the native build scripts write name no checkout. Their builds remap the repository root
+// ADR 0432: the committed wasm the native build scripts write name no checkout. Their builds remap the repository root
 // to `/myco` and CARGO_HOME to `/cargo` (native/rustflags.mjs), so a module rebuilt in another checkout or worktree is
 // the same bytes; one built some other way (a plain `cargo build`, an older script) shows here as a path. native/nav's
 // module is left out: navigation is frozen until its upstream merge, and its committed build still embeds paths.
@@ -26,7 +26,7 @@ const MODULES: Record<string, readonly string[]> = {
 /** Absolute paths of a builder's machine: home folders, a Windows drive, Cargo's registry, an agent worktree. */
 const CHECKOUT_PATH = /\/home\/[^/\0]+\/|\/Users\/[^/\0]+\/|\/root\/|[A-Za-z]:\\[^\0]{0,40}\\|\.claude[\\/]worktrees|\.cargo[\\/]registry/;
 
-describe("committed native wasm (ADR 0428)", () => {
+describe("committed native wasm (ADR 0432)", () => {
   for (const [script, modules] of Object.entries(MODULES)) {
     for (const path of modules) {
       it(`${path} (${script}) embeds no checkout's path`, () => {

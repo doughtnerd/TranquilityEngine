@@ -1,5 +1,5 @@
 /**
- * The inline HTML parser (ADR 0425): what `{@html}`, `innerHTML` and `bind:innerHTML` hand the engine's Svelte renderer,
+ * The inline HTML parser (ADR 0429): what `{@html}`, `innerHTML` and `bind:innerHTML` hand the engine's Svelte renderer,
  * as a small tokenizer rather than a full HTML parser (`htmlparser2`). Compiled components import it (`myco/ui-html`)
  * only when they use `{@html}` or `bind:innerHTML` (`compileSvelteUI` adds the import), so other games never load it.
  *

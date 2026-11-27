@@ -1,4 +1,4 @@
-// The edits behind the scene view's UI handles (ADR 0077 §4, wave B part 3; ADR 0419 wave C): which elements get
+// The edits behind the scene view's UI handles (ADR 0077 §4, wave B part 3; ADR 0423 wave C): which elements get
 // handles, and the resize, move and reorder drags, each one undo step over the element's file (see
 // uiHandles.ts, which draws the handles and turns pointer events into these drags). A drag reads
 // boxes on the canvas through the `BoxOf` it's given.
@@ -106,7 +106,7 @@ export function handleElement(ref: UIViewRef): { readonly component: UIComponent
 
 /** The parent's padding box (inside its border) in its own frame, UI pixels: origin and size. */
 function paddingBox(parent: HandleElement, box: BoxOnCanvas): { x: number; y: number; width: number; height: number } {
-  const [top, right, bottom, left] = uiBorderEdges(parent.component); // each side's own width (ADR 0418)
+  const [top, right, bottom, left] = uiBorderEdges(parent.component); // each side's own width (ADR 0422)
   return { x: left, y: top, width: Math.max(0, box.size[0] - left - right), height: Math.max(0, box.size[1] - top - bottom) };
 }
 
@@ -176,7 +176,7 @@ export function beginResize(ref: UIViewRef, id: HandleId, pointer: Point, boxOf:
     height: box.size[1],
     widthValue: f.width,
     heightValue: f.height,
-    // ADR 0418 wave 3: with a transform of its own, the box's frame isn't its parent's, where left/top are: size only.
+    // ADR 0422 wave 3: with a transform of its own, the box's frame isn't its parent's, where left/top are: size only.
     absolute: f.positionType === "absolute" && !hasTransform(el.component as unknown as UITransformFields),
     left: f.left,
     top: f.top,
@@ -203,7 +203,7 @@ export function beginMove(ref: UIViewRef, pointer: Point, boxOf: BoxOf): HandleD
   const f = fieldsOf(el);
   const label = subject.label;
   if (f.positionType === "absolute") {
-    // ADR 0418 wave 3: offsets are in the parent's frame, from where layout put the box (its own translate aside).
+    // ADR 0422 wave 3: offsets are in the parent's frame, from where layout put the box (its own translate aside).
     const topLeft = parentMap.toLocal((box.layoutPoints ?? box.points)[0]);
     if (!topLeft) return null;
     const start = { left: f.left, top: f.top, right: f.right, bottom: f.bottom, x: topLeft[0] - pad.x, y: topLeft[1] - pad.y, parentWidth: pad.width, parentHeight: pad.height };

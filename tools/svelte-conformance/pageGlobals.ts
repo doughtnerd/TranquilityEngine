@@ -1,4 +1,4 @@
-// The page globals a fixture's `_config.js` reads (ADR 0419 conformance harness). Svelte's harness runs each test in
+// The page globals a fixture's `_config.js` reads (ADR 0423 conformance harness). Svelte's harness runs each test in
 // jsdom, so a config can use the global `window` (`new window.InputEvent("input")`, `window.document.title`), the global
 // `document` (`document.querySelector("button")`: jsdom's body holds only the mounted target) and the `raf` of
 // tests/animation-helpers.js (which also patches `HTMLElement.prototype.animate`, meaningless here). Node has no page,
@@ -8,7 +8,7 @@
 // They stand for the page as a game has it: `window` is the renderer's `<svelte:window>` target (the same object a test
 // gets as its `window` argument) with event constructors; `document` is its `<svelte:document>` target, with queries
 // answered by the mounted target (the page's only content). Components never see these: a component that reads the
-// global `window` or `document` uses the browser beyond the Element subset and the hooks (out of scope, ADR 0419).
+// global `window` or `document` uses the browser beyond the Element subset and the hooks (out of scope, ADR 0423).
 
 /** The page's window: set by the harness once the renderer is loaded. */
 export let window: object = {};

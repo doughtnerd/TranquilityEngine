@@ -1,4 +1,4 @@
-// Source text helpers the stylesheet parser and the cascade share (ADR 0077, 0419): project-relative path
+// Source text helpers the stylesheet parser and the cascade share (ADR 0077, 0423): project-relative path
 // resolution and the line and column of a problem. Pure, with no parser behind them, so the cascade
 // (`cascade.ts`) can use them without loading css-tree.
 import type { SourceProblem, SourceSpan } from "./types";

@@ -1,4 +1,4 @@
-// ADR 0418 wave 4: the Inspector's value sources name a running transition or keyframe animation, over the source of
+// ADR 0422 wave 4: the Inspector's value sources name a running transition or keyframe animation, over the source of
 // the value it animates to (in a World that plays: nothing animates in a scene being edited). The UI animator says
 // which field is animated by what (`uiAnimatedField`, which `uiViews.ts` reads for a view's element); the Inspector's
 // wording of such an origin is `describeOrigin`'s.

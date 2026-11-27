@@ -1,10 +1,10 @@
-// The Inspector's Localise controls for an element a UIView rendered (ADR 0356 §9, ADR 0419 wave F): for its text
+// The Inspector's Localise controls for an element a UIView rendered (ADR 0356 §9, ADR 0423 wave F): for its text
 // content and each text attribute it has (`placeholder`, `title`, `alt`, `aria-label`…), the key it's written with
 // (with its text in the Play toolbar's preview language), or pick a key / Extract to string table for literal text, or
 // why it can't be localised as written (expressions, elements inside). Writes go through `uiViewEdits.ts` as one undo
 // step on the scene's history (the `.svelte` source and, for Extract, the table). Extract writes only a table the
 // editor may write now (the strings ownership rule, `localisationData.ts` `tableAccess`, with the Studio's lock).
-// Restored for Svelte UI from UI documents' `UIFieldLocalise.tsx` (retired with them by ADR 0419 wave D).
+// Restored for Svelte UI from UI documents' `UIFieldLocalise.tsx` (retired with them by ADR 0423 wave D).
 import { useEffect } from "preact/hooks";
 import { formatStringTable } from "../../../engine/localisation/strings/format";
 import { readAsset } from "../../assetDocuments";

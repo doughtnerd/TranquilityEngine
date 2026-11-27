@@ -1,6 +1,6 @@
-// Localised and unlocalised text in a Svelte component's source (ADR 0356 §7, §9, ADR 0419 wave F), read from
+// Localised and unlocalised text in a Svelte component's source (ADR 0356 §7, §9, ADR 0423 wave F), read from
 // `parse()` through `svelteText.ts`: what the Localisation panel's unkeyed-text list and fit check, and the Inspector's
-// Localise control, work from. It's the Svelte counterpart of what UI documents' markup gave them before ADR 0419.
+// Localise control, work from. It's the Svelte counterpart of what UI documents' markup gave them before ADR 0423.
 //
 // - **Text** is an element's text content and its literal attributes that show text: `placeholder` (fields), `title`,
 //   `aria-label`, `alt` (images), `label` (options) and `value` of `<input type="button|submit|reset">`.

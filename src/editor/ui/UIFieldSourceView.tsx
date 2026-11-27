@@ -1,4 +1,4 @@
-// The Inspector's pieces for a selected UI element's fields (ADR 0077 §4, ADR 0419 wave C): each field with its editor
+// The Inspector's pieces for a selected UI element's fields (ADR 0077 §4, ADR 0423 wave C): each field with its editor
 // and a badge saying where its value comes from (opening that file in the Code panel at the line), a text box that
 // commits on Enter or blur, and Move to class. `UIViewElementInspector.tsx` puts them together for Svelte UI.
 import { useEffect, useRef, useState } from "preact/hooks";

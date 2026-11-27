@@ -60,31 +60,31 @@ const hash = (text: string) => createHash("sha1").update(text).digest("hex");
 /** The module the editor imports the engine's declarations from (ADR 0030). */
 const ENGINE_TYPES = "virtual:myco-types";
 
-/** The engine's Svelte renderer module (ADR 0419), which compiled UI components import as `myco/ui-renderer`. */
+/** The engine's Svelte renderer module (ADR 0423), which compiled UI components import as `myco/ui-renderer`. */
 export const SVELTE_UI_RENDERER = fileURLToPath(new URL("./src/plugins/ui/svelte/renderer.ts", import.meta.url));
 
-/** What compiled UI components get for `svelte/reactivity` (ADR 0418 wave 5): Svelte's with `MediaQuery` on the canvas. */
+/** What compiled UI components get for `svelte/reactivity` (ADR 0422 wave 5): Svelte's with `MediaQuery` on the canvas. */
 const SVELTE_UI_REACTIVITY = fileURLToPath(new URL("./src/plugins/ui/svelte/reactivity.ts", import.meta.url));
-/** Svelte's `svelte/motion` entry, whose `prefersReducedMotion` is a `MediaQuery` from `svelte/reactivity` (ADR 0419 wave Z3). */
+/** Svelte's `svelte/motion` entry, whose `prefersReducedMotion` is a `MediaQuery` from `svelte/reactivity` (ADR 0423 wave Z3). */
 const SVELTE_MOTION_ENTRY = /[\\/]svelte[\\/]src[\\/]motion[\\/]index\.js$/;
 
-/** ADR 0425: the inline HTML parser, which compiled components that use `{@html}` or `bind:innerHTML` import as `myco/ui-html`. */
+/** ADR 0429: the inline HTML parser, which compiled components that use `{@html}` or `bind:innerHTML` import as `myco/ui-html`. */
 export const SVELTE_UI_HTML = fileURLToPath(new URL("./src/plugins/ui/svelte/htmlInline.ts", import.meta.url));
 
-/** The cascade's stylesheet parser, which Vitest's compiled components call when they load (ADR 0419). */
+/** The cascade's stylesheet parser, which Vitest's compiled components call when they load (ADR 0423). */
 const UI_STYLESHEET_PARSER = fileURLToPath(new URL("./src/engine/ui/document/stylesheet.ts", import.meta.url));
 /** The id prefix of a plain `.css` file a component imports, as a module registering its rules. */
 const UI_CSS_PREFIX = "\0myco-ui-css:";
 
 /**
- * Game UI components (ADR 0419): `*.svelte` compiled with the engine's custom renderer and external CSS,
+ * Game UI components (ADR 0423): `*.svelte` compiled with the engine's custom renderer and external CSS,
  * `*.svelte.ts` rune modules, and plain `.css` files components import, through
  * `src/plugins/ui/svelte/compile.mjs`. Filenames are passed relative to the repository, so scoping hashes
  * don't depend on the checkout's location. Vitest uses it; the editor and the export compile the same way
  * through the project code linker (`projectCode/compileUI.ts`), which parses the CSS while compiling. Here,
  * in Node, the parser (TypeScript with decorators behind it) can't load while compiling, so the compiled
  * module calls it when it loads. The editor (dev server and build) uses it too, for the engine's built-in UI components
- * (ADR 0419 wave B, each plugin's `builtinUI.ts`), which it compiles with its shared runtime.
+ * (ADR 0423 wave B, each plugin's `builtinUI.ts`), which it compiles with its shared runtime.
  */
 export function svelteUI(options: { dev?: boolean } = {}): Plugin {
   const root = fileURLToPath(new URL(".", import.meta.url));
@@ -96,7 +96,7 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
       // The renderer compiled components import (in every config that compiles them, aliased or not).
       if (source === "myco/ui-renderer") return SVELTE_UI_RENDERER;
       if (source === "myco/ui-html") return SVELTE_UI_HTML;
-      // UI code's `svelte/reactivity` is Svelte's with `MediaQuery` on the canvas (ADR 0418 wave 5), as in the editor and games.
+      // UI code's `svelte/reactivity` is Svelte's with `MediaQuery` on the canvas (ADR 0422 wave 5), as in the editor and games.
       // Svelte's own `svelte/motion` too, so its `prefersReducedMotion` follows the engine's setting (canvas `@media`) as UI code's `MediaQuery` does.
       if (source === "svelte/reactivity" && importer && (/\.svelte(\.[jt]s)?$/.test(importer.split("?")[0]) || SVELTE_MOTION_ENTRY.test(importer.split("?")[0]))) return SVELTE_UI_REACTIVITY;
       if (!importer || !source.endsWith(".css") || !/\.svelte(\.[jt]s)?$/.test(importer.split("?")[0])) return null;
@@ -132,11 +132,11 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
 
 const REPO_ROOT = fileURLToPath(new URL(".", import.meta.url));
 
-/** The browser's `path` for svelte2tsx (ADR 0428). */
+/** The browser's `path` for svelte2tsx (ADR 0432). */
 const POSIX_PATH = fileURLToPath(new URL("./src/editor/code/posixPath.ts", import.meta.url));
 
 /**
- * svelte2tsx (the editor's type checking inside Svelte components, ADR 0428) imports Node's `path`, which a browser
+ * svelte2tsx (the editor's type checking inside Svelte components, ADR 0432) imports Node's `path`, which a browser
  * build stubs out: its import resolves to `src/editor/code/posixPath.ts` instead. Only svelte2tsx's import, so nothing
  * else's `path` changes. The dev server's dependency bundler takes it too (`optimizeDeps.rolldownOptions.plugins`).
  */
@@ -193,7 +193,7 @@ function uiHostImports(): Map<string, Set<string>> {
 const UI_HOST_ENTRY = "\0myco-ui-host";
 
 /**
- * The player's UI host entry (ADR 0421), `myco-ui-host.js` beside myco.js: it re-exports what the engine's renderer
+ * The player's UI host entry (ADR 0425), `myco-ui-host.js` beside myco.js: it re-exports what the engine's renderer
  * imports from the engine's own modules, by the names it imports (read from the renderer's source, so it follows
  * the renderer). A game's UI bundle carries the renderer with Svelte and imports these from it, so they're the
  * player's engine instance (Rollup shares the code with myco.js). Engine code only: the player has no Svelte.
@@ -224,11 +224,11 @@ export function uiHostEntry(): { input: Record<string, string>; fileName: string
   };
 }
 
-/** The editor's copy of the engine's files a game's UI bundle reads (ADR 0421). */
+/** The editor's copy of the engine's files a game's UI bundle reads (ADR 0425). */
 const UI_RUNTIME_FILES = "virtual:myco-ui-runtime";
 
 /**
- * The engine's files a game's UI bundle reads (ADR 0421: Svelte's client runtime, the renderer, the `package.json`
+ * The engine's files a game's UI bundle reads (ADR 0425: Svelte's client runtime, the renderer, the `package.json`
  * files resolving them reads), by path from the repository, as a virtual module, `virtual:myco-ui-runtime`. The
  * editor's exports bundle UI code from it (it can't read the engine's folder, which `npm run export` reads), loading
  * it on the first export with Svelte UI.

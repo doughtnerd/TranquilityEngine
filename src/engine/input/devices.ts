@@ -224,12 +224,12 @@ export interface PointerFrame {
   held(button: number): boolean;
   /** The button was released this frame. */
   up(button: number): boolean;
-  /** What drives the pointer this frame (ADR 0423: a touch or pen drag scrolls, the mouse's doesn't): the pen while its tip is down, the primary touch while it's down, else the mouse. */
+  /** What drives the pointer this frame (ADR 0427: a touch or pen drag scrolls, the mouse's doesn't): the pen while its tip is down, the primary touch while it's down, else the mouse. */
   readonly pointerType: "mouse" | "touch" | "pen";
   /** The wheel this frame, CSS pixels (+y down), before any claim. */
   readonly wheelX: number;
   readonly wheelY: number;
-  /** This frame's key presses and releases (`Input`'s key names), in order, before any claim (ADR 0422: the focused UI element's `keydown`/`keyup`). */
+  /** This frame's key presses and releases (`Input`'s key names), in order, before any claim (ADR 0426: the focused UI element's `keydown`/`keyup`). */
   readonly keys: readonly { readonly key: string; readonly down: boolean }[];
   /** True while a key is held (modifiers for UI events). */
   keyHeld(key: string): boolean;
@@ -244,7 +244,7 @@ export interface InputClaim {
   readonly pointer?: boolean;
   readonly keyboard?: boolean;
   readonly keys?: readonly string[];
-  /** The wheel (ADR 0423): a UI scroller took this frame's scroll, so `scrolling` reads zero for the game. */
+  /** The wheel (ADR 0427): a UI scroller took this frame's scroll, so `scrolling` reads zero for the game. */
   readonly wheel?: boolean;
 }
 
@@ -1000,7 +1000,7 @@ class DeviceSnapshot implements DeviceEventSink {
     return this.moved.clone();
   }
 
-  /** The wheel, zero in a frame a UI scroller took it (ADR 0423). */
+  /** The wheel, zero in a frame a UI scroller took it (ADR 0427). */
   get scrolling(): Vector2 {
     return this.wheelToUI ? new Vector2() : this.scrolled.clone();
   }

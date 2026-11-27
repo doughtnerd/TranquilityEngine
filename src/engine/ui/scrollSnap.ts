@@ -1,5 +1,5 @@
 /**
- * CSS Scroll Snap 1 (ADR 0428): where a scroll comes to rest on one axis of a snapping scroller, from the snap areas
+ * CSS Scroll Snap 1 (ADR 0432): where a scroll comes to rest on one axis of a snapping scroller, from the snap areas
  * the UI core measured at its last layout (`UIScrollSnap`). Pure: the scrolling module asks it, and moves the scroller.
  *
  * - **Explicit** scrolls (`scrollTo`, `scrollIntoView`, Home/End) rest on the snap position nearest where they were

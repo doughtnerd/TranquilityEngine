@@ -1,4 +1,4 @@
-// Moving and resizing UI elements in the scene view (ADR 0077 §4, wave B part 3; ADR 0419 wave C: the elements a
+// Moving and resizing UI elements in the scene view (ADR 0077 §4, wave B part 3; ADR 0423 wave C: the elements a
 // UIView renders from a Svelte component).
 //
 // The selected element gets eight resize handles (corners and edges) on its box, drawn in an SVG
@@ -24,7 +24,7 @@ import { boxMap, handleCursor, handlePoints, type DragOptions, type HandleId, ty
 import { beginMove, beginResize, handleElement, whyNoHandles, type BoxOf, type HandleDrag } from "./uiHandleDrags";
 import { selectedUIViewRef, type UIViewRef } from "./uiViews";
 
-/** The selected UI element's ref (one a UIView rendered, ADR 0419 wave C). */
+/** The selected UI element's ref (one a UIView rendered, ADR 0423 wave C). */
 const selectedRef = (): UIViewRef | null => selectedUIViewRef();
 import { viewportElements } from "./ui/ScenePanel";
 

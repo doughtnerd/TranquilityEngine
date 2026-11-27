@@ -1,4 +1,4 @@
-// Type checking inside Svelte components (ADR 0428): each project component (`*.svelte`) becomes TypeScript through
+// Type checking inside Svelte components (ADR 0432): each project component (`*.svelte`) becomes TypeScript through
 // svelte2tsx, the transform svelte-check uses, for the Code panel's TypeScript service (code/monaco.ts), and the
 // service's errors in that TypeScript map back to the component through svelte2tsx's source map. Imports of a
 // component (`./Hud.svelte`) resolve to its TypeScript, so components, rune modules and scripts see each other's
@@ -33,7 +33,7 @@ declare global {
       attrsEnhancers: T,
       attrs: (string extends Key ? svelteElements.HTMLAttributes<any> : Elements[Key]) & T & EngineAttributes,
     ): MycoElement<Key>;
-    /** Engine elements' attributes: their UI component's fields, in kebab-case (ADR 0419). */
+    /** Engine elements' attributes: their UI component's fields, in kebab-case (ADR 0423). */
     interface EngineAttributes { readonly [name: string]: unknown }
     interface HTMLAttributes<T extends EventTarget = any> {}
     interface SVGAttributes<T extends EventTarget = any> {}

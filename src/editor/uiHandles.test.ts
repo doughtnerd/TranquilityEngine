@@ -1,4 +1,4 @@
-// Scene-view handles on UI elements (ADR 0077 wave B part 3, on Svelte UI since ADR 0419 wave C): a resize, a move and
+// Scene-view handles on UI elements (ADR 0077 wave B part 3, on Svelte UI since ADR 0423 wave C): a resize, a move and
 // a reorder drag, from the element's real layout (the renderer-neutral UI core, as the Babylon backend lays out), each
 // one undo step written to the view's `.svelte` source; Escape putting the file back; refusals.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -198,7 +198,7 @@ describe("moving", () => {
   });
 });
 
-describe("transformed elements (ADR 0418 wave 3)", () => {
+describe("transformed elements (ADR 0422 wave 3)", () => {
   it("puts the handles on the box as drawn, and resizes in its own frame without moving left/top", async () => {
     const box = boxOf(el("turned").component)!;
     const map = boxMap(box)!;

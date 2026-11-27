@@ -4,7 +4,7 @@ import { inLiveWorld } from "./liveWorld";
 import { menu } from "./menus";
 
 // Localisation in the editor (ADR 0354 §1, 0356 §4, §9): the Localisation panel adds a key and its French translation to a
-// string table, and a Svelte component's text bound to the key (`t()` from "myco", ADR 0419) shows it in Play; switching the
+// string table, and a Svelte component's text bound to the key (`t()` from "myco", ADR 0423) shows it in Play; switching the
 // Play toolbar's preview language to French switches the running game's text. The text is read through the public `myco`
 // API (`UIView.query`, `UIText`); what the panel wrote is read back from the project's files.
 

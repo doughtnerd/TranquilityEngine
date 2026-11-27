@@ -8,7 +8,7 @@ import { Assets } from "../scene/Assets";
 import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
 import { UIPointer } from "./uiPointer";
 
-// ADR 0418 wave 1: layout on Yoga. Per-side padding, margin and border widths with CSS shorthands, min/max sizes,
+// ADR 0422 wave 1: layout on Yoga. Per-side padding, margin and border widths with CSS shorthands, min/max sizes,
 // wrapping, align-self/-content, flex-shrink/-basis, aspect-ratio, overflow: hidden (clipping drawing order, hits,
 // picking and navigation) and z-index, through UI views, the UI core and keyboard navigation.
 
@@ -51,7 +51,7 @@ function box(core: UICore, c: UIComponentType): [number, number, number, number]
 
 const panel = (doc: ReturnType<typeof buildUI>, id: string) => byId(doc, id, UIPanel);
 
-describe("shorthands and longhands in the cascade (ADR 0418)", () => {
+describe("shorthands and longhands in the cascade (ADR 0422)", () => {
   it("expands padding, margin and border-width: one value is the all-sides field, two to four the sides", () => {
     const doc = buildUI(`<Canvas><div id="a" class="two"/><div id="b" class="one"/><div id="c" class="three"/><div id="d" class="four"/></Canvas>`, {
       css: `.two { padding: 4px 8px; margin: 1px 2px; border-width: 3px 5px }
@@ -150,7 +150,7 @@ describe("shorthands and longhands in the cascade (ADR 0418)", () => {
   });
 });
 
-describe("Yoga layout of the new fields (ADR 0418)", () => {
+describe("Yoga layout of the new fields (ADR 0422)", () => {
   it("lays out per-side padding, margin and border widths", async () => {
     const doc = buildUI(`<Canvas><div id="p" width="200" height="100" padding="1 2 3 4" border-width="10 0 0 20"><div id="c" flex-grow="1" margin="5 6 7 8"/></div></Canvas>`);
     const core = await laidOut();
@@ -192,7 +192,7 @@ describe("Yoga layout of the new fields (ADR 0418)", () => {
   });
 });
 
-describe("overflow: hidden (ADR 0418)", () => {
+describe("overflow: hidden (ADR 0422)", () => {
   /** A 100 × 100 panel with a 10 px border clipping a button that hangs out of it to the right and below. */
   function clipped() {
     const doc = buildUI(`<Canvas><div id="clip" width="100" height="100" border-width="10" background-color="#333" overflow="hidden">
@@ -259,7 +259,7 @@ describe("overflow: hidden (ADR 0418)", () => {
   });
 });
 
-describe("z-index (ADR 0418)", () => {
+describe("z-index (ADR 0422)", () => {
   it("orders drawing and hits among siblings by zIndex, then document order", async () => {
     const doc = buildUI(`<Canvas><button id="a" position="absolute" width="100" height="100" padding="0"/><button id="b" position="absolute" width="100" height="100" padding="0"/></Canvas>`);
     const [a, b] = ["a", "b"].map((id) => byId(doc, id, UIButton));

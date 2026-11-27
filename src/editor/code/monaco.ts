@@ -35,8 +35,8 @@ for (const [path, text] of Object.entries(engineTypes)) ts.typescriptDefaults.ad
 ts.typescriptDefaults.addExtraLib(JSON.stringify({ name: "myco", types: "index.d.ts" }), "file:///node_modules/myco/package.json");
 // Scripts written before the rename import "tranquility" (ADR 0037): the same declarations.
 ts.typescriptDefaults.addExtraLib('export * from "myco";', "file:///node_modules/tranquility/index.d.ts");
-// Svelte UI (ADR 0419): Svelte's declarations (its modules and the runes rune modules use), served as the package, with
-// what components' TypeScript needs (ADR 0428, svelteCheck.ts); Svelte's own `*.svelte` module types a component the
+// Svelte UI (ADR 0423): Svelte's declarations (its modules and the runes rune modules use), served as the package, with
+// what components' TypeScript needs (ADR 0432, svelteCheck.ts); Svelte's own `*.svelte` module types a component the
 // service has no TypeScript for yet.
 for (const [path, text] of SVELTE_CHECK_TYPES) ts.typescriptDefaults.addExtraLib(text, `file:///${path}`);
 
@@ -164,7 +164,7 @@ export function setPackageTypes(files: ReadonlyMap<string, string>, untyped: rea
   }
 }
 
-/** A type error in a script (ADR 0125), or in a Svelte component (ADR 0428): 1-based line and column. */
+/** A type error in a script (ADR 0125), or in a Svelte component (ADR 0432): 1-based line and column. */
 export interface ScriptDiagnostic {
   readonly path: string;
   readonly line: number;
@@ -176,7 +176,7 @@ const flatten = (text: string | { messageText: string; next?: unknown[] }): stri
   typeof text === "string" ? text : [text.messageText, ...((text.next ?? []) as (typeof text)[]).map(flatten)].join(" ");
 
 // ---------------------------------------------------------------------------------------------
-// Svelte components' TypeScript (ADR 0428)
+// Svelte components' TypeScript (ADR 0432)
 
 /** A component's TypeScript the TypeScript service has: made from `source`, served at its `generated` path. */
 interface ComponentLib {
@@ -235,7 +235,7 @@ function syncComponents(): Promise<void> {
   return run;
 }
 
-/** A type error in a component, at its span (ADR 0428). */
+/** A type error in a component, at its span (ADR 0432). */
 type ComponentError = ComponentRange & { readonly path: string; readonly message: string };
 
 /**
@@ -312,13 +312,13 @@ monaco.editor.onDidCreateModel((model) => {
 
 /**
  * Type-check `project`'s scripts (paths in `files`, its `bufferTexts`, under scripts/), rune modules and
- * Svelte components (ADR 0428) with the TypeScript service, as the Code panel shows them: their syntax
+ * Svelte components (ADR 0432) with the TypeScript service, as the Code panel shows them: their syntax
  * and type errors (not warnings or suggestions), in path then line order.
  */
 export async function checkScripts(project: unknown, files: ReadonlyMap<string, string>): Promise<ScriptDiagnostic[]> {
   syncProject(project, files);
-  const scripts = [...files.keys()].filter((p) => isScriptPath(p) || (isRuneModulePath(p) && p.endsWith(".ts"))).sort(); // plugin sources too (ADR 0139), and rune modules (ADR 0419)
-  const components = [...files.keys()].some(isSvelteComponentPath); // and Svelte components (ADR 0428)
+  const scripts = [...files.keys()].filter((p) => isScriptPath(p) || (isRuneModulePath(p) && p.endsWith(".ts"))).sort(); // plugin sources too (ADR 0139), and rune modules (ADR 0423)
+  const components = [...files.keys()].some(isSvelteComponentPath); // and Svelte components (ADR 0432)
   if (scripts.length === 0 && !components) return [];
   const worker = await ts.getTypeScriptWorker();
   const client = await worker(...scripts.map(uriOf));

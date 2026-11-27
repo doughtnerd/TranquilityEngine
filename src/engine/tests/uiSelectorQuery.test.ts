@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseSelectorQuery } from "../ui/document/selectorQuery";
 import { parseStylesheet } from "../ui/document/stylesheet";
 
-// ADR 0419: queries (`UIView.query`) read selectors without css-tree, into the same data the stylesheet
+// ADR 0423: queries (`UIView.query`) read selectors without css-tree, into the same data the stylesheet
 // parser makes, so games using only Svelte UI never load the parser.
 
 const viaParser = (selector: string) => {
@@ -24,7 +24,7 @@ describe("parseSelectorQuery", () => {
     ":is(#a, .b) span:disabled",
     "p:lang(de-AT)",
     "Panel > Text",
-    // ADR 0418 wave 5
+    // ADR 0422 wave 5
     "li + li",
     "h1 ~ p.note",
     "li:not(.done, #x)",
@@ -61,7 +61,7 @@ describe("parseSelectorQuery", () => {
     expect(() => parseSelectorQuery(selector)).toThrow(message);
   });
 
-  it("reads an+b, attribute operators and specificity as CSS does (ADR 0418 wave 5)", () => {
+  it("reads an+b, attribute operators and specificity as CSS does (ADR 0422 wave 5)", () => {
     const nth = (s: string) => parseSelectorQuery(s)[0].parts[0].selector.nth;
     expect(nth(":nth-child(2n + 1)")).toEqual([{ a: 2, b: 1 }]);
     expect(nth(":nth-child(-n+3)")).toEqual([{ a: -1, b: 3 }]);

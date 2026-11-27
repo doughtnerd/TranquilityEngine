@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The navigation sample's status panel (ADR 0419): one text block, which scripts/behaviors/Hud.ts passes in
+  // The navigation sample's status panel (ADR 0423): one text block, which scripts/behaviors/Hud.ts passes in
   // through its UIView's props.
   let { status = "" }: { status?: string } = $props();
 </script>
@@ -20,7 +20,7 @@
     text-outline-width: 3px;
     /* A label over the game lets the pointer through to it (ADR 0385). */
     raycast-target: false;
-    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0428 white-space). */
+    /* Scripts build these labels with line breaks and aligned spaces: keep them (ADR 0432 white-space). */
     white-space: pre-wrap;
   }
 </style>

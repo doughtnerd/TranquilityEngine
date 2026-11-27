@@ -4,7 +4,7 @@ import { UISlider, UIText, UIToggle } from "../../../engine/ui/components";
 import { UIView } from "./UIView";
 import * as SubsetModule from "./testComponents/ElementSubset.svelte";
 
-// ADR 0419's Element subset on renderer nodes, as Svelte's conformance fixtures use it (the conformance triage):
+// ADR 0423's Element subset on renderer nodes, as Svelte's conformance fixtures use it (the conformance triage):
 // `click()` runs HTML's activation (a checkbox toggles before the click's listeners, back if one prevents it, then
 // `input` and `change`; a submit button submits its form), namespaces, reflected attributes, `stepUp`/`stepDown`,
 // `getElementsByTagName`/`getElementsByClassName`, and an <input> keeping its value when its type changes.

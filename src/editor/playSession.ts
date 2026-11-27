@@ -115,7 +115,7 @@ export function createPlaySession(ports: PlaySessionPorts): PlayController {
       docVersion.value++; // panels, outlines and the gizmo pick up the rebuilt nodes
     }
     const problems = problemList(result.problems);
-    if (options.quiet && problems.length === 0) return; // an editor edit of UI code (ADR 0419 wave C) says what it did itself
+    if (options.quiet && problems.length === 0) return; // an editor edit of UI code (ADR 0423 wave C) says what it did itself
     status.value =
       problems.length > 0
         ? { kind: "error", text: `Reloaded scripts; ${problems.join("; ")}`, detail: problems.join("\n") }

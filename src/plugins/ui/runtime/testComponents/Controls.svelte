@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ADR 0424 through the renderer: HTML's form elements on UI core kinds, and their Svelte bindings (bind:checked,
+  // ADR 0428 through the renderer: HTML's form elements on UI core kinds, and their Svelte bindings (bind:checked,
   // bind:group for radios and checkboxes, bind:value with number coercion on range and number inputs, on selects and
   // text areas), labels, a form's submit and reset, and an <input> whose type changes.
   let { log, onapi }: { log: (entry: string) => void; onapi: (api: { setKind(kind: string): void; setColour(c: string): void; setLevel(n: number): void }) => void } = $props();

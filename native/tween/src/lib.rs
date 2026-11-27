@@ -1,4 +1,4 @@
-//! The standalone tween module (ADR 0420): `myco-tween`'s table and a sequence player behind a
+//! The standalone tween module (ADR 0424): `myco-tween`'s table and a sequence player behind a
 //! wasm-bindgen boundary, for UI animation in a game without the animation plugin. Built by
 //! `npm run build:tween` (`build.mjs`) into `src/engine/tween/wasm/`, which is committed.
 //!

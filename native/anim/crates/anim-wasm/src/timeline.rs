@@ -17,7 +17,7 @@
 //!   subclip key (and per nesting path) keeps that entry's notify-state bits; they end when the
 //!   entry is exited, the timeline is stopped, killed or retired.
 //! - **a sequence:** tween members at offsets (`myco_tween::seq`'s program over [`Spec`]s, ADR
-//!   0420 spike), one block each.
+//!   0424 spike), one block each.
 //!
 //! # Outputs
 //!

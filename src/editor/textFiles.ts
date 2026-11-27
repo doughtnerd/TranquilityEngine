@@ -4,7 +4,7 @@
 // what `Assets` serves) are queued per file and coalesced, so a drag that
 // rewrites a file every frame costs at most one write in flight plus the latest text waiting.
 //
-// ADR 0419 wave C: Svelte UI code (a component, a rune module or a `.css` file components import) compiles with the
+// ADR 0423 wave C: Svelte UI code (a component, a rune module or a `.css` file components import) compiles with the
 // project's scripts, so a write of one runs `onUICodeWritten`'s listener (the session reloads the project's code, and
 // mounted views show the new version) before the file's queue moves on; `flush` waits for that too.
 import { Assets } from "../engine/scene/Assets";

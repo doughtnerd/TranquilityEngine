@@ -6,7 +6,7 @@ import { openSceneFile } from "./project";
 import { openScene } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings, insertNew } from "./testing";
 
-// ADR 0417, 0419: game UI is made only by a UIView's Svelte component, so the Create menu's UI section is UI View alone.
+// ADR 0421, 0423: game UI is made only by a UIView's Svelte component, so the Create menu's UI section is UI View alone.
 
 let engine: Engine | null = null;
 afterEach(() => {
@@ -14,7 +14,7 @@ afterEach(() => {
   engine = null;
 });
 
-describe("UI in the editor (ADR 0417, 0419)", () => {
+describe("UI in the editor (ADR 0421, 0423)", () => {
   it("files UIView under UI", () => {
     expect(buildMenuTree([{ id: "engine.UIView", name: "UIView", group: "Engine" as const }], new Map())[0]!.label).toBe("UI");
   });

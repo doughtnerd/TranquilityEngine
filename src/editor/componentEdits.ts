@@ -19,12 +19,12 @@ import { undoStep } from "./undoStep";
 /** Components a node can have only one of. Colliders, audio sources and scripts can repeat. */
 const SINGLE = new Set(["engine.RigidBody2D", "engine.SpriteRenderer", "engine.Camera"]);
 
-/** The UI element types only a UIView renders (ADR 0417, 0419): never added by hand. */
+/** The UI element types only a UIView renders (ADR 0421, 0423): never added by hand. */
 const VIEW_ONLY = new Set([
   "engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField",
-  // ADR 0424: form elements.
+  // ADR 0428: form elements.
   "engine.UITextArea", "engine.UIToggle", "engine.UIRadio", "engine.UISlider", "engine.UISelect", "engine.UIOption", "engine.UIProgress", "engine.UIMeter", "engine.UILabel", "engine.UIForm",
-  // ADR 0426: inline SVG and media.
+  // ADR 0430: inline SVG and media.
   "engine.UISvg", "engine.UIVideo", "engine.UIAudio",
 ]);
 
@@ -218,7 +218,7 @@ export function removeMissingComponent(scene: OpenScene, path: NodePath, type: s
   return true;
 }
 
-/** The types Add Component offers: the engine's catalog without the UI element types documents build (ADR 0417). */
+/** The types Add Component offers: the engine's catalog without the UI element types documents build (ADR 0421). */
 export function componentCatalog(): ComponentTypeInfo[] {
   return engineCatalog().filter((t) => !VIEW_ONLY.has(t.id));
 }

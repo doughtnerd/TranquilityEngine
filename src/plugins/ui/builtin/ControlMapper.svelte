@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The built-in rebinding screen's view (ADR 0337, 0419 wave B): `UIControlMapper` works out what it shows and passes
+  // The built-in rebinding screen's view (ADR 0337, 0423 wave B): `UIControlMapper` works out what it shows and passes
   // it in as `model`; this draws it. Every button has an id the mapper finds it by (its public `UIButton`s, whose
   // explicit navigation neighbours it sets), and the look comes from the mapper's colour and size fields, as CSS
   // custom properties.

@@ -9,7 +9,7 @@ import { UIView } from "./UIView";
 import * as SvgModule from "./testComponents/Svg.svelte";
 import * as MediaModule from "./testComponents/Media.svelte";
 
-// ADR 0426 in Svelte views: an <svg> kept as an SVG document on its element (re-serialised when anything in it
+// ADR 0430 in Svelte views: an <svg> kept as an SVG document on its element (re-serialised when anything in it
 // changes), its shapes' lengths and pointer events; <video> and <audio> with the media API and Svelte's media bindings.
 // No real media: a fake media element is handed to the video through its public `media` seam.
 
@@ -40,7 +40,7 @@ async function view(component: string, props: Record<string, unknown> = {}) {
   return { v, log, nodes, set: (more: Record<string, unknown>) => (v.props = { ...all, ...more }) };
 }
 
-describe("UIView: inline SVG (ADR 0426)", () => {
+describe("UIView: inline SVG (ADR 0430)", () => {
   it("keeps the <svg> subtree as its element's SVG document, re-serialised when an attribute changes", async () => {
     const { v, set } = await view("ui/svg.svelte");
     const svg = v.query("#icon")!.as(UISvg);
@@ -177,7 +177,7 @@ class FakeMedia implements UIMediaSource {
   }
 }
 
-describe("UIView: <video> and <audio> (ADR 0426)", () => {
+describe("UIView: <video> and <audio> (ADR 0430)", () => {
   it("maps attributes to the video's fields and its media API onto a media element handed to it", async () => {
     const { v, nodes } = await view("ui/media.svelte");
     const video = v.query("#clip")!.as(UIVideo);

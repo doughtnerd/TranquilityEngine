@@ -70,11 +70,11 @@ Svelte applies state changes in a microtask. A frame runs inside one `requestAni
 
 ### What the UI core would have to expose: the "external tree host"
 
-ADR 0417 says only a `UIDocument` build creates UI components. The prototype is a second creator, and it needed these internals (each marked `INTERNAL:` in `src/host.ts`):
+ADR 0421 says only a `UIDocument` build creates UI components. The prototype is a second creator, and it needed these internals (each marked `INTERNAL:` in `src/host.ts`):
 
 | Need | Internal used now | Proposed public form |
 |---|---|---|
-| Create a UI element under an element, at an index | `new UIDocumentElement` (@internal ctor), `world._createNode`, `world._addComponent` (bypasses the 0417 guard), `el._children`, `world._setSiblingIndex` | `ui.host(element) → UIHostedTree` with `create(tag, parent, index, attributes)`. Its elements are ordinary `UIDocumentElement`s of the document, so query, handlers, `UIEvents`, the cascade, pseudo-classes and inheritance all apply. 0417 amended: the document's build **or its hosted trees** create UI components. |
+| Create a UI element under an element, at an index | `new UIDocumentElement` (@internal ctor), `world._createNode`, `world._addComponent` (bypasses the 0421 guard), `el._children`, `world._setSiblingIndex` | `ui.host(element) → UIHostedTree` with `create(tag, parent, index, attributes)`. Its elements are ordinary `UIDocumentElement`s of the document, so query, handlers, `UIEvents`, the cascade, pseudo-classes and inheritance all apply. 0421 amended: the document's build **or its hosted trees** create UI components. |
 | Set attributes, id and class later | a synthesised `MarkupElement` assigned to `el._markup` (the cascade reads attributes from it); `_target.id` (readonly: markup ids never change); `el._markDirty()` | `tree.setAttributes(el, map)`, which restyles in the late sync |
 | Style a new subtree now | private `UIDocument.restyle` | done inside `create`/`mount` |
 | Set a Text's text | a direct field write (fine as is) | `tree.setText(el, text)` |
@@ -220,7 +220,7 @@ The renderer interface (`svelte/renderer`) compared with a DOM.
   - Visual editing would cover only literal attributes, not `{…}`, `{#each}` rows or child components.
   - `bind:`, transitions and `svelte:window` are refused by the compiler.
   - The feature is `experimental` (its API and resolve condition may change), which is a poor base for the only UI format.
-  - 0417 just consolidated on documents.
+  - 0421 just consolidated on documents.
 - **Against (c), don't:**
   - 0077 rejected Svelte because it had "no supported custom renderer". That reason no longer holds, and the fit is better than expected.
   - (c) is still reasonable if the owner prefers Preact for §6: the editor already ships it, and its runtime is far smaller. This spike didn't measure Preact.
@@ -228,7 +228,7 @@ The renderer interface (`svelte/renderer`) compared with a DOM.
 ## What an ADR would need to decide
 
 1. **0077 §6:** Svelte, Preact, or both for the dynamic layer. Update 0077's Svelte alternative, whose stated reason is now false.
-2. **Amend 0417:** a document's hosted trees are the second sanctioned creator of UI components. Public API shape (`ui.host(element)` and/or `ui.render`), and what plugins may call.
+2. **Amend 0421:** a document's hosted trees are the second sanctioned creator of UI components. Public API shape (`ui.host(element)` and/or `ui.render`), and what plugins may call.
 3. **Engine surface for the plugin** (the table in §1):
    - creating, attributing, moving and removing hosted elements;
    - `addStylesheet`;

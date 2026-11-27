@@ -1,6 +1,6 @@
 // Stories (ADR 0219) for the Inspector's Localise control over the fixture project: pick a key by searching its text
 // (with the French preview), extract literal text to a table under the suggested key, and keyed text with Unlink
-// (ADR 0356 §9, 0419 wave F: Svelte UI's literal text).
+// (ADR 0356 §9, 0423 wave F: Svelte UI's literal text).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";

@@ -25,7 +25,7 @@ import { UIPreferences } from "./index";
 import { UIView } from "./UIView";
 import * as PreferencesModule from "./testComponents/Preferences.svelte";
 
-// ADR 0427: `UIPreferences` (the player's reduced motion and colour scheme, defaulting to the system's) as canvas
+// ADR 0431: `UIPreferences` (the player's reduced motion and colour scheme, defaulting to the system's) as canvas
 // `@media (prefers-reduced-motion)`/`(prefers-color-scheme)`, Svelte's `prefersReducedMotion` and `MediaQuery`, through
 // a UIView stepped by the engine, and persisted in player storage.
 

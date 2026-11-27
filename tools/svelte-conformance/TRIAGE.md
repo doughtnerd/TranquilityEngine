@@ -1,6 +1,6 @@
-# Svelte conformance triage (ADR 0419)
+# Svelte conformance triage (ADR 0423)
 
-ADR 0419: "every failure is either fixed or listed as out of scope with the reason". This file classifies every
+ADR 0423: "every failure is either fixed or listed as out of scope with the reason". This file classifies every
 runtime-runes fixture of Svelte 5.59.2 that doesn't pass against the engine's renderer. The out-of-scope ones are
 also listed, with their reasons, in `baseline.json`'s `outOfScope`, which the harness reads to report the in-scope
 pass rate. Out-of-scope samples still run: one that starts passing is named in the run's summary.
@@ -26,12 +26,12 @@ rewrites `baseline.json`, keeping `outOfScope`.
 
 **After the engine round:** the 35 failures are **c2** 4 needing a second patch change (written up below, each
 verified by applying the change at load time in a private run: all four pass with it), **b** 14 harness or jsdom-only
-expectations, **d** 17 out of scope per 0419. Class **a** is done: 35 of its 39 samples pass, 2 were jsdom-only
+expectations, **d** 17 out of scope per 0423. Class **a** is done: 35 of its 39 samples pass, 2 were jsdom-only
 expectations (`dynamic-component-transition`, `dynamic-if-component-transition`, now class b, traced) and 4 need the
 patch (class c2).
 
 The patch round's 68 failures by class: **a** 39 engine or renderer gaps (open), **b** 12 harness or jsdom-only expectations,
-**d** 17 out of scope per 0419. Class **c** (patch changes) is done: 29 of its 30 samples pass, and `if-transition-inert`
+**d** 17 out of scope per 0423. Class **c** (patch changes) is done: 29 of its 30 samples pass, and `if-transition-inert`
 turned out to be a jsdom-only expectation (now class b). The patch round also fixed `svelte-meta-component` and
 `svelte-meta-component-async` (class a). The 39 in scope (class a) still fail; the gate before wave D needs them fixed
 or ruled out of scope by the owner.
@@ -50,7 +50,7 @@ What the triage changed:
 - **Harness (patch round)**: `inert` is left out of HTML comparisons on both sides (Svelte's outros set
   `element.inert`, which a browser reflects and jsdom, lacking `inert`, keeps as an expando, so the fixtures never show
   it); `svelte/motion`'s own `svelte/reactivity` import resolves to the engine's.
-- **UI core**: a click toggles a checkbox or radio *before* its handlers, HTML's order (0424 as built toggled after),
+- **UI core**: a click toggles a checkbox or radio *before* its handlers, HTML's order (0428 as built toggled after),
   and back if one prevents it; `click()` from a script runs the activation through the UI core (`UIHostElement.click`),
   with its `input`, `change` and `submit` at once.
 - **Renderer nodes**: `click()` through that activation; `namespaceURI`; reflected `hidden`, `inert`, `disabled`,
@@ -121,16 +121,16 @@ now resolves `svelte/motion`'s `svelte/reactivity` import to the engine's, as th
 | `style-update` | serialisation only: CSSOM drops the unknown declaration `other-key: 0`; the renderer keeps the style as written (no behaviour either way) |
 | `svelte-meta-component-2` | reads the DOM's global `Element.prototype` |
 
-### d: out of scope per ADR 0419 (listed in baseline.json): 17
+### d: out of scope per ADR 0423 (listed in baseline.json): 17
 
 | Samples | Reason / status |
 |---|---|
-| `async-custom-element-attribute`, `custom-element-attributes`, `custom-element-injected-styles`, `custom-element-slot-in-snippet`, `custom-element-spread-unregistered`, `element-is-attribute`, `svelte-meta-native-slot` | customElement compilation / the custom elements registry (out of scope, ADR 0419) |
-| `effect-tracking-binding-set`, `event-attribute-delegation-8`, `event-cleanup-before-attachment`, `event-listener-moved-outside-container`, `svelte-meta-non-dev-component` | the component's own code uses the global `document`/`window` beyond the Element subset and the hooks (out of scope, ADR 0419) |
-| `hmr-dynamic-component` | Svelte's `hmr` compile option (its Vite plugin's dev feature); the editor hot-reloads a view by remounting it (ADR 0419), and the config imports Svelte's own build output |
-| `if-dependency-order-2`, `multiple-head` | reads `document.head`'s markup: a game has no page head; `<svelte:head>` keeps only `<title>` (the window title, which is right), as 0419 decided |
-| `nested-script-tag` | `<script>` in markup executing (as `<script>` in `{@html}`: out of scope, ADR 0419) |
-| `state-in-template` | `new FormData(form)`: a browser API over a DOM form, beyond the Element subset (out of scope, ADR 0419) |
+| `async-custom-element-attribute`, `custom-element-attributes`, `custom-element-injected-styles`, `custom-element-slot-in-snippet`, `custom-element-spread-unregistered`, `element-is-attribute`, `svelte-meta-native-slot` | customElement compilation / the custom elements registry (out of scope, ADR 0423) |
+| `effect-tracking-binding-set`, `event-attribute-delegation-8`, `event-cleanup-before-attachment`, `event-listener-moved-outside-container`, `svelte-meta-non-dev-component` | the component's own code uses the global `document`/`window` beyond the Element subset and the hooks (out of scope, ADR 0423) |
+| `hmr-dynamic-component` | Svelte's `hmr` compile option (its Vite plugin's dev feature); the editor hot-reloads a view by remounting it (ADR 0423), and the config imports Svelte's own build output |
+| `if-dependency-order-2`, `multiple-head` | reads `document.head`'s markup: a game has no page head; `<svelte:head>` keeps only `<title>` (the window title, which is right), as 0423 decided |
+| `nested-script-tag` | `<script>` in markup executing (as `<script>` in `{@html}`: out of scope, ADR 0423) |
+| `state-in-template` | `new FormData(form)`: a browser API over a DOM form, beyond the Element subset (out of scope, ADR 0423) |
 
 ### Skipped: 55
 
@@ -138,7 +138,7 @@ Not run, so in neither rate. The harness records why (`results.json`).
 
 | Reason | Samples |
 |---|---|
-| the fixture's `mode` or `skip_mode` leaves out `client`: server rendering and hydration (out of scope, ADR 0419) (44) | `async-attach-hydration-mismatch`, `async-derived-prop-closure-hydration`, `async-each-item-duplication`, `async-error-boundary-5`, `async-error-in-script`, `async-hydrate-html-tag`, `async-hydration-attribute-unchanged`, `async-hydration-binding`, `async-hydration-pending-boundary-sequential-script-write`, `async-hydration-pending-boundary-state`, `async-hydration-query-refetch`, `async-if-else`, `async-if-hydration`, `async-no-pending-await-in-block`, `async-no-pending-throws-sync`, `async-ondestroy-ordering`, `async-push-element-dev`, `async-render-component-hydration`, `async-render-hydration`, `async-store-sub-teardown`, `attribute-boolean-case-insensitivity`, `await-html-hydration`, `class-directive-mutations`, `derived-fn-destructure`, `derived-update-server`, `dynamic-element-svg`, `error-boundary-hydrate-1`, `error-boundary-hydrate-2`, `error-boundary-hydrate-skip`, `event-global-hydration-error-cleanup`, `form-default-checked-radio-spread`, `form-default-value-from-spread`, `head-payload-validation`, `hydratable-error-on-missing`, `hydratable-script-escape`, `hydratable-unused-keys`, `hydratable-unused-keys-nesting-partial`, `hydrate-modified-input`, `hydrate-modified-input-group`, `hydrate-modified-input-numeric`, `hydration-custom-element-error-boundary`, `invalid-html-ssr`, `invalid-html-ssr-ancestor`, `style-directive-mutations` |
+| the fixture's `mode` or `skip_mode` leaves out `client`: server rendering and hydration (out of scope, ADR 0423) (44) | `async-attach-hydration-mismatch`, `async-derived-prop-closure-hydration`, `async-each-item-duplication`, `async-error-boundary-5`, `async-error-in-script`, `async-hydrate-html-tag`, `async-hydration-attribute-unchanged`, `async-hydration-binding`, `async-hydration-pending-boundary-sequential-script-write`, `async-hydration-pending-boundary-state`, `async-hydration-query-refetch`, `async-if-else`, `async-if-hydration`, `async-no-pending-await-in-block`, `async-no-pending-throws-sync`, `async-ondestroy-ordering`, `async-push-element-dev`, `async-render-component-hydration`, `async-render-hydration`, `async-store-sub-teardown`, `attribute-boolean-case-insensitivity`, `await-html-hydration`, `class-directive-mutations`, `derived-fn-destructure`, `derived-update-server`, `dynamic-element-svg`, `error-boundary-hydrate-1`, `error-boundary-hydrate-2`, `error-boundary-hydrate-skip`, `event-global-hydration-error-cleanup`, `form-default-checked-radio-spread`, `form-default-value-from-spread`, `head-payload-validation`, `hydratable-error-on-missing`, `hydratable-script-escape`, `hydratable-unused-keys`, `hydratable-unused-keys-nesting-partial`, `hydrate-modified-input`, `hydrate-modified-input-group`, `hydrate-modified-input-numeric`, `hydration-custom-element-error-boundary`, `invalid-html-ssr`, `invalid-html-ssr-ancestor`, `style-directive-mutations` |
 | `skip: true` in the fixture (Svelte doesn't run it either) (9) | `async-abort-signal-after-await`, `async-abort-signal-after-await-fork`, `async-each-const-await-error-boundary`, `async-each-item-kept-offscreen-live`, `async-if-branch-kept-offscreen-live`, `deferred-events-consistency-2`, `effect-teardown-paused-old-value`, `error-boundary-18`, `tick-timing` |
 | `skip_async: true`: Svelte's default run is async mode, as the harness's is (2) | `const-tag-boundary-deprecated-usage`, `untrack-own-deriveds` |
 
@@ -212,7 +212,7 @@ is optional for renderers that lack the hook, like the rest of the patch (`docs/
 
 ## How out-of-scope is decided
 
-- **d**: ADR 0419's list: server rendering and hydration, `customElement` compilation, `<script>` in markup, and
+- **d**: ADR 0423's list: server rendering and hydration, `customElement` compilation, `<script>` in markup, and
   components whose own code uses the global `document`/`window` beyond the Element subset and the hooks (also
   browser APIs over DOM nodes, such as `FormData`). A game has no page head either: `<svelte:head>` keeps `<title>`.
 - **b**: expectations only jsdom can meet without faking: a DOM class name in a stack trace, the DOM's global classes,

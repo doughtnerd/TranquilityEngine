@@ -1,7 +1,7 @@
-// ADR 0356 §7: key gathering over a project — where each key is used (`t()`/`tHtml()` in Svelte UI, ADR 0419;
+// ADR 0356 §7: key gathering over a project — where each key is used (`t()`/`tHtml()` in Svelte UI, ADR 0423;
 // `Locale.t`/`Locale.text` in scripts, line tables' subtitle keys, playlist captions), and the report lists built from
-// it: missing translations, keys used but defined nowhere, keys never used. Scenes aren't read (ADR 0417: game UI is
-// built only by UI views), nor retired UI documents (ADR 0419). Driven through `gatherKeys` over a fixture project of files.
+// it: missing translations, keys used but defined nowhere, keys never used. Scenes aren't read (ADR 0421: game UI is
+// built only by UI views), nor retired UI documents (ADR 0423). Driven through `gatherKeys` over a fixture project of files.
 import { describe, expect, it } from "vitest";
 import { parseLanguages } from "../languages";
 import { textHash } from "../textHash";
@@ -42,9 +42,9 @@ const FILES: [string, unknown][] = [
 <p>{greet.t("not.a.key")} {format("not.either")}</p>
 `],
   ["ui/greet.svelte.ts", `import { Locale, t } from "myco";\nexport const greet = { line: () => t("weapon.sword.name"), axe: () => Locale.text("weapon.axe.name") };\n`],
-  // A retired UI document (ADR 0419): not read.
+  // A retired UI document (ADR 0423): not read.
   ["ui/menu.ui.xml", `<Canvas><Text t:text="menu.quit"/></Canvas>`],
-  // An old scene still saving UI and LocalizedText: not read (ADR 0417).
+  // An old scene still saving UI and LocalizedText: not read (ADR 0421).
   ["scenes/main.scene.json", {
     format: "myco.scene@4",
     nodes: [

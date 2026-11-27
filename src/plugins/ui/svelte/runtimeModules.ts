@@ -1,9 +1,9 @@
 /// <reference path="./svelte-modules.d.ts" />
-// The UI runtime modules (ADR 0419) as a host that links project code in memory (the editor, the dedicated
+// The UI runtime modules (ADR 0423) as a host that links project code in memory (the editor, the dedicated
 // server) provides them: each specifier compiled UI code may import (`projectCode/uiModules.ts`) loads the
 // engine's own copy, so components share one Svelte instance with the renderer `UIView` mounts through. Each
 // loads on demand, as its import would: the flag modules set their flag only when some component imports them.
-// A game build bundles the same modules into its own code instead, tree-shaken (ADR 0421, projectCode/uiBundle.ts).
+// A game build bundles the same modules into its own code instead, tree-shaken (ADR 0425, projectCode/uiBundle.ts).
 import { UI_RUNTIME_SPECIFIERS } from "../../../projectCode/uiModules";
 
 type Loader = () => Promise<object>;
@@ -19,7 +19,7 @@ const LOADERS: Readonly<Record<string, Loader>> = {
   "svelte/events": () => import("svelte/events"),
   "svelte/legacy": () => import("svelte/legacy"),
   "svelte/motion": () => import("svelte/motion"),
-  // Svelte's module with `MediaQuery` on the canvas (ADR 0418 wave 5).
+  // Svelte's module with `MediaQuery` on the canvas (ADR 0422 wave 5).
   "svelte/reactivity": () => import("./reactivity"),
   "svelte/reactivity/window": () => import("svelte/reactivity/window"),
   "svelte/store": () => import("svelte/store"),

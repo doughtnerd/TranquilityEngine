@@ -4,9 +4,9 @@
 // `code/deps/` (ADR 0125); imports point at those files by relative path, and `"myco"` at the engine
 // module beside the player. Scripts compile without source maps, so a build doesn't ship the TypeScript.
 //
-// UI modules (ADR 0419: Svelte components, rune modules, the `.css` modules components import) are
+// UI modules (ADR 0423: Svelte components, rune modules, the `.css` modules components import) are
 // bundled with the Svelte runtime and renderer they use into the game's own code when the link closes
-// (ADR 0421, `uiBundle.ts`), each still at its own `code/` address.
+// (ADR 0425, `uiBundle.ts`), each still at its own `code/` address.
 import { ENGINE_FILE, modulePath, relativeSpecifier } from "../export/format";
 import { rewriteImports } from "../editor/moduleImports";
 import { EDITOR_MODULE, isEngineModule } from "./compile";
@@ -22,7 +22,7 @@ const isUIModule = (path: string) => isUISourcePath(path) || path.endsWith(".css
 
 /**
  * Links code into build files (ADR 0329): the output is every file by build path. `ui` is where a game's UI
- * runtime comes from (ADR 0421); without it, UI code can't be built (each module is a problem).
+ * runtime comes from (ADR 0425); without it, UI code can't be built (each module is a problem).
  */
 export function buildTarget(options: { readonly ui?: UIRuntimeSource } = {}): LinkTarget<ReadonlyMap<string, string>> {
   const ui = options.ui;

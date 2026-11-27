@@ -79,7 +79,7 @@ const OFFLINE_LIMIT = 256 * 1024;
 const ENCODER_LIMIT = 1792 * 1024;
 /** Only +simd128 here: --import-memory and the 256 KB stack are link args in audio-wasm's build.rs. Every wasm build
  *  passes them through `wasmBuildEnv` (../rustflags.mjs), which adds the path remapping that makes the wasm the same
- *  from any checkout (ADR 0428): the repository root becomes `/myco`, CARGO_HOME `/cargo` (symphonia's and libm's panic
+ *  from any checkout (ADR 0432): the repository root becomes `/myco`, CARGO_HOME `/cargo` (symphonia's and libm's panic
  *  locations name registry sources, the mixer's native/common). */
 const WASM_RUSTFLAGS = ["-C", "target-feature=+simd128"];
 /** Pages of the Memory the hash read instantiates the wasm with (enough for its data and stack). */
@@ -387,7 +387,7 @@ function encoderStep(decoderPath) {
 }
 
 /**
- * Runs `wasm-opt -O3` on `path` in place when MYCO_WASM_OPT=1 (and wasm-opt is on PATH). Off by default (ADR 0428): it
+ * Runs `wasm-opt -O3` on `path` in place when MYCO_WASM_OPT=1 (and wasm-opt is on PATH). Off by default (ADR 0432): it
  * used to run whenever wasm-opt was on PATH, so the committed modules depended on the builder's machine; the committed
  * ones are built without it. Pinning Binaryen so every build runs the same pass is a separate, pending decision (the
  * UI program plan's notes).

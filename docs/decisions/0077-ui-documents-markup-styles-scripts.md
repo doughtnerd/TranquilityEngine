@@ -1,6 +1,6 @@
 # 0077. UI is authored as markup documents with stylesheets, driven by scripts, and edited in the scene view
 
-- **Status:** Superseded by 0419 (UI documents, `*.ui.xml`, `*.ui.css` and their editor tooling were retired in its wave D; Svelte components replace the markup format, bindings, `ui.data`/`ui.list()` and §6's Preact; this record's CSS subset, cascade and event core live on in the UI core that Svelte UI renders onto). Before that: amended by 0298, 0309 and 0417
+- **Status:** Superseded by 0423 (UI documents, `*.ui.xml`, `*.ui.css` and their editor tooling were retired in its wave D; Svelte components replace the markup format, bindings, `ui.data`/`ui.list()` and §6's Preact; this record's CSS subset, cascade and event core live on in the UI core that Svelte UI renders onto). Before that: amended by 0298, 0309 and 0421
 - **Date:** 2026-11-05
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

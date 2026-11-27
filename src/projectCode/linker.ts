@@ -26,7 +26,7 @@ export interface LinkInput {
   /** The project's JSON files' text by path; scripts can import them. */
   readonly json?: ReadonlyMap<string, string>;
   /**
-   * The project's UI code by path (ADR 0419): Svelte components (`*.svelte`) and rune modules
+   * The project's UI code by path (ADR 0423): Svelte components (`*.svelte`) and rune modules
    * (`*.svelte.ts`), which compile and load like scripts, and its `.css` files, of which those that UI code
    * imports compile to modules registering their rules. Other paths are ignored.
    */
@@ -54,9 +54,9 @@ export interface TargetLink<Output> {
    */
   packages(key: string, bundle: () => Promise<PackageBundle>): Promise<EmittedPackages>;
   /**
-   * Get the UI runtime modules the code imports ready before any `specifier` names them (ADR 0419), when the
+   * Get the UI runtime modules the code imports ready before any `specifier` names them (ADR 0423), when the
    * target needs to (the memory target loads the host's own copies; the build target checks it has a runtime to
-   * bundle, ADR 0421). Throws when one can't load.
+   * bundle, ADR 0425). Throws when one can't load.
    */
   uiRuntime?(specifiers: readonly string[]): Promise<void>;
   /** Emit the module of a JSON file a script imports (called once per file); its address. */
@@ -64,7 +64,7 @@ export interface TargetLink<Output> {
   json(path: string, value: unknown): string;
   /**
    * What script `from` writes to import the engine (`"myco"`), the editor SDK (`"myco/editor"`), a UI runtime
-   * module (`ui`: Svelte's runtime or the engine's renderer, ADR 0419, provided by the host or bundled, ADR 0421), or the module at `address`.
+   * module (`ui`: Svelte's runtime or the engine's renderer, ADR 0423, provided by the host or bundled, ADR 0425), or the module at `address`.
    */
   specifier(from: string, to: { readonly engine: true } | { readonly editorSdk: true } | { readonly ui: string } | { readonly address: string }): string;
 
@@ -78,7 +78,7 @@ export interface TargetLink<Output> {
 export interface LinkTarget<Output> {
   /** Whether compiled scripts carry inline source maps (the TypeScript, for the debugger). */
   readonly sourceMap: boolean;
-  /** Whether UI components compile in Svelte's dev mode (template locations, for the editor's picking; ADR 0419). */
+  /** Whether UI components compile in Svelte's dev mode (template locations, for the editor's picking; ADR 0423). */
   readonly dev: boolean;
 
   open(): TargetLink<Output>;
@@ -121,7 +121,7 @@ export async function link<Output>(input: LinkInput, target: LinkTarget<Output>)
     if ("code" in result) compiled.set(path, result);
     else problems.push(result);
   }
-  // The `.css` files UI code imports (ADR 0419): each a module registering its rules, loaded before what imports it.
+  // The `.css` files UI code imports (ADR 0423): each a module registering its rules, loaded before what imports it.
   const cssPaths = new Set([...ui.keys()].filter((p) => p.endsWith(".css")));
   for (const s of [...compiled.values()]) {
     if (!isUISourcePath(s.path)) continue;

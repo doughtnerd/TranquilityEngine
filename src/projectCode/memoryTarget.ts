@@ -28,7 +28,7 @@ const shimUrl = (key: string, value: object) => {
   return dataUrl(`const e = globalThis.${key};\nexport const { ${names.join(", ")} } = e;\n`);
 };
 
-/** Where the UI runtime modules the last links loaded are published (ADR 0419), by specifier, for their shims. */
+/** Where the UI runtime modules the last links loaded are published (ADR 0423), by specifier, for their shims. */
 const UI_RUNTIME_KEY = "__mycoUIRuntime";
 
 /**

@@ -1,9 +1,9 @@
 /**
- * CSS filters on UI elements (ADR 0426): the filter fields every element has, as the steps that draw them. Pure and
+ * CSS filters on UI elements (ADR 0430): the filter fields every element has, as the steps that draw them. Pure and
  * renderer-neutral; not public API.
  *
- * Each filter function is a field, so transitions and keyframes animate them (ADR 0418 wave 4). They apply in one fixed
- * order, the order 0426 lists them: `blur`, `brightness`, `contrast`, `grayscale`, `hue-rotate`, `invert`, `opacity`,
+ * Each filter function is a field, so transitions and keyframes animate them (ADR 0422 wave 4). They apply in one fixed
+ * order, the order 0430 lists them: `blur`, `brightness`, `contrast`, `grayscale`, `hue-rotate`, `invert`, `opacity`,
  * `saturate`, `sepia`, then `drop-shadow`. A function at its initial value (blur 0, brightness 1…) is left out. As in
  * CSS, an element's filter applies to it and its descendants: the UI core composes an element's own steps with its
  * ancestors' (its own first, then its parent's), with lengths in canvas UI pixels through each filtering element's
@@ -32,7 +32,7 @@ export interface UIFilterFields {
 }
 
 /**
- * ADR 0428: an element's `backdrop-filter` fields (`backdropBlur`…) as filter fields, so the same steps draw them: what's
+ * ADR 0432: an element's `backdrop-filter` fields (`backdropBlur`…) as filter fields, so the same steps draw them: what's
  * behind the element within its box is filtered by them, under its background.
  */
 export function backdropFilterFields(c: object): Partial<UIFilterFields> {
@@ -105,7 +105,7 @@ export function filterStepsOf(f: Partial<UIFilterFields>): UIFilterStep[] {
 
 /**
  * Steps with their lengths taken through a transform's linear part `[a, b, c, d]` (null: none) and multiplied by `k`, as
- * shadows are (ADR 0418 wave 3): a drop shadow's offset turns and scales with the element, and blurs scale by the
+ * shadows are (ADR 0422 wave 3): a drop shadow's offset turns and scales with the element, and blurs scale by the
  * square root of its area factor.
  */
 export function transformFilterSteps(steps: readonly UIFilterStep[], linear: readonly number[] | null, k = 1): UIFilterStep[] {

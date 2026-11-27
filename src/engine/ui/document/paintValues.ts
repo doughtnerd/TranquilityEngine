@@ -1,5 +1,5 @@
 /**
- * Paint values of UI stylesheets (ADR 0418 wave 2): shadows (`box-shadow`, `text-shadow`), background images
+ * Paint values of UI stylesheets (ADR 0422 wave 2): shadows (`box-shadow`, `text-shadow`), background images
  * (`url()`, `linear-gradient()`, `radial-gradient()`) and corner radii (`border-radius` with one to four values),
  * parsed from CSS text, and the geometry a gradient is drawn with. The cascade (`stylesheet.ts`) expands and checks
  * them; the Babylon GUI drawing parses a script-written `backgroundImage` with the same functions. Pure and
@@ -71,7 +71,7 @@ function length(token: string): number | undefined {
 
 /**
  * One shadow, `offset-x offset-y [blur] [colour]` (the colour first or last; black when left out), or `none`.
- * `inset`, a spread and several shadows aren't supported (ADR 0418).
+ * `inset`, a spread and several shadows aren't supported (ADR 0422).
  */
 export function parseShadow(raw: string): PaintParse<UIShadowValue> {
   const v = raw.trim();

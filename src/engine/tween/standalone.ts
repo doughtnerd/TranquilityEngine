@@ -1,5 +1,5 @@
 /**
- * The tween backend over the standalone tween module (ADR 0420; `native/tween`, committed in `./wasm/`): what UI
+ * The tween backend over the standalone tween module (ADR 0424; `native/tween`, committed in `./wasm/`): what UI
  * animation runs on when the animation plugin isn't active. The module is loaded the first time a backend is opened
  * (browsers fetch `myco_tween_bg.wasm`, which Vite serves and bundles as an asset beside this module; Node reads it from
  * disk), once per page; its tables are sized then, once. It is built for `simd128` like the animation core, so a

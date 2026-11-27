@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ADR 0419 wave Y2: `animate:flip`, `crossfade` between two lists, and local versus `|global` transitions.
+  // ADR 0423 wave Y2: `animate:flip`, `crossfade` between two lists, and local versus `|global` transitions.
   import { flip } from "svelte/animate";
   import { crossfade, fade } from "svelte/transition";
 

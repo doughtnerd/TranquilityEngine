@@ -4,7 +4,7 @@ import { captureView, pixelsNear, type ViewCapture } from "./viewCapture";
 
 // Keyboard focus navigation of game UI (ADR 0340, docs/wiki/guide/ui.md "Keyboard and gamepad navigation"), played for real: a
 // UIView's screen canvas with `autoFocus` and four buttons in a 2×2 grid, written as a Svelte component (game UI comes only
-// from UI views, ADR 0417, 0419). The arrow keys move focus spatially, Tab and Shift+Tab in tree order, Enter clicks the
+// from UI views, ADR 0421, 0423). The arrow keys move focus spatially, Tab and Shift+Tab in tree order, Enter clicks the
 // focused button and Escape cancels on the canvas, all read through the public `myco` API (`UIView.query`,
 // `UIButton.focused`, `UICanvas`, `InputPlayers`) and a script that counts clicks and cancels. While a button has focus,
 // the arrows are the UI's: a game action bound to them doesn't see them. The focused button is drawn in its `focusColor`.

@@ -7,7 +7,7 @@ import { UIView } from "./UIView";
 import * as EventsModule from "./testComponents/Events.svelte";
 import * as InertModule from "./testComponents/Inert.svelte";
 
-// ADR 0422 and 0423 in Svelte views: events travel through the renderer's nodes in capture, target and bubble phases
+// ADR 0426 and 0427 in Svelte views: events travel through the renderer's nodes in capture, target and bubble phases
 // and out of the view to <svelte:window>; nodes scroll with the DOM's members. Driven through a UI core routing
 // `Input`'s DOM adapter (`UIPointer`), as a player drives them.
 
@@ -95,7 +95,7 @@ describe("UIView: inert (HTML's)", () => {
   });
 });
 
-describe("UIView: events propagate (ADR 0422)", () => {
+describe("UIView: events propagate (ADR 0426)", () => {
   it("runs onclickcapture on the way down, the target's onclick, onclick on the way up, then <svelte:window>", async () => {
     const { v, log } = await view();
     pointer!.click(v.query("#a")!.as(UIButton));
@@ -137,7 +137,7 @@ describe("UIView: events propagate (ADR 0422)", () => {
   });
 });
 
-describe("UIView: nodes scroll (ADR 0423)", () => {
+describe("UIView: nodes scroll (ADR 0427)", () => {
   it("offers scrollTop, scrollHeight, clientHeight, scrollBy and scrollIntoView, and onscroll the frame after", async () => {
     const { nodes, log } = await view();
     const scroller = nodes.scroller;

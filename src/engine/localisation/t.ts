@@ -1,5 +1,5 @@
 /**
- * `t(key, args)`: localised text for UI components (ADR 0419, 0356 §6). The same message as `Locale.t`, and a
+ * `t(key, args)`: localised text for UI components (ADR 0423, 0356 §6). The same message as `Locale.t`, and a
  * reactive read of the language: in a Svelte component's template, `$derived` or effect, it runs again when
  * `Locale.epoch` rises (a language switch, a table edit, hot reload), so the text follows the language. Outside
  * one (scripts, plain code) it is `Locale.t`.
@@ -27,7 +27,7 @@ export function t(key: string, args?: MessageArgs): string {
 const HTML_ESCAPES: Readonly<Record<string, string>> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 
 /**
- * ADR 0425: the message of `key` as inline HTML, for `{@html tHtml("hud.coins", { count })}` in a Svelte component. A
+ * ADR 0429: the message of `key` as inline HTML, for `{@html tHtml("hud.coins", { count })}` in a Svelte component. A
  * message may carry the inline subset (`You have <b>{count}</b> coins`; translators keep the tags), which then draws as
  * styled runs. Each string argument is escaped, so text from a player (a name) shows as typed and can never add markup;
  * numbers and dates format as in `t`, and a `LocalText` argument is another message, kept as written. Follows language

@@ -123,7 +123,7 @@ interface ReadScene {
 function read(path: string): ReadScene {
   const doc = new SceneDocument(Assets.json<SceneFile>(path), path);
   const stack = new CommandStack(doc);
-  stack.files = editorTextFiles; // UI edits (Svelte sources, ADR 0419 wave C) write their files in the same history
+  stack.files = editorTextFiles; // UI edits (Svelte sources, ADR 0423 wave C) write their files in the same history
   return { doc, stack };
 }
 

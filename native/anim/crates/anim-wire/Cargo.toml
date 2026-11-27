@@ -10,7 +10,7 @@ publish.workspace = true
 name = "gen_wire"
 path = "src/bin/gen_wire.rs"
 
-# ADR 0420 spike: the record mechanism (myco-wire) and the tween family (myco-tween) moved to shared
+# ADR 0424 spike: the record mechanism (myco-wire) and the tween family (myco-tween) moved to shared
 # crates, re-exported here. The generator still writes its own JSON and TypeScript.
 [dependencies]
 myco-wire = { path = "../../../common/wire" }

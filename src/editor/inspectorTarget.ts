@@ -1,6 +1,6 @@
 // What the Inspector shows (ADR 0242), and the rule that keeps the selections behind it apart.
 // Four selections can take the Inspector: the scene's nodes (`selectedKeys`), the Assets panel's
-// entries (`selectedAssets`), a UI element a view rendered (`selectedUIElement`, ADR 0419 wave C) and a bone of a
+// entries (`selectedAssets`), a UI element a view rendered (`selectedUIElement`, ADR 0423 wave C) and a bone of a
 // node's Skeleton, a read-only Hierarchy row (ADR 0373's bone target, kept here as `selectedBone`). Their
 // signals stay where they are (state.ts, assetSelection.ts) as storage; every selection source
 // writes them through the functions here, which apply the rule, and `inspectorTarget` answers
@@ -24,7 +24,7 @@ export type InspectorTarget =
   | { readonly kind: "live"; readonly world: string; readonly node: GameObject | null }
   /** One asset selected in the Assets panel that has an Inspector view (a selected slice shows its image). */
   | { readonly kind: "asset"; readonly path: string }
-  /** An element a UIView rendered from a Svelte component (ADR 0419 wave C). */
+  /** An element a UIView rendered from a Svelte component (ADR 0423 wave C). */
   | { readonly kind: "uiViewElement"; readonly ref: UIViewRef }
   /** A bone of the Skeleton on the node at `path` (ADR 0373), named by `bone`; `provider` is the contribution listing it (`registerSkeletonBones`). */
   | { readonly kind: "bone"; readonly scene: OpenScene; readonly path: NodePath; readonly bone: string; readonly provider: string }

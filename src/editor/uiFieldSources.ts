@@ -1,4 +1,4 @@
-// Where a selected UI element's field values come from, as the Inspector shows them (ADR 0077 §4, ADR 0419 wave C):
+// Where a selected UI element's field values come from, as the Inspector shows them (ADR 0077 §4, ADR 0423 wave C):
 // the origins (a literal attribute, a rule, inheritance, the text, a Svelte expression, the default, a transition or
 // animation), their one-line descriptions and badges, and the value text helpers the Svelte UI edits share
 // (`uiViews.ts` reads the origins, `uiViewEdits.ts` writes values).
@@ -24,13 +24,13 @@ export type FieldOrigin =
   | { readonly kind: "inherited"; readonly fromLabel: string; readonly origin: FieldOrigin }
   /** The element's text content (a Text's text, a button label's text). */
   | { readonly kind: "content"; readonly file: string; readonly line: number }
-  /** ADR 0419 wave C: a Svelte expression sets it (`width={w}`, `style:color={c}`, text with `{…}`): view-only, shown as written. */
+  /** ADR 0423 wave C: a Svelte expression sets it (`width={w}`, `style:color={c}`, text with `{…}`): view-only, shown as written. */
   | { readonly kind: "expression"; readonly file: string; readonly line: number; readonly name: string; readonly source: string }
   /** Nothing sets it: the component's default. */
   | { readonly kind: "default" }
   /**
    * A stylesheet transition (named by its property) or keyframe animation (by its name) is animating it right now
-   * (ADR 0418 wave 4); `origin` is where the value it animates to, or falls back to when it stops, comes from.
+   * (ADR 0422 wave 4); `origin` is where the value it animates to, or falls back to when it stops, comes from.
    */
   | { readonly kind: "animated"; readonly via: "transition" | "animation"; readonly name: string; readonly origin: FieldOrigin };
 
@@ -72,7 +72,7 @@ export function attributeText(value: unknown): string {
 /** Number fields that are lengths, written with `px` in stylesheets. */
 const PX_FIELDS: ReadonlySet<string> = new Set([
   "gap", "padding", "margin", "borderRadius", "borderWidth", "fontSize",
-  // ADR 0418 wave 1
+  // ADR 0422 wave 1
   "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "marginTop", "marginRight", "marginBottom", "marginLeft",
   "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth",
 ]);

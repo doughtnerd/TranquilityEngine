@@ -1,6 +1,6 @@
 // ADR 0356 §5: localised UI. Stylesheets match the current language with `:lang()`, restyled as `Locale.epoch` moves.
-// Text runs align `start` by the language's direction. (`LocalizedText` is gone, ADR 0417; UI documents' `t:` attributes
-// with them, ADR 0419: components use `t()` from "myco", tested with the Svelte renderer, and scripts `Locale.t`.)
+// Text runs align `start` by the language's direction. (`LocalizedText` is gone, ADR 0421; UI documents' `t:` attributes
+// with them, ADR 0423: components use `t()` from "myco", tested with the Svelte renderer, and scripts `Locale.t`.)
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, Locale, MemoryStorage, UIPanel, UIText, type ProjectSettingsInput } from "../../myco";
 import { World } from "../core/World";

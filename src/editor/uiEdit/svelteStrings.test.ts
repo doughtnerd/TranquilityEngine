@@ -1,4 +1,4 @@
-// Localised and unlocalised text in Svelte components (ADR 0356 §7, §9, ADR 0419 wave F): the localisable parts of an
+// Localised and unlocalised text in Svelte components (ADR 0356 §7, §9, ADR 0423 wave F): the localisable parts of an
 // element (text content, text attributes) as written, the unkeyed-text list with its dismissal ids, and the key an
 // element's whole text shows, through `svelteStrings.ts` over `parseSvelte`.
 import { beforeAll, describe, expect, it } from "vitest";
