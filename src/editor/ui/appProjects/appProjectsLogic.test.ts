@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { openedWhen, searchRows, splitLatest } from "./appProjectsLogic";
+import { RecentProjects } from "../../recentProjectList";
+import { createToastQueue } from "../undoToastModel";
+import { openedWhen, removeFromList, searchRows, splitLatest } from "./appProjectsLogic";
 
 const rows = [
   { name: "Flappy", where: "C:/games/flappy", t: 3 },
@@ -42,5 +44,43 @@ describe("openedWhen", () => {
   });
   it("gives the date for older times", () => {
     expect(openedWhen(new Date(2026, 9, 1, 12, 0).getTime(), now, "en-GB")).toBe("01/10/2026");
+  });
+});
+
+describe("removeFromList", () => {
+  const setup = async () => {
+    let text: string | null = null;
+    const recent = new RecentProjects({ read: () => text, write: (t) => void (text = t) }, null);
+    await recent.add({ name: "Old", path: "/games/old" }, 1);
+    await recent.add({ name: "Latest", path: "/games/latest" }, 2);
+    return { recent, toasts: createToastQueue() };
+  };
+  const latestOf = (recent: RecentProjects) => splitLatest(recent.list(), (e) => e.lastOpened).latest;
+
+  it("takes the project off the list, so the next most recent is the one to continue, and says the folder stays", async () => {
+    const { recent, toasts } = await setup();
+    expect(await removeFromList(recent, latestOf(recent)!, toasts)).toBe(true);
+    expect(latestOf(recent)?.name).toBe("Old");
+    expect(toasts.toasts.value.map((t) => [t.text, t.undoLabel])).toEqual([["Removed Latest from the list. Its folder is still on disk.", "Undo"]]);
+  });
+
+  it("leaves nothing to continue once the last project goes", async () => {
+    const { recent, toasts } = await setup();
+    for (const e of recent.list()) await removeFromList(recent, e, toasts);
+    expect(latestOf(recent)).toBeNull();
+  });
+
+  it("puts the project back where it was on Undo", async () => {
+    const { recent, toasts } = await setup();
+    await removeFromList(recent, latestOf(recent)!, toasts);
+    expect(toasts.undo(toasts.toasts.value[0]!.id)).toBe(true);
+    await new Promise((r) => setTimeout(r));
+    expect(recent.list().map((e) => e.name)).toEqual(["Latest", "Old"]);
+  });
+
+  it("does nothing, and shows no toast, for an entry no longer on the list", async () => {
+    const { recent, toasts } = await setup();
+    expect(await removeFromList(recent, { id: "gone", name: "Gone" }, toasts)).toBe(false);
+    expect(toasts.toasts.value).toEqual([]);
   });
 });
