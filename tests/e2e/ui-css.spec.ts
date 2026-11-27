@@ -770,6 +770,19 @@ export const MenuActions = defineActions("game.MenuActions", {
         { timeout: 60_000 },
       )
       .toBe(true);
+    // ADR 0433: afloat, with the middle panel's lines empty, the bottom bar (batteries, hull bar) is laid out on the screen.
+    // Yoga gave the empty lines the whole height and pushed it below the screen.
+    const bars = await inLiveWorld(page, MATCH, (w, { myco, componentsOf }) => {
+      type Rect = { x: number; y: number; width: number; height: number } | null;
+      const views = componentsOf<{ query(s: string): { rect(): Rect } | null }>(w!.root, myco.UIView);
+      const rect = (s: string) => views.map((v) => v.query(s)?.rect() ?? null).find((r) => r) ?? null;
+      return { screen: rect("#screen"), bars: rect("#bars"), hullBar: rect("#hull-bar"), battery: rect("#port") };
+    });
+    expect(bars.screen && bars.bars && bars.hullBar && bars.battery, JSON.stringify(bars)).toBeTruthy();
+    expect(bars.bars!.height).toBeGreaterThan(0);
+    expect(bars.bars!.y + bars.bars!.height).toBeLessThanOrEqual(bars.screen!.y + bars.screen!.height + 0.5);
+    expect(bars.hullBar!.width).toBeGreaterThan(0);
+    expect(bars.battery!.y + bars.battery!.height).toBeLessThanOrEqual(bars.screen!.y + bars.screen!.height + 0.5);
     const cost = await frameCost(page, MATCH);
     report("Pirates HUD", cost);
     expect(cost.ui, `the Pirates HUD costs ${cost.ui.toFixed(2)} ms a frame`).toBeLessThan(TRIPWIRE_MS.piratesHud);

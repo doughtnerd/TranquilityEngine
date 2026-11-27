@@ -71,7 +71,7 @@ describe("layout and drawing (ADR 0427)", () => {
     expect(el.scrollTop).toBe(300);
   });
 
-  it("lays out the content unconstrained along a scrolling axis: text keeps its height instead of shrinking", async () => {
+  it("lays out the content unconstrained along a scrolling axis: text keeps its height instead of shrinking, as under overflow: hidden", async () => {
     const lines = Array.from({ length: 6 }, (_, i) => `<p id="t${i}" font-size="20">Line ${i}</p>`).join("");
     const doc = buildUI(`<Canvas><div id="list" width="200" height="60" flex-direction="column" overflow="auto">${lines}</div><div id="clip" width="200" height="60" flex-direction="column" overflow="hidden">${lines.replace(/id="t/g, 'id="h')}</div></Canvas>`);
     const p = await pointer();
@@ -79,7 +79,9 @@ describe("layout and drawing (ADR 0427)", () => {
     const scrolled = p.core.rectOf(doc.query("#t5")!.component)!;
     const squeezed = p.core.rectOf(doc.query("#h5")!.component)!;
     expect(scrolled.height).toBeCloseTo(24, 0); // 20 px at line height 1.2
-    expect(squeezed.height).toBeLessThan(scrolled.height); // overflow: hidden keeps the old layout
+    // ADR 0433: under overflow: hidden too, as in CSS: a flex item doesn't shrink below its content (its automatic
+    // minimum size); the rows overflow and are clipped. (Yoga squeezed them.)
+    expect(squeezed.height).toBeCloseTo(24, 0);
     expect(doc.query("#list")!.scrollHeight).toBeCloseTo(144, 0);
   });
 

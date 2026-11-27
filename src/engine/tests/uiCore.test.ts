@@ -10,7 +10,7 @@ import { DomInput, FakeCanvas } from "./domInput";
 import { loadUITestSupport, uiElement } from "./uiMarkup";
 import { UI_FONT_FAMILY, fontEpoch, fontFamilyOf, loadBundledFont, onFontLoaded } from "../ui/fonts";
 
-// ADR 0076: the renderer-neutral UI core: Yoga layout and UI-first routing, no renderer, no GPU.
+// ADR 0076: the renderer-neutral UI core: layout (Taffy, ADR 0433) and UI-first routing, no renderer, no GPU.
 
 const DT = 1 / 60;
 let engine: Engine;
@@ -83,7 +83,7 @@ describe("UICore layout", () => {
     expect(uiLength("wide")).toBeUndefined();
   });
 
-  it("lays nothing out before Yoga has loaded, and then everything", async () => {
+  it("lays nothing out before the layout engine has loaded, and then everything", async () => {
     const { canvas } = menu();
     const c = new UICore();
     cores.push(c);
@@ -94,15 +94,15 @@ describe("UICore layout", () => {
     expect(c.rectOf(canvas)).toEqual({ x: 0, y: 0, width: 1280, height: 720 });
   });
 
-  it("gives Yoga only the properties that changed since the last sync, and still lays out changes", async () => {
+  it("gives the layout engine only the properties that changed since the last sync, and still lays out changes", async () => {
     const { column, play, quit } = menu();
     const c = await core();
     sync(c);
-    const yogaNode = (comp: UIPanel) => (c as unknown as { entries: Map<unknown, { node: Record<string, (...a: unknown[]) => unknown> }> }).entries.get(comp)!.node;
+    const layoutNode = (comp: UIPanel) => (c as unknown as { entries: Map<unknown, { node: Record<string, (...a: unknown[]) => unknown> }> }).entries.get(comp)!.node;
     let calls = 0;
     for (const comp of [column, play, quit]) {
-      const n = yogaNode(comp);
-      for (const name of ["setDisplay", "setFlexDirection", "setJustifyContent", "setAlignItems", "setGap", "setPadding", "setMargin", "setWidth", "setHeight", "setPositionType", "setPosition", "setFlexGrow", "setFlexShrink", "setBorder"]) {
+      const n = layoutNode(comp);
+      for (const name of ["setDisplay", "setFlexDirection", "setJustifyContent", "setAlignItems", "setGap", "setPadding", "setMargin", "setWidth", "setHeight", "setPosition", "setInset", "setFlexGrow", "setFlexShrink", "setBorder"]) {
         const f = n[name].bind(n);
         n[name] = (...a: unknown[]) => {
           calls++;
@@ -351,7 +351,7 @@ describe("UICore layout", () => {
     expect(c.layoutVersion).toBeGreaterThan(v3);
   });
 
-  it("releases removed components' Yoga nodes and forgets them", async () => {
+  it("releases removed components' layout nodes and forgets them", async () => {
     const { play, quit } = menu();
     const c = await core();
     sync(c);
@@ -516,7 +516,8 @@ describe("UICore text", () => {
       expect(added.at(-1)!.source).toMatch(/Inter-latin-wght\.woff2"\) format\("woff2"\)$/);
       host.requests.length = 0;
       sync(c);
-      expect(host.requests.map((r) => r.text).sort()).toEqual(["Ahoy", "Name"]);
+      // Each text again (the layout engine may ask a text for more than one width: min-content, max-content, its room).
+      expect([...new Set(host.requests.map((r) => r.text))].sort()).toEqual(["Ahoy", "Name"]);
       host.requests.length = 0;
       sync(c);
       expect(host.requests).toEqual([]); // nothing changed since

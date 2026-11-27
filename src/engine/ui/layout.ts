@@ -1,30 +1,10 @@
 /**
- * Layout helpers for the UI core (ADR 0076): loading Yoga, reading length fields, the canvas scale,
- * and text measuring. No renderer is involved, so all of it runs in Node. Nothing here is public API.
+ * Layout helpers for the UI core (ADR 0076; the layout engine itself is `taffy/layoutTree.ts`, ADR 0433): reading length
+ * fields, the canvas scale, and text measuring. No renderer is involved, so all of it runs in Node. Nothing here is public API.
  */
-import type { Yoga } from "yoga-layout/load";
 import type { UILength } from "./components";
 import type { TextMeasureRequest } from "./uiCoreTypes";
 import { linearLength } from "./document/cssMath";
-
-let yogaPromise: Promise<Yoga> | null = null;
-let yogaLoaded: Yoga | null = null;
-
-/** Yoga, if it has loaded already (a core made after that lays out from its first sync). */
-export function loadedYoga(): Yoga | null {
-  return yogaLoaded;
-}
-
-/**
- * Load Yoga's WebAssembly once. `yoga-layout/load` is the async entry (the default entry uses top-level
- * await, which not every bundle target allows); the module is only fetched when the first UI needs it.
- */
-export function loadYogaOnce(): Promise<Yoga> {
-  yogaPromise ??= import("yoga-layout/load")
-    .then((m) => m.loadYoga())
-    .then((yoga) => (yogaLoaded = yoga));
-  return yogaPromise;
-}
 
 /**
  * Canvas CSS pixels per UI pixel for a screen canvas, like Unity's Canvas Scaler in "scale with
@@ -38,7 +18,7 @@ export function canvasScale(canvasWidth: number, canvasHeight: number, refWidth:
 }
 
 /**
- * A length field as Yoga takes it: pixels, a percentage, `"auto"`, or undefined when empty or unreadable. A `calc()`
+ * A length field as the layout engine takes it: pixels, a percentage, `"auto"`, or undefined when empty or unreadable. A `calc()`
  * mixing % and px (ADR 0422 wave 5, `calc(50% + -12px)`) becomes pixels against `basis`, the size its percentages are
  * of (the parent's content box along the field's axis); 0 when it isn't known yet.
  */
@@ -77,7 +57,7 @@ export function uiBorderEdges(c: object): [number, number, number, number] {
   return uiEdges(p.borderWidth, p.borderTopWidth ?? null, p.borderRightWidth ?? null, p.borderBottomWidth ?? null, p.borderLeftWidth ?? null).map((v) => Math.max(0, v)) as [number, number, number, number];
 }
 
-/** A min/max length as Yoga takes it: pixels or a percentage; `"auto"`, `"none"` and unreadable values are unset. `basis` as for `uiLength`. */
+/** A min/max length as the layout engine takes it: pixels or a percentage; `"auto"`, `"none"` and unreadable values are unset. `basis` as for `uiLength`. */
 export function uiLimit(v: UILength | null | undefined, basis?: number): number | `${number}%` | undefined {
   const l = uiLength(v, basis);
   return l === "auto" ? undefined : l;

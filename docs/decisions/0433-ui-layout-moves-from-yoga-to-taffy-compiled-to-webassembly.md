@@ -124,9 +124,8 @@ positions, `display: none`, aspect ratio, overflow and automatic minimums, wrapp
 
 **Migration plan.**
 
-1. Done with this record: the crate, the committed wasm, the adapter, its Vitest tests, the conformance set and the
-   measurements. The UI core still runs on Yoga.
-2. Once the stopgap is on `master`: `UICore` switches to the adapter (`loadLayoutEngine` / `layoutEngineLoaded` for
+1. The crate, the committed wasm, the adapter, its Vitest tests, the conformance set and the measurements.
+2. With the stopgap merged in (it must reach `master` with or before this): `UICore` switches to the adapter (`loadLayoutEngine` / `layoutEngineLoaded` for
    `loadYogaOnce` / `loadedYoga`; one `LayoutTree` per core; `Entry.node` and `popup` become `LayoutNode`s;
    `applyProperties` keeps its change-only slots and calls the keyword setters; the measure mapping and shrink-to-fit
    width above; resolved `direction`; boxes read through `layout()`), the stopgap's container minimums go, the empty
