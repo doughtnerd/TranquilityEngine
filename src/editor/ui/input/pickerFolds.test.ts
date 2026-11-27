@@ -1,4 +1,4 @@
-// The action picker's folds (ADR 0417): remembered per project across editor restarts, and still kept for the run
+// The action picker's folds (ADR 0433): remembered per project across editor restarts, and still kept for the run
 // when storage is blocked.
 import { afterEach, describe, expect, it, vi } from "vitest";
 

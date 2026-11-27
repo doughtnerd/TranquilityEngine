@@ -1,14 +1,29 @@
 // The open project's text files as a CommandStack's file host (ADR 0026, 0077): commands that edit a
-// UI document's markup or stylesheet write through here, and undo and redo write back through here.
+// file (a Svelte component's source) write through here, and undo and redo write back through here.
 // Reads see each write at once; the file writes themselves (`project.writeFile`, which also updates
-// what `Assets` serves, so documents hot-reload) are queued per file and coalesced, so a drag that
+// what `Assets` serves) are queued per file and coalesced, so a drag that
 // rewrites a file every frame costs at most one write in flight plus the latest text waiting.
+//
+// ADR 0423 wave C: Svelte UI code (a component, a rune module or a `.css` file components import) compiles with the
+// project's scripts, so a write of one runs `onUICodeWritten`'s listener (the session reloads the project's code, and
+// mounted views show the new version) before the file's queue moves on; `flush` waits for that too.
 import { Assets } from "../engine/scene/Assets";
 import { projectFileKind } from "../engine/scene/projectFiles";
+import { isUISourcePath } from "../projectCode/uiModules";
 import type { TextFileHost } from "./document";
 import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";
 import { currentProject, status } from "./state";
+
+/** True for files that compile as Svelte UI code: components, rune modules and plain `.css`. */
+const isUICode = (path: string): boolean => isUISourcePath(path) || path.endsWith(".css");
+
+let afterUICodeWrite: (() => Promise<void>) | null = null;
+
+/** Run `listener` after an edit writes Svelte UI code (the session reloads the project's code there). One listener; null removes it. */
+export function onUICodeWritten(listener: (() => Promise<void>) | null): void {
+  afterUICodeWrite = listener;
+}
 
 class ProjectTextFiles implements TextFileHost {
   /** Text written but not yet on disk (null: being deleted), newest per file. */
@@ -65,6 +80,13 @@ class ProjectTextFiles implements TextFileHost {
           else await project.writeFile(path, text);
         } catch (err) {
           this.report(`Couldn't save ${path}`, err);
+        }
+        if (isUICode(path) && afterUICodeWrite && (!this.pending.has(path) || this.pending.get(path) === text)) {
+          try {
+            await afterUICodeWrite();
+          } catch (err) {
+            this.report(`Couldn't reload the UI code after saving ${path}`, err);
+          }
         }
         if (!this.pending.has(path) || this.pending.get(path) === text) break;
       }

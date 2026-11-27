@@ -215,22 +215,22 @@ The engine draws a glyph for every icon key a prompt gives: keycaps with the key
 ```ts
 const prompt = this.input.prompt("jump")!;         // follows the device the player last used
 const glyph = InputGlyphs.get(prompt.icons[0])!;   // or InputGlyphs.of(prompt) for every control
-hint.getComponent(UIImage)!.image = glyph.asset;   // "asset:@myco/glyphs/xbox/buttonSouth.svg"
+(view.query("#jump-hint")!.component as UIImage).image = glyph.asset; // "asset:@myco/glyphs/xbox/buttonSouth.svg"
 img.src = glyph.url;                               // an HTML <img>; glyph.svg is the markup
 ```
 
-`glyph.asset` works wherever a texture asset does: `UIImage.image`, a UI document's `<Image image="asset:@myco/glyphs/keyboard/space.svg">`, sprites. Glyphs are 64 pixels high; keycaps with long labels are wider (`glyph.width`).
+`glyph.asset` works wherever a texture asset does: a component's `<img src="asset:@myco/glyphs/keyboard/space.svg">` (or a prop, `<img src={jumpGlyph}>` with `view.props.jumpGlyph = glyph.asset`), an image element's `image` field, sprites. Glyphs are 64 pixels high; keycaps with long labels are wider (`glyph.width`).
 
 ### A rebinding screen
 
-**UIControlMapper** (Add Component › UI) is a ready-made controls screen. Put it on a node under a `UICanvas` (without one it makes its own):
+**UIControlMapper** (Add Component › UI) is a ready-made controls screen, drawn by a built-in Svelte component (`@myco/ui/ControlMapper.svelte`) on a `UIView` it makes as its node's child. Put it on any node and it draws on a screen canvas of its own; under a game's canvas, its canvas takes that canvas's settings and draws just above it:
 
 - One row per action (`actions`: a comma-separated list, empty for every action but the engine's UI actions), one per part for a d-pad or axis composite ("Move Up"…), with a **Keyboard** and a **Gamepad** cell. Each shows the binding's glyphs and label; the gamepad column follows the pad the player last used.
 - Every cell and button is a focusable `UIButton`, so the game UI's [keyboard and gamepad navigation](ui.md#keyboard-and-gamepad-navigation) drives the screen: the arrow keys, d-pad or left stick move focus, and Enter, Space or the south button press the focused button. The screen takes focus when it appears, so a d-pad player can start without clicking. The focused button has an `accentColor` border, after mouse use too.
 - Click a cell (or press Enter or the south button on it), then press the new key or button. While it waits, presses don't move focus. **Escape** cancels; after `timeout` seconds (default 10) it gives up.
 - An empty cell ("—") on an action's row adds a binding for that device the same way (`rebind` with `add: true`).
 - **Delete** or **Backspace** on the focused cell unbinds it, as does the **Unbind** button (which acts on the binding cell last focused). Unbinding one part of a d-pad or axis removes the device's whole binding.
-- Without a `UICanvas` above it, the mapper makes a screen canvas that takes focus when it appears, is driven only by the mapper's `player`, and keeps focus in the screen when `modal` is on. Under your own canvas, it focuses its first cell when it appears, unless something on that canvas already has focus; set that canvas's `modal` to keep focus in it.
+- With no canvas above it, the mapper makes a screen canvas that takes focus when it appears, is driven only by the mapper's `player`, and keeps focus in the screen when `modal` is on. Inside a document's canvas, it focuses its first cell when it appears, unless something on that canvas already has focus; set that canvas's `modal` (`<Canvas modal>`) to keep focus in it.
 - A chord is one cell ("Shift + B", with both glyphs). Its rebind takes the keys or buttons held together: hold them, then let go. A chord with a different number of modifiers replaces the binding.
 - A conflict is shown in the status line ("B is also bound to Bomb.") and conflicting cells turn `warningColor`.
 - **Reset to defaults** calls `resetBindings`; **Save** calls `saveBindings(profile)`. The button row's words are `text.unbind`, `text.reset` and `text.save`.

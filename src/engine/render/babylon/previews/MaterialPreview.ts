@@ -107,7 +107,7 @@ export class MaterialPreview {
     this.onShaderError?.(null);
     this.library?.dispose();
     const library = (this.library = previewMaterials(scene, this.shared));
-    this.graph = createGraphMaterial(scene, "preview.graph", compiled, properties, this.shared, (p, linear) => library.texture(p, linear ? "graphData" : "graphColor"));
+    this.graph = createGraphMaterial(scene, "preview.graph", compiled, properties, this.shared, (p, linear) => library.loadTexture(p, linear ? "graphData" : "graphColor"));
     watchShaderErrors(this.graph, (message) => {
       this.onShaderError?.(message);
     });
@@ -230,7 +230,7 @@ export class NodePreviewRenderer {
       // A library per entry, freed with it: a new preview graph loads the project's images afresh (as it did
       // before ADR 0127), instead of one renderer-long cache that never sees an image change.
       const library = previewMaterials(scene, this.shared);
-      const made = createGraphMaterial(scene, "preview.node", compiled, {}, this.shared, (p, linear) => library.texture(p, linear ? "graphData" : "graphColor"));
+      const made = createGraphMaterial(scene, "preview.node", compiled, {}, this.shared, (p, linear) => library.loadTexture(p, linear ? "graphData" : "graphColor"));
       const entry = { compiled, graph: made, library, used: true, failed: false, checked: false };
       watchShaderErrors(made, () => (entry.failed = true));
       this.entries.set(key, entry);

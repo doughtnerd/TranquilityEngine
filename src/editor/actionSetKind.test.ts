@@ -1,4 +1,4 @@
-// Action set assets in the editor (ADR 0417): the core `actionSet` kind's New Action Set (a valid set under a free id,
+// Action set assets in the editor (ADR 0433): the core `actionSet` kind's New Action Set (a valid set under a free id,
 // listed in project.json's `input.actionSets`, opened in the Input dialog with its name selected), opening a set file
 // in the dialog, and its format's problems.
 import { afterEach, describe, expect, it } from "vitest";

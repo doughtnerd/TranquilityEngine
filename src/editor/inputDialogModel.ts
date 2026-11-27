@@ -1,4 +1,4 @@
-// The Input dialog's model (ADR 0417), over every action set and context at once: the left list's entries (asset
+// The Input dialog's model (ADR 0433), over every action set and context at once: the left list's entries (asset
 // sets, code sets read-only, contexts with `default` first among equals), where each action is mapped, which actions
 // no context maps, an action's type change or rename carried into every context, the default context's mappings that
 // come from scripts, and which scene nodes turn a context on. Pure: the dialog hands it the files and the engine's sets.
@@ -19,7 +19,7 @@ export interface SetEntry {
   readonly path?: string;
   readonly source: "asset" | "code";
   readonly actions: readonly { readonly name: string; readonly kind: ActionKind; readonly consume?: boolean }[];
-  /** A script and an asset both define the id (ADR 0417): shown on both entries. */
+  /** A script and an asset both define the id (ADR 0433): shown on both entries. */
   readonly clash: boolean;
   /** The asset's value. */
   readonly spec?: ActionSetFile;

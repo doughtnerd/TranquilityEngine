@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0417) for the sortable list: rows reordered by their handles from the keyboard (Space lifts, arrows
+// Stories (ADR 0219, 0433) for the sortable list: rows reordered by their handles from the keyboard (Space lifts, arrows
 // move, Space drops, Escape puts back) with the live region's announcements.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

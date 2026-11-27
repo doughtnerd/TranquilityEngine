@@ -9,7 +9,7 @@ export const exportOpen = signal(false);
 export const settingsOpen = signal(false);
 
 /**
- * The Input dialog (ADR 0417): null when closed, else the file it shows (an `*.actions.json` or `*.input.json` path),
+ * The Input dialog (ADR 0433): null when closed, else the file it shows (an `*.actions.json` or `*.input.json` path),
  * or "" for whatever it showed last. Opened from File › Input, or by opening an action set or context file.
  */
 export const inputDialog = signal<string | null>(null);

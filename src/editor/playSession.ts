@@ -41,7 +41,7 @@ export interface PlayController {
    * document; while playing, swap the running game to the new types (ADR 0125) and rebuild the Editor World
    * on Stop; while starting, reload on Stop. `outside`: a change on disk, skipped when the files match what's loaded.
    */
-  reloadScripts(options?: { outside?: boolean }): Promise<void>;
+  reloadScripts(options?: { outside?: boolean; quiet?: boolean }): Promise<void>;
   /** The open project's `plugins.disabled` changed (ADR 0133): apply it live in edit, otherwise on Stop. */
   reapplyPlugins(): void;
 }
@@ -78,7 +78,7 @@ export function createPlaySession(ports: PlaySessionPorts): PlayController {
     if (applyPlugins(project)) void reloadScripts();
   }
 
-  async function reloadScripts(options: { outside?: boolean } = {}): Promise<void> {
+  async function reloadScripts(options: { outside?: boolean; quiet?: boolean } = {}): Promise<void> {
     const project = currentProject.value;
     if (!project) return;
     if (options.outside) {
@@ -115,6 +115,7 @@ export function createPlaySession(ports: PlaySessionPorts): PlayController {
       docVersion.value++; // panels, outlines and the gizmo pick up the rebuilt nodes
     }
     const problems = problemList(result.problems);
+    if (options.quiet && problems.length === 0) return; // an editor edit of UI code (ADR 0423 wave C) says what it did itself
     status.value =
       problems.length > 0
         ? { kind: "error", text: `Reloaded scripts; ${problems.join("; ")}`, detail: problems.join("\n") }

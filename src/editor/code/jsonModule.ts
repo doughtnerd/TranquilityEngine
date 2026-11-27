@@ -4,7 +4,7 @@
 import { ACTION_SET_EXTENSION } from "../../engine/input/actionAssets";
 
 /**
- * The module source for the JSON file at `path` holding `text`. An action set file (`*.actions.json`, ADR 0417) is
+ * The module source for the JSON file at `path` holding `text`. An action set file (`*.actions.json`, ADR 0433) is
  * different: a script importing it gets the defined set at run time (the code linker defines it), so its default export
  * is an `ActionSetDef` from "myco", whatever the JSON says. Invalid JSON is untyped (the loader reports it when a script
  * imports it).

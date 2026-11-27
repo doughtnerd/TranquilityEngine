@@ -159,7 +159,7 @@ export const TRIGGER_TYPES: readonly TriggerType[] = ["explicit", "implicit", "b
 /** The name of a modifier or trigger (its one key besides a trigger's `type` and a modifier's `off`). */
 export const stepName = (step: ModifierSpec | TriggerSpec): string => Object.keys(step).find((k) => k !== "type" && k !== "off") ?? "";
 
-/** Whether a modifier is turned off (kept in the stack, skipped: ADR 0417). */
+/** Whether a modifier is turned off (kept in the stack, skipped: ADR 0433). */
 export const isOff = (step: ModifierSpec): boolean => step.off === true;
 
 /** A modifier turned off or back on; on drops the key. */
@@ -235,7 +235,7 @@ export function setTriggerType(t: TriggerSpec, type: TriggerType | ""): TriggerS
   return out as unknown as TriggerSpec;
 }
 
-// --- triggers by how they combine (ADR 0417) ----------------------------------------------------
+// --- triggers by how they combine (ADR 0433) ----------------------------------------------------
 
 /** The groups a mapping's triggers show in, by how they combine, with what each group is called. */
 export const TRIGGER_GROUPS: readonly { readonly type: TriggerType; readonly label: string; readonly hint: string }[] = [
@@ -289,7 +289,7 @@ export function triggerSummary(t: TriggerSpec): string {
   }
 }
 
-// --- a mapping's note and summary (ADR 0417) ------------------------------------------------------
+// --- a mapping's note and summary (ADR 0433) ------------------------------------------------------
 
 /** A mapping with its note (editor-only; the evaluator ignores it); an empty note drops the key. */
 export function setNote(m: MappingSpec, note: string): MappingSpec {
@@ -377,7 +377,7 @@ export function hasProjectActionSets(sets: readonly InputActionSetInfo[]): boole
   return sets.some((s) => !s.id.startsWith("engine."));
 }
 
-// --- action references (ADR 0417) ---------------------------------------------------------------
+// --- action references (ADR 0433) ---------------------------------------------------------------
 
 /** An action a mapping names, resolved: its set and name. */
 export interface ActionRef {
@@ -442,7 +442,7 @@ export function mapMappingRefs(m: MappingSpec, rename: (ref: string) => string):
   return { ...m, action, ...(triggers ? { triggers } : {}) };
 }
 
-// --- controls and action types (ADR 0417) --------------------------------------------------------
+// --- controls and action types (ADR 0433) --------------------------------------------------------
 
 /** A mapping's control paths, in its composite's part order, without the empty ones. */
 export function mappingControls(m: MappingSpec): string[] {

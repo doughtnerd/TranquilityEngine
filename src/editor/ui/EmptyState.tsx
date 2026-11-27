@@ -17,7 +17,8 @@ export interface EmptyStateProps {
   readonly body?: ComponentChildren;
   /** A small glyph or picture above the title (full look only). */
   readonly icon?: ComponentChildren;
-  readonly action?: { readonly label: string; readonly title?: string; readonly disabled?: boolean; run(): void };
+  /** The one primary action; `autoFocus` puts focus on it when the state appears (a screen with nothing else to do). */
+  readonly action?: { readonly label: string; readonly title?: string; readonly disabled?: boolean; readonly autoFocus?: boolean; run(): void };
   readonly children?: ComponentChildren;
   /** The one-line look, for a side panel or an inspector. */
   readonly compact?: boolean;
@@ -34,7 +35,7 @@ function textOf(node: ComponentChildren): string {
 
 export function EmptyState(props: EmptyStateProps) {
   const action = props.action && (
-    <button class="primary kit-empty-action" disabled={props.action.disabled} title={props.action.title} onClick={() => props.action!.run()}>
+    <button class="primary kit-empty-action" autoFocus={props.action.autoFocus} disabled={props.action.disabled} title={props.action.title} onClick={() => props.action!.run()}>
       {props.action.label}
     </button>
   );

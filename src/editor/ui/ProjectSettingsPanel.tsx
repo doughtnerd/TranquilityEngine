@@ -54,6 +54,7 @@ import { lazyComponent, type LazyComponent } from "./lazy";
 import { NumberField, TextField } from "./settingsControls";
 import { NameList, ProblemList, Row } from "./settingsControls";
 import "./projectSettings.css";
+import { EmptyState } from "./EmptyState";
 
 /** The panel's state for the open project: its project section's session (ADR 0151), kept outside the component. */
 type PanelState = ProjectSectionSession<SettingsDraft, SettingsProblem>;
@@ -81,7 +82,7 @@ export function ProjectSettingsPanel() {
   void projectSettingsSections.version.value; // a plugin's category (de)registered, with the keys it owns
   docVersion.value; // files added (autoload choices)
   const project = currentProject.value;
-  if (!project) return <Panel><p class="empty">No project open</p></Panel>;
+  if (!project) return <Panel><EmptyState compact title="No project open" /></Panel>;
   const s = settings.open(project);
   const draft = s.draft;
   const editable = project.canSave;
@@ -423,7 +424,7 @@ function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: Editor
   );
 }
 
-/** Input players (ADR 0337) and the action sets (ADR 0417): the files in load order, then the sets scripts define. */
+/** Input players (ADR 0337) and the action sets (ADR 0433): the files in load order, then the sets scripts define. */
 function InputSettings(props: { s: PanelState; draft: SettingsDraft; project: EditorProject; problems: readonly SettingsProblem[] }) {
   const { s, draft, project, problems } = props;
   const input = (draft.input ?? {}) as { join?: string; maxPlayers?: number };

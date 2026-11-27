@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { EsbuildApi, PackageSource } from "../editor/packages";
+import type { UIRuntimeSource } from "../projectCode/uiBundle";
 
 let esbuild: Promise<EsbuildApi> | null = null;
 
@@ -20,6 +21,17 @@ function nodeEsbuild(): Promise<EsbuildApi> {
     const module = await import("esbuild-wasm");
     return ((module as { default?: EsbuildApi }).default ?? module) as EsbuildApi;
   })());
+}
+
+/** The engine's checkout, which `npm run export` runs from. */
+const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+
+/** The engine's Svelte runtime and renderer, read from its checkout, which game builds bundle their UI code with (ADR 0425). */
+export function nodeUIRuntimeSource(): UIRuntimeSource {
+  return {
+    files: { read: (path) => readFile(join(ENGINE_ROOT, ...path.split("/")), "utf8").catch(() => null) },
+    esbuild: nodeEsbuild,
+  };
 }
 
 /** The packages of the project folder `root`, bundled for `mode`. */

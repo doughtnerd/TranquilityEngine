@@ -1,5 +1,5 @@
 /**
- * Action set assets (ADR 0417): an action set written as data, `*.actions.json`, one set per file.
+ * Action set assets (ADR 0433): an action set written as data, `*.actions.json`, one set per file.
  *
  * ```json
  * { "id": "game.PlayerActions",
@@ -23,7 +23,7 @@ export interface ActionSetFileAction {
   readonly consume?: boolean;
 }
 
-/** A `*.actions.json` file (ADR 0417). */
+/** A `*.actions.json` file (ADR 0433). */
 export interface ActionSetFile {
   readonly id: string;
   readonly actions: readonly ActionSetFileAction[];
@@ -107,7 +107,7 @@ function toDefinition(file: ActionSetFile): { spec: ActionSpec; options: ActionS
 }
 
 /**
- * Register the action set a `*.actions.json` file describes (ADR 0417), as `defineActions` does a code one.
+ * Register the action set a `*.actions.json` file describes (ADR 0433), as `defineActions` does a code one.
  * Throws with every problem `actionSetProblems` finds. Defining an id again replaces the set.
  */
 export function defineActionsFromData(spec: ActionSetFile): ActionSetDef {
@@ -145,7 +145,7 @@ export function actionSetFromAsset(path: string): ActionSetDef {
 }
 
 /**
- * Define every set `input.actionSets` lists, in order (ADR 0417), before the bootstrap. Lenient, like the other
+ * Define every set `input.actionSets` lists, in order (ADR 0433), before the bootstrap. Lenient, like the other
  * boot steps: a missing or broken file is reported in the console and skipped.
  */
 export function bootActionSets(paths: readonly string[]): void {
@@ -162,7 +162,7 @@ export function bootActionSets(paths: readonly string[]): void {
   }
 }
 
-// A changed set file is defined again (ADR 0417), as a script reload replaces a code set.
+// A changed set file is defined again (ADR 0433), as a script reload replaces a code set.
 Assets.onChanged((path) => {
   if (!loaded.has(path) || !Assets.has(path)) return;
   try {

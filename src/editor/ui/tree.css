@@ -6,13 +6,13 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  box-sizing: border-box;
+  min-height: var(--row-h);
   padding: 2px 4px;
   border-radius: 3px;
   cursor: default;
   white-space: nowrap;
 }
-/* Striped trees (the Hierarchy): every second visible row. `:where` keeps this below hover, selection and the drop indicator. */
-.tree-view.striped :where(.row.stripe-odd) { background: color-mix(in srgb, var(--text) 4%, transparent); }
 .tree-view .row:hover { background: var(--hover); }
 .tree-view .row.selected { background: var(--selection); color: var(--selection-text); }
 .tree-view .row.inactive .name { opacity: 0.5; }

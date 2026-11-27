@@ -3,33 +3,33 @@
 .hierarchy-view .tree { flex: none; }
 .hierarchy-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .hierarchy-header .scene-name { flex: 1; min-width: 0; margin-bottom: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.hierarchy-add { flex: none; width: 22px; height: 20px; padding: 0; line-height: 18px; font-size: 14px; }
+.hierarchy-add { flex: none; width: 22px; height: 20px; padding: 0; line-height: 18px; font-size: var(--fs-lg); }
 .hierarchy-search {
   width: 100%;
   box-sizing: border-box;
   margin-bottom: 4px;
   padding: 2px 6px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 3px;
 }
 .hierarchy-search:focus { outline: none; border-color: var(--accent); }
-.hierarchy-no-match { font-size: 12px; margin-top: 6px !important; }
 
 .tree .row.filter-context .name { opacity: 0.55; }
 .tree .row.scene-hidden .name { font-style: italic; opacity: 0.55; }
 
-/* Elements a UI document builds (ADR 0077): the markup file's, not the scene's, so muted and read-only. */
+/* Elements a UI view renders (ADR 0423): the component file's, not the scene's, so muted. */
 .tree .row.ui-element { color: var(--muted); font-style: italic; }
 .tree .row.ui-element.selected { color: var(--selection-text); }
-.tree .row.ui-element .ui-element-icon { flex: none; width: 12px; margin-right: 3px; font-size: 9px; font-style: normal; color: var(--accent); opacity: 0.8; }
+.tree .row.ui-element .ui-element-icon { flex: none; width: 12px; margin-right: 3px; font-size: var(--fs-xs); font-style: normal; color: var(--accent); opacity: 0.8; }
+.tree .row.ui-view-element.view-only .ui-element-icon { color: var(--muted); } /* ADR 0423 wave C: a row of an {#each}, a snippet or a child component: view-only */
 /* A Skeleton's bones (ADR 0373): read-only rows from the skeleton asset. */
 .tree .row.bone-row { color: var(--muted); }
 .tree .row.bone-row.selected { color: var(--selection-text); }
-.tree .row.bone-row .bone-row-icon { flex: none; width: 12px; margin-right: 3px; font-size: 10px; color: var(--accent2); }
+.tree .row.bone-row .bone-row-icon { flex: none; width: 12px; margin-right: 3px; font-size: var(--fs-xs); color: var(--accent2); }
 
 .tree .row .name { flex: 0 1 auto; min-width: 0; }
 .tree .row-flags { margin-left: auto; padding-left: 4px; display: flex; gap: 1px; flex: none; }
@@ -40,7 +40,7 @@
   border: none;
   background: none;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   line-height: 16px;
   opacity: 0;
   cursor: pointer;
@@ -61,18 +61,18 @@
   height: 24px;
   border-right: 1px solid var(--border);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-md);
   cursor: default;
   white-space: nowrap;
 }
 .scene-tab .scene-tab-name { overflow: hidden; text-overflow: ellipsis; }
 .scene-tab.active { color: var(--text); background: var(--panel); box-shadow: inset 0 -2px 0 var(--accent); }
 .scene-tab:hover:not(.active) { color: var(--text); }
-.scene-tab-close { width: 16px; height: 16px; padding: 0; border: none; background: none; color: var(--muted); font-size: 11px; line-height: 16px; border-radius: 3px; }
+.scene-tab-close { width: 16px; height: 16px; padding: 0; border: none; background: none; color: var(--muted); font-size: var(--fs-sm); line-height: 16px; border-radius: 3px; }
 .scene-tab-close:hover { background: var(--button-hover); color: var(--text); }
 .tree .row.ui-element.dragging { opacity: 0.5; }
 
 /* Editing a prefab opened from an instance (ADR 0122) */
-.prefab-bar { display: flex; align-items: center; gap: 8px; flex: none; padding: 3px 8px; border-bottom: 1px solid var(--border); background: var(--accent-soft); color: var(--text); font-size: calc(12px * var(--ui-scale)); }
+.prefab-bar { display: flex; align-items: center; gap: 8px; flex: none; padding: 3px 8px; border-bottom: 1px solid var(--border); background: var(--accent-soft); color: var(--text); font-size: var(--fs-md); }
 .prefab-bar code { color: var(--link); }
 .prefab-bar .prefab-back { flex: none; }

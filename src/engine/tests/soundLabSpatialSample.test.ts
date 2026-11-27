@@ -29,6 +29,7 @@ import { makeFakeBackend } from "../../plugins/audio/runtime/testing";
 import { OcclusionPass } from "../../plugins/audio/runtime/core/occlusion";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView } from "../../plugins/audio/runtime/core/spatial";
 import { DomInput } from "./domInput";
+import { serveSampleUI } from "./sampleUI";
 
 const SAMPLE = fileURLToPath(new URL("../../../samples/sound-lab", import.meta.url));
 const fake = makeFakeBackend();
@@ -44,6 +45,7 @@ async function boot(scene: string) {
   const project = await readProject(SAMPLE);
   Assets.clearSources();
   Assets.addSource(project.assets);
+  serveSampleUI(import.meta.glob("../../../samples/sound-lab/ui/*.svelte", { eager: true }));
   engine = await Engine.create({ headless: true, project: project.settings });
   engine.world.render = RENDER;
   await SceneManager.load(scene);

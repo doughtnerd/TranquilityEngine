@@ -31,7 +31,7 @@ export interface Command {
   readonly label: string;
   apply(doc: SceneDocument): Change[];
   /**
-   * Text files the command writes besides the scene (a UI document's markup and stylesheets, ADR
+   * Text files the command writes besides the scene (a Svelte component's source, ADR
    * 0077). The CommandStack writes them through its `files` host and records the change in the
    * step, so undo and redo write them back in order with scene edits.
    */
@@ -368,7 +368,7 @@ export class ReplaceDocument implements Command {
 // --- text files -------------------------------------------------------------------------------
 
 /**
- * Write text files (ADR 0077: a UI document's markup and stylesheets) as one step. The scene
+ * Write text files (ADR 0077, 0423: a Svelte component's source) as one step. The scene
  * doesn't change; the stack records each file's change and writes it back on undo and redo.
  */
 export class WriteFiles implements Command {

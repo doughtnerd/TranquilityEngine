@@ -1,4 +1,4 @@
-// The action picker's folds (ADR 0417), per project and per user: which sets the user folded or unfolded, by id
+// The action picker's folds (ADR 0433), per project and per user: which sets the user folded or unfolded, by id
 // (true: folded). Kept in browser storage like the scene view's hidden nodes (`nodeVisibility.ts`), so they last
 // across editor restarts and never reach the project's files; a set never touched follows `foldedByDefault`.
 // Storage that can't be read or written (blocked, full, a private window) leaves the folds for this run only.

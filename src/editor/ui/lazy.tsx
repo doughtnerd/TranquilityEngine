@@ -23,13 +23,13 @@ export interface LazyComponent<P extends object = object> {
 export function PanelLoading(props: { error?: string; retry?: () => void }): JSX.Element {
   if (props.error === undefined) {
     return (
-      <p class="empty panel-loading" role="status" aria-busy="true">
+      <p class="kit-note panel-loading" role="status" aria-busy="true">
         Loading…
       </p>
     );
   }
   return (
-    <p class="empty panel-loading error" role="alert">
+    <p class="kit-note panel-loading error" role="alert">
       This panel didn't load: {props.error}{" "}
       {props.retry && (
         <button type="button" onClick={props.retry}>

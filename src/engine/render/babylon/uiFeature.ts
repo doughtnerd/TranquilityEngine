@@ -14,9 +14,9 @@ import type { WarmContent } from "../../scene/warmUp";
 import { isUIComponent } from "../../ui/components";
 import { loadBundledFont } from "../../ui/fonts";
 import { UICore } from "../../ui/UICore";
-import { Text, type Camera } from "../components";
+import type { Camera } from "../components";
 import { PICK_ORDER, type BabylonFeature, type DrawnDescription, type DrawnNode, type FeatureSyncContext } from "./feature";
-import { BabylonUI, CANVAS_PREFIX, measureText, worldCanvasWarm } from "./ui";
+import { BabylonUI, CANVAS_PREFIX, measureRunWidth, measureText, worldCanvasWarm } from "./ui";
 import type { WarmItem } from "./warmUp";
 
 /** What the UI feature takes from the renderer (ADR 0130). */
@@ -72,7 +72,7 @@ export class BabylonUIFeature implements BabylonFeature {
     this.draw = new BabylonUI(host.scene, { texture: (ref) => host.texture(ref) });
     this.mainCore = new UICore({
       interactive: host.interactive(),
-      host: { viewCamera: () => host.viewCamera(), measureText },
+      host: { viewCamera: () => host.viewCamera(), measureText, measureRunWidth },
     });
     host.setFrameUI(frameHook(this.draw));
   }
@@ -93,8 +93,7 @@ export class BabylonUIFeature implements BabylonFeature {
     const core = this.mainCore;
     core.setInteractive(this.host.interactive());
     core.sync(world, cssW, cssH, world.time.unscaledDeltaTime);
-    this.draw.sync(world, core, { caretOf: (c) => core.caretOf(c) }, cssW, cssH, pixelRatio);
-    this.draw.syncTexts(world, cssW, cssH);
+    this.draw.sync(world, core, { caretOf: (c) => core.caretOf(c), selectionOf: (c) => core.selectionOf(c) }, cssW, cssH, pixelRatio);
     this.syncPreview(world, cssW, cssH, pixelRatio);
   }
 
@@ -113,7 +112,7 @@ export class BabylonUIFeature implements BabylonFeature {
     if (!this.preview) {
       const host = this.host;
       this.preview = {
-        core: new UICore({ interactive: false, passive: true, host: { measureText } }),
+        core: new UICore({ interactive: false, passive: true, host: { measureText, measureRunWidth } }),
         draw: new BabylonUI(host.scene, { texture: (ref) => host.texture(ref), screenOnly: true }),
       };
       host.setFramePreviewUI(frameHook(this.preview.draw));
@@ -122,7 +121,6 @@ export class BabylonUIFeature implements BabylonFeature {
     const w = rect.width * cssW, h = rect.height * cssH;
     core.sync(world, w, h, 0);
     draw.sync(world, core, {}, w, h, pixelRatio, { x: rect.x * cssW, y: rect.top * cssH });
-    draw.syncTexts(world, w, h);
   }
 
   release(c: Component): void {
@@ -130,9 +128,6 @@ export class BabylonUIFeature implements BabylonFeature {
       this.mainCore.release(c);
       this.draw.release(c);
       this.preview?.core.release(c);
-      this.preview?.draw.release(c);
-    } else if (c instanceof Text) {
-      this.draw.release(c);
       this.preview?.draw.release(c);
     }
   }
@@ -149,14 +144,10 @@ export class BabylonUIFeature implements BabylonFeature {
 
   /**
    * ADR 0276: the main view's drawing. Each world canvas's plane, depth-tested, framed and outlined, but
-   * not picked here: the UI core picks canvases and elements by its own rules (ADR 0117). Each shown
-   * interim Text's box on the canvas, picked above everything. Neither casts a shadow.
+   * not picked here: the UI core picks canvases and elements by its own rules (ADR 0117). It casts no shadow.
    */
   *drawn(): Iterable<DrawnNode> {
-    for (const d of this.draw.drawn()) {
-      if ("canvas" in d) yield { component: d.canvas, shape: { kind: "meshes", meshes: [d.mesh] }, order: PICK_ORDER.depthTested, pickable: false };
-      else yield { component: d.text, shape: { kind: "rect", rect: d.rect }, order: PICK_ORDER.screen };
-    }
+    for (const d of this.draw.drawn()) yield { component: d.canvas, shape: { kind: "meshes", meshes: [d.mesh] }, order: PICK_ORDER.depthTested, pickable: false };
   }
 
   /** ADR 0154: a world-space canvas's plane, for the variant report. */

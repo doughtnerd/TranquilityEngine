@@ -57,7 +57,8 @@
         {
           "type": "engine.AudioSource",
           "data": {
-            "clip": "asset:audio/ocean_loop.wav",
+            "clip": "asset:sounds/ocean.playlist.json",
+            "output": "Ambience",
             "loop": true,
             "volume": 0.35,
             "playOnAwake": true

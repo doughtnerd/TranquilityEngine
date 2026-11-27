@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, Input, InputPlayers, actionSetFromData, actionSetProblems, button, defineActions, defineActionsFromData } from "../index";
 import { inputActionSets } from "../editor";
 
-// ADR 0417: action sets as `*.actions.json` assets, listed in project.json, bound in `input/default.input.json`,
+// ADR 0433: action sets as `*.actions.json` assets, listed in project.json, bound in `input/default.input.json`,
 // read by name like code sets; an id both define is the asset's.
 
 const DT = 1 / 60;

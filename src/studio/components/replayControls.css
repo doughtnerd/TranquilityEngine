@@ -7,7 +7,7 @@
 button.studio-replay-title { cursor: pointer; color: var(--link); }
 button.studio-replay-title:hover { text-decoration: underline; }
 .studio-replay-scrub { flex: 1 1 60px; min-width: 40px; accent-color: var(--accent); }
-.studio-replay-time { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.studio-replay-time { flex: none; color: var(--muted); font-size: var(--fs-sm); }
 .studio-replay-close { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: none; background: none; color: var(--muted); border-radius: 4px; }
 .studio-replay-close:hover { background: var(--hover); color: var(--text); }
 .studio-replay :is(.studio-replay-play, .studio-replay-close, button.studio-replay-title):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }

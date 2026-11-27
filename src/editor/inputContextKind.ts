@@ -1,6 +1,6 @@
-// Input context assets as a core asset kind (ADR 0143, 0233, 0336, 0417): `*.input.json` files, made with the Assets
+// Input context assets as a core asset kind (ADR 0143, 0233, 0336, 0433): `*.input.json` files, made with the Assets
 // panel's New Input Context and edited in the Input dialog (`ui/input/InputDialog.tsx`), which opening one opens; the
-// Inspector's context editor and the Input Context panel it replaced are gone (ADR 0417, Deprecates). A context's file is plain JSON the engine reads (`contexts.ts`); saving it reaches a
+// Inspector's context editor and the Input Context panel it replaced are gone (ADR 0433, Deprecates). A context's file is plain JSON the engine reads (`contexts.ts`); saving it reaches a
 // playing World through `Assets.notifyChanged`, which makes its players recompile. Registered at start-up with the
 // other core kinds, so this module and its format stay light (no editor SDK, no engine index).
 import type { InputContextSpec } from "../engine";

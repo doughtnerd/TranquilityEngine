@@ -1,10 +1,10 @@
 # 0336. Input actions are data components, contexts are node components, and built-in systems evaluate them
 
-- **Status:** Accepted, amended by 0417 (action sets can also be `*.actions.json` assets; an asset set has no controls, and the default context is a real `default.input.json`)
+- **Status:** Accepted, amended by 0433 (action sets can also be `*.actions.json` assets; an asset set has no controls, and the default context is a real `default.input.json`)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0007, 0011, 0017, 0069, 0131, 0335, 0337, 0417
+- **Related:** 0007, 0011, 0017, 0069, 0131, 0335, 0337, 0433
 
 ## Context
 

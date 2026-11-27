@@ -55,7 +55,7 @@ test("multiplayer play: 2 clients + 1 thin client, live stats, latency raises th
   // The Network panel is a tab beside Worlds; not playing, it explains itself and offers the setup.
   await showTab(page, /^Network/);
   const panel = page.locator(".panel.network");
-  await expect(panel.locator(".network-empty")).toContainText("Play to see");
+  await expect(panel.getByRole("note", { name: "Play to see each networked World's connections here" })).toBeVisible();
   await panel.getByRole("checkbox", { name: "Multiplayer play" }).check();
   await panel.getByRole("combobox", { name: "Clients", exact: true }).selectOption("2");
   await panel.getByRole("combobox", { name: "Thin clients", exact: true }).selectOption("1");
@@ -106,7 +106,7 @@ test("multiplayer play: 2 clients + 1 thin client, live stats, latency raises th
   await page.getByRole("button", { name: /Stop/ }).click();
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   await expect(tiles).toHaveCount(0);
-  await expect(panel.locator(".network-empty")).toContainText("Play to see");
+  await expect(panel.getByRole("note", { name: "Play to see each networked World's connections here" })).toBeVisible();
   await expect(panel.getByRole("slider", { name: "Latency" })).toHaveValue("150");
   expect(errors).toEqual([]);
 });

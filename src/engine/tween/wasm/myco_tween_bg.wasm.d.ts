@@ -1,0 +1,37 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const begin_frame: () => void;
+export const last_status: () => number;
+export const load_curve: (a: number, b: number) => number;
+export const release_curve: (a: number) => number;
+export const sequence_bytes_for: (a: number) => number;
+export const source_hash: () => [number, number];
+export const timeline_active_count: () => number;
+export const timeline_active_ptr: () => number;
+export const timeline_block_bytes: (a: number) => number;
+export const timeline_blocks: (a: number, b: number, c: number, d: any) => number;
+export const timeline_changes_count: () => number;
+export const timeline_changes_dropped: () => number;
+export const timeline_changes_ptr: () => number;
+export const timeline_control: (a: number, b: number) => number;
+export const timeline_create_sequence: (a: number, b: number) => number;
+export const timeline_info: (a: number, b: number, c: number, d: any) => number;
+export const timeline_values_ptr: () => number;
+export const timeline_weights_ptr: () => number;
+export const timelines_configure: (a: number) => number;
+export const tween_bytes_for: (a: number) => number;
+export const tween_changes_count: () => number;
+export const tween_changes_dropped: () => number;
+export const tween_changes_ptr: () => number;
+export const tween_columns_ptr: () => number;
+export const tween_control: (a: number, b: number) => number;
+export const tween_create: (a: number, b: number) => number;
+export const tween_values_count: () => number;
+export const tween_values_ptr: () => number;
+export const tweens_configure: (a: number) => number;
+export const update: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_start: () => void;

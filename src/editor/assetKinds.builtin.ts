@@ -103,7 +103,7 @@ const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
   STRINGS_ASSET_KIND,
   // Input contexts (ADR 0336): core, as the input system is.
   inputContextKind as AssetKindContribution,
-  // Action sets as assets (ADR 0417), edited in the Input dialog with the contexts.
+  // Action sets as assets (ADR 0433), edited in the Input dialog with the contexts.
   actionSetKind as AssetKindContribution,
   { id: "json", extensions: [".json"], label: "JSON", icon: "M9 4H8a2 2 0 0 0-2 2v3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3a2 2 0 0 1-2 2h-1", codeEditor: true },
   { id: "xml", extensions: [".xml"], label: "XML", icon: CODE_ICON, codeEditor: true },

@@ -140,7 +140,7 @@ describe("deleting several", () => {
   });
 });
 
-describe("the default input context (ADR 0417)", () => {
+describe("the default input context (ADR 0433)", () => {
   it("is in the project, and can't be renamed, moved or deleted, nor can the folder that holds it", async () => {
     expect(project.files).toContain(DEFAULT_CONTEXT_PATH);
     expect(whyNotMovable(project, [DEFAULT_CONTEXT_PATH])).toMatch(/default input context/);

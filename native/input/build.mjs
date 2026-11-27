@@ -6,10 +6,11 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { wasmBuildEnv } from "../rustflags.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const out = fileURLToPath(new URL("../../src/engine/input/wasm/", import.meta.url));
-const run = (cmd, args) => execFileSync(cmd, args, { cwd: root, stdio: "inherit" });
+const run = (cmd, args, env = process.env) => execFileSync(cmd, args, { cwd: root, stdio: "inherit", env });
 
 const pinned = /wasm-bindgen = "=([\d.]+)"/.exec(readFileSync(new URL("Cargo.toml", import.meta.url), "utf8"))?.[1];
 let installed = "";
@@ -23,7 +24,8 @@ if (installed !== pinned) {
   process.exit(1);
 }
 
-run("cargo", ["build", "-p", "input-wasm", "--target", "wasm32-unknown-unknown", "--release"]);
+// Paths remapped, so any checkout builds the same bytes (ADR 0432).
+run("cargo", ["build", "-p", "input-wasm", "--target", "wasm32-unknown-unknown", "--release"], wasmBuildEnv());
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 run("wasm-bindgen", ["target/wasm32-unknown-unknown/release/input_wasm.wasm", "--target", "web", "--out-dir", out, "--out-name", "myco_input", "--omit-default-module-path"]);

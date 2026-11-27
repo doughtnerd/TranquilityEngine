@@ -2,6 +2,10 @@
 
 Update notes, newest first. Decision records for each change live in the repository under `docs/decisions/`.
 
+## 2026-11-26 — Game UI is Svelte; UI documents retired
+
+Game UI is written as Svelte 5 components (`*.svelte`) and shown by a `UIView`: HTML tags, a `<style>`, props, runes and bindings, rendered onto the engine's UI. UI documents (`*.ui.xml`, `*.ui.css` and the `UIDocument` component) are gone: a scene that still saves a `UIDocument` fails to load and says so. **Create > UI > UI View** adds a view on a new component. See [Game UI](guide/ui.md).
+
 ## 2026-11-24 — Decals, lines and trails, and prefab fixes
 
 `DecalProjector` and `Decal2D` put bullet holes, scorch marks and footprints onto surfaces, and `Decals.project` spawns them from scripts. See [Decals](guide/decals.md). `LineRenderer` and `TrailRenderer` draw ribbons in 2D and 3D with widths, gradients and Edit Points in the scene view. See [Lines and trails](guide/lines-and-trails.md).

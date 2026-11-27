@@ -7,7 +7,7 @@ import type { TileDef } from "../runtime/tileset";
 import { activeLayer, BRUSH_TOOLS, brushFlags, brushRandom, brushStamp, brushTerrain, brushTool, chooseStamp, chooseTerrain, flipBrush, pickBrushTool, tilemapOf } from "./brush";
 import { blockStamp, commitLayers, commitTileset, editedLayers } from "./palette";
 import { TileThumb } from "./TileThumb";
-import { editor, Panel } from "../../../editor/sdk";
+import { editor, Panel, EmptyState } from "../../../editor/sdk";
 import "./tilePalette.css";
 
 const MIN_COLUMNS = 1, MAX_COLUMNS = 32;
@@ -18,7 +18,7 @@ export function TilePalettePanel() {
   editor.scene.selection.active;
   const scene = editor.scene.open, path = editor.scene.selection.path(), project = editor.project.current;
   const map = editor.scene.whyNotEdit() === null ? tilemapOf(editor.scene.selection.node()) : null;
-  if (!scene || !path || !project || !map) return <Panel><p class="empty">Select a node with a Tilemap to paint.</p></Panel>;
+  if (!scene || !path || !project || !map) return <Panel><EmptyState compact title="Select a node with a Tilemap to paint." /></Panel>;
   const readOnly = !project.canSave;
   const layers = map.toLayerData();
   const tileset = map.tilesetAsset;

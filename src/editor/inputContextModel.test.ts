@@ -159,7 +159,7 @@ describe("actions, controls and problems", () => {
   });
 });
 
-// ADR 0417: the Input dialog's rules for action references, the type a control suggests, unsuited controls and how a
+// ADR 0433: the Input dialog's rules for action references, the type a control suggests, unsuited controls and how a
 // type change converts a mapping.
 describe("action references", () => {
   const sets = [
@@ -219,7 +219,7 @@ describe("controls and action types", () => {
   });
 });
 
-describe("triggers grouped by how they combine (ADR 0417)", () => {
+describe("triggers grouped by how they combine (ADR 0433)", () => {
   const triggers: TriggerSpec[] = [{ hold: { min: 0.4 } }, { chord: { action: "sprint" } }, { tap: { max: 0.2 }, type: "blocker" }, { pressed: true, type: "implicit" }];
 
   it("puts each trigger in its type's group, a chord in All of these when it gives no type", () => {
@@ -252,7 +252,7 @@ describe("triggers grouped by how they combine (ADR 0417)", () => {
   });
 });
 
-describe("a mapping's note and summary (ADR 0417)", () => {
+describe("a mapping's note and summary (ADR 0433)", () => {
   it("writes a note, and drops an empty one", () => {
     const m: MappingSpec = { action: "jump", control: "<Keyboard>/space" };
     expect(setNote(m, "  Space is jump everywhere ")).toEqual({ ...m, note: "Space is jump everywhere" });
@@ -272,7 +272,7 @@ describe("a mapping's note and summary (ADR 0417)", () => {
   });
 });
 
-describe("turning a modifier off (ADR 0417)", () => {
+describe("turning a modifier off (ADR 0433)", () => {
   it("keeps its name and parameters, survives a parameter change, and drops the key when turned back on", () => {
     const off = setOff({ scale: 2 }, true);
     expect(off).toEqual({ scale: 2, off: true });

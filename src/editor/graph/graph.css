@@ -22,7 +22,7 @@
 .sg-search ul { list-style: none; margin: 0; padding: 0 0 6px; overflow: auto; }
 .sg-search li { padding: 3px 12px; cursor: pointer; }
 .sg-search li.active { background: var(--selection); color: var(--selection-text); }
-.sg-search .sg-search-cat { cursor: default; color: var(--faint); font-size: calc(11px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.04em; padding-top: 6px; }
+.sg-search .sg-search-cat { cursor: default; color: var(--faint); font-size: var(--fs-sm); padding-top: 6px; }
 .sg-search .sg-search-none { color: var(--muted); cursor: default; }
 .sg-group { position: absolute; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--accent-faint); }
 .sg-group-head { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 6px; cursor: grab; }
@@ -31,7 +31,7 @@
 .sg-group-head button { padding: 0 6px; }
 .sg-note { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; background: var(--warning-soft); border: 1px solid var(--warning); border-radius: 4px; box-shadow: 0 2px 8px var(--shadow); }
 .sg-note-head { height: 16px; display: flex; justify-content: flex-end; cursor: grab; }
-.sg-note-head button { padding: 0 4px; line-height: 1; font-size: calc(10px * var(--ui-scale)); background: transparent; border: none; color: var(--muted); }
+.sg-note-head button { padding: 0 4px; line-height: 1; font-size: var(--fs-xs); background: transparent; border: none; color: var(--muted); }
 .sg-note textarea { flex: 1; resize: none; background: transparent; border: none; color: var(--text); font: inherit; padding: 2px 6px 6px; outline: none; }
 .sg-note-resize { position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--warning) 50%); border-radius: 0 0 4px 0; }
 .sg-minimap { position: absolute; right: 8px; top: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; opacity: 0.92; cursor: grab; }
@@ -39,7 +39,7 @@
 .sg-minimap rect.selected { fill: var(--accent); }
 .sg-minimap .sg-minimap-view { fill: var(--accent-faint); stroke: var(--accent); stroke-width: 1; }
 /* Why a wire being drawn is refused (ADR 0259), beside its loose end. */
-.sg-refusal { position: absolute; z-index: 40; max-width: 260px; padding: 3px 6px; background: var(--surface); border: 1px solid var(--danger); border-radius: 4px; color: var(--text); font-size: 11px; pointer-events: none; }
+.sg-refusal { position: absolute; z-index: 40; max-width: 260px; padding: 3px 6px; background: var(--surface); border: 1px solid var(--danger); border-radius: 4px; color: var(--text); font-size: var(--fs-sm); pointer-events: none; }
 /* Find in graph (ADR 0117, 0259). */
 .sg-find { position: absolute; top: 8px; right: 8px; z-index: 6; width: 280px; max-height: 320px; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow); }
 .sg-find-row { display: flex; align-items: center; gap: 6px; padding: 6px; }
@@ -52,7 +52,7 @@
 .sg-find li.active .sg-find-kind { color: inherit; }
 /* A graph panel's live preview, docked in the canvas's bottom-right corner (previewCard.tsx). */
 .sg-previewcard { position: absolute; right: 8px; bottom: 8px; z-index: 4; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 4px 16px var(--shadow); overflow: hidden; }
-.sg-previewcard-head { display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 14px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.sg-previewcard-head { display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 14px; color: var(--muted); font-size: var(--fs-sm); font-weight: 600; }
 .sg-previewcard .sg-previewcard-head select { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font: inherit; font-weight: normal; letter-spacing: normal; text-transform: none; min-width: 0; }
 .sg-previewcard .sg-previewcard-fold, .sg-previewcard .sg-previewcard-close { padding: 0 4px; background: transparent; border: none; color: var(--muted); line-height: 1; cursor: pointer; font: inherit; }
 .sg-previewcard .sg-previewcard-fold:hover { color: var(--text); background: transparent; }

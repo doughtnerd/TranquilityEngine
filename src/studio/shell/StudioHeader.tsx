@@ -2,6 +2,7 @@
 // offers only Take and Profiler), the screens in their groups (Author, Mix,
 // Run, Ship; Ctrl/⌘+1…8), the preview-language chip (ADR 0354 §1), Undo, Redo and History over the active history, the
 // shortcut list, and the output-device menu.
+import { art } from "../../editor/brand";
 import { HistoryPopover } from "../../editor/ui/HistoryPopover";
 import { formatKeys, isMacPlatform } from "../../editor/ui/keyCombo";
 import { AudioDeviceMenu } from "../components/AudioDeviceMenu";
@@ -40,7 +41,7 @@ export function StudioHeader(props: StudioHeaderProps) {
   return (
     <header class="studio-header">
       <div class="studio-brand">
-        <span class="studio-logo" aria-hidden="true" />
+        <img class="studio-logo" src={art.biosonicIcon} alt="" aria-hidden="true" />
         <span class="studio-app-name">Audio Studio</span>
         <button class="studio-project" aria-label={`${props.projectName}${props.readOnly ? ", read-only" : ""}: close ${props.closeNoun ?? "the project"}`} title={`${props.projectName}${props.readOnly ? " (read-only)" : ""} · Close ${props.closeNoun ?? "the project"}`} onClick={props.onCloseProject}>
           <span class="studio-project-name">{props.projectName}</span>

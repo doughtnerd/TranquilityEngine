@@ -1,4 +1,4 @@
-// A context's mapping rows (ADR 0336, 0417), shared by the Input dialog's context view: a mapping's action (a slot
+// A context's mapping rows (ADR 0336, 0433), shared by the Input dialog's context view: a mapping's action (a slot
 // the dialog fills with its picker), its controls (a single control, or a composite's parts: typed, picked from a list
 // grouped by device, or captured with Bind, the next press), a warning when a control doesn't suit the action's type,
 // its modifiers as an ordered stack (run top to bottom; reordered by dragging a handle, from the keyboard, or with a

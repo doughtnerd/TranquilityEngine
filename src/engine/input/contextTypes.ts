@@ -6,7 +6,7 @@
 
 /**
  * Modifiers change a value, in order. On a mapping, or on the action (after every mapping's). `off: true` keeps one
- * in the stack but skips it, as if it weren't there (ADR 0417: the Input dialog's Turn off).
+ * in the stack but skips it, as if it weren't there (ADR 0433: the Input dialog's Turn off).
  */
 export type ModifierSpec = ModifierKind & { readonly off?: boolean };
 
@@ -78,7 +78,7 @@ export interface MappingSpec {
   /** Override the action's consume setting for this mapping. */
   readonly consume?: boolean;
   /**
-   * A note for whoever edits the context (ADR 0417): why the mapping is there. Editor-only: the Input dialog shows and
+   * A note for whoever edits the context (ADR 0433): why the mapping is there. Editor-only: the Input dialog shows and
    * writes it, and the evaluator ignores it.
    */
   readonly note?: string;

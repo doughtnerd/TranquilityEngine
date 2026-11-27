@@ -43,7 +43,7 @@ describe("new projects", () => {
     expect(project.name).toBe("My Game");
     expect(project.mainScene).toBe("scenes/main.scene.json");
     expect(project.files).toEqual(["input/default.input.json", "project.json", "scenes/main.scene.json", "tsconfig.json"]);
-    expect(JSON.parse(fs.files.get(joinPath(ROOT, "input/default.input.json")) as string)).toEqual({ name: "default", mappings: [] }); // ADR 0417
+    expect(JSON.parse(fs.files.get(joinPath(ROOT, "input/default.input.json")) as string)).toEqual({ name: "default", mappings: [] }); // ADR 0433
   });
 
   it.each(["2d", "3d"] as const)("the %s template's main scene opens in the editor with its camera", async (template) => {

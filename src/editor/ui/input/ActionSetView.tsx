@@ -1,4 +1,4 @@
-// The Input dialog's view of an action set (ADR 0417): its name (the id), name in system queries and file; its actions
+// The Input dialog's view of an action set (ADR 0433): its name (the id), name in system queries and file; its actions
 // A to Z with name, type, consume and where each is mapped (one click to the mapping), an action no context maps
 // flagged with Map it in default; and Networking: send to the server, resent ticks, the precision of each analog
 // action and the upload it costs. A code-defined set shows the same, read-only. The dialog makes every edit (one

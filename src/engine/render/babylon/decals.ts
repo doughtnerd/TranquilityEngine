@@ -328,9 +328,7 @@ export class BabylonDecals implements DecalHost {
         m.albedoTexture = t;
         shared.ready = true;
       };
-      const loaded = this.deps.materials.loadedTexture(look.texture);
-      if (loaded) apply(loaded);
-      else this.deps.materials.texture(look.texture).then(apply, (err: unknown) => this.deps.warnOnce(`decal-texture|${look.texture}`, `failed to load decal texture "${look.texture}": ${(err as Error).message}`));
+      apply(this.deps.materials.texture(look.texture, "color", apply));
     }
   }
 

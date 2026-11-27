@@ -291,9 +291,9 @@ export interface InputActionSetInfo {
   readonly id: string;
   /** Each action, with the controls given inline in `defineActions` (ADR 0336) as mappings naming it: the default context's mappings from a script. */
   readonly actions: readonly { readonly name: string; readonly kind: ActionKind; readonly consume?: boolean; readonly defaults?: readonly MappingSpec[] }[];
-  /** Where it came from (ADR 0417): `defineActions` in code, or an `*.actions.json` asset. */
+  /** Where it came from (ADR 0433): `defineActions` in code, or an `*.actions.json` asset. */
   readonly source?: "code" | "asset";
-  /** Both a script and an asset defined this id (ADR 0417); the asset's set is used. */
+  /** Both a script and an asset defined this id (ADR 0433); the asset's set is used. */
   readonly clash?: boolean;
 }
 
@@ -314,7 +314,7 @@ export function inputActionSets(): InputActionSetInfo[] {
 }
 
 /**
- * What a control path reads, for the context editor's warnings and new actions' types (ADR 0417): its components
+ * What a control path reads, for the context editor's warnings and new actions' types (ADR 0433): its components
  * (1, 2 or 3) and, for one component, whether it's a button (keys, mouse and gamepad buttons, triggers read as
  * buttons) or an axis (a stick's X or Y). Null if the path names no control.
  */
@@ -370,7 +370,7 @@ export interface ModifierTrace {
 const KIND_DIMS = { button: 1, axis: 1, vec2: 2, vec3: 3 } as const;
 
 /**
- * `input` passed through `modifiers` top to bottom as Play runs them (ADR 0336, 0417): the engine's own modifier
+ * `input` passed through `modifiers` top to bottom as Play runs them (ADR 0336, 0433): the engine's own modifier
  * functions, on as many components as the larger of the input's and the action's (`kind`). `controls` are the
  * mapping's control paths: when one is a gamepad stick and the stack has no dead zone, the engine's default one runs
  * first and shows as an implicit step. `smooth` follows its input over time, so one value passes through it, and a
@@ -406,7 +406,7 @@ export function traceInputModifiers(modifiers: readonly ModifierSpec[], input: r
 
 /**
  * What a mapping's controls read now in a playing `world` for player `player` (default 0), combined and before its
- * modifiers: feed it to `traceInputModifiers` for live values on each modifier row (ADR 0417). Null when the mapping
+ * modifiers: feed it to `traceInputModifiers` for live values on each modifier row (ADR 0433). Null when the mapping
  * doesn't compile. The World's devices are read as the evaluator sees them this frame; consumption isn't applied.
  */
 export function inputMappingValue(world: World, mapping: MappingSpec, player = 0): number[] | null {

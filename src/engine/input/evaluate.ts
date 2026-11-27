@@ -387,7 +387,7 @@ const NOTHING_CONSUMED: ReadonlySet<number> = new Set();
 
 /**
  * @internal What a mapping's controls read now for player `index`, combined (a D-pad's vector, an Axis's -1..1, a
- * chord's control while its modifiers are held), before its modifiers: the Input dialog's live values (ADR 0417).
+ * chord's control while its modifiers are held), before its modifiers: the Input dialog's live values (ADR 0433).
  * Consumption isn't applied. Null when the mapping doesn't compile (an unknown action, a control that names nothing).
  */
 export function mappingSourceValue(world: World, index: number, spec: MappingSpec): number[] | null {

@@ -1,6 +1,8 @@
 {
   "format": "myco.scene@5",
-  "settings": { "physics": "3d" },
+  "settings": {
+    "physics": "3d"
+  },
   "nodes": [
     {
       "id": "camera",
@@ -9,11 +11,7 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              1.6,
-              -2
-            ]
+            "position": [0, 1.6, -2]
           }
         },
         {
@@ -47,11 +45,7 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              3,
-              0,
-              0
-            ]
+            "position": [3, 0, 0]
           }
         },
         {
@@ -77,17 +71,8 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              8,
-              0
-            ],
-            "rotation": [
-              0.4924039,
-              -0.1503837,
-              -0.0868241,
-              0.8528685
-            ]
+            "position": [0, 8, 0],
+            "rotation": [0.4924039, -0.1503837, -0.0868241, 0.8528685]
           }
         },
         {
@@ -105,21 +90,6 @@
       "transform": false,
       "components": [
         {
-          "type": "engine.Text",
-          "data": {
-            "text": "Sound Lab: spatial audio (B goes back to the tour)\nClick the game view first. W / S walk, 1 2 3 jump to the room, corridor and cave,\nF opens and closes the door, V starts and stops the flyover.\nListening bench: 4 burst, 5 orbit (level, vertical, off), 6 behind the wall, 7 by the cave, 8 turn, 9 stop the bench, 0 silence the page.",
-            "anchor": "top-left",
-            "align": "left",
-            "offset": [
-              24,
-              20
-            ],
-            "fontSize": 20,
-            "outlineColor": "#000000",
-            "outlineWidth": 4
-          }
-        },
-        {
           "type": "lab.SceneSwitch",
           "data": {
             "key": "b",
@@ -135,16 +105,8 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              -0.1,
-              4
-            ],
-            "scale": [
-              4.5,
-              0.2,
-              42
-            ]
+            "position": [0, -0.1, 4],
+            "scale": [4.5, 0.2, 42]
           }
         },
         {
@@ -162,11 +124,7 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              0,
-              0
-            ]
+            "position": [0, 0, 0]
           }
         },
         {
@@ -185,16 +143,8 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              -2.25,
-              2,
-              4
-            ],
-            "scale": [
-              0.5,
-              4,
-              40
-            ]
+            "position": [-2.25, 2, 4],
+            "scale": [0.5, 4, 40]
           }
         },
         {
@@ -219,16 +169,8 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              2.25,
-              2,
-              4
-            ],
-            "scale": [
-              0.5,
-              4,
-              40
-            ]
+            "position": [2.25, 2, 4],
+            "scale": [0.5, 4, 40]
           }
         },
         {
@@ -253,16 +195,8 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              2,
-              -16.25
-            ],
-            "scale": [
-              5,
-              4,
-              0.5
-            ]
+            "position": [0, 2, -16.25],
+            "scale": [5, 4, 0.5]
           }
         },
         {
@@ -287,16 +221,8 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              2,
-              24.25
-            ],
-            "scale": [
-              5,
-              4,
-              0.5
-            ]
+            "position": [0, 2, 24.25],
+            "scale": [5, 4, 0.5]
           }
         },
         {
@@ -320,21 +246,13 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              1.5,
-              -6
-            ]
+            "position": [0, 1.5, -6]
           }
         },
         {
           "type": "engine.BoxCollider",
           "data": {
-            "size": [
-              4,
-              3,
-              0.3
-            ],
+            "size": [4, 3, 0.3],
             "layer": "Walls"
           }
         },
@@ -363,16 +281,8 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              0,
-              0
-            ],
-            "scale": [
-              4,
-              3,
-              0.3
-            ]
+            "position": [0, 0, 0],
+            "scale": [4, 3, 0.3]
           }
         },
         {
@@ -390,16 +300,8 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              1.5,
-              8
-            ],
-            "scale": [
-              4,
-              3,
-              0.1
-            ]
+            "position": [0, 1.5, 8],
+            "scale": [4, 3, 0.1]
           }
         },
         {
@@ -429,22 +331,14 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              2,
-              -11
-            ]
+            "position": [0, 2, -11]
           }
         },
         {
           "type": "engine.AudioReverbZone",
           "data": {
             "shape": "box",
-            "size": [
-              4,
-              4,
-              10
-            ],
+            "size": [4, 4, 10],
             "preset": "room",
             "wet": 0.6,
             "blendDistance": 2
@@ -459,22 +353,14 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              2,
-              1
-            ]
+            "position": [0, 2, 1]
           }
         },
         {
           "type": "engine.AudioReverbZone",
           "data": {
             "shape": "box",
-            "size": [
-              4,
-              4,
-              14
-            ],
+            "size": [4, 4, 14],
             "preset": "corridor",
             "wet": 0.6,
             "blendDistance": 2
@@ -489,22 +375,14 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              2,
-              16
-            ]
+            "position": [0, 2, 16]
           }
         },
         {
           "type": "engine.AudioReverbZone",
           "data": {
             "shape": "box",
-            "size": [
-              4,
-              4,
-              16
-            ],
+            "size": [4, 4, 16],
             "preset": "cave",
             "wet": 0.7,
             "blendDistance": 3
@@ -536,16 +414,8 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              1,
-              -12.5
-            ],
-            "scale": [
-              0.4,
-              0.4,
-              0.4
-            ]
+            "position": [0, 1, -12.5],
+            "scale": [0.4, 0.4, 0.4]
           }
         },
         {
@@ -576,16 +446,8 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0.8,
-              1,
-              18
-            ],
-            "scale": [
-              0.6,
-              0.6,
-              0.6
-            ]
+            "position": [0.8, 1, 18],
+            "scale": [0.6, 0.6, 0.6]
           }
         },
         {
@@ -616,16 +478,8 @@
         {
           "type": "engine.Transform",
           "data": {
-            "position": [
-              0,
-              6,
-              -40
-            ],
-            "scale": [
-              0.8,
-              0.8,
-              0.8
-            ]
+            "position": [0, 6, -40],
+            "scale": [0.8, 0.8, 0.8]
           }
         },
         {
@@ -660,6 +514,19 @@
           "type": "lab.Toggle",
           "data": {
             "key": "v"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hud",
+      "name": "HUD",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.UIView",
+          "data": {
+            "component": "asset:ui/Spatial.svelte"
           }
         }
       ]

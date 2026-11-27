@@ -1,4 +1,4 @@
-// The Input dialog (ADR 0417): every action set and context of the project in one place, opened from File › Input…
+// The Input dialog (ADR 0433): every action set and context of the project in one place, opened from File › Input…
 // or by opening an `.actions.json` or `.input.json` file. The left list has the sets (asset sets editable, code sets
 // read-only) and the contexts, each A to Z, with + to add: a new entry stays at the end, its name selected for typing,
 // until the name is committed. Right-click or F2 on an entry: Rename in place, Duplicate, Copy id, Delete (code sets and
@@ -380,7 +380,7 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
     if (mod && (key === "z" || key === "y")) return;
     e.stopPropagation(); // keep the editor's other shortcuts away from the scene
     // While the game plays, a plain key (not typed into a field, no Ctrl, Cmd or Alt) also reaches it, so a mapping's
-    // live values can be watched with the dialog open (ADR 0417). The key's release bubbles to the game as usual.
+    // live values can be watched with the dialog open (ADR 0433). The key's release bubbles to the game as usual.
     if (playState.value === "playing" && !inField && !mod && !e.altKey && !e.repeat && typeof e.key === "string") Input.inject.keyDown(e.key);
   };
 

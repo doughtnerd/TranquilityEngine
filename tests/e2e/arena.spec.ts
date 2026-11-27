@@ -43,7 +43,12 @@ const playersIn = (page: Page, world: string): Promise<PlayerState[]> =>
 /** The scoreboard line a client World shows. */
 const scoreboard = (page: Page, world: string) =>
   inLiveWorld(page, world, (w, { myco, componentsOf }) =>
-    w ? (componentsOf<{ node: LiveNode; text: string }>(w.root, myco.Text).find((c) => c.node.name === "Scoreboard")?.text ?? null) : null,
+    w
+      ? (componentsOf<{ node: LiveNode; query(s: string): { component: { text?: string } } | null }>(w.root, myco.UIView)
+          .find((v) => v.node.name === "Scoreboard")
+          ?.query("#scoreboard")
+          ?.component.text ?? null)
+      : null,
   );
 
 /** The x of the player a client World owns. */

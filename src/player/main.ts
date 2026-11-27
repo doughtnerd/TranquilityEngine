@@ -78,7 +78,14 @@ async function boot(): Promise<void> {
     assets: { has: (p) => values.has(p), get: (p) => values.get(p), paths: () => values.keys() },
     scriptAssetRefs: manifest.assetRefs ?? [], // warmed up with every scene (ADR 0080)
     async loadScripts() {
-      for (const script of manifest.scripts) await import(/* @vite-ignore */ urlOf(script.module));
+      // Svelte components (ADR 0423) are their `.svelte` files' asset values, which `UIView`s mount; their sources don't ship.
+      const components = new Map<string, unknown>();
+      for (const script of manifest.scripts) {
+        const module: unknown = await import(/* @vite-ignore */ urlOf(script.module));
+        if (script.source.endsWith(".svelte")) components.set(script.source, module);
+      }
+      engine.Assets.setCompiledModules(components);
+
       // Third-party plugins' runtime halves (ADR 0139): the build holds only enabled ones, in dependency order.
       for (const p of manifest.plugins ?? []) {
         const module = (await import(/* @vite-ignore */ urlOf(p.module))) as Record<string, unknown>;

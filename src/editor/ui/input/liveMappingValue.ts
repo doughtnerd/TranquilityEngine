@@ -1,4 +1,4 @@
-// Live values in the Input dialog (ADR 0417): while the game plays, what a mapping's controls read now, combined and
+// Live values in the Input dialog (ADR 0433): while the game plays, what a mapping's controls read now, combined and
 // before its modifiers, sampled every frame from the World the Input Debugger follows (or the first that takes input).
 // The modifier stack runs it through `traceInputModifiers`, so each row shows its live output.
 import { useEffect, useMemo, useState } from "preact/hooks";

@@ -1,4 +1,4 @@
-// A mapping's action picker (ADR 0417): a button naming the action and its set, opening a searchable list grouped by
+// A mapping's action picker (ADR 0433): a button naming the action and its set, opening a searchable list grouped by
 // set (`actionPickerModel.ts` has the rules). Typing filters every set; ↑ ↓ move one highlight across the sections and
 // the Create rows, Enter picks, Esc closes and keeps the old choice. A set's header folds it; folds are remembered per
 // project across editor restarts (`pickerFolds.ts`), and the engine's sets start folded.

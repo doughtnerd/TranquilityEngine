@@ -115,7 +115,7 @@ export const addAutoload = (d: SettingsDraft, path: string): SettingsDraft => ({
 export const removeAutoload = (d: SettingsDraft, index: number): SettingsDraft => ({ ...d, autoload: autoloadsOf(d).filter((_, i) => i !== index) });
 export const moveAutoload = (d: SettingsDraft, index: number, by: number): SettingsDraft => ({ ...d, autoload: moved(autoloadsOf(d), index, by) });
 
-// --- action set files (ADR 0417) -------------------------------------------------------------------
+// --- action set files (ADR 0433) -------------------------------------------------------------------
 
 /** The draft's `input.actionSets`: the action set files defined at boot, in order. */
 export const actionSetsOf = (d: SettingsDraft): string[] => {

@@ -31,7 +31,7 @@ export interface BootedProject {
  * What an Engine sets up from project settings before its bootstrap runs (ADR 0238): warnings for every runtime
  * section's problems and warnings (ADR 0272), then one project context (ADR 0319) holding its asset sources, storage
  * (ADR 0024), the mixer (ADR 0097) and the graphics tier (ADR 0050, 0055), acquired once everything it needs is read,
- * so a failure leaves nothing registered; then the action set assets (ADR 0417); then `Locale` (ADR 0356) in the start language. Returns the context and automatic quality (ADR 0322).
+ * so a failure leaves nothing registered; then the action set assets (ADR 0433); then `Locale` (ADR 0356) in the start language. Returns the context and automatic quality (ADR 0322).
  */
 export async function bootProject(settings: ProjectSettings, options: ProjectBootOptions): Promise<BootedProject> {
   // Storage for this game (ADR 0317): a host that knows better (the editor's Play: the project's own) passes it.
@@ -49,7 +49,7 @@ export async function bootProject(settings: ProjectSettings, options: ProjectBoo
   const auto = player && graphics.autoDetect ? await read(AUTO_QUALITY_KEY) : undefined;
   // Audio (ADR 0097): the project's mixer buses; one shared mixer, like the one audio context.
   const context = acquireProjectContext({ assets: options.assets, storage, audio: settings.audio, ...(player ? { graphics: { settings: graphics, saved, auto } } : {}) });
-  // Action set assets (ADR 0417), in the listed order, before the bootstrap so every World's players get them. Lenient.
+  // Action set assets (ADR 0433), in the listed order, before the bootstrap so every World's players get them. Lenient.
   bootActionSets(settings.input.actionSets);
   // Text localisation (ADR 0356 §6): the project's languages and strings, and the start language's strings and fonts,
   // loaded before the first scene. Lenient: it never throws.

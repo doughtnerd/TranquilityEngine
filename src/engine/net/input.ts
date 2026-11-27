@@ -301,7 +301,7 @@ export function _writeSyntheticInput(world: World, id: string, values: Readonly<
 
 /**
  * @internal Define `id` again in place of its stream, outside the editor's script reload: an action set asset whose
- * file changed (ADR 0417) redefines its networked set's stream.
+ * file changed (ADR 0433) redefines its networked set's stream.
  */
 export function _redefineInput<S extends Schema>(id: string, schema: S, options: InputOptions = {}): InputDef<S> {
   if (!_isReplacingRegistrations()) {

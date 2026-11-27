@@ -1,4 +1,4 @@
-// The Input dialog's view of a context (ADR 0417): its name, the scene nodes whose InputContext turns it on (with
+// The Input dialog's view of a context (ADR 0433): its name, the scene nodes whose InputContext turns it on (with
 // their priority), its file, and its mappings, each with the action picker (grouped by set, making a missing action
 // where it's needed), its controls, a warning when a control doesn't suit the action's type, its modifiers and
 // triggers. The default context also lists the code sets' inline defaults, read-only, marked "from a script".

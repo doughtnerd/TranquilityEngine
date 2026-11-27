@@ -20,7 +20,7 @@ import { openMixDocument } from "../mixer/mixerDocument";
 import { CURSOR_KEYS } from "./cursorKeys";
 import { messageCounts } from "./messagesModel";
 import { AtCursor, MessageList, OpenInTake, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
-import { buildFollow, captureFileKind, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore, startPendingFollow } from "./profilerScreen";
+import { captureFileKind, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore } from "./profilerScreen";
 import { takeScreen } from "../take/takeScreen";
 import { openMixer } from "../../shell/openMixer";
 import { ReplayTransport } from "../take/index";
@@ -33,8 +33,8 @@ import { resetPluginEffect, usePluginHealth } from "../../components/EffectChain
 import { Icon } from "../../components/Icon";
 import { RecordButton, whyNotRecord } from "./RecordButton";
 import { TransportButton } from "../../components/PlayerBar";
-import { studioBuild } from "../../debugLink/studioLink";
-import { BuildFollow, buildFollowStatus } from "./remoteLiveHost";
+import { buildSession, takeOnShow } from "../../runtime/buildSession";
+import { buildFollowStatus } from "./remoteLiveHost";
 import { replayStore } from "../../shell/replay";
 import { clockText, valueAt } from "./timelineGeometry";
 import type { GroupBy } from "./voiceModel";
@@ -86,34 +86,18 @@ const GROUPS = [
 ];
 
 /**
- * ADR 0408: the Profiler is always live while a game build is connected, on every screen: one `BuildFollow` per chosen
- * build, started at once (a build whose link closed ends its follow with why). Installed for the page's life.
- */
-export function installProfilerLive(): () => void {
-  return effect(() => {
-    const build = studioBuild.value;
-    const current = buildFollow.peek();
-    if (current && current.build.peer === build?.peer) return startPendingFollow();
-    if (current && current.build.peer.state === "closed") current.linkClosed(current.build.peer.closedReason);
-    if (build || current?.state.peek().kind !== "ended") current?.dispose();
-    const next = build ? new BuildFollow(build, { store: profilerStore() }) : current?.state.peek().kind === "ended" ? current : null;
-    buildFollow.value = next;
-    if (build && next) void next.start();
-  });
-}
-
-/**
  * The transport slot. While a game build is connected the Profiler is live (ADR 0408): the live label, with Rejoin when
  * the feed ended. Otherwise the open take's replay controls (the Take screen's, ADR 0408: one recording for both
  * screens; inactive while a recording runs) and Record, which records the Studio's own runtime.
  */
 function ProfilerTransport() {
-  const follow = buildFollow.value;
-  const build = studioBuild.value;
+  const session = buildSession.value;
   const recorder = profilerRecorder();
   const r = recorder.state.value;
   const recording = r.kind === "recording" || r.kind === "starting" || r.kind === "saving";
-  if (follow && build) {
+  if (session && takeOnShow.value.kind === "live") {
+    const follow = session.follow;
+    const build = session.build;
     const k = follow.state.value.kind;
     const on = k === "starting" || k === "following";
     return (
@@ -155,7 +139,7 @@ function useScreen(): void {
         const asset = studioRouter().route.value.asset;
         if (!asset || !isCapturePath(asset) || !currentProject.value?.files.includes(asset)) return;
         // While a build is connected both screens are live (ADR 0408): a saved recording waits, and opens once it leaves.
-        if (studioBuild.value) return;
+        if (takeOnShow.value.kind === "live") return;
         void store.openPath(asset);
         // One recording for both screens: the Take screen opens it too (or says it has no take data).
         void takeScreen().openPath(asset);
@@ -165,7 +149,7 @@ function useScreen(): void {
         const s = store.state.value;
         const data = store.data.value;
         const rec = profilerRecorder().state.value;
-        const follow = buildFollow.value;
+        const follow = buildSession.value?.follow;
         const followed = follow ? buildFollowStatus(follow.state.value, follow.build.name) : null;
         void tick.value;
         const live = s.kind === "open" && s.origin === "live";
@@ -207,7 +191,7 @@ function TimelinePanel() {
     </div>
   );
   let body;
-  if (s.kind === "none") body = <EmptyState title="Profiler" icon={<Icon name="profiler" size={28} />} body={<p>Engine performance captures: voices, CPU, buses and loudness over time, and why each sound played. Open a capture from the Captures panel, or {NO_CAPTURES.charAt(0).toLowerCase() + NO_CAPTURES.slice(1)}</p>} />;
+  if (s.kind === "none") body = <EmptyState title="No capture open" icon={<Icon name="profiler" size={28} />} body={<p>Open one from the Captures panel, or {NO_CAPTURES.charAt(0).toLowerCase() + NO_CAPTURES.slice(1)}</p>} />;
   else if (s.kind === "opening") body = <p class="pf-note" role="status">Opening {s.path}…</p>;
   else if (s.kind === "failed") body = <p class="pf-error" role="alert">Can't open {s.path}: {s.message}</p>;
   else if (!data || data.tracks.length === 0) body = <EmptyState compact title="Nothing to draw" body="This capture holds no voices, buses, loudness or STATUS samples." />;

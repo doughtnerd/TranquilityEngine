@@ -34,7 +34,7 @@ function openPaths(openPath: string | readonly string[] | null): string[] {
   return typeof openPath === "string" ? [openPath] : [...openPath];
 }
 
-/** Why `path` is the project's default input context, which stays where it is (ADR 0417); null for any other path. */
+/** Why `path` is the project's default input context, which stays where it is (ADR 0433); null for any other path. */
 const defaultContextReason = (path: string): string | null =>
   path === DEFAULT_CONTEXT_PATH ? `${DEFAULT_CONTEXT_PATH} is the project's default input context; it can't be moved, renamed or deleted` : null;
 

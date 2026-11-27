@@ -1,4 +1,4 @@
-// The Input dialog's one edit history (ADR 0417) across every file it edits: action sets, contexts, and both in one
+// The Input dialog's one edit history (ADR 0433) across every file it edits: action sets, contexts, and both in one
 // step (changing an action's type converts its controls in every context). It is 0027's tree (`HistoryTree`): undoing
 // then editing starts a branch and keeps the old one. Each state holds a text patch per file the step changed (the
 // `FilePatch` an asset document's history keeps for its one file), applied to the files as they are when moving, so a

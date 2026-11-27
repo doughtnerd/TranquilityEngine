@@ -1,4 +1,4 @@
-// The Input dialog's file steps (ADR 0417), through the dialog's history: making, naming and deleting a set or
+// The Input dialog's file steps (ADR 0433), through the dialog's history: making, naming and deleting a set or
 // context is one step with its project.json list entry, and Undo (the toast's, or the dialog's) restores both.
 import { describe, expect, it } from "vitest";
 import { deleteFileEdits, freeFilePath, makeFileEdits, moveFileEdits, type DialogFiles } from "./inputDialogFiles";

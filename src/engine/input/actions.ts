@@ -181,10 +181,10 @@ export interface ActionSetDef<Spec extends ActionSpec = ActionSpec> extends Data
 }
 
 const sets = new Map<string, ActionSetDef>();
-/** Where each set came from: `defineActions` in code, or an `*.actions.json` asset (ADR 0417). */
+/** Where each set came from: `defineActions` in code, or an `*.actions.json` asset (ADR 0433). */
 export type ActionSetSource = "code" | "asset";
 const sources = new Map<string, ActionSetSource>();
-/** Ids both code and an asset defined (ADR 0417): the editor shows the clash on both entries. */
+/** Ids both code and an asset defined (ADR 0433): the editor shows the clash on both entries. */
 const clashes = new Set<string>();
 /** Bumped whenever an action set is (re)defined, so compiled tables rebuild. */
 let setsVersion = 0;
@@ -222,7 +222,7 @@ export function actionSetSource(id: string): { readonly def: ActionSetDef; reado
   return def ? { def, source: sources.get(id) ?? "code" } : undefined;
 }
 
-/** @internal The ids both a script and an asset defined this session (ADR 0417); the asset's set is the one used. */
+/** @internal The ids both a script and an asset defined this session (ADR 0433); the asset's set is the one used. */
 export function actionSetClashes(): ReadonlySet<string> {
   return clashes;
 }
@@ -245,7 +245,7 @@ export function defineActions<Spec extends ActionSpec>(id: string, spec: Spec, o
 
 /**
  * @internal `defineActions`, saying where the set comes from. An id an asset and code both define is the asset's
- * (ADR 0417: it's what the editor shows): code defining it gets the asset's set back, with a warning; an asset
+ * (ADR 0433: it's what the editor shows): code defining it gets the asset's set back, with a warning; an asset
  * defining a code set's id replaces it, with a warning. An asset defining its own id again replaces it (its file changed).
  */
 export function _defineActionSet<Spec extends ActionSpec>(id: string, spec: Spec, options: ActionSetOptions, source: ActionSetSource): ActionSetDef<Spec> {

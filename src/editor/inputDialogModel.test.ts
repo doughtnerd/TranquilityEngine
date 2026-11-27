@@ -1,4 +1,4 @@
-// The Input dialog's model (ADR 0417): the list's entries (asset and code sets, a clash shown on both), where each
+// The Input dialog's model (ADR 0433): the list's entries (asset and code sets, a clash shown on both), where each
 // action is mapped, unmapped actions, type changes and renames carried into every context, scripts' defaults in
 // `default`, and the nodes that turn a context on.
 import { describe, expect, it } from "vitest";

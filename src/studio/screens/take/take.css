@@ -3,9 +3,9 @@
 
 .tk-doc { display: contents; }
 .tk-panel-body { padding: 0; container-type: inline-size; }
-.tk-note { color: var(--muted); margin: 8px; font-size: calc(12px * var(--ui-scale)); }
+.tk-note { color: var(--muted); margin: 8px; font-size: var(--fs-md); }
 .tk-error { color: var(--danger); margin: 8px; }
-.tk-hint { color: var(--muted); background: var(--warning-soft); border-bottom: 1px solid var(--border); margin: 0; padding: 4px 8px; font-size: calc(11px * var(--ui-scale)); }
+.tk-hint { color: var(--muted); background: var(--warning-soft); border-bottom: 1px solid var(--border); margin: 0; padding: 4px 8px; font-size: var(--fs-sm); }
 .tk-link { background: none; border: none; padding: 0 2px; color: var(--link); cursor: pointer; font: inherit; }
 .tk-link:hover { text-decoration: underline; }
 .tk-tool { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
@@ -13,7 +13,7 @@
 .tk-scroll { width: 100%; overflow-x: auto; }
 
 /* The screen's own fields on the editor's tokens (the editor styles fields only inside its Inspector). */
-:is(.tk-field input, .tk-field-text textarea) { box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); }
+:is(.tk-field input, .tk-field-text textarea) { box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit; font-size: var(--fs-md); }
 :is(.tk-field input, .tk-field-text textarea):focus { outline: none; border-color: var(--accent); box-shadow: var(--glow); }
 :is(.tk-field input, .tk-field-text textarea):disabled { opacity: 0.6; }
 
@@ -26,14 +26,14 @@
 .tk-pl-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .tk-pl-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .tk-pl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.tk-pl-summary { color: var(--muted); font-size: calc(11px * var(--ui-scale)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tk-pl-count { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.tk-pl-summary { color: var(--muted); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-pl-count { flex: none; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 
 /* Toolbar: the title (the take, or the selected instance's folder / name), 22px buttons, icon buttons */
 .tk-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-.tk-toolbar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); font-size: calc(12px * var(--ui-scale)); font-weight: 600; }
+.tk-toolbar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); font-size: var(--fs-md); font-weight: 600; }
 .tk-toolbar-gap { flex: 1 1 auto; }
-.tk-btn { height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--button); color: var(--text); font: inherit; font-size: calc(12px * var(--ui-scale)); white-space: nowrap; cursor: pointer; }
+.tk-btn { height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--button); color: var(--text); font: inherit; font-size: var(--fs-md); white-space: nowrap; cursor: pointer; }
 .tk-btn:hover { background: var(--button-hover); }
 .tk-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 24px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--text); cursor: pointer; }
 .tk-icon-btn:hover:not(:disabled) { background: var(--hover); }
@@ -51,12 +51,12 @@
 .tk-head { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 4px 10px; border-right: 1px solid var(--border); background: var(--panel); min-width: 0; }
 .tk-head-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .tk-head-name { flex: 1 1 auto; min-width: 0; color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tk-head-caret { flex: none; width: 16px; height: 16px; margin-left: -4px; padding: 0; border: none; border-radius: 3px; background: none; color: var(--muted); font-size: calc(10px * var(--ui-scale)); line-height: 16px; box-shadow: none; cursor: pointer; }
+.tk-head-caret { flex: none; width: 16px; height: 16px; margin-left: -4px; padding: 0; border: none; border-radius: 3px; background: none; color: var(--muted); font-size: var(--fs-xs); line-height: 16px; box-shadow: none; cursor: pointer; }
 .tk-head-caret:hover { color: var(--text); background: var(--hover); }
 .tk-head-caret:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.tk-head-sub { color: var(--muted); font-size: calc(10px * var(--ui-scale)); line-height: 12px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.tk-head-meta { color: var(--muted); font-size: calc(12px * var(--ui-scale)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tk-cap { color: var(--muted); font-size: calc(11px * var(--ui-scale)); line-height: 14px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-head-sub { color: var(--muted); font-size: var(--fs-xs); line-height: 12px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tk-head-meta { color: var(--muted); font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-cap { color: var(--muted); font-size: var(--fs-sm); line-height: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tk-lane { position: relative; min-width: 0; overflow: hidden; }
 .tk-lane .studio-valuelane-head { display: none; }
 .tk-timeline .tz-strip { position: sticky; bottom: 0; z-index: 5; }
@@ -67,18 +67,18 @@
 /* Gameplay take: the filmstrip, or placeholder tiles labelled by time */
 .tk-gameplay-row .tk-lane { height: 64px; }
 .tk-tiles { position: absolute; inset: 2px 0; display: flex; gap: 2px; }
-.tk-tile { flex: 1 1 0; position: relative; background: var(--viewport); border: 1px solid var(--border); border-radius: 3px; color: var(--muted); font-size: calc(10px * var(--ui-scale)); padding: 0 4px; display: flex; align-items: flex-end; padding-bottom: 2px; }
+.tk-tile { flex: 1 1 0; position: relative; background: var(--viewport); border: 1px solid var(--border); border-radius: 3px; color: var(--muted); font-size: var(--fs-xs); padding: 0 4px; display: flex; align-items: flex-end; padding-bottom: 2px; }
 /* Instance lanes: blocks inset in a 40px lane, the held part in the accent2 band, M and S toggles */
 .tk-inst-row { min-height: 40px; }
 .tk-inst-lane { padding: 3px 0; }
 .tk-inst-lane .studio-spanlane { background: none; }
 .tk-inst-lane .studio-span { background: var(--accent-faint); border-color: var(--accent); align-items: flex-end; }
-.tk-inst-lane .studio-span-label { font-size: calc(11px * var(--ui-scale)); padding-bottom: 3px; }
+.tk-inst-lane .studio-span-label { font-size: var(--fs-sm); padding-bottom: 3px; }
 .tk-inst-lane .studio-span.heat { background: color-mix(in srgb, var(--heat-colour) 45%, transparent); border-color: var(--heat-colour); }
 .tk-inst-lane .studio-span.selected { background: var(--accent-soft); box-shadow: none; outline: 2px solid var(--accent); outline-offset: 0; }
 .tk-inst-row.silent .tk-inst-lane { opacity: 0.35; }
 .tk-ms { display: inline-flex; gap: 2px; flex: none; }
-.tk-ms-b { width: 18px; height: 16px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--button); color: var(--muted); font-size: calc(10px * var(--ui-scale)); line-height: 14px; cursor: pointer; }
+.tk-ms-b { width: 18px; height: 16px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--button); color: var(--muted); font-size: var(--fs-xs); line-height: 14px; cursor: pointer; }
 .tk-ms-b:hover { color: var(--text); background: var(--button-hover); }
 .tk-ms-b.m.on { background: var(--warning); border-color: var(--warning); color: var(--accent-text); }
 .tk-ms-b.s.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
@@ -87,7 +87,7 @@
 .tk-param-row > .tk-head { cursor: help; }
 .tk-param-row.linked > .tk-head, .tk-param-row > .tk-head:hover { background: var(--accent2-soft); }
 .tk-cap-game { color: var(--accent2); }
-.tk-param-value { color: var(--text); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-param-value { color: var(--text); font-size: var(--fs-md); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tk-param-row .studio-valuelane { --series: var(--accent2); }
 .tk-param-row .studio-valuelane-plot { background: none; }
 .tk-param-row .studio-valuelane-dot { display: none; }
@@ -100,12 +100,12 @@
 .tk-picture-now img { display: block; width: 100%; height: auto; border-radius: 3px; border: 1px solid var(--border); background: var(--bg-sunken); }
 .tk-picture-big { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; background: var(--backdrop); cursor: zoom-out; }
 .tk-picture-big img { flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; object-fit: contain; image-rendering: auto; }
-.tk-picture-big-bar { display: flex; align-items: center; gap: 12px; color: var(--text); font-size: calc(12px * var(--ui-scale)); cursor: default; }
-.tk-picture-now figcaption { margin-top: 2px; color: var(--muted); font-size: calc(10px * var(--ui-scale)); }
+.tk-picture-big-bar { display: flex; align-items: center; gap: 12px; color: var(--text); font-size: var(--fs-md); cursor: default; }
+.tk-picture-now figcaption { margin-top: 2px; color: var(--muted); font-size: var(--fs-xs); }
 
 /* Labelled parameters: accent2-soft segments */
 .tk-segments { position: relative; height: 34px; margin: 1px 0; }
-.tk-segment { position: absolute; top: 0; bottom: 0; padding: 2px 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: var(--accent2-soft); border-radius: 3px; color: var(--text); font-size: calc(11px * var(--ui-scale)); line-height: 14px; }
+.tk-segment { position: absolute; top: 0; bottom: 0; padding: 2px 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: var(--accent2-soft); border-radius: 3px; color: var(--text); font-size: var(--fs-sm); line-height: 14px; }
 
 /* Notes */
 .tk-notes { height: 34px; background: var(--bg-sunken); cursor: copy; outline: none; }
@@ -117,7 +117,7 @@
 .tk-marker::before { content: ""; position: absolute; top: 0; left: 0; width: 8px; height: 8px; background: var(--tk-note); clip-path: polygon(0 0, 100% 0, 0 100%); }
 .tk-mark { position: absolute; bottom: 2px; width: 1px; height: 14px; background: var(--muted); pointer-events: none; }
 .tk-mark::before { content: ""; position: absolute; bottom: 0; left: -4px; border: 4px solid transparent; border-bottom-color: var(--muted); }
-.tk-note-text { position: absolute; left: 6px; top: 0; white-space: nowrap; color: var(--text); font-size: calc(10px * var(--ui-scale)); pointer-events: none; }
+.tk-note-text { position: absolute; left: 6px; top: 0; white-space: nowrap; color: var(--text); font-size: var(--fs-xs); pointer-events: none; }
 .tk-mark .tk-note-text { top: auto; bottom: 0; color: var(--muted); }
 .tk-marker .tk-note-text { left: 10px; }
 .tk-region.selected, .tk-marker.selected { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -127,26 +127,26 @@
 .tk-inspector > * { max-width: 100%; }
 /* The head wraps: the instance line ("Instance 00:08.644 – 00:09.000") drops under the name rather than being cut. */
 .tk-ins-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; width: 100%; min-width: 0; }
-.tk-ins-title { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); font-size: calc(12px * var(--ui-scale)); font-weight: 600; }
-.tk-ins-subline { order: 1; flex: 1 0 100%; min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.tk-ins-title { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); font-size: var(--fs-md); font-weight: 600; }
+.tk-ins-subline { order: 1; flex: 1 0 100%; min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
 .tk-ins-open { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 22px; padding: 0; border: none; border-radius: 3px; background: none; color: var(--muted); cursor: pointer; }
 .tk-ins-open:hover { color: var(--accent); background: var(--hover); }
-.tk-badge { flex: none; padding: 0 5px; border-radius: 3px; background: var(--badge); color: var(--badge-text); font-size: calc(11px * var(--ui-scale)); line-height: 16px; }
+.tk-badge { flex: none; padding: 0 5px; border-radius: 3px; background: var(--badge); color: var(--badge-text); font-size: var(--fs-sm); line-height: 16px; }
 /* Property cards: label and value, a 4px bar with the live fill (accent2 when a game parameter drives it, muted when
    static) and the authored tick, and the "← Speed · range · shape" line */
 .tk-cards { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 .tk-card { padding: 6px 8px; border-radius: 3px; background: var(--bg); }
 .tk-card-top { display: flex; align-items: baseline; gap: 8px; }
-.tk-card-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: calc(12px * var(--ui-scale)); font-weight: 600; }
-.tk-card-value { flex: none; color: var(--text-strong); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.tk-card-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: var(--fs-md); font-weight: 600; }
+.tk-card-value { flex: none; color: var(--text-strong); font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
 .tk-card-bar { position: relative; height: 4px; margin: 5px 0 2px; border-radius: 2px; background: var(--border); }
 .tk-card-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--muted); }
 .tk-card.driven .tk-card-fill { background: var(--accent2); }
 .tk-card-tick { position: absolute; top: -2px; width: 2px; height: 8px; margin-left: -1px; background: var(--muted); }
-.tk-card-map { margin-top: 3px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); line-height: 14px; }
+.tk-card-map { margin-top: 3px; color: var(--muted); font-size: var(--fs-sm); line-height: 14px; }
 .tk-chip { color: var(--accent2); padding: 0 2px; border-radius: 3px; border: 1px solid transparent; cursor: help; }
 .tk-chip.linked { border-color: var(--accent2); }
-.tk-ins-sub { margin: 4px 0 0; color: var(--muted); font-weight: normal; font-size: calc(11px * var(--ui-scale)); }
+.tk-ins-sub { margin: 4px 0 0; color: var(--muted); font-weight: normal; font-size: var(--fs-sm); }
 .tk-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; margin: 0; width: 100%; }
 .tk-facts dt { color: var(--muted); }
 .tk-facts dd { margin: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -171,14 +171,21 @@
 /* The fader takes what is left after the name and dB rows, so they always show; a panel too short for even the
    smallest fader scrolls instead of clipping them. */
 .tk-strips { display: flex; gap: 2px; padding: 6px 8px; overflow: auto; flex: 1 1 auto; min-height: 0; }
+/* A row that scrolls fades at the edge it is clipped on (ADR 0420); with nothing to scroll the timeline is inactive and nothing fades. */
+@property --tk-fade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --tk-fade-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes tk-strips-fade { from { --tk-fade-l: 0px; --tk-fade-r: 32px; } 1% { --tk-fade-l: 32px; --tk-fade-r: 32px; } 99% { --tk-fade-l: 32px; --tk-fade-r: 32px; } to { --tk-fade-l: 32px; --tk-fade-r: 0px; } }
+@supports (animation-timeline: scroll()) {
+  .tk-strips { mask-image: linear-gradient(to right, transparent 0, #000 var(--tk-fade-l), #000 calc(100% - var(--tk-fade-r)), transparent 100%); animation: tk-strips-fade linear both; animation-timeline: scroll(x self); }
+}
 /* Each bus a card (the prototype's 92px channel cards): name, FX line, the fader with its meter, the level */
 .tk-strip { display: flex; flex-direction: column; align-items: stretch; gap: 3px; width: 92px; box-sizing: border-box; padding: 6px; flex: none; min-height: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; }
 .tk-strip .studio-fader.vertical { align-self: center; }
-.tk-strip-fx { order: -1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.tk-strip-fx { order: -1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-sm); }
 .tk-strip .studio-fader.vertical { flex: 1 1 0; height: auto; min-height: 48px; }
 .tk-strip :is(.tk-strip-name, .tk-strip-db, .tk-strip-fx) { flex: none; }
-.tk-strip-name { order: -2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: calc(12px * var(--ui-scale)); font-weight: 600; }
-.tk-strip-db { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.tk-strip-name { order: -2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: var(--fs-md); font-weight: 600; }
+.tk-strip-db { color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 
 /* Narrow (a phone's single panel, a side dock): the lane names take less room, and the take's toolbar and the
    Inspector's fields wrap (ADR 0361). */
@@ -204,7 +211,7 @@
 .tk-playing-row:hover { border-color: var(--border); background: var(--hover); }
 .tk-playing-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .tk-playing-name { font-weight: 600; }
-.tk-playing-sub { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.tk-playing-sub { color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .tk-link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .tk-link:hover { text-decoration: underline; }
 .tk-ins-open-text { align-self: flex-start; margin: 2px 0 4px; }

@@ -46,5 +46,5 @@
       "fix": "Title = question with the object, text = consequence with count and names; prefer undo over asking"
     }
   },
-  "notes": "Patterns are PCRE2 and may span lines (JSX attributes): search with ripgrep --pcre2 --multiline. Counts are hits per file; ui-ux-baseline.json holds the ratchet (check -> file -> count). The design boards for ADR 0417 were audited with the same checks on 2026-11-25 (HTML, outside the repo)."
+  "notes": "Patterns are PCRE2 and may span lines (JSX attributes): search with ripgrep --pcre2 --multiline. Counts are hits per file; ui-ux-baseline.json holds the ratchet (check -> file -> count). The design boards for ADR 0433 were audited with the same checks on 2026-11-25 (HTML, outside the repo)."
 }

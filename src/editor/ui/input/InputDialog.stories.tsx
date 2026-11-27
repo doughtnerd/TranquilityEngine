@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0235) for the Input dialog (ADR 0417): a project with an action set, the default context and a
+// Stories (ADR 0219, 0235) for the Input dialog (ADR 0433): a project with an action set, the default context and a
 // vehicle context. Each story works through what a user sees (the list, the set view's rows, the action picker) and
 // checks the files written, across files where an edit reaches several, and Undo: a modifier stack with a value tried
 // through it, triggers grouped by how they combine, a note, folding a card, and making and deleting files as steps

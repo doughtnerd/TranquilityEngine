@@ -5,22 +5,22 @@
 .play-controls .play-subtitles.active { color: var(--accent); border-color: var(--accent); }
 
 .world-picker { padding: 4px 6px; border-bottom: 1px solid var(--border); }
-.world-picker label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.world-picker label { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--muted); }
 .world-picker select { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
 
 .live-name { display: flex; align-items: center; gap: 6px; }
-.live-badge { font-size: 10px; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 4px; font-weight: normal; }
+.live-badge { font-size: var(--fs-xs); color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 4px; font-weight: normal; }
 .live-tree .row .badge.live-kind-ghost { color: var(--accent); }
 .live-tree .row .badge.live-kind-connection, .live-tree .row .badge.live-kind-scene { color: var(--muted); }
 .link-button { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0 4px; font: inherit; }
 
 .runtime-inspector .keep-actions { padding: 4px 0; display: flex; gap: 6px; }
-.runtime-inspector .keep-note, .runtime-inspector .structure-note { margin: 2px 0 6px; color: var(--muted); font-size: 11px; }
-.runtime-inspector .component h3 .keep-values { margin-left: 4px; font-size: 10px; padding: 0 6px; }
-.runtime-inspector .component h3 .remove-live { margin-left: auto; font-size: 10px; padding: 0 6px; }
+.runtime-inspector .keep-note, .runtime-inspector .structure-note { margin: 2px 0 6px; color: var(--muted); font-size: var(--fs-sm); }
+.runtime-inspector .component h3 .keep-values { margin-left: 4px; font-size: var(--fs-xs); padding: 0 6px; }
+.runtime-inspector .component h3 .remove-live { margin-left: auto; font-size: var(--fs-xs); padding: 0 6px; }
 .runtime-inspector .component.kept { border-color: var(--accent); }
 .runtime-inspector .kept-badge { color: var(--accent); }
-.kept-list { margin: 4px 0 8px; font-size: 11px; color: var(--muted); }
+.kept-list { margin: 4px 0 8px; font-size: var(--fs-sm); color: var(--muted); }
 .kept-list summary { cursor: pointer; }
 .kept-list ul { margin: 2px 0; padding-left: 16px; }
 

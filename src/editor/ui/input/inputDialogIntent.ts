@@ -1,4 +1,4 @@
-// What the Input dialog should do when it next shows a file (ADR 0417), apart from its module so New Action Set can ask
+// What the Input dialog should do when it next shows a file (ADR 0433), apart from its module so New Action Set can ask
 // without loading the dialog's code.
 import { signal } from "@preact/signals";
 

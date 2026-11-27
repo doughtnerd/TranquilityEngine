@@ -94,10 +94,10 @@ describe("the editor viewport handle (ADR 0128)", () => {
     adapter.uiCore = {
       pickAll: () => [],
       pickCanvases: () => [],
-      cornersOf: (c) => (c === ("screen" as never) ? { space: "screen", points: [[1, 2], [3, 2], [3, 4], [1, 4]], size: [2, 2] } : { space: "world", points: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], size: [64, 64] }) as never,
+      cornersOf: (c) => (c === ("screen" as never) ? { space: "screen", points: [[1, 2], [3, 2], [3, 4], [1, 4]], size: [2, 2], clip: null, layoutPoints: [[0, 2], [2, 2], [2, 4], [0, 4]] } : { space: "world", points: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], size: [64, 64], clip: [[0, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [0, 1, 0]], layoutPoints: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]] }) as never,
     };
-    expect(handle.uiElementBox("screen" as never)).toEqual({ points: [[1, 2], [3, 2], [3, 4], [1, 4]], size: [2, 2] });
-    expect(handle.uiElementBox("world" as never)).toEqual({ points: [[400, 300], [500, 300], [500, 200], [400, 200]], size: [64, 64] });
+    expect(handle.uiElementBox("screen" as never)).toEqual({ points: [[1, 2], [3, 2], [3, 4], [1, 4]], size: [2, 2], clip: null, layoutPoints: [[0, 2], [2, 2], [2, 4], [0, 4]] }); // ADR 0422 wave 3: where layout put it
+    expect(handle.uiElementBox("world" as never)).toEqual({ points: [[400, 300], [500, 300], [500, 200], [400, 200]], size: [64, 64], clip: [[400, 300], [450, 300], [450, 200], [400, 200]], layoutPoints: [[400, 300], [500, 300], [500, 200], [400, 200]] }); // ADR 0422: the clipped part, projected too
   });
 
   it("answers a sprite's size from its own size field before asking the renderer", () => {

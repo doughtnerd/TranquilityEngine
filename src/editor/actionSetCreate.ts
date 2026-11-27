@@ -1,4 +1,4 @@
-// New Action Set (ADR 0417), loaded when it's first used: writes a set with one button action under a free id
+// New Action Set (ADR 0433), loaded when it's first used: writes a set with one button action under a free id
 // (`game.New`, `game.New2`…) as `<last part>.actions.json` in the folder asked for, lists the file in project.json's
 // `input.actionSets` (keeping the rest of the file's layout) so the boot defines it, and opens the Input dialog with
 // the set's name selected for typing.

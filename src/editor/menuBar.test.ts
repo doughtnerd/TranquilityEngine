@@ -201,7 +201,7 @@ describe("menu bar", () => {
     expect(a.showPanel).toHaveBeenCalledWith("project");
   });
 
-  it("Input… opens the Input dialog, beside Project Settings (ADR 0417)", () => {
+  it("Input… opens the Input dialog, beside Project Settings (ADR 0433)", () => {
     const a = actions();
     const file = menu(buildMenus(state({ project }), a), "file").items.map((i) => i.label);
     expect(file.indexOf("Input…")).toBe(file.indexOf("Project Settings") + 1);

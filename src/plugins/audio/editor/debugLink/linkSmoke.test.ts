@@ -1,7 +1,7 @@
 // The debug link's integration smoke (plan task S0): the milestone's whole path, headless, both directions over the
 // loopback transport. A headless Engine with the audio plugin active serves the real `audio` topic (not mocked); a tool
 // pairs with it, records a take over the link (`take.start`, `take.mark`, `take.stop`), uploads it (`take.upload`, the
-// `upload` subscription, `createTakeReceiver`) and the bytes must equal the build's own `Audio.take.save()`. The audio
+// `upload` subscription, reassembled by the audio link client, ADR 0417) and the bytes must equal the build's own `Audio.take.save()`. The audio
 // runtime runs on the capture tests' rig (a fake core backend feeding the real recorder and take). It lives on the editor
 // side because it imports the engine's link, the plugin's runtime and the plugin's editor half (plugins.test.ts).
 // Clocks: one injected clock for the link, the engine steps by frames; nothing waits on real time.
@@ -20,8 +20,8 @@ import { releaseCapture } from "../../runtime/capture/capture";
 import { defaultSaveEnv, type SaveEnv } from "../../runtime/capture/save";
 import { openTakeFile } from "../../runtime/capture/takeFile";
 import { keyframeCodecForTests, statusBytes, type CaptureChunkControl } from "../../runtime/capture/testSupport";
-import { AudioRequest, decodeTakeChunk, type TakeStateReply, type TakeUploadReply } from "../../runtime/debugLink/schema";
-import { createTakeReceiver, type TakeReceiveResult } from "./takeReceiver";
+import type { TakeStateReply } from "../../runtime/debugLink/schema";
+import { audioLinkClient, type UploadProgress } from "./audioLinkClient";
 
 const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
 vi.mock("../../runtime/capture/recorder", async (real) => (await import("../../runtime/capture/testSupport")).captureRecorderModule(await real(), chunk));
@@ -93,6 +93,7 @@ async function settle(): Promise<void> {
 
 /** The whole milestone path against `peer`: record, mark, stop, upload, reassemble; checks the bytes against `Audio.take.save()`. */
 async function recordAndUpload(peer: DebugLinkPeer, feed: (n: number) => void, downloads: { bytes: Uint8Array }[], round: () => void) {
+  let frames = 0;
   /** Rounds (tool poll, a frame) until `p` settles. */
   const answered = async <T>(p: Promise<unknown>): Promise<T> => {
     let out: { v: T } | { e: unknown } | null = null;
@@ -103,6 +104,7 @@ async function recordAndUpload(peer: DebugLinkPeer, feed: (n: number) => void, d
     // The take's start loads modules (real macrotasks), so each round also yields to the event loop.
     for (let i = 0; i < 500 && !out; i++) {
       round();
+      frames++;
       await new Promise((r) => setTimeout(r, 0));
     }
     const done = out as { v: T } | { e: unknown } | null;
@@ -111,7 +113,8 @@ async function recordAndUpload(peer: DebugLinkPeer, feed: (n: number) => void, d
     return done.v;
   };
 
-  const started = await answered<TakeStateReply>(peer.request("audio", AudioRequest.start));
+  const client = audioLinkClient(peer);
+  const started = await answered<TakeStateReply>(client.start());
   expect(started.state).toBe("recording");
   expect(Audio.take.state).toBe("recording");
   // Enough sound for a take of several upload chunks.
@@ -119,48 +122,27 @@ async function recordAndUpload(peer: DebugLinkPeer, feed: (n: number) => void, d
     feed(100);
     round();
   }
-  const marked = await answered<TakeStateReply>(peer.request("audio", AudioRequest.mark, { text: "smoke" }));
+  const marked = await answered<TakeStateReply>(client.mark("smoke"));
   expect(marked.state).toBe("recording");
   feed(50);
-  const stopped = await answered<TakeStateReply>(peer.request("audio", AudioRequest.stop));
+  const stopped = await answered<TakeStateReply>(client.stop());
   expect(stopped.state).toBe("stopped");
   expect(stopped.seconds).toBeGreaterThan(0);
 
-  const reply = await answered<TakeUploadReply>(peer.request("audio", AudioRequest.upload));
-  expect(reply.bytes).toBeGreaterThan(0);
-  const rx = createTakeReceiver(reply);
-  let result: TakeReceiveResult | undefined;
-  let error: string | undefined;
-  const sub = peer.subscribe(
-    "audio",
-    { kind: "upload", upload: reply.upload },
-    (records) => {
-      for (const r of records) {
-        const c = decodeTakeChunk(r.payload);
-        if ("refused" in c) error = c.refused;
-        else result = rx.push(c);
-      }
-    },
-    (m) => (error = m),
-  );
-  let frames = 0;
-  while (result?.status !== "done" && !error && frames < reply.chunks + 20) {
-    round();
-    frames++;
-  }
-  sub.unsubscribe();
-  expect(error).toBeUndefined();
-  expect(result?.status).toBe("done");
+  const progress: UploadProgress[] = [];
+  frames = 0;
+  const got = await answered<Uint8Array>(client.uploadTake({ onProgress: (p) => progress.push(p) }));
+  const total = progress[0]!.total;
+  expect(total).toBeGreaterThan(0);
 
   await Audio.take.save("smoke");
   const saved = downloads[0]!.bytes;
-  const got = (result as { bytes: Uint8Array }).bytes;
-  expect(got.byteLength).toBe(reply.bytes);
+  expect(got.byteLength).toBe(total);
   expect(Buffer.compare(got, saved)).toBe(0);
   // The bytes are a take file the reader opens, with the mark the tool asked for.
   const opened = await openTakeFile(got);
   expect(opened.take.requests.map((q) => q.kind)).toContain("mark");
-  return { bytes: reply.bytes, chunks: reply.chunks, frames };
+  return { bytes: total, chunks: progress[0]!.chunks, frames };
 }
 
 describe("the debug link end to end, headless", () => {

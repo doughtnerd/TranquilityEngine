@@ -2,14 +2,16 @@
  * Line and trail drawing (ADR 0396), renderer-neutral: each `LineRenderer` and `TrailRenderer` becomes one ribbon
  * (`ribbon.ts`), drawn through the renderer core's dynamic meshes in 3D (camera-facing or flat, with a material asset)
  * or its quad batches in 2D (layered with sprites in a sorting layer, ADR 0186). The renderer knows meshes and quads;
- * this module knows lines. No Babylon here (ADR 0075): it's unit-tested against fake hosts.
+ * this module knows lines. It is the Lines plugin's render feature (ADR 0130, 0418), loaded by the renderer from the
+ * loader the plugin registers, so it stays out of the `myco` module. No Babylon here (ADR 0075): it's unit-tested
+ * against fake hosts.
  */
 import type { Component } from "../../../engine/core/Component";
 import { evalCurve, type Curve } from "../../../engine/core/curve";
 import { evaluateGradient, isGradient, type Gradient } from "../../../engine/core/gradient";
 import type { World } from "../../../engine/core/World";
-import { quadLighting } from "../../../engine/render/lights2D/spriteMaterial";
-import { tangents2D } from "../../../engine/render/lights2D/tangents";
+import { PICK_ORDER, type BabylonFeature, type BabylonFeatureFactory, type DrawnNode } from "../../../engine/render/babylon/feature";
+import { sortingOrder } from "../../../engine/render/sortOrder";
 import type { DynamicMesh, DynamicMeshHost } from "../../../engine/render/dynamicMeshes";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
 import { LineRenderer } from "./LineRenderer";
@@ -23,8 +25,8 @@ export interface LinesHost {
   readonly quads: QuadBatchHost;
 }
 
-/** @internal A ribbon drawn now (ADR 0276): its Component, its centre line in world space, its widest half width, and how it's picked. */
-export interface DrawnRibbon {
+/** A ribbon drawn now (ADR 0276): its Component, its centre line in world space, its widest half width, and how it's picked. */
+interface DrawnRibbon {
   readonly component: RibbonRenderer;
   /** xyz per point, world space. */
   readonly points: Float32Array;
@@ -46,8 +48,8 @@ const WHITE: Gradient = { colors: [[0, "#ffffff"]], alphas: [[0, 1]] };
 /** A curve field as scenes and scripts hold it, or a flat 1 when it isn't one. */
 const curveOf = (v: unknown): Curve => (Array.isArray(v) && v.length > 0 ? (v as Curve) : [[0, 1]]);
 
-/** @internal */
-export class LinesRenderer {
+/** @internal Lines and trails: the Lines plugin's render feature. Syncs in `content`, after the meshes (`after` constraint, ADR 0135). */
+export class LinesRenderer implements BabylonFeature {
   private readonly entries = new Map<RibbonRenderer, Entry>();
 
   constructor(private readonly host: LinesHost) {}
@@ -65,9 +67,12 @@ export class LinesRenderer {
     for (const c of [...this.entries.keys()]) if (!seen.has(c)) this.release(c);
   }
 
-  /** What it drew now (visible ribbons only). */
-  *drawn(): Iterable<DrawnRibbon> {
-    for (const e of this.entries.values()) if (e.drawn) yield e.drawn;
+  /** ADR 0276: each visible ribbon as a polyline (its camera-facing triangles have no CPU shape): 2D ones at their draw order, 3D ones depth-tested. */
+  *drawn(): Iterable<DrawnNode> {
+    for (const e of this.entries.values()) {
+      const r = e.drawn;
+      if (r) yield { component: r.component, shape: { kind: "polyline", points: r.points, halfWidth: r.halfWidth, closed: r.closed }, order: r.order ?? PICK_ORDER.depthTested };
+    }
   }
 
   /** Whether every 3D ribbon's material and texture have loaded. */
@@ -162,8 +167,8 @@ export class LinesRenderer {
     if (twoD) {
       e.mesh?.dispose();
       e.mesh = null;
-      order = this.host.quads.sortOrder(c.sortingLayer, c.orderInLayer);
-      this.draw2D(e, c, mesh, matrix, order);
+      order = sortingOrder(world.settings.render.sortingLayers, c.sortingLayer, c.orderInLayer);
+      this.draw2D(e, c, mesh, matrix);
     } else {
       e.batch?.dispose();
       e.batch = null;
@@ -183,20 +188,27 @@ export class LinesRenderer {
     e.mesh.setVisible(true);
   }
 
-  private draw2D(e: Entry, c: RibbonRenderer, mesh: RibbonMesh, matrix: ArrayLike<number>, order: number): void {
+  private draw2D(e: Entry, c: RibbonRenderer, mesh: RibbonMesh, matrix: ArrayLike<number>): void {
     if (!e.batch) e.batch = this.host.quads.createBatch(`${c instanceof TrailRenderer ? "trail" : "line"}2d:${c.node.name}`);
-    e.batch.setTriangles(c.texture, mesh.positions, mesh.uvs, mesh.indices);
-    e.batch.setColors(mesh.colors);
     // ADR 0399: lit by 2D lights unless its material is Sprite Unlit; normal maps follow the line (its U runs along it).
-    const lighting = quadLighting(c.material, c.sortingLayer, c.texture);
-    e.batch.setLighting(lighting);
-    e.batch.setTangents(lighting?.normalMap ? tangents2D(mesh.positions, mesh.uvs, mesh.indices) : null);
+    e.batch.setOrder(c.sortingLayer, c.orderInLayer);
+    e.batch.setMaterial(c.material);
+    e.batch.setTriangles(c.texture, mesh.positions, mesh.uvs, mesh.indices, mesh.colors);
     e.batch.setTint("#ffffff", 1);
     e.batch.setMatrix(matrix);
-    e.batch.setOrder(order);
     e.batch.setVisible(true);
   }
 }
+
+declare module "../../../engine/render/RenderSurface" {
+  interface RenderFeatureDiagnostics {
+    /** The Lines plugin's (ADR 0396): ribbons drawn now, their points and meshes. */
+    lines?: { lines: number; trails: number; points: number; meshes: number };
+  }
+}
+
+/** @internal Builds the feature from the renderer's shared services: the dynamic meshes and the quad batches. */
+export const createLinesFeature: BabylonFeatureFactory = (host) => new LinesRenderer({ dynamicMeshes: host.dynamicMeshes, quads: host.quads });
 
 /** A line's points (in its own space) and each point's parameter: its distance along the line over the line's length. */
 function lineSource(c: LineRenderer): { points: Float32Array; params: Float32Array; closed: boolean } {

@@ -226,7 +226,7 @@ describe("display scaling (ADR 0116)", () => {
   });
 });
 
-describe("action set files (ADR 0417)", () => {
+describe("action set files (ADR 0433)", () => {
   it("adds once, removes and moves input.actionSets, keeping the section's other fields", () => {
     let d: SettingsDraft = { input: { join: "single" } };
     d = addActionSet(addActionSet(addActionSet(d, "input/a.actions.json"), "input/b.actions.json"), "input/a.actions.json");

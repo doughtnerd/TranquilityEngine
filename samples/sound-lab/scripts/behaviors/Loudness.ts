@@ -1,4 +1,5 @@
-import { Audio, AudioSource, GameBehavior, GameObject, Input, Text, behavior, field } from "myco";
+import { Audio, AudioSource, GameBehavior, GameObject, Input, behavior, field } from "myco";
+import { setHud } from "../labHud";
 import { exposeKeyScopes, keysClaimed } from "../keyScope";
 
 /**
@@ -18,6 +19,8 @@ import { exposeKeyScopes, keysClaimed } from "../keyScope";
  */
 @behavior("lab.Loudness")
 export class Loudness extends GameBehavior {
+  /** The page's HUD node (a UIView of ui/<Page>.svelte): this script passes its `loudness` prop. */
+  @field(GameObject) hud: GameObject | null = null;
   @field(String) referenceKey = "l";
   @field(String) hotKey = "w";
   @field(String) resetKey = "c";
@@ -94,8 +97,7 @@ export class Loudness extends GameBehavior {
   }
 
   private show(): void {
-    const label = this.node.getBehavior(Text);
-    if (!label) return;
+    if (!this.hud) return;
     let text = "";
     if (this.readout) {
       const now = performance.now();
@@ -114,6 +116,6 @@ export class Loudness extends GameBehavior {
       });
       text = `Loudness (${Audio.loudnessTarget ?? "no target"})\n${lines.join("\n")}`;
     }
-    if (text !== this.shown) label.text = this.shown = text;
+    if (text !== this.shown) setHud(this.hud, "loudness", (this.shown = text));
   }
 }

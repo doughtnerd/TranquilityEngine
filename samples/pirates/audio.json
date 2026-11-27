@@ -9,7 +9,15 @@
       "materials": []
     }
   },
-  "parameters": [],
+  "parameters": [
+    {
+      "name": "Storm",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "seekSpeed": 2
+    }
+  ],
   "buses": [
     {
       "name": "Master",
@@ -44,7 +52,53 @@
       "voiceLimit": null,
       "bed": null,
       "meter": false,
-      "effects": [],
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -18,
+            "ratio": 4,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 12
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Weather",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        }
+      ],
       "sends": []
     },
     {
@@ -68,13 +122,149 @@
       "meter": false,
       "effects": [],
       "sends": []
+    },
+    {
+      "name": "Ambience",
+      "parent": "Master",
+      "volumeDb": -2,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Rain",
+      "parent": "Ambience",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [],
+      "sends": []
     }
   ],
   "returns": [],
   "vcas": [],
-  "automation": [],
-  "ducking": [],
-  "snapshots": [],
+  "automation": [
+    {
+      "on": "Rain",
+      "target": "volume",
+      "parameter": "Storm",
+      "curve": [
+        [
+          0,
+          -80
+        ],
+        [
+          0.1,
+          -24
+        ],
+        [
+          0.25,
+          -16.5
+        ],
+        [
+          0.5,
+          -10.5
+        ],
+        [
+          1,
+          -4.4
+        ]
+      ],
+      "bypass": false
+    },
+    {
+      "on": "Ambience",
+      "target": "fx:fx1:cutoff",
+      "parameter": "Storm",
+      "curve": [
+        [
+          0,
+          20000
+        ],
+        [
+          1,
+          9000
+        ]
+      ],
+      "bypass": false
+    }
+  ],
+  "ducking": [
+    {
+      "target": "Ambience",
+      "trigger": "SFX",
+      "mode": "presence",
+      "detector": "rms",
+      "thresholdDb": -30,
+      "amountDb": -3,
+      "attackMs": 40,
+      "releaseMs": 600,
+      "enabled": true
+    },
+    {
+      "target": "SFX",
+      "trigger": "Weather",
+      "mode": "level",
+      "detector": "peak",
+      "thresholdDb": -18,
+      "amountDb": -4,
+      "attackMs": 20,
+      "releaseMs": 900,
+      "enabled": true
+    }
+  ],
+  "snapshots": [
+    {
+      "name": "Harbour",
+      "folder": "",
+      "start": {
+        "kind": "code"
+      },
+      "fadeInMs": 250,
+      "fadeOutMs": 400,
+      "holdMs": 0,
+      "priority": 0,
+      "combine": "override",
+      "buses": {
+        "SFX": -6,
+        "Weather": -6,
+        "Ambience": -4
+      },
+      "effects": {
+        "SFX": {
+          "fx2": {
+            "cutoff": 900
+          }
+        },
+        "Weather": {
+          "fx1": {
+            "cutoff": 900
+          }
+        },
+        "Ambience": {
+          "fx1": {
+            "cutoff": 1200
+          }
+        }
+      }
+    }
+  ],
   "loudness": {
     "targets": [
       {

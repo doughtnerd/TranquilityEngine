@@ -3,7 +3,7 @@ import { assetsMenu, menu } from "./menus";
 import { showTab } from "./tabs";
 
 // The input system in the editor (ADR 0336, 0337; docs/wiki/guide/input.md): the Input Debugger panel follows a playing
-// World's actions and events, and the Input dialog (ADR 0417) writes mappings (with Bind capturing the next key press)
+// World's actions and events, and the Input dialog (ADR 0433) writes mappings (with Bind capturing the next key press)
 // that the InputContext component's `context` dropdown offers. The debugger's Record saves a fake controller's raw input as a
 // fixture file, and its Overlay shows players over the game view. The UIControlMapper's real drawing and rebinding are in
 // input-mapper.spec.ts; keyboard navigation of game UI in ui-navigation.spec.ts.
@@ -36,7 +36,7 @@ test("the Input Debugger shows a playing World's action values, flags, source an
   await menu(page, "Window", "Input Debugger");
   await expect(tab(page, "Input Debugger")).toHaveClass(/active/);
   const panel = page.locator(".input-debugger");
-  await expect(panel.locator(".input-debugger-empty")).toContainText("Play to see a World's input here");
+  await expect(panel.getByRole("note", { name: "Play to see a World's input here" })).toBeVisible();
 
   await play(page);
   await page.locator("#game-view canvas").first().click(); // focus the game view (the keyboard appears with the first key)
@@ -67,7 +67,7 @@ test("the Input Debugger shows a playing World's action values, flags, source an
 
   await page.getByRole("button", { name: /Stop/ }).click();
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
-  await expect(panel.locator(".input-debugger-empty")).toContainText("Play to see a World's input here");
+  await expect(panel.getByRole("note", { name: "Play to see a World's input here" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -77,7 +77,7 @@ test("New Input Context: a mapping bound with a key press in the Input dialog is
   await openEditor(page, { files: { "scripts/testActions.ts": ACTIONS } });
 
   // Create › Input › Input Context (right-click in the Assets panel) at the project root writes it in the kind's folder,
-  // input/, which every project has since it holds the default context (ADR 0417).
+  // input/, which every project has since it holds the default context (ADR 0433).
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   const list = (await assets(page).locator(".asset-items").boundingBox())!;
   await page.mouse.click(list.x + list.width - 10, list.y + list.height - 10, { button: "right" });
@@ -87,7 +87,7 @@ test("New Input Context: a mapping bound with a key press in the Input dialog is
   await tile(page, "input").dblclick();
   await expect(tile(page, "New Input Context.input.json")).toHaveCount(1);
 
-  // Double-click opens the Input dialog on it (ADR 0417), listed with the default context.
+  // Double-click opens the Input dialog on it (ADR 0433), listed with the default context.
   await tile(page, "New Input Context.input.json").dblclick();
   const dialog = page.getByRole("dialog", { name: "Input" });
   await expect(dialog).toBeVisible();
@@ -240,7 +240,7 @@ test("Overlay shows each player's action values, phases and recent presses over 
   expect(errors).toEqual([]);
 });
 
-test("File › Input…: a new action set is a file listed in project.json, and Map it in default binds it in input/default.input.json (ADR 0417)", async ({ page }) => {
+test("File › Input…: a new action set is a file listed in project.json, and Map it in default binds it in input/default.input.json (ADR 0433)", async ({ page }) => {
   const errors = trackErrors(page);
   await page.setViewportSize({ width: 1600, height: 1000 });
   await openEditor(page, { files: {} });
@@ -265,7 +265,7 @@ test("File › Input…: a new action set is a file listed in project.json, and 
   expect(errors).toEqual([]);
 });
 
-test("while playing, the Input dialog's modifier stack shows a mapping's live value through each modifier (ADR 0417)", async ({ page }) => {
+test("while playing, the Input dialog's modifier stack shows a mapping's live value through each modifier (ADR 0433)", async ({ page }) => {
   const errors = trackErrors(page);
   await page.setViewportSize({ width: 1600, height: 1000 });
   const context = { name: "drive", mappings: [{ action: "jump", control: "<Keyboard>/j", modifiers: [{ scale: 0.5 }, { scale: 3, off: true }] }] };

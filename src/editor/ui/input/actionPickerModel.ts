@@ -1,4 +1,4 @@
-// The action picker's model (ADR 0417): a mapping's action chosen from a searchable list grouped by set. Sets are
+// The action picker's model (ADR 0433): a mapping's action chosen from a searchable list grouped by set. Sets are
 // sorted by id and actions by name, A to Z; a set folds (its fold is remembered, and the engine's sets start folded).
 // Search matches action names and set ids (so "vehicle" lists that whole set) and opens every set with a match. Under
 // the matches come the rows that make a missing action where it's needed: Create "name" in each asset set without an

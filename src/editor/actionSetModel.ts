@@ -1,4 +1,4 @@
-// Action set assets in the editor (ADR 0417): the `*.actions.json` format as an asset kind reads it, the edits the
+// Action set assets in the editor (ADR 0433): the `*.actions.json` format as an asset kind reads it, the edits the
 // Input dialog's set view makes (each a new value, so one history step), and the networking estimate it shows. The
 // format's problems are the engine's own (`actionSetProblems`), so the editor says what the boot would log.
 import { actionSetProblems, type ActionSetFile, type ActionSetFileAction } from "../engine/input/actionAssets";

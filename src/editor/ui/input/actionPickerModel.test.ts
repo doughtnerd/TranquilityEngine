@@ -1,4 +1,4 @@
-// The action picker's model (ADR 0417): sets and actions A to Z, folds (the engine's start folded), search across
+// The action picker's model (ADR 0433): sets and actions A to Z, folds (the engine's start folded), search across
 // actions and set ids, the Create rows after the matches, and one highlight across every section.
 import { describe, expect, it } from "vitest";
 import { initialHighlight, moveHighlight, pickerModel, type PickerRow, type PickerSet } from "./actionPickerModel";

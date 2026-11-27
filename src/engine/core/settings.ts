@@ -79,7 +79,7 @@ export interface ProjectSettings {
   input: {
     join: InputJoinPolicy;
     maxPlayers: number;
-    /** Action set assets (`*.actions.json`, ADR 0417) defined at boot, in this order. */
+    /** Action set assets (`*.actions.json`, ADR 0433) defined at boot, in this order. */
     actionSets: string[];
   };
   /** Scene/prefab files instanced under the World root at startup; they persist across scene loads (ADR 0016). */

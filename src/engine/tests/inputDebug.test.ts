@@ -121,7 +121,7 @@ describe("for the context asset editor", () => {
   it("lists action sets and registered contexts, canonicalizes control paths, and reports the evaluator's problems", () => {
     const player = inputActionSets().find((s) => s.id === "test.inputDebug.Player")!;
     expect(player.source).toBe("code");
-    // Each action with its inline defaults as mappings naming it (ADR 0417: the default context's "from a script" rows).
+    // Each action with its inline defaults as mappings naming it (ADR 0433: the default context's "from a script" rows).
     expect(player.actions).toEqual([
       { name: "move", kind: "vec2", defaults: [{ action: "test.inputDebug.Player:move", composite: "dpad", up: "<Keyboard>/w", down: "<Keyboard>/s", left: "<Keyboard>/a", right: "<Keyboard>/d" }] },
       { name: "fire", kind: "button", defaults: [{ action: "test.inputDebug.Player:fire", control: "<Keyboard>/space" }] },
@@ -150,7 +150,7 @@ describe("for the context asset editor", () => {
   });
 });
 
-describe("a mapping's note (ADR 0417)", () => {
+describe("a mapping's note (ADR 0433)", () => {
   it("is editor-only: the evaluator reports the same problems with or without it", () => {
     const mappings = [
       { action: "fire", control: "<Keyboard>/f" },
@@ -161,7 +161,7 @@ describe("a mapping's note (ADR 0417)", () => {
   });
 });
 
-describe("inputMappingValue (ADR 0417: live values)", () => {
+describe("inputMappingValue (ADR 0433: live values)", () => {
   it("reads a mapping's controls now, combined and before its modifiers; null for one that doesn't compile", () => {
     const mapping = { action: "move", composite: "dpad" as const, up: "<Keyboard>/i", down: "<Keyboard>/k", left: "<Keyboard>/j", right: "<Keyboard>/l", modifiers: [{ scale: 5 }] };
     step();
@@ -187,7 +187,7 @@ describe("traceInputModifiers", () => {
     expect(t.out).toEqual([0, -1]);
   });
 
-  it("skips a turned-off modifier, and a turned-off dead zone brings back a stick's default one (ADR 0417)", () => {
+  it("skips a turned-off modifier, and a turned-off dead zone brings back a stick's default one (ADR 0433)", () => {
     const t = traceInputModifiers([{ scale: 3, off: true }, { scale: 2 }], [0.25], { kind: "axis" });
     expect(t.steps.map((s) => [s.value, s.off])).toEqual([
       [[0.25], true],

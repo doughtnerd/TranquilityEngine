@@ -1,4 +1,4 @@
-// The default input context file (ADR 0417): every project has `input/default.input.json`. It holds each action's
+// The default input context file (ADR 0433): every project has `input/default.input.json`. It holds each action's
 // everyday controls and is on for every player at priority 0, beside the code sets' inline defaults. New projects
 // are made with it; a project opened without it gets one, so the Input dialog always has a default to show.
 import { DEFAULT_CONTEXT, DEFAULT_CONTEXT_PATH } from "../engine/input/contexts";

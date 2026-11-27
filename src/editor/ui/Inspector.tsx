@@ -46,7 +46,7 @@ import { InspectorSections } from "./inspectorSections";
 import "./inspectorSections.builtin";
 import { addToPreload, preloadCandidates, removeFromPreload } from "../scenePreload";
 import { RuntimeInspector } from "./RuntimeInspector";
-import { UIElementInspector } from "./UIElementInspector";
+import { UIViewElementInspector } from "./UIViewElementInspector";
 import { openScript } from "../code/codeBuffers";
 import { scriptFor } from "../code/codeState";
 import { applyPrefabOverrides, createPrefabFrom, nodeHeader, openPrefabOf, prefabActions, renameNode, renameNodeId, revertAllOverrides, revertNameAndActive, setNodesActive } from "../nodeEdits";
@@ -55,22 +55,23 @@ import { componentHeaderActions, skeletonBones, type BoneInspectorProps, type Co
 import { lazyComponent, type LazyComponent } from "./lazy";
 import { usePopover } from "./popover";
 import { editableNow, statusSentence, whyNotEdit } from "../editGate";
+import { EmptyState } from "./EmptyState";
 
 /**
  * What the Inspector shows (ADR 0242, `inspectorTarget`): a live World's node while playing, an
- * asset, a UI document element, the selected nodes or the open scene's settings.
+ * asset, a UI element a view rendered, the selected nodes or the open scene's settings.
  */
 export function Inspector() {
   const target = inspectorTarget.value;
   switch (target.kind) {
     case "live": return <Panel><RuntimeInspector /></Panel>; // a live World of the running game (ADR 0022, 0124)
     case "asset": return <Panel><AssetInspector path={target.path} /></Panel>; // a file selected in the Assets panel (ADR 0040, 0143)
-    case "uiElement": return <Panel><UIElementInspector /></Panel>; // an element of a UI document (ADR 0077)
+    case "uiViewElement": return <Panel><UIViewElementInspector /></Panel>; // an element a UIView rendered (ADR 0423 wave C)
     case "bone": return <Panel><BoneInspector provider={target.provider} scene={target.scene} path={target.path} bone={target.bone} /></Panel>; // a Skeleton's bone (ADR 0373)
     case "nodes":
       return target.paths.length > 1 ? <Panel><MultiInspector scene={target.scene} paths={[...target.paths]} /></Panel> : <NodeInspector scene={target.scene} path={target.paths[0]} />;
     case "sceneSettings": return <Panel><SceneSettings scene={target.scene} /></Panel>;
-    case "nothing": return <Panel><p class="empty">Nothing selected</p></Panel>;
+    case "nothing": return <Panel><EmptyState compact title="Nothing selected" /></Panel>;
   }
 }
 
@@ -81,7 +82,7 @@ const boneViews = new WeakMap<SkeletonBonesContribution, LazyComponent<BoneInspe
 function BoneInspector(props: BoneInspectorProps & { provider: string }) {
   const { provider, ...rest } = props;
   const contribution = skeletonBones.get(provider);
-  if (!contribution) return <p class="empty">Nothing selected</p>;
+  if (!contribution) return <EmptyState compact title="Nothing selected" />;
   let View = boneViews.get(contribution);
   if (!View) boneViews.set(contribution, (View = lazyComponent(contribution.inspector)));
   return <View {...rest} />;
@@ -198,13 +199,13 @@ function SceneSettings(props: { scene: OpenScene }) {
   return (
     <div class="inspector-body scene-settings">
       <SceneReadOnlyNote scene={scene} />
-      <p class="empty">Nothing selected</p>
+      <EmptyState compact title="Nothing selected" />
       <section class="component" aria-label="Scene settings">
         <h3>Scene settings</h3>
         <div class="scene-setting-label">Preload</div>
         <p class="scene-setting-hint">Prefabs and materials scripts spawn by a computed path. Their shaders compile while the scene loads, so they don't stall a frame the first time they draw.</p>
         <ul class="preload-list" aria-label="Preload list">
-          {list.length === 0 && <li class="empty">Nothing listed. The warm-up already covers the scene's own content and paths written in scripts.</li>}
+          {list.length === 0 && <li role="presentation"><EmptyState compact title="Nothing listed" body="The warm-up already covers the scene's own content and paths written in scripts." /></li>}
           {list.map((p) => (
             <li key={p}>
               <span class="preload-path" title={p}>
@@ -298,7 +299,7 @@ function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
         {names.join(", ")}
       </p>
       <NodeTags scene={scene} paths={paths} />
-      {shared.length === 0 && <p class="empty">No components in common</p>}
+      {shared.length === 0 && <EmptyState compact title="No components in common" />}
       {shared.map((c) => (
         <ComponentCard
           key={`${key}/${c.type}#${c.index}`}
@@ -567,7 +568,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
         )}
       </h3>
       {info.fields.length === 0 ? (
-        <p class="empty">No fields</p>
+        <EmptyState compact title="No fields" />
       ) : (
         // One row per field over the document target (ADR 0243); fields another editor owns (a ParticleSystem's effect, a Tilemap's layers) are hidden (ADR 0131).
         <FieldRows target={documentFieldTarget(scene, paths, infos)} fields={info.fields.filter((f) => !isHiddenField(f))} />

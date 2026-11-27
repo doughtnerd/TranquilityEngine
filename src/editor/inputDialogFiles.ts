@@ -1,4 +1,4 @@
-// The Input dialog's file steps (ADR 0417): making, naming and deleting an action set or context as edits of its
+// The Input dialog's file steps (ADR 0433): making, naming and deleting an action set or context as edits of its
 // history (`InputDialogHistory`), so each is one undoable step. A set file is listed in project.json's
 // `input.actionSets` (the boot defines the sets in that order): making one lists it at the end, naming a new one
 // renames its entry in place, and deleting one takes its entry out, all in the same step, so Undo restores both. The

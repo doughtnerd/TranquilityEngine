@@ -123,7 +123,7 @@ function instancesOf(nodes: readonly NodeEntry[], path: string): Set<string> {
   return gone;
 }
 
-/** Project settings without autoloads, or action set files (`input.actionSets`, ADR 0417), of the deleted asset `path`. */
+/** Project settings without autoloads, or action set files (`input.actionSets`, ADR 0433), of the deleted asset `path`. */
 export function settingsWithoutAsset(settings: Record<string, unknown>, path: string): { settings: Record<string, unknown>; changed: boolean } {
   let out = settings;
   const autoload = settings.autoload;

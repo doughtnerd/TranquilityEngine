@@ -10,6 +10,7 @@ import { componentNotes } from "../sdk/contributions";
 import { recentComponents } from "../preferences";
 import { currentProject, status, type OpenScene } from "../state";
 import { ownerDocumentOf, viewportOf } from "../windows/dom";
+import { EmptyState } from "./EmptyState";
 
 /**
  * The Inspector's Add Component button (ADR 0022): a menu of every component type in submenus
@@ -263,8 +264,8 @@ function Menu(props: MenuProps & { anchor: HTMLElement; close: () => void }) {
         {searching ? (
           <ul role="listbox" aria-label="Component types">
             {matches.length === 0 && (
-              <li class="empty" role="presentation">
-                No matching components
+              <li role="presentation">
+                <EmptyState compact title="No matching components" />
               </li>
             )}
             {matches.map((item) =>

@@ -11,9 +11,12 @@ import type { ProjectSettingsInput } from "../engine";
 import { pickMainScene } from "../editor/projects";
 import type { PackageSource } from "../editor/packages";
 import { isProjectFile, skipsFolder } from "../engine/scene/projectFiles";
+import { usedBuiltinUI } from "../projectCode/builtinUI";
+import { isUISourcePath } from "../projectCode/uiModules";
 import { LEGACY_AUDIO_MESSAGE, hasLegacyAudio } from "../engine/audio/project/load";
 import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudioEvent";
 import { buildTarget } from "../projectCode/buildTarget";
+import type { UIRuntimeSource } from "../projectCode/uiBundle";
 import type { ScriptProblem } from "../projectCode/compile";
 import { link } from "../projectCode/linker";
 import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
@@ -40,6 +43,17 @@ export interface BuildSource {
   readonly scripts: ReadonlyMap<string, string>;
   /** The JSON files' text by path (scripts can import them). */
   readonly json: ReadonlyMap<string, string>;
+  /**
+   * The UI code's text by path (ADR 0423): Svelte components and rune modules, which compile (dev: false) into the
+   * build's code like scripts and don't ship as files, and `.css` files, which components may import.
+   */
+  readonly ui?: ReadonlyMap<string, string>;
+  /**
+   * The engine's Svelte runtime and renderer, which the UI code is bundled with into the build's code, tree-shaken
+   * (ADR 0425); without it, a project with Svelte UI can't be built.
+   */
+  readonly uiRuntime?: UIRuntimeSource;
+
   /** The project's node_modules, for npm package imports (ADR 0125); without it, scripts importing packages can't be built. */
   readonly packages?: PackageSource;
 }
@@ -157,10 +171,11 @@ const EDITOR_FILES = new Set(["tsconfig.json", "jsconfig.json", "sample.json"]);
 /**
  * True if a file goes into builds as it is: every project file (ADR 0254: not hidden, not in a
  * dependency or build folder, not a script, which ships compiled) but the editor-only ones and
- * TypeScript tool modules (`.mts`, `.cts`), which nothing in a build can run.
- * Asset sidecars (`<asset>.meta.json`) are ordinary files and go in.
+ * TypeScript tool modules (`.mts`, `.cts`), which nothing in a build can run, and Svelte UI sources (ADR 0423),
+ * which ship compiled. Asset sidecars (`<asset>.meta.json`) are ordinary files and go in.
  */
-const isExportedFile = (path: string) => isProjectFile(path) && !EDITOR_FILES.has(path) && !/\.(mts|cts)$/i.test(path);
+const isExportedFile = (path: string) => isProjectFile(path) && !EDITOR_FILES.has(path) && !/\.(mts|cts)$/i.test(path) && !isUISourcePath(path);
+
 
 /** Throw an `ExportError` listing `problems`, if there are any: a build runs no code that didn't link. */
 function stopOn(problems: readonly ScriptProblem[], what: string): void {
@@ -217,9 +232,11 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   const shippedFiles = lineFiles.size > 0 && !copies.includes(LINE_INDEX_PATH) ? [...copies, LINE_INDEX_PATH].sort() : copies;
   // The selected code links into build files (ADR 0329); any problem, a plugin entry's included, stops the build.
   const shipped = copies;
+  const ui = await withBuiltinUI(source);
   const linked = await link(
-    { code: pluginPlan.code, json: source.json, packages: source.packages, extraEntries: pluginPlan.npmEntries, isAsset: (p) => shipped.includes(p) },
-    buildTarget,
+    { code: pluginPlan.code, json: source.json, ui, packages: source.packages, extraEntries: pluginPlan.npmEntries, isAsset: (p) => shipped.includes(p) },
+
+    buildTarget({ ui: source.uiRuntime }),
   );
   stopOn(linked.problems, "Some scripts can't be built");
   const files = linked.output;
@@ -428,4 +445,23 @@ export function debugServeScript(options: { readonly lan: boolean; readonly rend
   console.log(\`Serving the game at http://127.0.0.1:\${bound}/ (Ctrl+C stops)\`);
 ${lan}${pairing}});
 `;
+}
+
+/**
+ * The project's UI code, plus the engine's built-in UI components it uses (ADR 0423 wave B): those whose engine
+ * component (`UIControlMapper`, `SubtitleDisplay`) a scene, prefab, script or UI source names. They compile into the
+ * game's own code with the project's components (the player carries no Svelte, ADR 0425), each at its `@myco/ui/` path,
+ * from the engine's files the UI runtime comes from.
+ */
+async function withBuiltinUI(source: BuildSource): Promise<ReadonlyMap<string, string> | undefined> {
+  const used = usedBuiltinUI([...source.json.values(), ...source.scripts.values(), ...(source.ui?.values() ?? [])]);
+  if (used.length === 0) return source.ui;
+  if (!source.uiRuntime) throw new ExportError(`The project uses ${used.flatMap((c) => c.usedBy).join(" and ")}, whose built-in UI needs the engine's Svelte runtime, which this build has none of.`);
+  const ui = new Map(source.ui ?? []);
+  for (const c of used) {
+    const text = await source.uiRuntime.files.read(c.source);
+    if (text === null) throw new ExportError(`The engine's built-in UI component ${c.source} can't be read.`);
+    ui.set(c.path, text);
+  }
+  return ui;
 }

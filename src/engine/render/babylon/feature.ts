@@ -27,13 +27,13 @@ import type { RenderPolicy } from "../renderPolicy";
 import type { QuadBatch, QuadBatchHost } from "../quadBatches";
 import type { DecalHost } from "../decals";
 import type { DynamicMeshHost } from "../dynamicMeshes";
-import type { ScreenRect } from "../editorViewport";
 import { specNeeded, type RenderFeatureSpec } from "../renderFeatures";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 import type { WarmItem } from "./warmUp";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { LightingContributions } from "./lighting";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
+import type { BabylonMaterials2D } from "./materials2D";
 import type { ProbeHit } from "./probes";
 
 /** @internal What the renderer worked out before a feature's phase (ADR 0130). */
@@ -88,7 +88,6 @@ export function describeDrawn(features: Iterable<BabylonFeature | null>, drawn: 
  *   picked against their triangles, framed and outlined by their boxes.
  * - `quads`: quad batches it drew through the renderer's `QuadBatchHost` (a tile layer's chunks, ADR 0136):
  *   the renderer resolves them to its meshes, so a renderer-neutral feature names no Babylon type.
- * - `rect`: a rectangle on the canvas in CSS pixels, origin top-left (screen-space Text): picked inside it.
  * - `box`: a box with no mesh of its own (a decal projector's volume, ADR 0395): `matrix` is the column-major
  *   world matrix of the unit cube (-0.5..0.5). Framed and outlined by it; a feature reports it `pickable: false`.
  * - `polyline`: a line through world-space `points` (xyz, `closed` joining the last to the first), `halfWidth`
@@ -100,7 +99,6 @@ export type DrawnShape =
   | { readonly kind: "quad"; readonly mesh: AbstractMesh }
   | { readonly kind: "meshes"; readonly meshes: readonly AbstractMesh[] }
   | { readonly kind: "quads"; readonly batches: readonly QuadBatch[] }
-  | { readonly kind: "rect"; readonly rect: ScreenRect }
   | { readonly kind: "box"; readonly matrix: ArrayLike<number> }
   | { readonly kind: "polyline"; readonly points: ArrayLike<number>; readonly halfWidth: number; readonly closed?: boolean };
 
@@ -108,8 +106,6 @@ export type DrawnShape =
 export const PICK_ORDER = {
   /** Depth-tested 3D content: below every layered 2D item, nearest first among themselves. */
   depthTested: -1e12,
-  /** Screen overlays (screen-space Text): above everything in the scene. */
-  screen: Number.POSITIVE_INFINITY,
 } as const;
 
 /** @internal One node's drawing by a feature (ADR 0276). A node drawn by several Components or features has several. */
@@ -197,6 +193,8 @@ export interface BabylonFeatureHost {
   readonly lighting: LightingContributions;
   /** The material library (ADR 0127). */
   readonly materials: BabylonMaterialLibrary;
+  /** The 2D materials (ADR 0418): what every 2D draw (sprites, 2D particles) gets its material, lit or not, from. */
+  readonly materials2D: BabylonMaterials2D;
   /** Reflection probes: whether any exist, the lookup (the probe nearest a point, ADR 0130), and counting a mesh drawn with one's reflection this frame (diagnostics). */
   readonly probes: { readonly any: boolean; lookup(x: number, y: number, z: number): ProbeHit | null; reflected(): void };
   /** The project settings the renderer was made with (pixels per unit, sorting layers). */

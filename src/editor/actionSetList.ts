@@ -1,4 +1,4 @@
-// What Project Settings › Input shows for the action sets (ADR 0417): one row per file in `input.actionSets`, in load
+// What Project Settings › Input shows for the action sets (ADR 0433): one row per file in `input.actionSets`, in load
 // order, with the id and action count the file defines (or what is wrong with it), the sets scripts define beside them,
 // and the set files that could still be added.
 import { ACTION_SET_EXTENSION, actionSetProblems } from "../engine/input/actionAssets";

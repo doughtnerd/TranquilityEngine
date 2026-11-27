@@ -15,27 +15,29 @@ import { ancestorKeys, combineSelection, rangeBetween } from "../selectionModel"
 import { inspectorTarget, select, selectBone, selectUIElement, showSceneSettings } from "../inspectorTarget";
 import { skeletonBones, type SkeletonBoneRow, type SkeletonBonesContribution } from "../sdk/contributions";
 import { docVersion, isSelected, openScene, selectedKeys, selectedUIElement, type OpenScene } from "../state";
-import { documentRows, resolveUIElement, rowAncestry, selectedUIRef, uiBuildVersion, watchUIDocumentBuilds, type UIDocumentRows, type UIElementRow } from "../uiDocuments";
-import { HIERARCHY_TREE, HierarchyMenu, openCreateMenu, openHierarchyMenu, openUIElementMenu, uiTreeKey } from "./HierarchyMenu";
-import { renameUIElement } from "../uiDocumentEdits";
+import { HIERARCHY_TREE, HierarchyMenu, openCreateMenu, openHierarchyMenu, openUIViewElementMenu, uiTreeKey } from "./HierarchyMenu";
+import { resolveUIViewElement, selectedUIViewRef, uiViewVersion, viewRowAncestry, viewRows, watchUIViews, whyViewOnly, type UIViewRow, type UIViewRows } from "../uiViews";
+import { renameUIViewElement, whyNotEditViewElement } from "../uiViewEdits";
+
 import { whyNotEdit } from "../editGate";
-import { startUIElementDrag, uiDropDescription, uiElementDrag } from "../uiElementDrag";
+import { startUIViewElementDrag, uiDropDescription, uiElementDrag } from "../uiElementDrag";
 import "./hierarchy.css";
 import { liveInspecting } from "../runtimeInspect";
 import { RuntimeHierarchy, WorldPicker } from "./RuntimeHierarchy";
 import { TreeView, renameRow, type TreeRow, type TreeSelect } from "./TreeView";
+import { EmptyState } from "./EmptyState";
 
 /**
  * One Hierarchy panel's view state (ADR 0174): each copy of the panel has its own, so expanding a row or
  * searching in one doesn't change another. The default: every scene node expanded, prefab instances'
- * inner nodes and UI documents' element rows closed (they can hold hundreds of rows), no search.
+ * inner nodes and UI views' element rows closed (they can hold hundreds of rows), no search.
  */
 class HierarchyView {
   /** Collapsed scene nodes, by path key. */
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
   /** Prefab instances showing their inner nodes, by path key (instances start collapsed). */
   readonly expanded = signal<ReadonlySet<string>>(new Set());
-  /** UI document element rows the user opened (they start closed: a document can have hundreds). */
+  /** UI element rows the user opened (they start closed: a view can have hundreds). */
   readonly uiExpanded = signal<ReadonlySet<string>>(new Set());
   /** Bone rows the user opened (ADR 0373: they start closed, a rig has dozens). */
   readonly boneExpanded = signal<ReadonlySet<string>>(new Set());
@@ -81,19 +83,19 @@ function boneSelectionUnder(key: string): boolean {
   return host === key || host.startsWith(`${key}/`) || ancestorKeys(scene.doc, host).includes(key);
 }
 
-/** True if the selected UI element (ADR 0077) is in a document on the node at `key` or below it. */
+/** True if the selected UI element (a view's, ADR 0423 wave C) is on the node at `key` or below it. */
 function uiSelectionUnder(key: string): boolean {
-  const ref = selectedUIRef(), scene = openScene.value;
+  const ref = selectedUIViewRef(), scene = openScene.value;
   if (!ref || !scene) return false;
   return ref.host === key || ref.host.startsWith(`${key}/`) || ancestorKeys(scene.doc, ref.host).includes(key);
 }
 
-/** The UI documents on the node at `key`, with their element trees (none while searching: the search is over scene nodes). */
-function uiDocumentsAt(view: HierarchyView, key: string): UIDocumentRows[] {
-  uiBuildVersion.value; // re-read when a document builds or hot-reloads
+/** The views on the node at `key`, with the elements each rendered (ADR 0423 wave C; none while searching: the search is over scene nodes). */
+function uiViewsAt(view: HierarchyView, key: string): UIViewRows[] {
+  uiViewVersion.value; // re-read when a view renders again or hot-reloads
   const scene = openScene.value;
   if (!scene || view.filter.value) return [];
-  return documentRows(scene.sync, key).filter((d) => d.root);
+  return viewRows(scene.sync, key).filter((v) => v.rows.length > 0);
 }
 
 /** A row click: select it alone, Ctrl/Cmd toggles it, Shift selects the visible rows from the anchor (Ctrl+Shift adds them). */
@@ -120,7 +122,7 @@ function selectRow(view: HierarchyView, key: string, how: TreeSelect): void {
 export function Hierarchy() {
   const view = usePanelValue("hierarchy.view", () => new HierarchyView());
   docVersion.value; // re-render when the document changes
-  watchUIDocumentBuilds();
+  watchUIViews();
   if (liveInspecting())
     return (
       <Panel>
@@ -131,7 +133,7 @@ export function Hierarchy() {
   if (!scene)
     return (
       <Panel>
-        <p class="empty">No scene open</p>
+        <EmptyState compact title="No scene open" />
       </Panel>
     );
   const filter = view.filter.value;
@@ -169,8 +171,8 @@ export function Hierarchy() {
             </button>
           </div>
           <HierarchySearch />
-          <TreeView tree={HIERARCHY_TREE} label="Scene nodes" rows={sceneRows(view, scene)} owner={view} multiselectable striped />
-          {filter && filter.matches.size === 0 && <p class="empty hierarchy-no-match">No nodes match “{view.query.value.trim()}”</p>}
+          <TreeView tree={HIERARCHY_TREE} label="Scene nodes" rows={sceneRows(view, scene)} owner={view} multiselectable />
+          {filter && filter.matches.size === 0 && <EmptyState compact title={`No nodes match “${view.query.value.trim()}”`} />}
           <HierarchyMenu owner={view} />
           <UIElementDragGhost />
         </div>
@@ -213,7 +215,7 @@ function sceneNodeRow(view: HierarchyView, scene: OpenScene, id: string): TreeRo
   if (!view.shown(id)) return null;
   const doc = scene.doc;
   const node = doc.node(id);
-  const ui = uiDocumentsAt(view, id);
+  const ui = uiViewsAt(view, id);
   if (node.prefab) {
     const inner = instanceInnerNodes(doc, id);
     const overrides = node.overrides?.length ?? 0;
@@ -225,7 +227,7 @@ function sceneNodeRow(view: HierarchyView, scene: OpenScene, id: string): TreeRo
       open: view.expanded.value.has(id) || selectionInside(id) || (!!view.filter.value && inner.some((n) => view.shown(pathKey(n.path)))),
       openSet: view.expanded,
       badge: { text: prefabName(node.prefab), title: `${node.prefab}${overrides ? ` · ${overrides} override${overrides === 1 ? "" : "s"}` : ""}`, modified: overrides > 0 },
-      children: () => [...inner.flatMap((n) => innerNodeRow(view, scene, n) ?? []), ...uiDocumentRows(view, ui)],
+      children: () => [...inner.flatMap((n) => innerNodeRow(view, scene, n) ?? []), ...uiElementRows(view, ui)],
     });
   }
   const children = doc.children(id);
@@ -237,7 +239,7 @@ function sceneNodeRow(view: HierarchyView, scene: OpenScene, id: string): TreeRo
     expandable: children.length > 0 || ui.length > 0 || bones.length > 0,
     open: !view.collapsed.value.has(id) || selectionInside(id) || (!!view.filter.value && children.some((c) => view.shown(c))),
     collapseSet: view.collapsed,
-    children: () => [...bones, ...children.flatMap((c) => sceneNodeRow(view, scene, c) ?? []), ...uiDocumentRows(view, ui)],
+    children: () => [...bones, ...children.flatMap((c) => sceneNodeRow(view, scene, c) ?? []), ...uiElementRows(view, ui)],
   });
 }
 
@@ -245,7 +247,7 @@ function sceneNodeRow(view: HierarchyView, scene: OpenScene, id: string): TreeRo
 function innerNodeRow(view: HierarchyView, scene: OpenScene, node: InnerNode): TreeRow | null {
   const key = pathKey(node.path);
   if (!view.shown(key)) return null;
-  const ui = uiDocumentsAt(view, key);
+  const ui = uiViewsAt(view, key);
   const bones = boneRows(view, scene, key);
   return nodeRow(view, scene, {
     key,
@@ -256,7 +258,7 @@ function innerNodeRow(view: HierarchyView, scene: OpenScene, node: InnerNode): T
     open: (node.prefab ? view.expanded.value.has(key) : !view.collapsed.value.has(key)) || selectionInside(key) || (!!view.filter.value && node.children.some((c) => view.shown(pathKey(c.path)))),
     ...(node.prefab ? { openSet: view.expanded } : { collapseSet: view.collapsed }),
     badge: node.prefab ? { text: prefabName(node.prefab), title: node.prefab, modified: false } : undefined,
-    children: () => [...bones, ...node.children.flatMap((c) => innerNodeRow(view, scene, c) ?? []), ...uiDocumentRows(view, ui)],
+    children: () => [...bones, ...node.children.flatMap((c) => innerNodeRow(view, scene, c) ?? []), ...uiElementRows(view, ui)],
   });
 }
 
@@ -382,37 +384,39 @@ function nodeRow(view: HierarchyView, scene: OpenScene, spec: NodeRowSpec): Tree
   };
 }
 
-/** A node's UI documents' element rows (ADR 0077), under its own children; none while searching. */
-function uiDocumentRows(view: HierarchyView, documents: readonly UIDocumentRows[]): TreeRow[] {
-  if (documents.length === 0) return [];
+/** A node's views' rendered elements (ADR 0423 wave C), under its own children; none while searching. */
+function uiElementRows(view: HierarchyView, views: readonly UIViewRows[]): TreeRow[] {
+  if (views.length === 0) return [];
   const selectedKey = selectedUIElement.value;
-  const opened = selectedKey ? new Set(rowAncestry(documents, selectedKey) ?? []) : new Set<string>();
-  return documents.flatMap((d) => (d.root ? [uiElementRow(view, d.root, d.file ?? d.root.file, opened)] : []));
+  const opened = selectedKey ? new Set(viewRowAncestry(views, selectedKey) ?? []) : new Set<string>();
+  return views.flatMap((v) => v.rows.map((r) => uiViewElementRow(view, r, v.file, opened)));
 }
 
 /**
- * A UI document element's row: built from the markup file, not saved in the scene, so it's marked as the file's.
- * Clicking selects the element; the menu creates inside it, renames (its id), duplicates and deletes; double-click
- * or F2 renames; dragging reorders or reparents within its file. Edits are written to the markup.
+ * An element a UIView rendered from a Svelte component (ADR 0423 wave C): rendered from the file, not saved in the
+ * scene, so it's marked as the file's. Clicking selects it; the menu creates inside it,
+ * renames (its id), duplicates and deletes; dragging reorders it within its file. `{#each}` rows, snippets and child
+ * components' insides select, but are view-only (their rows say why).
  */
-function uiElementRow(view: HierarchyView, row: UIElementRow, file: string, opened: ReadonlySet<string>): TreeRow {
+function uiViewElementRow(view: HierarchyView, row: UIViewRow, viewFile: string, opened: ReadonlySet<string>): TreeRow {
   const uiExpanded = view.uiExpanded;
   const open = uiExpanded.value.has(row.key) || opened.has(row.key);
-  const where = row.file === file ? row.file : `${row.file} (used by ${file})`;
   const key = uiTreeKey(row.key);
-  const renamable = !row.synthetic && !whyNotEdit({ kind: "ui-documents" });
   const scene = openScene.peek();
+  const viewOnly = scene ? whyViewOnly(scene.sync, row.ref) : null;
+  const renamable = !!scene && !whyNotEditViewElement(scene, row.ref);
   const drop = uiElementDrag.value?.target?.row === row.key ? uiElementDrag.value.target.mode : null;
+  const where = `${row.file}:${row.ref.line}${row.file === viewFile ? "" : ` (inside ${viewFile})`}`;
   return {
     key,
     label: row.label,
     expandable: row.children.length > 0,
     open,
-    children: open ? row.children.map((c) => uiElementRow(view, c, file, opened)) : undefined,
+    children: open ? row.children.map((c) => uiViewElementRow(view, c, viewFile, opened)) : undefined,
     selected: selectedUIElement.value === row.key,
-    className: "ui-element",
+    className: `ui-element ui-view-element${viewOnly ? " view-only" : ""}`,
     attrs: { "data-ui-key": row.key },
-    title: `${row.synthetic ? "A button's text content" : `<${row.tag}>`} from ${where}. Built from the file, not saved in the scene; edits are written to the file.`,
+    title: `<${row.tag}> from ${where}. Rendered from the Svelte component, not saved in the scene; ${viewOnly ? `view-only: ${viewOnly}.` : "edits are written to the file."}`,
     icon: (
       <span class="ui-element-icon" aria-hidden="true">
         ◇
@@ -424,29 +428,28 @@ function uiElementRow(view: HierarchyView, row: UIElementRow, file: string, open
     select: () => selectUIElement(row.ref),
     menu: (x, y) => {
       selectUIElement(row.ref);
-      openUIElementMenu(x, y, row.ref, view);
+      openUIViewElementMenu(x, y, row.ref, view);
     },
     activate: () => {
       if (renamable) renameRow(HIERARCHY_TREE, key, view);
     },
     rename: renamable
       ? (() => {
-          const initial = (scene && resolveUIElement(scene.sync, row.ref)?.id) ?? "";
+          const initial = (scene && resolveUIViewElement(scene.sync, row.ref)?.id) ?? "";
           return {
             value: initial,
             label: "Element id",
             placeholder: "id",
             commit: (value: string) => {
-              if (value.trim() !== initial) renameUIElement(row.ref, value);
+              if (value.trim() !== initial) renameUIViewElement(row.ref, value);
             },
           };
         })()
       : null,
     remove: () => void deleteSelected(),
-    drag: row.synthetic ? undefined : (e) => startUIElementDrag(e, row.ref, row.key, row.label),
+    drag: viewOnly ? undefined : (e) => startUIViewElementDrag(e, row.ref, row.key, row.label),
   };
 }
-
 
 /** The label following a dragged UI element, saying what releasing will do (or why it can't). */
 function UIElementDragGhost() {

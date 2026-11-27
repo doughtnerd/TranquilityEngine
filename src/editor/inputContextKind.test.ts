@@ -1,5 +1,5 @@
-// Input context assets in the editor (ADR 0336, 0233, 0152, 0417): the core `inputContext` kind's New… entry, opening in
-// the Input dialog (not the Inspector, ADR 0417), edits through its asset document reaching a running World, and the InputContext component's
+// Input context assets in the editor (ADR 0336, 0233, 0152, 0433): the core `inputContext` kind's New… entry, opening in
+// the Input dialog (not the Inspector, ADR 0433), edits through its asset document reaching a running World, and the InputContext component's
 // `context` field offering the project's context files and the contexts registered in code.
 import { afterEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, InputContext, InputPlayers, button, defineActions, defineInputContext, type InputContextSpec } from "../engine";
@@ -33,7 +33,7 @@ describe("the inputContext asset kind", () => {
     expect(await entry.create("")).toBe("input/New Input Context 2.input.json");
   });
 
-  it("opens a context in the Input dialog, and has no Inspector view (ADR 0417)", async () => {
+  it("opens a context in the Input dialog, and has no Inspector view (ADR 0433)", async () => {
     await openTestProject({ [CONTEXT]: JSON.stringify(vehicle) });
     inputDialog.value = null;
     expect(editor.assets.open(CONTEXT)).toBe(true);

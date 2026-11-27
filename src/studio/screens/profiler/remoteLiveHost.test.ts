@@ -8,7 +8,7 @@ import type { LiveScheduler } from "../../../plugins/audio/editor/mix/liveFollow
 import { setAudioBackend } from "../../../plugins/audio/runtime/backend";
 import { releaseCapture } from "../../../plugins/audio/runtime/capture/capture";
 import type { CaptureChunkControl } from "../../../plugins/audio/runtime/capture/testSupport";
-import { linkedBuild, SECOND, type LinkedBuild } from "./buildLinkTestSupport";
+import { linkedBuild, SECOND, type LinkedBuild } from "../../../plugins/audio/editor/debugLink/buildLinkTestSupport";
 import { ProfilerStore } from "./profilerStore";
 import { BuildFollow, buildFollowStatus } from "./remoteLiveHost";
 

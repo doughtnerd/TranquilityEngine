@@ -5,10 +5,10 @@
 // same build. In dev, the main server serves them at /editor.html and /studio.html.
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import { engineTypes, playerFiles, rendezvousFile, samples, typescriptTranspile } from "./vite.shared.ts";
+import { engineTypes, playerFiles, rendezvousFile, samples, svelteCheckPath, svelteUI, typescriptTranspile, uiRuntimeFiles } from "./vite.shared.ts";
 
 export default defineConfig({
-  plugins: [typescriptTranspile(), engineTypes(), samples(), playerFiles(), rendezvousFile()],
+  plugins: [svelteUI(), svelteCheckPath(), typescriptTranspile(), engineTypes(), samples(), playerFiles(), rendezvousFile(), uiRuntimeFiles()],
   // Monaco's language workers (the editor's Code panel, ADR 0030) and the navigation bake worker (ADR 0065)
   // are ES modules; worker bundles get their own plugins, so TypeScript is transpiled there too.
   worker: { format: "es", plugins: () => [typescriptTranspile()] },

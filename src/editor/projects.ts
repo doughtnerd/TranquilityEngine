@@ -10,6 +10,7 @@ import type { FileSystem } from "../engine/platform/FileSystem";
 import { isSidecarPath, sidecarPath } from "../engine/scene/importSettings";
 import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder, textFileValue } from "../engine/scene/projectFiles";
 import { isScriptPath, isTextAsset, joinPath } from "./projectPaths";
+import { isUISourcePath } from "../projectCode/uiModules";
 import { readOnlyMessage } from "./readOnly";
 import { migrateLegacyAudio, settingsWithAudio } from "./audioProjectFile";
 import { ensureDefaultInputContext } from "./defaultInputContext";
@@ -100,7 +101,21 @@ function bytesStamp(bytes: Uint8Array): string {
 /** True if `path` is `folder` or inside it. */
 export const isWithin = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
+/**
+ * The project's UI code with its text (ADR 0423): Svelte components and rune modules, which the project code
+ * linker compiles like scripts, and the `.css` files components may import.
+ */
+export function uiFiles(project: EditorProject): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const path of project.files) {
+    const text = isUISourcePath(path) || path.endsWith(".css") ? project.textOf(path) : undefined;
+    if (text !== undefined) out.set(path, text);
+  }
+  return out;
+}
+
 /** The project's JSON files with their text (scripts can import them, ADR 0030). */
+
 export function jsonFiles(project: EditorProject): Map<string, string> {
   const out = new Map<string, string>();
   for (const path of project.files) {
@@ -516,7 +531,7 @@ export async function openFolderProject(fs: FileSystem, root: string, options: {
   }
   // ADR 0344: an `audio` section still in project.json moves to audio.json before anything reads the files.
   if (!options.readOnly) await migrateLegacyAudio(fs, root);
-  // ADR 0417: every project has a default input context file.
+  // ADR 0433: every project has a default input context file.
   if (!options.readOnly) await ensureDefaultInputContext(fs, root);
   const folders = new Set<string>();
   const sizes = new Map<string, number>();

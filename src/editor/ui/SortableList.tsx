@@ -1,4 +1,4 @@
-// A list the user reorders (ADR 0417): drag a row by its handle (an accent line shows where it will land), or focus a
+// A list the user reorders (ADR 0433): drag a row by its handle (an accent line shows where it will land), or focus a
 // handle and press Space to lift the row, ↑ ↓ to move it, Space to drop it, Escape to put it back. A live region says
 // each step. The logic is sortableListLogic.ts; the list reports one `onMove(from, to)` and the caller owns the order.
 import type { ComponentChildren } from "preact";

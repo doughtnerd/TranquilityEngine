@@ -1,0 +1,4 @@
+# ADR 0424: built with simd128, as the animation core (native/anim/.cargo/config.toml), so the
+# shared crate compiles to the same arithmetic in both modules (same results either way).
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

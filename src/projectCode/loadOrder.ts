@@ -3,6 +3,8 @@
 import { isPackageSpecifier } from "../editor/packages";
 import { isEditorHalfPath } from "../plugins/thirdParty";
 import { EDITOR_MODULE, ENGINE_MODULE, isEngineModule, resolveScript, type CompiledScript, type ScriptProblem } from "./compile";
+import { isUIRuntimeSpecifier } from "./uiModules";
+
 
 /**
  * Scripts in load order: each after the scripts it imports. Scripts in an import cycle, or that
@@ -23,7 +25,8 @@ export function loadOrder(
   for (const [path, s] of scripts) {
     const list: string[] = [];
     for (const imp of s.imports) {
-      if (isEngineModule(imp.specifier)) continue;
+      if (isEngineModule(imp.specifier) || isUIRuntimeSpecifier(imp.specifier)) continue;
+
       if (imp.specifier === EDITOR_MODULE) {
         if (!isEditorHalfPath(path)) problems.set(path, `can't import "${EDITOR_MODULE}": only a plugin's editor half (its editor/ folder) can, and it never ships in a game`);
         continue;

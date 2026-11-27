@@ -2,7 +2,7 @@
  * Input contexts (ADR 0336): bindings as data, switched on by a component on a node.
  *
  * - A context is a `*.input.json` asset (`InputContextSpec`) or one registered in code with
- *   `defineInputContext`. The **default context** is `input/default.input.json` (ADR 0417) plus the code
+ *   `defineInputContext`. The **default context** is `input/default.input.json` (ADR 0433) plus the code
  *   sets' inline defaults (`button("<Keyboard>/space")`), and is always active for every player, at priority 0.
  * - `InputContext` on a node switches a context on while the node is active in the hierarchy, at
  *   its priority, for one player: a vehicle prefab carries `InputContext(vehicle, 10)`, a pause
@@ -21,7 +21,7 @@ export type { InputContextSpec, MappingSpec, ModifierSpec, TriggerSpec, TriggerT
 /** The name of the default context: `input/default.input.json` and the code sets' inline defaults. */
 export const DEFAULT_CONTEXT = "default";
 
-/** The default context's file (ADR 0417): every project has one; it holds each action's everyday controls. */
+/** The default context's file (ADR 0433): every project has one; it holds each action's everyday controls. */
 export const DEFAULT_CONTEXT_PATH = "input/default.input.json";
 
 const registered = new Map<string, InputContextSpec>();
@@ -53,7 +53,7 @@ export function defineInputContext(spec: InputContextSpec): InputContextSpec {
 let defaultCache: { version: string; spec: InputContextSpec } | null = null;
 
 /**
- * The default context: the mappings of `input/default.input.json` (ADR 0417), then every code set's inline
+ * The default context: the mappings of `input/default.input.json` (ADR 0433), then every code set's inline
  * defaults (ADR 0336).
  */
 export function defaultContext(): InputContextSpec {

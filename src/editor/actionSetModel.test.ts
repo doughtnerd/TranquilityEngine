@@ -1,4 +1,4 @@
-// Action set assets in the editor (ADR 0417): the `*.actions.json` format as the asset kind reads it, the set view's
+// Action set assets in the editor (ADR 0433): the `*.actions.json` format as the asset kind reads it, the set view's
 // edits, and the networking estimate.
 import { describe, expect, it } from "vitest";
 import { actionSetProblems, type ActionSetFile } from "../engine/input/actionAssets";

@@ -1,6 +1,6 @@
 # 0370. Animation is a first-party plugin whose evaluation runs on an engine-owned Rust/WebAssembly SIMD core
 
-- **Status:** Accepted, amended by 0378 (plugin.json `animationNodes`; Engine frame hooks)
+- **Status:** Accepted, amended by 0378 (plugin.json `animationNodes`; Engine frame hooks), amended by 0424 (tweening is the shared `myco-tween` crate; records on `myco-wire`)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

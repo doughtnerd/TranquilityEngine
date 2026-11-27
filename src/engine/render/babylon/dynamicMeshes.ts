@@ -116,9 +116,7 @@ export class BabylonDynamicMeshes implements DynamicMeshHost {
         m.albedoTexture = t;
         look.ready = true;
       };
-      const loaded = this.deps.materials.loadedTexture(texture);
-      if (loaded) apply(loaded);
-      else this.deps.materials.texture(texture).then(apply, (err: unknown) => this.deps.warnOnce(`line-texture|${texture}`, `failed to load line texture "${texture}": ${(err as Error).message}`));
+      apply(this.deps.materials.texture(texture, "color", apply));
     }
   }
 

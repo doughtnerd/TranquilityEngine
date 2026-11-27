@@ -1,0 +1,13 @@
+# `myco-wire` (ADR 0424 spike): the boundary-record mechanism (fixed-stride versioned records, the
+# `wire_record!` macro, byte vectors), moved out of `anim-wire` so the `tween` family can live in
+# `myco-tween` while `anim-wire` re-exports it. A path dependency of anim-wire and myco-tween, and its
+# own workspace so `cargo test` runs here. No dependencies.
+[package]
+name = "myco-wire"
+description = "Myco's wasm boundary records (fixed-stride, little-endian, versioned), no_std, shared by the animation core and the tween crate."
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[workspace]

@@ -1,10 +1,8 @@
 /* Scene view tool settings (ADR 0022): toolbar toggles, snap and align popovers, camera preview. */
-.scene-toolbar button.active,
-.scene-toolbar button[aria-pressed="true"].snap-toggle,
-.scene-toolbar button[aria-pressed="true"].camera-preview-toggle { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-.scene-toolbar button[aria-pressed="true"].lighting2d-toggle { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+/* The current tool and view mode are choices (solid); Snap, Preview and 2D Lights are on/off toggles (quiet, ADR 0420). */
+.scene-toolbar button.active:not(.toggle) { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .scene-toolbar .snap-settings { padding: 2px 6px; }
-.scene-toolbar .quality-select { background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font: inherit; font-size: 12px; padding: 2px 4px; }
+.scene-toolbar .quality-select { background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font: inherit; font-size: var(--fs-md); padding: 2px 4px; }
 
 .scene-popover {
   position: fixed;
@@ -16,7 +14,7 @@
   border-radius: 4px;
   box-shadow: 0 6px 18px var(--shadow);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .snap-form { display: grid; gap: 6px; }
@@ -27,7 +25,7 @@
 
 .align-grid { display: grid; gap: 4px; }
 .align-row { display: flex; gap: 4px; }
-.align-row button { flex: 1; padding: 2px 8px; font-size: 12px; white-space: nowrap; }
+.align-row button { flex: 1; padding: 2px 8px; font-size: var(--fs-md); white-space: nowrap; }
 
 .camera-preview {
   position: absolute;
@@ -46,6 +44,6 @@
   padding: 1px 6px;
   background: rgb(0 0 0 / 0.55);
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 .editor.playing .camera-preview { display: none; }

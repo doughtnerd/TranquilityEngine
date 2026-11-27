@@ -1,4 +1,4 @@
-// The Input dialog's history (ADR 0417): one tree across every file it edits, steps that change several files at
+// The Input dialog's history (ADR 0433): one tree across every file it edits, steps that change several files at
 // once, branches kept, and a step that no longer fits a file changed elsewhere refused instead of overwriting it.
 import { describe, expect, it } from "vitest";
 import { InputDialogHistory } from "./inputDialogHistory";

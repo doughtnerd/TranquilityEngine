@@ -1,11 +1,11 @@
-// The editor's one tree view (ADR 0278): the Hierarchy (scene nodes, prefab instances' inner nodes and UI document
+// The editor's one tree view (ADR 0278): the Hierarchy (scene nodes, prefab instances' inner nodes and UI view
 // elements), the live Hierarchy of a running World and the Assets panel's folders all draw with it. It owns what a
 // tree does: rows with a caret, collapse, the keyboard (Up/Down/Home/End move and select, Right opens or steps in,
 // Left closes or steps out, F2 renames, Delete removes), renaming in place, the drop indicator a drag asks for, and
 // the ARIA tree pattern (tree, treeitem, group, aria-level, aria-expanded, aria-selected, one tab stop that roves).
 //
 // Adapters supply each item set's rows and edits as `TreeRow`s: what a row shows and what selecting, opening,
-// renaming, removing or dragging it does. Rows from different item sets mix in one tree (a node's UI document
+// renaming, removing or dragging it does. Rows from different item sets mix in one tree (a node's UI view
 // elements sit under its children), each with its own edits. Which row is being renamed is kept per tree name
 // (`renameRow`), so a menu item can start a rename the tree then shows.
 import type { ComponentChildren } from "preact";
@@ -126,8 +126,6 @@ export interface TreeViewProps {
   readonly class?: string;
   /** More than one row can be selected. */
   readonly multiselectable?: boolean;
-  /** Alternate the rows' background by visible row order (every second row, whatever its depth). */
-  readonly striped?: boolean;
   /** Indent per level, in pixels. */
   readonly indent?: number;
   /** Who this view belongs to (its panel's view state), for `renameRow`'s `owner`. */
@@ -204,8 +202,7 @@ export function TreeView(props: TreeViewProps) {
 
   const renderRow = (row: TreeRow, depth: number): ComponentChildren => {
     const isRenaming = !!current && current.key === row.key && (current.view === null || current.view === view) && !!row.rename;
-    const odd = props.striped && rowIndex % 2 === 1;
-    const classes = ["row", odd && "stripe-odd", row.className, row.selected && "selected", row.drop && `drop-${row.drop}`, row.dragging && "dragging"].filter(Boolean).join(" ");
+    const classes = ["row", row.className, row.selected && "selected", row.drop && `drop-${row.drop}`, row.dragging && "dragging"].filter(Boolean).join(" ");
     const endRename = () => {
       if (renaming.peek()?.key === row.key) renaming.value = null;
     };
@@ -281,7 +278,7 @@ export function TreeView(props: TreeViewProps) {
   };
 
   return (
-    <ul class={`tree-view ${props.class ?? "tree"}${props.striped ? " striped" : ""}`} role="tree" aria-label={props.label} aria-multiselectable={props.multiselectable || undefined} onKeyDown={onKeyDown}>
+    <ul class={`tree-view ${props.class ?? "tree"}`} role="tree" aria-label={props.label} aria-multiselectable={props.multiselectable || undefined} onKeyDown={onKeyDown}>
       {rows.map((r) => renderRow(r, 0))}
     </ul>
   );

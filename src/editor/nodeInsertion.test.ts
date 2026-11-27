@@ -71,8 +71,8 @@ describe("new nodes of a kind (ADR 0022, 0146)", () => {
     expect(doc.parentOf(sprite!)).toBe("bird");
     expect(name(sprite!)).toBe("Sprite (1)"); // Bird already has a child called Sprite
     expect(doc.fieldValue(sprite!, "engine.Transform", "position")).toEqual([0, 0, 0]); // under a parent: at its origin
-    const [text] = insert({ kind: "new", node: "text" }, { kind: "into", key: null, index: 0 });
-    expect(doc.roots()[0]).toBe(text);
+    const [cube] = insert({ kind: "new", node: "cube" }, { kind: "into", key: null, index: 0 });
+    expect(doc.roots()[0]).toBe(cube);
     const [empty] = insert({ kind: "new", node: "empty", position: [1, 2, 0] }, TOP);
     expect(doc.fieldValue(empty!, "engine.Transform", "position")).toEqual([1, 2, 0]);
   });

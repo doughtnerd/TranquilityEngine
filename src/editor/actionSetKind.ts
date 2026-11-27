@@ -1,4 +1,4 @@
-// Action set assets as a core asset kind (ADR 0417, 0233): `*.actions.json` files, made with the Assets panel's
+// Action set assets as a core asset kind (ADR 0433, 0233): `*.actions.json` files, made with the Assets panel's
 // New Action Set and edited in the Input dialog (opening one opens the dialog on it). New Action Set writes a set
 // with one button action under a free id (`game.New`, `game.New2`…), lists the file in project.json's
 // `input.actionSets` so the boot defines it, and opens the dialog with the set's name selected for typing. Deleting

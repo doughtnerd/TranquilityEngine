@@ -5,10 +5,7 @@
 // one labelled undo step each. Double-click a state machine to open its canvas.
 import { useMemo, useRef, useState } from "preact/hooks";
 import type { AnimGraph, GraphFamily, GraphNode } from "../../../../engine/animation/animGraph";
-import {
-  Minimap, NO_PAN, NodeSearchPopup, SelectionBox, WireRefusal, handleProps, isFieldTarget, px, startBoxSelect, toGraph, useGraphCanvas, useGraphSearch, useGraphWiring, useNodeDrag, wirePath,
-  type CanvasNode, type EditResult, type GraphDragHooks, type GraphWiringEdits, type Point, type SearchItem,
-} from "../../../../editor/sdk";
+import { Minimap, NO_PAN, NodeSearchPopup, SelectionBox, WireRefusal, handleProps, isFieldTarget, px, startBoxSelect, toGraph, useGraphCanvas, useGraphSearch, useGraphWiring, useNodeDrag, wirePath, type CanvasNode, type EditResult, type GraphDragHooks, type GraphWiringEdits, type Point, type SearchItem, EmptyState } from "../../../../editor/sdk";
 import {
   FAMILY_LABELS, OUT, addNode, catalogueEntries, connect, disconnect, inPin, inputPins, kindLabel, moveNodes, nodeById, nodeTitle, pinIndex, removeNodes, whyNotConnect, type Added,
 } from "./graphEditLogic";
@@ -254,7 +251,7 @@ export function PoseCanvas(props: PoseCanvasProps) {
         })}
         <WireRefusal draft={wiring.draft} hint={wiring.hint} />
       </div>
-      {shown.length === 0 && <p class="ag-canvas-empty">Right-click or press Space to add a node.</p>}
+      {shown.length === 0 && <div class="ag-canvas-hint"><EmptyState compact title="Right-click or press Space to add a node." /></div>}
       {box && <SelectionBox box={box} />}
       <Minimap nodes={canvasNodes} view={canvas.view} size={canvas.paneSize} pane={canvas.paneApi} />
       {search.search && (

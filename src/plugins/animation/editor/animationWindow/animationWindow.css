@@ -4,7 +4,6 @@
 .aw-body { padding: 0; }
 .aw-root { display: flex; flex-direction: column; min-height: 100%; outline: none; color: var(--text); }
 .aw-root:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
-.aw-empty { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
 
 .aw-toolbar, .aw-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
 .aw-selbar { border-top: 1px solid var(--border); }

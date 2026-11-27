@@ -3,10 +3,14 @@
 // colours from `project.json`, the settings turning rows off, a live language change, and the settings' first-run
 // defaults and persistence under `settings/myco.subtitles`.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, Audio, Engine, GameObject, Locale, MemoryStorage, SceneManager, Storage, SubtitleDisplay, Subtitles, UICanvas, UIDocument, UIText } from "../../../myco";
+import { Assets, Audio, Engine, GameObject, Locale, MemoryStorage, SceneManager, Storage, SubtitleDisplay, Subtitles, UICanvas, UIText, UIView } from "../../../myco";
 import { parseLanguages } from "../../../engine/localisation/languages";
 import { setAudioBackend } from "../../audio/runtime/backend";
 import { endAudioSession, makeFakeBackend, type FakeVoice } from "../../audio/runtime/testing";
+// The built-in UI components, as the editor provides them (ADR 0423 wave B).
+import "../builtinUI";
+import * as MySubtitles from "./testComponents/MySubtitles.svelte";
+import { SUBTITLE_LOOK } from "./look";
 
 const fake = makeFakeBackend();
 let engine: Engine | null = null;
@@ -24,6 +28,7 @@ const FILES: Record<string, unknown> = {
   "audio/vo/ch1.fr.strings.json": { format: "myco.translation@1", language: "fr", strings: { intro_01: "On est en retard.", "speaker.ava": "Ava", "subtitles.speaker": "{name} :" } },
   "audio/vo/en/ch1/intro_01.wav": WAV,
   "audio/vo/en/ch1/guard_01.wav": WAV,
+  "ui/subs.svelte": MySubtitles,
 };
 
 const LANGUAGES = { list: [{ code: "en", name: "English" }, { code: "fr", name: "Français" }], reference: "en", default: "en", useSystemLanguage: false, remember: false };
@@ -44,18 +49,18 @@ async function boot(options: { storage?: MemoryStorage; subtitles?: Record<strin
   await SceneManager.load("s.json");
 }
 
-/** A node with a SubtitleDisplay, once its document is built. */
-async function display(init: { document?: string; stylesheet?: string; speakerNames?: SubtitleDisplay["speakerNames"] } = {}): Promise<{ display: SubtitleDisplay; doc: UIDocument }> {
+/** A node with a SubtitleDisplay, once its view is mounted. */
+async function display(init: { component?: string; speakerNames?: SubtitleDisplay["speakerNames"] } = {}): Promise<{ display: SubtitleDisplay; doc: UIView }> {
   const display = GameObject.create("HUD").addBehavior(SubtitleDisplay, init);
-  const doc = display.node.getComponentInChildren(UIDocument)!;
+  const doc = display.node.getComponentInChildren(UIView)!;
   await doc.ready;
   frame();
   return { display, doc };
 }
 
 const frame = (dt = 1 / 60) => engine!.step(dt);
-const lines = (doc: UIDocument) => doc.queryAll(".line").map((e) => e.as(UIText).text);
-const speakers = (doc: UIDocument) => doc.queryAll(".speaker").map((e) => e.as(UIText));
+const lines = (doc: UIView) => doc.queryAll(".line").map((e) => e.as(UIText).text);
+const speakers = (doc: UIView) => doc.queryAll(".speaker").map((e) => e.as(UIText));
 const lastVoice = () => fake.voices.at(-1) as FakeVoice;
 
 beforeEach(() => {
@@ -76,26 +81,29 @@ afterEach(() => {
 });
 
 describe("SubtitleDisplay", () => {
-  it("builds the built-in document under its own screen canvas (sortOrder 1000) without problems", async () => {
+  it("mounts the built-in component, on its own screen canvas (sortOrder 1000)", async () => {
     await boot();
     const { doc } = await display();
-    expect(doc.problems).toEqual([]);
-    const canvas = doc.node.getComponent(UICanvas)!;
+    expect(doc.component).toBe("asset:@myco/ui/Subtitles.svelte");
+    const canvas = doc.root!.as(UICanvas);
     expect(canvas.mode).toBe("screen");
     expect(canvas.sortOrder).toBe(1000);
     expect(doc.query("#subtitles")).not.toBeNull();
   });
 
-  it("themes through a stylesheet's variables, and takes a replacement document", async () => {
-    FILES["ui/theme.ui.css"] = ":root { --subtitle-color: #00ff00; }";
-    FILES["ui/subs.ui.xml"] = `<Panel id="mine"><Panel id="subtitles"><Template><Panel><Text class="speaker"/><Text class="line"/></Panel></Template></Panel></Panel>`;
+  it("draws the built-in look, themes through a game component's global variables, and takes a replacement component", async () => {
     await boot();
-    const themed = await display({ stylesheet: "asset:ui/theme.ui.css" });
-    expect(themed.doc.problems).toEqual([]);
+    const themed = await display();
     Audio.line("intro_01");
     frame();
-    expect(themed.doc.queryAll(".line")[0].as(UIText).color.g).toBe(1);
-    const own = await display({ document: "asset:ui/subs.ui.xml" });
+    const hex = (c: { r: number; g: number; b: number }) => `#${[c.r, c.g, c.b].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("")}`;
+    expect(hex(themed.doc.queryAll(".line")[0].as(UIText).color)).toBe(SUBTITLE_LOOK.color);
+    expect(hex(speakers(themed.doc)[0].color)).toBe("#ff0000"); // the speaker's own colour
+    // A component's global rules reach every view (ADR 0423), so a game's component can carry the theme.
+    await import("./testComponents/SubtitleTheme.svelte");
+    frame();
+    expect(hex(themed.doc.queryAll(".line")[0].as(UIText).color)).toBe("#00ff00");
+    const own = await display({ component: "asset:ui/subs.svelte" });
     expect(own.doc.query("#mine")).not.toBeNull();
     Audio.line("guard_01");
     frame();

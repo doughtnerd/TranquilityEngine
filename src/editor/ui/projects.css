@@ -1,15 +1,15 @@
 /* Projects (ADR 0038): the start screen's projects section and the New Project dialog. */
 
 .start-project-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
-.start-subhead { margin: 14px 0 6px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.start-subhead { margin: 14px 0 6px; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
 .recent-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .recent { flex-wrap: wrap; display: flex; align-items: center; gap: 8px; padding: 2px 4px 2px 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
 .recent-open { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 10px; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .recent-open:hover:not(:disabled) { background: var(--button-hover); }
 .recent-open:disabled { cursor: default; }
 .recent-name { font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.recent-path { color: var(--muted); font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-.recent-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.recent-path { color: var(--muted); font-size: var(--fs-sm); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.recent-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
 .recent-state { font-weight: 600; }
 .recent-state.missing { color: var(--danger); }
 .recent-state.needs-access { color: var(--warning); }
@@ -17,16 +17,16 @@
 .recent-remove { flex: none; width: 24px; height: 24px; padding: 0; line-height: 1; }
 
 .dialog.new-project { width: min(480px, calc(100vw - 32px)); }
-.new-project-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
-.new-project-field input[type="text"] { font-size: 13px; }
+.new-project-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; color: var(--muted); font-size: var(--fs-md); }
+.new-project-field input[type="text"] { font-size: var(--fs-lg); }
 .new-project-templates { border: 0; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.new-project-templates legend { padding: 0; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
+.new-project-templates legend { padding: 0; margin-bottom: 4px; color: var(--muted); font-size: var(--fs-md); }
 .new-project-templates label { display: flex; align-items: baseline; gap: 6px; }
 .new-project-template-name { font-weight: 600; color: var(--text); }
-.new-project-template-hint { color: var(--muted); font-size: 12px; }
+.new-project-template-hint { color: var(--muted); font-size: var(--fs-md); }
 .new-project-location { display: flex; align-items: center; gap: 8px; }
-.new-project-path { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dialog p.new-project-preview { min-height: 1.4em; font-size: 12px; overflow-wrap: anywhere; }
+.new-project-path { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dialog p.new-project-preview { min-height: 1.4em; font-size: var(--fs-md); overflow-wrap: anywhere; }
 .dialog p.new-project-preview.problem { color: var(--danger); }
 
 .recent-label-input { flex: 1 1 100%; margin: 0 8px 4px; padding: 3px 6px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; font: inherit; }

@@ -97,7 +97,7 @@ export interface MenuActions {
   newScene(): void;
   reloadScripts(): void;
   exportBuild(): void;
-  /** Open the Input dialog (ADR 0417): action sets and contexts. */
+  /** Open the Input dialog (ADR 0433): action sets and contexts. */
   openInput(): void;
   showPanel(panel: PanelId): void;
   /** Open the Add Panel dialog (ADR 0174). */
@@ -161,7 +161,7 @@ function fileMenu(s: MenuState, a: MenuActions): Menu {
     SEPARATOR,
     { label: "Build and Export…", disabled: s.project ? null : NO_PROJECT, run: a.exportBuild, title: "Make a playable web build or desktop app of the project (ADR 0041)" },
     { label: "Project Settings", disabled: s.project ? null : NO_PROJECT, run: () => a.showPanel("project"), title: "Show the Project panel: project.json's settings" },
-    { label: "Input…", disabled: s.project ? null : NO_PROJECT, run: a.openInput, title: "Edit the project's action sets and input contexts (ADR 0417)" },
+    { label: "Input…", disabled: s.project ? null : NO_PROJECT, run: a.openInput, title: "Edit the project's action sets and input contexts (ADR 0433)" },
     SEPARATOR,
     { label: "Close Project", disabled: s.project ? null : NO_PROJECT, run: a.closeProject, title: "Close the project and go back to the start screen" },
   );
