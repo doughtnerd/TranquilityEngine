@@ -9,11 +9,13 @@
  * - **Reads** are pure: `controlValue`, `selectLabel`, `selectLabels`, `chosenOptions`, the trees (`formOf`,
  *   `optionsOf`, `selectOf`, `radioGroup`, `labelledControl`). Measuring or drawing a control never changes it.
  * - **Writes**: a default written (`FormControlState.defaultWritten`: the current value follows only while nothing has
- *   changed it), a script's write (`writeControl`, `writeControlValue`, with `FormControlState.wrote` for its dirty
+ *   changed it; `defaultAttributeWritten` for a default content attribute the UI host writes), a script's write (`writeControl`, `writeControlValue`, with `FormControlState.wrote` for its dirty
  *   flag; the UI core's sync settles fields a script wrote straight to a select, `settleSelect`), a player's change (`playerTyped`, `dragSlider`, and the semantic inputs
  *   below, which send `input` then `change`) and a form's reset (`resetForm`).
  * - **Semantic inputs**: `stepSlider` (n steps), `pageSlider` (n pages), `sliderToEnd`, `stepNumberField`,
  *   `checkByPlayer`, `activateControl` (what a click, Space or Enter does) and the click record that carries it.
+ * - **HTML's stepping** (`stepValue`, on a `StepRule` from `htmlStepRule`): the DOM's `stepUp()`/`stepDown()` and a
+ *   number field's arrow keys, written once.
  *
  * - **Changes by the player** send `input` then `change` (bubbling, ADR 0426) on the control, make its polled `changed`
  *   true for the frame and set its dirty flag; a field's (a number field stepped by its arrow keys) is a field change
@@ -152,6 +154,16 @@ export function selectedness<T>(options: readonly T[], chosen: readonly T[], ena
   return first === undefined ? [] : [first];
 }
 
+/**
+ * What a select's written value chooses (the DOM's `value` setter, Svelte's `select_option`; the renderer's nodes use it
+ * too): the first option whose value is `value` (`all`: every one), none when none is.
+ */
+export function optionsWithValue<T, V>(options: readonly T[], valueOf: (o: T) => V, value: V, all = false): T[] {
+  const out: T[] = [];
+  for (const o of options) if (Object.is(valueOf(o), value) && (all || !out.length)) out.push(o);
+  return out;
+}
+
 /** Each select's value and options' choice as last settled, to tell which side a script changed since. */
 const selectStates = new WeakMap<UISelect, { value: string; chosen: readonly UIOption[] }>();
 
@@ -164,10 +176,8 @@ function selectChoice(select: UISelect): { options: UIOption[]; chosen: UIOption
   const options = optionsOf(select);
   const last = selectStates.get(select);
   let chosen: UIOption[];
-  if (last ? select.value !== last.value : select.value !== "") {
-    chosen = [];
-    for (const o of options) if (optionValue(o) === select.value && (select.multiple || !chosen.length)) chosen.push(o);
-  } else chosen = options.filter((o) => o.selected);
+  if (last ? select.value !== last.value : select.value !== "") chosen = optionsWithValue(options, optionValue, select.value, select.multiple);
+  else chosen = options.filter((o) => o.selected);
   if (!select.multiple) chosen = selectedness(options, chosen, (o) => o.interactable, chosen.filter((o) => !last?.chosen.includes(o)));
   return { options, chosen, value: chosen.length ? optionValue(chosen[0]) : "" };
 }
@@ -319,16 +329,82 @@ export function sliderToEnd(world: World, s: UISlider, end: "min" | "max"): void
   keySlider(world, s, (x) => x[end]);
 }
 
-/** The player steps a number field's value by `steps` of its `step`, within `min`/`max` (its arrow keys); a change is a field change. */
+/**
+ * What HTML's stepping works on (§4.10.5.4): the allowed value step (> 0), the minimum and maximum (null: none) and the
+ * step base (the `min` attribute, else the `value` attribute, the default value, else 0).
+ */
+export interface StepRule {
+  readonly step: number;
+  readonly min: number | null;
+  readonly max: number | null;
+  readonly base: number;
+}
+
+/** A number read as HTML reads one from an attribute (null when it isn't one). */
+function attrNumber(text: string | number | null | undefined): number | null {
+  if (typeof text === "number") return Number.isFinite(text) ? text : null;
+  if (text === null || text === undefined || text.trim() === "") return null;
+  const n = Number(text);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The step rule of a number field or slider from its attributes as written (`type` "number" or "range"): a range's
+ * minimum is 0 and its maximum 100 without them (its maximum never below its minimum), every step is 1 without one,
+ * and `step="any"` (or one that isn't positive and readable as `any`) has no allowed step: null, where the DOM's
+ * `stepUp()` throws. `value` is the default value (the `value` attribute), the step base when there's no `min`.
+ */
+export function htmlStepRule(type: "number" | "range", attrs: { min?: string | number | null; max?: string | number | null; step?: string | number | null; value?: string | number | null }): StepRule | null {
+  if (typeof attrs.step === "string" && attrs.step.trim().toLowerCase() === "any") return null;
+  const s = attrNumber(attrs.step);
+  const step = s !== null && s > 0 ? s : 1;
+  let min = attrNumber(attrs.min);
+  let max = attrNumber(attrs.max);
+  if (type === "range") {
+    min ??= 0;
+    max ??= 100;
+    if (max < min) max = min;
+  }
+  return { step, min, max, base: min ?? attrNumber(attrs.value) ?? 0 };
+}
+
+/**
+ * HTML's step-up and step-down algorithm (the DOM's `stepUp(n)`/`stepDown(n)`, and a number field's arrow keys), `n`
+ * steps (up when positive: `stepDown(n)` is `-n`, and `stepUp(-1)` steps down, as browsers do): an unreadable value
+ * counts as 0; a value off the steps moves only to the nearest step that way, else it moves `n` steps; then it's put in
+ * range, at the smallest (largest) step at or above the minimum (at or below the maximum). Returns the new value, or
+ * null when nothing changes: no step-aligned value in range, or the result moved the wrong way.
+ */
+export function stepValue(value: number, n: number, rule: StepRule): number | null {
+  const { step, min, max, base } = rule;
+  if (n === 0 || !Number.isFinite(n) || (min !== null && max !== null && min > max)) return null;
+  const direction = n > 0 ? "up" : "down";
+  const EPS = 1e-9;
+  const lowest = min !== null ? base + Math.ceil((min - base) / step - EPS) * step : null;
+  const highest = max !== null ? base + Math.floor((max - base) / step + EPS) * step : null;
+  if (lowest !== null && highest !== null && lowest > highest) return null;
+  const before = Number.isFinite(value) ? value : 0;
+  const k = (before - base) / step;
+  let v = Math.abs(k - Math.round(k)) > EPS ? base + (direction === "up" ? Math.ceil(k) : Math.floor(k)) * step : before + n * step;
+  if (lowest !== null && v < min!) v = lowest;
+  if (highest !== null && v > max!) v = highest;
+  if (direction === "up" ? v < before : v > before) return null;
+  // The decimals the step and base have (0.1 + 0.2 is 0.3 here).
+  const decimals = (x: number) => (String(x).split(".")[1] ?? "").length;
+  return Number(v.toFixed(Math.min(20, Math.max(decimals(step), decimals(base)))));
+}
+
+/**
+ * The player steps a number field by one of its steps (its arrow keys; `steps` > 0 up, < 0 down), by HTML's stepping
+ * (`stepValue`): its `step` (1 without one), its `min` and `max`, its step base its `min` or default value. A change is a
+ * field change.
+ */
 export function stepNumberField(world: World, field: UIInputField, steps: number): void {
-  const step = Number.isFinite(field.step) && field.step > 0 ? field.step : 1;
-  const now = Number(field.value);
-  // An empty (or unreadable) value steps from `min`, else 0, as browsers do.
-  const from = field.value.trim() !== "" && Number.isFinite(now) ? now : (field.min ?? 0);
-  let v = from + steps * step;
-  if (field.max !== null && Number.isFinite(field.max)) v = Math.min(v, field.max);
-  if (field.min !== null && Number.isFinite(field.min)) v = Math.max(v, field.min);
-  const text = String(Number(v.toFixed(10)));
+  const rule = htmlStepRule("number", { min: field.min, max: field.max, step: field.step, value: controlState(field)?.defaults.value ?? null })!;
+  const now = field.value.trim() === "" ? NaN : Number(field.value);
+  const next = stepValue(now, steps, rule);
+  if (next === null) return;
+  const text = String(next);
   if (text === field.value) return;
   field.value = text;
   playerChanged(world, field);
@@ -363,7 +439,7 @@ export class FormControlState {
    * (HTML's dirty flags; a value or checkedness that isn't its last default any more counts as changed). `keep` holds it
    * anyway (Svelte's `set_default_value` keeps a value its template gave).
    */
-  defaultWritten(field: FormField, value: string | boolean, current: unknown, keep = false): boolean {
+  defaultWritten(field: FormField, value: string | number | boolean, current: unknown, keep = false): boolean {
     const was = this.defaults[field];
     const follows = !keep && !this.dirty[field] && (field === "selected" || was === undefined || current === was);
     (this.defaults as Record<FormField, unknown>)[field] = value;
@@ -455,6 +531,22 @@ export function writeControl(c: UIComponentType, field: string, value: unknown):
   }
   (c as unknown as Record<string, unknown>)[field] = value;
   if (c instanceof UISelect && field === "value") settleSelect(c);
+}
+
+/**
+ * A control's default attribute was written (the UI host's content attribute: a field's or slider's `value`, a
+ * checkbox's or radio's `checked`, an option's `selected`; absent, `value` is the field's empty value). As in HTML, the
+ * attribute is the default, and the current value follows it only while the control isn't dirty
+ * (`FormControlState.defaultWritten`); following it is a write as the DOM property's (a radio checked unchecks its group,
+ * an option chosen in a single select unchooses the others: the select's `multiple`, written before its options are
+ * made, is already on it). A field's value is written as given (its `min`, `max` and `step` may not be styled on yet).
+ */
+export function defaultAttributeWritten(c: UIComponentType, field: FormField, value: string | number | boolean): void {
+  const s = controlState(c);
+  const target = c as unknown as Record<string, unknown>;
+  if (s && !s.defaultWritten(field, value, target[field])) return;
+  if (field === "value") target.value = value;
+  else writeControl(c, field, value);
 }
 
 // --- Labels ----------------------------------------------------------------------------------------

@@ -18,7 +18,7 @@
  */
 import { Locale } from "../localisation/Locale";
 import { UIAudio, UIButton, UICanvas, UIForm, UIImage, UIInputField, UILabel, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UISvg, UIText, UITextArea, UIToggle, UIVideo, isFocusableUI, type UIComponentType, type UIOverflow, type UITextAlign, type UIVerticalAlign, type UIWhiteSpaceCollapse, type UIWordBreak } from "./components";
-import { selectLabel } from "./formModel";
+import { selectLabel, type FormField } from "./formModel";
 import { uiInteractions } from "./interactions";
 import type { UIPseudo, UIPseudoElement, UIPseudoState, UITag } from "./document/types";
 import { fontFamilyOf } from "./fonts";
@@ -56,8 +56,12 @@ interface KindSpec<C extends UIComponentType = UIComponentType> {
   readonly generates?: boolean;
   /** The part pseudo-elements that style its own look (ADR 0432; default: none). */
   readonly parts?: readonly UIPseudoElement[];
-  /** Has HTML defaults (`defaultValue`, `defaultChecked`, an option's `selected`) that its form's reset puts back (ADR 0428). */
-  readonly defaults?: boolean;
+  /**
+   * Its content attribute that is HTML's default (ADR 0428, 0436): a field's or slider's `value` (`defaultValue`), a
+   * checkbox's or radio's `checked` (`defaultChecked`), an option's `selected` (`defaultSelected`). Its form's reset puts
+   * it back; the current value follows it only while the control isn't dirty (the form-control model's rule).
+   */
+  readonly defaultAttribute?: FormField;
 }
 
 const visible = (c: { a: number } | null | undefined): boolean => !!c && c.a > 0;
@@ -75,7 +79,7 @@ const always = () => true;
 /** The kinds, subclasses before the classes they extend (the first whose type matches wins). */
 const fieldPseudo = (c: UIInputField) => ({ focus: c.focused, disabled: !c.interactable, "placeholder-shown": c.placeholder !== "" && c.value === "" });
 /** ADR 0428: a form control's own look (a checkbox's mark, a slider's thumb, a bar's fill) is always drawn. */
-type ControlFacts = Pick<KindSpec, "content" | "parts" | "defaults"> & { readonly leaf?: boolean; readonly interactive?: boolean };
+type ControlFacts = Pick<KindSpec, "content" | "parts" | "defaultAttribute"> & { readonly leaf?: boolean; readonly interactive?: boolean };
 const control = <C extends UIComponentType>(kind: UIKind, type: abstract new () => C, tag: UITag, pseudo: (c: C) => Partial<Record<UIPseudo, boolean>>, facts: ControlFacts = {}): KindSpec =>
   ({ leaf: true, interactive: true, ...facts, kind, type, tag, flexShrink: 0, pseudo, paints: always, graphic: always }) as KindSpec<C> as KindSpec;
 
@@ -83,7 +87,7 @@ const KINDS: readonly KindSpec[] = [
   { kind: "canvas", type: UICanvas, tag: "Canvas", leaf: false, interactive: false, flexShrink: 0, paints: () => false, graphic: () => false },
   // ADR 0428: an option is a button in its select's list; it's checked while chosen.
   {
-    kind: "option", type: UIOption, tag: "Option", leaf: false, interactive: true, flexShrink: 0, content: ["selected"], defaults: true,
+    kind: "option", type: UIOption, tag: "Option", leaf: false, interactive: true, flexShrink: 0, content: ["selected"], defaultAttribute: "selected",
     pseudo: (c: UIOption) => ({ hover: c.hovered, pressed: c.pressed, focus: c.focused, disabled: !c.interactable, checked: c.selected }),
     paints: panelPaints,
     graphic: always,
@@ -95,23 +99,25 @@ const KINDS: readonly KindSpec[] = [
     graphic: always,
   } as KindSpec<UIButton> as KindSpec,
   {
-    kind: "textarea", type: UITextArea, tag: "TextArea", leaf: true, interactive: true, flexShrink: 0, content: ["value", "placeholder"], defaults: true,
+    kind: "textarea", type: UITextArea, tag: "TextArea", leaf: true, interactive: true, flexShrink: 0, content: ["value", "placeholder"], defaultAttribute: "value",
     pseudo: fieldPseudo,
     paints: (c: UITextArea) => panelPaints(c) || textRunOf(c)!.text !== "",
     graphic: always,
   } as KindSpec<UITextArea> as KindSpec,
   {
-    kind: "input", type: UIInputField, tag: "InputField", leaf: true, interactive: true, flexShrink: 0, content: ["value", "placeholder"], defaults: true,
+    kind: "input", type: UIInputField, tag: "InputField", leaf: true, interactive: true, flexShrink: 0, content: ["value", "placeholder"], defaultAttribute: "value",
     pseudo: fieldPseudo,
     paints: (c: UIInputField) => panelPaints(c) || textRunOf(c)!.text !== "",
     graphic: always,
   } as KindSpec<UIInputField> as KindSpec,
   // ADR 0428: form elements. A select isn't a leaf: its options are its children (laid out in its list, not in it).
-  // Content attributes are what the player changes, written only when the attribute does (so a toggle or a drag stays until then).
-  control("toggle", UIToggle, "Toggle", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked, indeterminate: c.indeterminate }), { content: ["checked", "indeterminate"], parts: ["checkmark"], defaults: true }),
-  control("radio", UIRadio, "Radio", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked }), { content: ["checked"], parts: ["checkmark"], defaults: true }),
-  control("slider", UISlider, "Slider", (c) => ({ focus: c.focused, disabled: !c.interactable }), { content: ["value"], parts: ["-webkit-slider-thumb", "-webkit-slider-runnable-track"], defaults: true }),
-  control("select", UISelect, "Select", (c) => ({ focus: c.focused, disabled: !c.interactable }), { leaf: false, content: ["value"], parts: ["picker-icon"] }),
+  // Content attributes are written when the attribute changes, in this order, as the element is made (ADR 0436): a
+  // select's `multiple` and a radio's `name` are on it before its options exist or its `checked` applies, as HTML's
+  // attributes are before the parser inserts children. A default attribute goes through the form-control model.
+  control("toggle", UIToggle, "Toggle", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked, indeterminate: c.indeterminate }), { content: ["checked", "indeterminate"], parts: ["checkmark"], defaultAttribute: "checked" }),
+  control("radio", UIRadio, "Radio", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked }), { content: ["name", "checked"], parts: ["checkmark"], defaultAttribute: "checked" }),
+  control("slider", UISlider, "Slider", (c) => ({ focus: c.focused, disabled: !c.interactable }), { content: ["value"], parts: ["-webkit-slider-thumb", "-webkit-slider-runnable-track"], defaultAttribute: "value" }),
+  control("select", UISelect, "Select", (c) => ({ focus: c.focused, disabled: !c.interactable }), { leaf: false, content: ["multiple", "value"], parts: ["picker-icon"] }),
   control("progress", UIProgress, "Progress", (c) => ({ indeterminate: c.value === null || !Number.isFinite(c.value) }), { interactive: false, parts: ["-webkit-progress-bar", "-webkit-progress-value"] }),
   control("meter", UIMeter, "Meter", () => ({}), { interactive: false, parts: ["-webkit-meter-optimum-value", "-webkit-meter-suboptimum-value", "-webkit-meter-even-less-good-value"] }),
   // A label's whole box takes a click (which goes to its control); a form is a panel.
@@ -191,7 +197,12 @@ export function uiPartElements(tag: UITag): readonly UIPseudoElement[] {
 
 /** True for controls with HTML defaults that their form's reset puts back (ADR 0428). */
 export function hasFormDefaults(tag: UITag): boolean {
-  return tagSpec(tag).defaults ?? false;
+  return tagSpec(tag).defaultAttribute !== undefined;
+}
+
+/** A control's content attribute that is HTML's default (`value`, `checked` or `selected`, ADR 0436); null for other tags. */
+export function uiDefaultAttribute(tag: UITag): FormField | null {
+  return tagSpec(tag).defaultAttribute ?? null;
 }
 
 /** True for kinds that can't have children. */

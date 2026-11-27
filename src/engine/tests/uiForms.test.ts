@@ -248,7 +248,7 @@ describe("fields: number, password and text areas (ADR 0428)", () => {
     expect(p.core.elements().find((e) => e.comp === byId(doc, "pw", UIInputField))!.text!.text).toBe("•••••••");
   });
 
-  it("steps a typing number field with the arrow keys, within min and max", async () => {
+  it("steps a typing number field with the arrow keys by HTML's stepping, within min and max", async () => {
     stubDocument();
     const doc = buildUI(`<Canvas><input id="n" type="number" min="0" max="3" step="2" value="0"/></Canvas>`);
     const p = await pointer();
@@ -259,10 +259,18 @@ describe("fields: number, password and text areas (ADR 0428)", () => {
     p.dom.tap("arrowup");
     frame(p, 2);
     expect(n.value).toBe("2");
+    // ADR 0436: HTML's stepUp: past `max` it stops at the largest step-aligned value in range (2, not 3), so nothing changes.
     p.dom.tap("arrowup");
     frame(p, 2);
-    expect(n.value).toBe("3");
-    expect(log).toEqual(["input n", "input n"]); // each step is an `input`; a text-like field commits its `change` on Enter or blur
+    expect(n.value).toBe("2");
+    p.dom.tap("arrowdown");
+    frame(p, 2);
+    expect(n.value).toBe("0");
+    n.value = "1"; // off the steps: a step moves to the nearest step that way, not a whole step
+    p.dom.tap("arrowup");
+    frame(p, 2);
+    expect(n.value).toBe("2");
+    expect(log).toEqual(["input n", "input n", "input n"]); // each step is an `input`; a text-like field commits its `change` on Enter or blur
   });
 
   it("lays a text area out `rows` lines tall, wraps its lines and scrolls them with the wheel", async () => {
