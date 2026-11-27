@@ -142,7 +142,7 @@ test("a Tiled map imports as a tileset and a prefab through Import as Myco asset
   expect(errors).toEqual([]);
 });
 
-const tilemapCard = (page: import("./fixtures").Page) => page.locator(".inspector-body .component", { has: page.locator("h3", { hasText: /^Tilemap(?!\w)/ }) });
+const tilemapCard = (page: import("./fixtures").Page) => page.locator(".inspector-body"); // one Tilemap is selected
 
 test("switching the level to an isometric or hexagonal grid redraws it, and shows only that grid's fields", async ({ page }) => {
   await openEditor(page, { files: platformerFiles() });
@@ -157,8 +157,8 @@ test("switching the level to an isometric or hexagonal grid redraws it, and show
   await card.getByRole("combobox", { name: "gridShape" }).selectOption("isometric");
   await expect.poll(async () => {
     const r = await rect();
-    return r ? Math.round((r.width / r.height) * 100) : null;
-  }).not.toBe(Math.round((square.width / square.height) * 100));
+    return r ? Math.round(((r.right - r.left) / (r.bottom - r.top)) * 100) : null;
+  }).not.toBe(Math.round(((square.right - square.left) / (square.bottom - square.top)) * 100));
   await expect(card.getByRole("combobox", { name: "staggerAxis" })).toHaveCount(0);
 
   await card.getByRole("combobox", { name: "gridShape" }).selectOption("hexagonal");
