@@ -67,8 +67,8 @@ import { Color, Vector2 } from "../../../engine/core/math";
 import { onLocaleEpoch } from "../../../engine/localisation/Locale";
 import { setLocaleTracker } from "../../../engine/localisation/t";
 import { SVG_CONTENT_TAGS, uiTagOfHtml, uiTagOfInput } from "../../../engine/ui/host/htmlTags";
-import { UIAudio, UIForm, UIOption, UIRadio, UISvg, UIText, UIVideo } from "../../../engine/ui/components";
-import { checkRadio, chooseOption, selectOf, setUIDefaults } from "../../../engine/ui/formControls";
+import { UIAudio, UIForm, UISvg, UIText, UIVideo } from "../../../engine/ui/components";
+import { FormControlState, adoptControlState, selectedness, writeControl } from "../../../engine/ui/formModel";
 import { hasFormDefaults, isChildlessTag, isFocusableTag } from "../../../engine/ui/elementKinds";
 import { applyAffine, invert, multiply } from "../../../engine/ui/transform2d";
 import { distanceToOutline, flattenPath, insideFill, parseSvgTransform, pathLength, pointAtLength, shapePath, SVG_GEOMETRY_TAGS, viewBoxMap } from "../../../engine/ui/svg/svgGeometry";
@@ -377,14 +377,14 @@ export class UIRenderElement extends UINodeBase {
   /** @internal An input's value set before its element was made (a binding, a script). */ _pendingValue: string | null = null;
   /** @internal ADR 0428: `checked`, `indeterminate` and `selected` set before its element was made. */ _pendingState: Partial<Record<"checked" | "indeterminate" | "selected", boolean>> = {};
   /**
-   * @internal HTML's defaults, what a form reset puts back: a field's `defaultValue` (its template `value` or
-   * `defaultValue`), a checkbox's `defaultChecked`. An option's is its `selected` attribute.
-   */ _defaults: { value?: string; checked?: boolean } = {};
+   * @internal ADR 0436: its form-control state (the engine's form-control model): HTML's defaults, what a form reset puts
+   * back (a field's `defaultValue`, its template `value` or `defaultValue`; a checkbox's `defaultChecked`; an option's
+   * `selected` attribute), and HTML's dirty flags. Kept here before its UI element is made, then handed to it.
+   */ readonly _form = new FormControlState();
   /**
    * @internal The template gave it a `value` or `checked` attribute: Svelte then sets `defaultValue`/`defaultChecked`
    * with `set_default_value`/`set_default_checked`, which keep the current value (it compiles them so, the DOM can't tell).
    */ _templateDefault = { value: false, checked: false };
-  /** @internal HTML's dirty flags: the value or checked state was set (by a script, a binding or the player), so a new default leaves it. */ _dirty = { value: false, checked: false, selected: false };
   /** @internal A select's `defaultValue` (Svelte's, not the DOM's): the options a reset restores, chosen at first unless a value is bound. */ _selectDefault: { value: unknown } | null = null;
   /** @internal A select's bound value (`bind:value`), which options added later are chosen by; absent: none bound. */ _bound: { value: unknown } | null = null;
   /** @internal ADR 0430: inside an <svg>, the CSS a Svelte transition is writing now (`draw`'s stroke dashes), by kebab-case property. */ _svgAnim: Readonly<Record<string, string>> | null = null;
@@ -993,7 +993,7 @@ export class UIRenderElement extends UINodeBase {
   }
 
   set value(value: string) {
-    this._dirty.value = true;
+    this._form.wrote("value");
     this._writeValue(value);
   }
 
@@ -1060,13 +1060,14 @@ export class UIRenderElement extends UINodeBase {
   }
 
   set checked(on: boolean) {
-    this._dirty.checked = true;
+    this._form.wrote("checked");
     this.setState("checked", !!on);
   }
 
   /** HTML's `defaultValue`: a field's value its form's reset puts back (its template `value`); setting it moves the value while nobody has changed it. */
   get defaultValue(): string {
-    return this._defaults.value ?? (this._parent ? "" : String(this.getAttribute("value") ?? ""));
+    const d = this._form.defaults.value;
+    return d !== undefined ? String(d) : this._parent ? "" : String(this.getAttribute("value") ?? "");
   }
 
   set defaultValue(value: string) {
@@ -1075,7 +1076,7 @@ export class UIRenderElement extends UINodeBase {
 
   /** HTML's `defaultChecked`: a checkbox's or radio's checked state its form's reset puts back. */
   get defaultChecked(): boolean {
-    return this._defaults.checked ?? false;
+    return this._form.defaults.checked ?? false;
   }
 
   set defaultChecked(on: boolean) {
@@ -1107,7 +1108,7 @@ export class UIRenderElement extends UINodeBase {
   }
 
   set selected(on: boolean) {
-    this._dirty.selected = true;
+    this._form.wrote("selected");
     this.setState("selected", !!on);
   }
 
@@ -1182,12 +1183,8 @@ export class UIRenderElement extends UINodeBase {
       this._pendingState[name] = on;
       return;
     }
-    if (name === "checked" && c instanceof UIRadio && on) checkRadio(c);
-    else if (name === "selected" && c instanceof UIOption && on) {
-      const select = selectOf(c);
-      if (select && !select.multiple) chooseOption(select, c);
-      else c.selected = true;
-    } else if (name in c) (c as unknown as Record<string, boolean>)[name] = on;
+    // ADR 0436: as the DOM's property (a radio checked unchecks its group, an option chosen unchooses the others).
+    if (name in c) writeControl(c, name, on);
   }
 }
 
@@ -1776,7 +1773,7 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   const pending = node._pendingState;
   node._pendingState = {};
   for (const k of ["checked", "indeterminate", "selected"] as const) if (pending[k] !== undefined) node._writeState(k, pending[k]!);
-  if (hasFormDefaults(node._uiTag)) pushDefaults(node);
+  if (hasFormDefaults(node._uiTag)) handOverState(node);
   return made;
 }
 
@@ -1970,15 +1967,15 @@ function listen(node: UIRenderElement, type: string, fn: () => void, onFormReset
 const DEFAULT_KEYS: Readonly<Record<string, "defaultValue" | "defaultChecked" | "defaultSelected" | undefined>> = { defaultvalue: "defaultValue", defaultchecked: "defaultChecked", defaultselected: "defaultSelected" };
 
 /**
- * A control's defaults, handed to its UI element (`setUIDefaults`) for its form's reset: a field without a default
- * value resets to "", a checkbox without one unchecked, an option without `selected` unchosen (HTML's). A slider without
- * one keeps the UI core's (its value as built: HTML's default is the middle of its range).
+ * A control's form-control state, handed to its UI element as it's made (ADR 0436), so its form's reset and the player's
+ * changes use the defaults and dirty flags kept here: a field without a default value resets to "", a checkbox without
+ * one unchecked, an option without `selected` unchosen (HTML's); a slider without one to its value as built.
  */
-function pushDefaults(el: UIRenderElement): void {
+function handOverState(el: UIRenderElement): void {
   const c = el._hosted?.component;
   if (!c) return;
-  if (el._uiTag === "Option") setUIDefaults(c, { selected: el.hasAttribute("selected") });
-  else setUIDefaults(c, { value: el._defaults.value ?? (el._uiTag === "Slider" ? undefined : ""), checked: el._defaults.checked ?? false });
+  if (el._uiTag === "Option") el._form.defaults.selected = el.hasAttribute("selected");
+  adoptControlState(c, el._form);
 }
 
 /**
@@ -1991,38 +1988,26 @@ function setDefault(el: UIRenderElement, key: "defaultValue" | "defaultChecked" 
   if (key === "defaultValue" && el._uiTag === "Select") return selectDefault(el, value);
   if (key === "defaultValue") {
     const text = value === null || value === undefined ? "" : String(value);
-    // A field the player typed in is dirty too (its value isn't its last default any more).
+    // A text area's content holds its value as a template default does.
     const textAreaContent = el._uiTag === "TextArea" && el._children.some((c) => c instanceof UIRenderText && c.data !== "");
-    const changed = el._templateDefault.value || textAreaContent || el._dirty.value || (el._defaults.value !== undefined && el.value !== el._defaults.value);
-    el._defaults.value = text;
-    if (!changed) el._writeValue(text);
+    if (el._form.defaultWritten("value", text, el.value, el._templateDefault.value || textAreaContent)) el._writeValue(text);
   } else {
     const on = value === "" || (!!value && value !== "false");
-    const changed = el._templateDefault.checked || el._dirty.checked || (el._defaults.checked !== undefined && el.checked !== el._defaults.checked);
-    el._defaults.checked = on;
-    if (!changed) el._writeState("checked", on);
+    if (el._form.defaultWritten("checked", on, el.checked, el._templateDefault.checked)) el._writeState("checked", on);
   }
-  pushDefaults(el);
 }
 
 /** A text area's text content is its default value (HTML's), and its value while nothing has changed it. */
 function textAreaContentChanged(el: UIRenderElement): void {
   const text = el._children.map((c) => (c instanceof UIRenderText ? c.data : "")).join("");
-  const changed = el._dirty.value || (el._defaults.value !== undefined && el.value !== el._defaults.value);
-  el._defaults.value = text;
-  if (!changed) el._writeValue(text);
-  pushDefaults(el);
+  if (el._form.defaultWritten("value", text, el.value)) el._writeValue(text);
 }
 
 /** An option's `selected` attribute came or went: its default, and its state while nothing has chosen it (HTML's). */
 function optionDefaultChanged(option: UIRenderElement): void {
   const on = option.hasAttribute("selected");
-  if (!option._dirty.selected && option.selected !== on) {
-    if (on) option._writeState("selected", true);
-    else if (option.selected) option._writeState("selected", false);
-  }
+  if (option._form.defaultWritten("selected", on, option.selected) && option.selected !== on) option._writeState("selected", on);
   askForReset(selectAround(option));
-  pushDefaults(option);
 }
 
 /** The select an option (or optgroup) is in, or null. */
@@ -2068,15 +2053,15 @@ function applySelectDefault(select: UIRenderElement, preserve: boolean): void {
 }
 
 /**
- * HTML's selectedness setting algorithm, run when a single select's options come or go or an option's `selected`
- * attribute changes: none chosen chooses the first that isn't disabled, several keep the last.
+ * HTML's selectedness setting algorithm (the form-control model's `selectedness`), run on a single select's nodes when
+ * its options come or go or an option's `selected` attribute changes: none chosen chooses the first that isn't
+ * disabled, several keep the last. On the nodes, so it holds before their UI elements are made.
  */
 function askForReset(select: UIRenderElement | null): void {
   if (!select || select.hasAttribute("multiple")) return;
   const options = select.options;
-  const chosen = options.filter((o) => o.selected);
-  if (chosen.length > 1) for (const o of chosen.slice(0, -1)) o._writeState("selected", false);
-  else if (chosen.length === 0) options.find((o) => !o.hasAttribute("disabled"))?._writeState("selected", true);
+  const keep = selectedness(options, options.filter((o) => o.selected), (o) => !o.hasAttribute("disabled"));
+  for (const o of options) if (o.selected !== keep.includes(o)) o._writeState("selected", keep.includes(o));
 }
 
 /**
@@ -2319,19 +2304,19 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     // attribute is; written later (`value={x}`, Svelte's `set_value`), it's the current value, as the DOM property is.
     if (key === "value" && (el._uiTag === "InputField" || el._uiTag === "TextArea" || el._uiTag === "Slider")) {
       if (!el._parent) {
-        el._defaults.value ??= String(value);
+        el._form.defaults.value ??= String(value);
         el._templateDefault.value = true;
       } else {
-        el._dirty.value = true;
+        el._form.wrote("value");
         if (!el._hosted) el._pendingValue = null; // the attribute is the value now, over one a default wrote
       }
     }
     if (key === "checked" && (el._uiTag === "Toggle" || el._uiTag === "Radio")) {
       if (!el._parent) {
-        el._defaults.checked ??= true;
+        el._form.defaults.checked ??= true;
         el._templateDefault.checked = true;
       } else {
-        el._dirty.checked = true;
+        el._form.wrote("checked");
         if (!el._hosted) delete el._pendingState.checked;
       }
     }
@@ -2351,7 +2336,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     if (name === "muted" && el._parent && isMediaNode(el)) setMediaField(el, "muted", false);
     if (name === "checked" && el._parent && (el._uiTag === "Toggle" || el._uiTag === "Radio")) {
       // Svelte's `checked={false}`: the current state, as the DOM property (whether or not the attribute was there).
-      el._dirty.checked = true;
+      el._form.wrote("checked");
       if (el._hosted) el._writeState("checked", false);
       else el._pendingState.checked = false;
     }

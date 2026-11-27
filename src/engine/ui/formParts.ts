@@ -10,7 +10,7 @@
 import type { Color } from "../core/math";
 import type { UIPseudoElement } from "./document/types";
 import { UI_DEFAULT_ACCENT, UIMeter, UIOption, UIProgress, UIRadio, UISelect, UISlider, UIToggle, type UIComponentType } from "./components";
-import { sliderFraction } from "./formControls";
+import { sliderFraction } from "./formModel";
 import type { UIPart } from "./uiCoreTypes";
 
 type RGBA = readonly [number, number, number, number];

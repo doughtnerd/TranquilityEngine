@@ -15,7 +15,7 @@ import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { devices, type InputClaim, type PointerFrame } from "../input/devices";
 import { UIButton, UICanvas, UIImage, UIInputField, UIOption, UISelect, UISlider, UIText, UITextArea, isFocusableUI, type UIComponentType, type UIFocusableElement } from "./components";
-import { uiClickRecord, controlChanged, formOf, optionsOf, rememberDefaults, selectLabels, setSelectOpen, sliderValue, stepNumberField, submitForm } from "./formControls";
+import { controlState, dragSlider, formOf, pageSlider, playerTyped, selectLabels, setSelectOpen, settleSelect, sliderToEnd, stepNumberField, submitForm, uiClickRecord } from "./formModel";
 import { formPartsOf, partsKey } from "./formParts";
 import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInlineAtom, isInteractiveKind, isLeafKind, isRaycastTarget, isUserScroller, overflowAxes, sameTextMeasure, sameTextRun, textRunOf, uiKindOf, userScrollsAxis, type UIInlineAtomSizes } from "./elementKinds";
 import { fontEpoch } from "./fonts";
@@ -543,6 +543,9 @@ export class UICore implements UICoreLike {
     }
     for (const c of [...this.entries.keys()]) if (!live.has(c) || byNode.get(c.owner.entity) !== c) this.release(c);
     for (const c of byNode.values()) this.ensure(c);
+    // ADR 0436: a select's fields a script wrote are settled (HTML's selectedness) before layout reads its label, so
+    // measuring it stays a pure read. The routing core only: a passive core never changes what it lays out.
+    if (!this.passive) for (const c of byNode.values()) if (c instanceof UISelect) settleSelect(c);
 
     // The tree: each canvas's descendants in node order; elements outside a canvas aren't laid out.
     const desired = new Map<Entry, Entry[]>();
@@ -684,12 +687,13 @@ export class UICore implements UICoreLike {
     } else if (run) {
       node.setMeasureFunc((w, wm) => this.measure(entry, wm === yoga.MEASURE_MODE_UNDEFINED ? Infinity : w));
     }
-    // ADR 0428: a select's options lay out in a list of their own; a control's state as built is what a form resets to.
+    // ADR 0428: a select's options lay out in a list of their own; a control's state as built is what a form resets to
+    // (ADR 0436: unless its front end handed the form-control model one).
     if (kind === "select") {
       entry.popup = yoga.Node.create(this.config ?? undefined);
       entry.popup.setFlexDirection(yoga.FLEX_DIRECTION_COLUMN);
     }
-    if (!this.passive) rememberDefaults(c);
+    if (!this.passive) controlState(c);
     this.entries.set(c, entry);
     return entry;
   }
@@ -1381,7 +1385,7 @@ export class UICore implements UICoreLike {
         el.value = v;
       }
       if (v === c.value) return;
-      c.value = v;
+      playerTyped(c, v);
       uiInteractions(c._world).record("change", c);
     };
     // Enter submits; Tab, Shift+Tab and Escape leave the field through navigation (ADR 0340), and their
@@ -1835,7 +1839,7 @@ export class UICore implements UICoreLike {
             const c = keyTarget.comp;
             if (focusedEntry && c instanceof UISlider && this.keySlider(world, c, k.key)) return;
             if (field?.typing && field.type === "number" && (k.key === "arrowup" || k.key === "arrowdown")) {
-              if (stepNumberField(field, k.key === "arrowup" ? 1 : -1)) controlChanged(world, field);
+              stepNumberField(world, field, k.key === "arrowup" ? 1 : -1);
               return;
             }
             if (k.key === "enter" && field?.typing && !(field instanceof UITextArea)) {
@@ -1977,24 +1981,16 @@ export class UICore implements UICoreLike {
     const thumb = e.box.height;
     const room = e.box.width - thumb;
     const f = room > 0 ? (lx - e.box.x - thumb / 2) / room : 0;
-    const v = sliderValue(s, s.min + Math.min(1, Math.max(0, f)) * (s.max - s.min));
-    if (v === s.value) return;
-    s.value = v;
+    if (!dragSlider(s, s.min + Math.min(1, Math.max(0, f)) * (s.max - s.min))) return;
     if (records) records.push(uiEventRecord("input", s));
     else fireUIEvent(world, uiEventRecord("input", s));
   }
 
-  /** ADR 0428: a key's default action on a focused slider (Page Up/Down a tenth of its range, Home/End its ends). Returns whether it was one. */
+  /** ADR 0428, 0436: a key's default action on a focused slider (Page Up/Down a page, Home/End its ends), as the form-control model's inputs. Returns whether it was one. */
   private keySlider(world: World, s: UISlider, key: string): boolean {
-    if (key !== "pageup" && key !== "pagedown" && key !== "home" && key !== "end") return false;
-    if (!s.interactable) return true;
-    const tenth = (s.max - s.min) / 10;
-    const to = key === "home" ? s.min : key === "end" ? s.max : s.value + (key === "pageup" ? tenth : -tenth);
-    const v = sliderValue(s, to);
-    if (v !== s.value) {
-      s.value = v;
-      controlChanged(world, s);
-    }
+    if (key === "pageup" || key === "pagedown") pageSlider(world, s, key === "pageup" ? 1 : -1);
+    else if (key === "home" || key === "end") sliderToEnd(world, s, key === "home" ? "min" : "max");
+    else return false;
     return true;
   }
 
