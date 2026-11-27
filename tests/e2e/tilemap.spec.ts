@@ -142,7 +142,7 @@ test("a Tiled map imports as a tileset and a prefab through Import as Myco asset
   expect(errors).toEqual([]);
 });
 
-const tilemapCard = (page: import("./fixtures").Page) => page.locator(".inspector-body .component", { has: page.locator("h3", { hasText: /^Tilemap$/ }) });
+const tilemapCard = (page: import("./fixtures").Page) => page.locator(".inspector-body .component", { has: page.locator("h3", { hasText: /^Tilemap(?!\w)/ }) });
 
 test("switching the level to an isometric or hexagonal grid redraws it, and shows only that grid's fields", async ({ page }) => {
   await openEditor(page, { files: platformerFiles() });
@@ -170,23 +170,29 @@ test("switching the level to an isometric or hexagonal grid redraws it, and show
 
 test("animated tiles play in Play mode, and stop with an animation speed of 0", async ({ page }) => {
   test.setTimeout(120_000);
-  const { captureView, pixelsChanged } = await import("./viewCapture");
-  const view = () => page.locator("#game-view canvas").first();
+  const { captureArea, pixelsChanged } = await import("./viewCapture");
+  // Play draws the game camera in the scene view, which follows the player: watch the whole view.
+  const view = async () => (await page.locator(".viewport canvas").boundingBox())!;
   /** Pixels that change over a second of play (the coins' frames are 0.1–0.3 s long). */
   async function change(): Promise<number> {
     await page.waitForTimeout(1500); // the player settles on the ground
     let most = 0;
-    let last = await captureView(view());
+    let last = await captureArea(page, await view());
     for (let i = 0; i < 6; i++) {
       await page.waitForTimeout(170);
-      const next = await captureView(view());
+      const next = await captureArea(page, await view());
       most = Math.max(most, pixelsChanged(last, next));
       last = next;
     }
     return most;
   }
 
-  await openEditor(page, { files: platformerFiles() });
+  // The ground tiles around the player alternate with the coin's sprite, so the animation is on screen.
+  const files = platformerFiles();
+  const tileset = JSON.parse(files["tiles/platformer.tileset.json"] as string) as { tiles: { id: number; sprite: string; animation?: unknown }[] };
+  for (const t of tileset.tiles) if (t.id <= 16) t.animation = { frames: [{ sprite: t.sprite, duration: 0.2 }, { sprite: "asset:images/tiles.png#coin", duration: 0.2 }] };
+  files["tiles/platformer.tileset.json"] = JSON.stringify(tileset);
+  await openEditor(page, { files });
   await play(page);
   expect(await change()).toBeGreaterThan(20);
   await page.getByRole("button", { name: /Stop/ }).click();
