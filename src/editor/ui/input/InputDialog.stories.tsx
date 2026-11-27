@@ -73,8 +73,9 @@ export const ChangeTypeConvertsMappings: Story = {
     await waitFor(async () => expect((await fileJson<ActionSetFile>(SET)).actions[1]).toEqual({ name: "steer", type: "vec2" }));
     // The vehicle's Axis became a D-pad, in the same step, and a toast says so.
     await waitFor(async () => expect((await fileJson<InputContextSpec>(VEHICLE)).mappings[0]).toEqual({ action: "steer", composite: "dpad", up: "", down: "", left: "<Keyboard>/a", right: "<Keyboard>/d" }));
-    expect(await c.findByText(/Axis to D-pad/)).toBeVisible();
-    await userEvent.click(dialog.getByRole("button", { name: "Undo" }));
+    const converted = await c.findByText(/Axis to D-pad/);
+    await waitFor(() => expect(converted).toBeVisible()); // the toast fades in
+    await userEvent.click(await toastUndo(c, /Axis to D-pad/));
     await waitFor(async () => expect((await fileJson<InputContextSpec>(VEHICLE)).mappings[0].composite).toBe("axis"));
     expect((await fileJson<ActionSetFile>(SET)).actions[1].type).toBe("axis");
   },
@@ -93,7 +94,8 @@ export const PickerCreatesAction: Story = {
     // The action's type comes from the mapping (Axis: an axis); the mapping names it.
     await waitFor(async () => expect((await fileJson<ActionSetFile>(SET)).actions.at(-1)).toEqual({ name: "horn", type: "axis" }));
     await waitFor(async () => expect((await fileJson<InputContextSpec>(VEHICLE)).mappings[0].action).toBe("horn"));
-    expect(await c.findByText(/Added horn \(axis\)/)).toBeVisible();
+    const added = await c.findByText(/Added horn \(axis\)/);
+    await waitFor(() => expect(added).toBeVisible()); // the toast fades in
   },
 };
 
