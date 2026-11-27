@@ -266,6 +266,11 @@ export interface UILaidOutElement {
    */
   readonly filter?: readonly UIFilterStep[] | null;
   /**
+   * ADR 0428: its `backdrop-filter` (`filters.ts` steps, its own, lengths in canvas UI pixels through its transform): what's
+   * drawn behind it within its border box (and rounded corners), filtered, under its background. Null or absent: none.
+   */
+  readonly backdrop?: readonly UIFilterStep[] | null;
+  /**
    * ADR 0424: what a form element draws over its own box (a checkbox's fill and mark, a slider's track, fill and thumb,
    * a progress bar's fill, a select's arrow), in its box's frame; null for other elements and when there's nothing.
    */

@@ -41,7 +41,7 @@ import { setUIPartStyles, type UIPartStyle } from "../formParts";
 import { samePseudoState, uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
-import { filterStepsOf, filterText, type UIFilterFields } from "../filters";
+import { backdropFilterFields, filterStepsOf, filterText, type UIFilterFields } from "../filters";
 import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudo, UIPseudoElement, UIPseudoState, UIStylesheet, UITag } from "../document/types";
 import type { UIContentPiece } from "../document/contentValue";
 import type { UIAnimationSpec, UITransitionSpec } from "../document/animationValues";
@@ -547,6 +547,8 @@ export class UIHostElement {
       fontSize: px(num(c.fontSize, 16)),
       // ADR 0426: the filter fields as CSS (their fixed order); SVG stroke properties belong to SVG shapes, not elements.
       filter: filterText(filterStepsOf(c as Partial<UIFilterFields>)),
+      // ADR 0428: the backdrop fields as CSS, the same way.
+      backdropFilter: filterText(filterStepsOf(backdropFilterFields(c))),
       zoom: "1",
       strokeLinecap: "butt",
       strokeWidth: "1px",
@@ -581,7 +583,7 @@ export class UIHostElement {
         const raw = substituted === undefined ? undefined : P.withElementUnits(substituted, field, units);
         const values = substituted === undefined ? "uses a variable that isn't defined." : raw === undefined ? "uses a viewport length before the canvas size is known." : P.keyframeValues(field, raw, fields, file);
         if (typeof values === "string") {
-          const later = /^backdrop-filter$/.test(name) ? " backdrop-filter isn't supported (ADR 0426); the rest of the animation runs." : /^stroke|^fill/.test(name) ? " SVG paint applies to shapes inside an <svg> (ADR 0426); the rest of the animation runs." : "";
+          const later = /^stroke|^fill/.test(name) ? " SVG paint applies to shapes inside an <svg> (ADR 0426); the rest of the animation runs." : "";
           // Once per tag, property and reason (a transition's keyframes hold a new value each frame).
           const key = `${this.tag}|${name}|${values}`;
           if (!animateWarned.has(key)) {

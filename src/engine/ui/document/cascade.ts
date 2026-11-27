@@ -716,11 +716,22 @@ const TRANSFORM_SHORTHANDS: Readonly<Record<string, (value: string) => PaintExpa
 /** ADR 0426: `filter` sets every filter field (`filterValues.ts`). */
 const filterShorthand = (value: string): PaintExpansion => fieldsFrom(parseFilter(value));
 
+/** ADR 0428: a filter field's `backdrop-filter` counterpart (`filterBlur` → `backdropBlur`). */
+export const backdropField = (filterField: string): string => `backdrop${filterField.slice("filter".length)}`;
+/** ADR 0428: every field `backdrop-filter` sets. */
+export const BACKDROP_FIELDS: readonly string[] = FILTER_FIELDS.map(backdropField);
+/** ADR 0428: `backdrop-filter` takes `filter`'s functions into the backdrop fields. */
+const backdropShorthand = (value: string): PaintExpansion => {
+  const r = parseFilter(value);
+  return r.ok ? { ok: true, fields: Object.entries(r.value).map(([k, v]) => [backdropField(k), v] as const) } : r;
+};
+
 /** The expansion of a shorthand that sets typed values (paint, ADR 0418 wave 2; transforms, wave 3; filters, 0426), or undefined. */
 function typedShorthand(property: string): ((value: string) => PaintExpansion) | undefined {
   if (Object.prototype.hasOwnProperty.call(PAINT_SHORTHANDS, property)) return PAINT_SHORTHANDS[property];
   if (Object.prototype.hasOwnProperty.call(TRANSFORM_SHORTHANDS, property)) return TRANSFORM_SHORTHANDS[property];
   if (property === "filter") return filterShorthand;
+  if (property === "backdropFilter") return backdropShorthand;
   return undefined;
 }
 
@@ -1380,6 +1391,8 @@ function longhandsOf(property: string): readonly string[] | null {
       return ["borderRadius", ...CORNERS];
     case "filter":
       return FILTER_FIELDS;
+    case "backdropFilter":
+      return BACKDROP_FIELDS;
   }
   return null;
 }
