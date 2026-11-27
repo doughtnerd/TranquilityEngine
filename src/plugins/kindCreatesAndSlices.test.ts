@@ -22,6 +22,7 @@ describe("the New… menu's file entries (ADR 0149)", () => {
       ["rendertexture", "New Render Texture"],
       ["strings", "New String Table"], // ADR 0356: string tables are a core kind
       ["inputContext", "New Input Context"],
+      ["actionSet", "New Action Set"], // ADR 0417
     ]);
   });
 

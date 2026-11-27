@@ -3,7 +3,8 @@
 // modifiers and triggers with their parameters), the controls it offers grouped by device, and its problems, which are
 // the evaluator's own (`inputContextProblems` in the editor SDK), so the editor says what Play would log.
 import type { InputContextSpec, MappingSpec, ModifierSpec, TriggerSpec, TriggerType } from "../engine/input/contextTypes";
-import { inputControlPaths, type InputActionSetInfo } from "../engine/editor";
+import type { ActionKind } from "../engine/input/actions";
+import { inputControlInfo, inputControlPaths, type InputActionSetInfo } from "../engine/editor";
 import type { AssetFormat, AssetProblem } from "./sdk/contributions";
 
 // --- the format ----------------------------------------------------------------------------------
@@ -275,6 +276,167 @@ export function actionChoices(sets: readonly InputActionSetInfo[]): ActionChoice
 /** Whether any action set is the project's own, not the engine's (`engine.UIActions`, always defined). */
 export function hasProjectActionSets(sets: readonly InputActionSetInfo[]): boolean {
   return sets.some((s) => !s.id.startsWith("engine."));
+}
+
+// --- action references (ADR 0417) ---------------------------------------------------------------
+
+/** An action a mapping names, resolved: its set and name. */
+export interface ActionRef {
+  readonly set: string;
+  readonly name: string;
+}
+
+/**
+ * The action `ref` names (`"jump"`, or `"game.PlayerActions:jump"` when two sets have one): the first set, in
+ * definition order, with an action of that name, as the evaluator resolves a bare name. Null when none has it.
+ */
+export function resolveActionRef(ref: string, sets: readonly InputActionSetInfo[]): ActionRef | null {
+  const colon = ref.lastIndexOf(":");
+  if (colon > 0) {
+    const set = ref.slice(0, colon), name = ref.slice(colon + 1);
+    return sets.some((s) => s.id === set && s.actions.some((a) => a.name === name)) ? { set, name } : null;
+  }
+  const set = sets.find((s) => s.actions.some((a) => a.name === ref));
+  return set ? { set: set.id, name: ref } : null;
+}
+
+/** How a mapping names `set`'s `name`: bare when no other set has an action of that name. */
+export function actionRefFor(set: string, name: string, sets: readonly InputActionSetInfo[]): string {
+  const shared = sets.some((s) => s.id !== set && s.actions.some((a) => a.name === name));
+  return shared ? `${set}:${name}` : name;
+}
+
+/** Whether `ref` names `target` (bare or qualified). */
+export const refersTo = (ref: string, target: ActionRef, sets: readonly InputActionSetInfo[]): boolean => {
+  const r = resolveActionRef(ref, sets);
+  return !!r && r.set === target.set && r.name === target.name;
+};
+
+/** A mapping with the action `target` renamed to `to` wherever it names it (bare stays bare, qualified stays qualified). */
+export function renameMappingAction(m: MappingSpec, target: ActionRef, to: string, sets: readonly InputActionSetInfo[]): MappingSpec {
+  return mapMappingRefs(m, (ref) => (refersTo(ref, target, sets) ? (ref.includes(":") ? `${target.set}:${to}` : to) : ref));
+}
+
+/** A mapping with every action it names (its own, and its chord and combo triggers') passed through `rename`; the same object when none changed. */
+export function mapMappingRefs(m: MappingSpec, rename: (ref: string) => string): MappingSpec {
+  let changed = false;
+  const action = rename(m.action);
+  if (action !== m.action) changed = true;
+  const triggers = m.triggers?.map((t) => {
+    const r = t as Record<string, unknown>;
+    if (r.chord && typeof (r.chord as { action?: unknown }).action === "string") {
+      const a = rename((r.chord as { action: string }).action);
+      if (a === (r.chord as { action: string }).action) return t;
+      changed = true;
+      return { ...r, chord: { ...(r.chord as object), action: a } } as TriggerSpec;
+    }
+    if (r.combo && Array.isArray((r.combo as { steps?: unknown }).steps)) {
+      const stepsIn = (r.combo as { steps: { action: string; within?: number }[] }).steps;
+      const stepsOut = stepsIn.map((s) => (typeof s.action === "string" ? { ...s, action: rename(s.action) } : s));
+      if (stepsOut.every((s, i) => s.action === stepsIn[i].action)) return t;
+      changed = true;
+      return { ...r, combo: { ...(r.combo as object), steps: stepsOut } } as TriggerSpec;
+    }
+    return t;
+  });
+  if (!changed) return m;
+  return { ...m, action, ...(triggers ? { triggers } : {}) };
+}
+
+// --- controls and action types (ADR 0417) --------------------------------------------------------
+
+/** A mapping's control paths, in its composite's part order, without the empty ones. */
+export function mappingControls(m: MappingSpec): string[] {
+  return COMPOSITES[compositeOf(m)].parts.map((p) => partValue(m, p)).filter(Boolean);
+}
+
+/** The type an action made for a control should have: a stick or delta is a vec2, gyro a vec3, a stick's X an axis, anything else a button. */
+export function typeForControl(path: string): ActionKind {
+  const info = path ? inputControlInfo(path) : null;
+  if (!info) return "button";
+  if (info.dimensions === 3) return "vec3";
+  if (info.dimensions === 2) return "vec2";
+  return info.axis ? "axis" : "button";
+}
+
+/** The type an action mapped by `m` should have: a D-pad makes a vec2, Axis an axis, a chord a button, a single control its own. */
+export function typeForMapping(m: MappingSpec): ActionKind {
+  switch (compositeOf(m)) {
+    case "dpad":
+      return "vec2";
+    case "axis":
+      return "axis";
+    case "modifier":
+      return "button";
+    default:
+      return typeForControl(m.control ?? "");
+  }
+}
+
+const COMPONENTS: Record<ActionKind, number> = { button: 1, axis: 1, vec2: 2, vec3: 3 };
+
+/**
+ * Why `m`'s controls don't suit an action of `kind`, one message per thing that doesn't (empty when they do). The
+ * rules: a D-pad gives two axes, so it suits vec2 and vec3 only; Axis gives one, so not a vec2 or vec3 (it fills X
+ * alone); a single control should give as many components as the action reads, except that a one-axis control on a
+ * button reads as pressed past the press point, and a stick on a vec3 fills X and Y. Unknown paths are left to the
+ * evaluator's problems.
+ */
+export function unsuitedControls(m: MappingSpec, kind: ActionKind): string[] {
+  const out: string[] = [];
+  const want = COMPONENTS[kind];
+  const composite = compositeOf(m);
+  if (composite === "dpad" && want < 2) out.push(`A D-pad gives a vec2, but this is ${kind === "axis" ? "an axis: use Axis (two buttons)" : "a button: use a single control"}.`);
+  if (composite === "axis" && want > 1) out.push(`Axis (two buttons) gives one axis, so this ${kind} gets only X. Use a D-pad.`);
+  if (composite === "single" || composite === "modifier") {
+    const info = m.control ? inputControlInfo(m.control) : null;
+    if (info && info.dimensions > want) out.push(`${m.control} gives ${info.dimensions} axes, but this is ${kind === "axis" ? "an axis" : "a button"}: it reads only X.`);
+    if (info && info.dimensions === 1 && want >= 2) out.push(`${m.control} gives one value, so this ${kind} gets only X. Use a D-pad, or a stick.`);
+  }
+  return out;
+}
+
+const named = (m: MappingSpec, part: string) => `${part} (${partValue(m, part) || "empty"})`;
+
+/**
+ * `m` converted for an action that changed from `from` to `to`, and what changed, in words (null when nothing
+ * did). The rules are simple, and keep what still means something:
+ *
+ * - to a button: a D-pad keeps its up control, Axis its positive, as a single control;
+ * - to an axis: a D-pad keeps left and right as Axis's negative and positive;
+ * - to a vec2 or vec3: Axis becomes a D-pad with its negative and positive as left and right (up and down empty);
+ * - anything else stays as it is (a single control or a chord), and any warning `unsuitedControls` gives says so.
+ */
+export function convertMapping(m: MappingSpec, from: ActionKind, to: ActionKind): { mapping: MappingSpec; note: string | null } {
+  if (from === to) return { mapping: m, note: null };
+  const composite = compositeOf(m);
+  const without = (mapping: MappingSpec): Record<string, unknown> => {
+    const out: Record<string, unknown> = { ...mapping };
+    for (const f of PART_FIELDS) delete out[f];
+    delete out.composite;
+    return out;
+  };
+  if (to === "button" && (composite === "dpad" || composite === "axis")) {
+    const keep = composite === "dpad" ? "up" : "positive";
+    const dropped = COMPOSITES[composite].parts.filter((p) => p !== keep);
+    return {
+      mapping: { ...without(m), control: partValue(m, keep) } as unknown as MappingSpec,
+      note: `${COMPOSITES[composite].label.split(" (")[0]} to a single control: kept ${named(m, keep)}, dropped ${dropped.map((p) => named(m, p)).join(", ")}.`,
+    };
+  }
+  if (to === "axis" && composite === "dpad") {
+    return {
+      mapping: { ...without(m), composite: "axis", negative: partValue(m, "left"), positive: partValue(m, "right") } as unknown as MappingSpec,
+      note: `D-pad to Axis: left and right became negative and positive; dropped ${named(m, "up")}, ${named(m, "down")}.`,
+    };
+  }
+  if ((to === "vec2" || to === "vec3") && composite === "axis") {
+    return {
+      mapping: { ...without(m), composite: "dpad", up: "", down: "", left: partValue(m, "negative"), right: partValue(m, "positive") } as unknown as MappingSpec,
+      note: "Axis to D-pad: negative and positive became left and right; up and down are empty.",
+    };
+  }
+  return { mapping: m, note: null };
 }
 
 // --- controls ------------------------------------------------------------------------------------

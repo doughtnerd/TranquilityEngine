@@ -6,7 +6,14 @@ import { canonicalControlPath, inputActionSets, inputContextProblems } from "../
 import {
   CONTROL_GROUPS,
   actionChoices,
+  actionRefFor,
   contextNotes,
+  convertMapping,
+  mappingControls,
+  resolveActionRef,
+  typeForControl,
+  typeForMapping,
+  unsuitedControls,
   formatInputContext,
   hasProjectActionSets,
   moveItem,
@@ -139,5 +146,65 @@ describe("actions, controls and problems", () => {
     expect(moveItem([1, 2, 3], 0, 1)).toEqual([2, 1, 3]);
     expect(moveItem([1, 2, 3], 0, -1)).toEqual([1, 2, 3]);
     expect(moveItem([1, 2, 3], 2, -2)).toEqual([3, 1, 2]);
+  });
+});
+
+// ADR 0417: the Input dialog's rules for action references, the type a control suggests, unsuited controls and how a
+// type change converts a mapping.
+describe("action references", () => {
+  const sets = [
+    { id: "game.A", actions: [{ name: "jump", kind: "button" as const }, { name: "move", kind: "vec2" as const }] },
+    { id: "game.B", actions: [{ name: "jump", kind: "button" as const }] },
+  ];
+  it("resolves a bare name to the first set with it, and a qualified one to its set", () => {
+    expect(resolveActionRef("move", sets)).toEqual({ set: "game.A", name: "move" });
+    expect(resolveActionRef("jump", sets)).toEqual({ set: "game.A", name: "jump" });
+    expect(resolveActionRef("game.B:jump", sets)).toEqual({ set: "game.B", name: "jump" });
+    expect(resolveActionRef("game.B:move", sets)).toBeNull();
+    expect(resolveActionRef("fly", sets)).toBeNull();
+  });
+  it("names an action bare unless another set shares the name", () => {
+    expect(actionRefFor("game.A", "move", sets)).toBe("move");
+    expect(actionRefFor("game.B", "jump", sets)).toBe("game.B:jump");
+  });
+});
+
+describe("controls and action types", () => {
+  it("suggests a type from a control: keys and buttons are buttons, a stick's X an axis, a stick a vec2, gyro a vec3", () => {
+    expect(typeForControl("<Keyboard>/h")).toBe("button");
+    expect(typeForControl("<Gamepad>/buttonSouth")).toBe("button");
+    expect(typeForControl("<Gamepad>/leftStickX")).toBe("axis");
+    expect(typeForControl("<Gamepad>/leftStick")).toBe("vec2");
+    expect(typeForControl("<Pointer>/delta")).toBe("vec2");
+    expect(typeForControl("<Gamepad>/gyro")).toBe("vec3");
+    expect(typeForControl("")).toBe("button");
+    expect(typeForMapping({ action: "", composite: "dpad", up: "", down: "", left: "", right: "" })).toBe("vec2");
+    expect(typeForMapping({ action: "", composite: "axis", negative: "", positive: "" })).toBe("axis");
+    expect(typeForMapping({ action: "", composite: "modifier", modifier: "<Keyboard>/shift", control: "<Keyboard>/b" })).toBe("button");
+  });
+
+  it("warns when a control doesn't suit the action's type", () => {
+    expect(unsuitedControls({ action: "move", control: "<Keyboard>/w" }, "vec2")[0]).toMatch(/only X/);
+    expect(unsuitedControls({ action: "move", control: "<Gamepad>/leftStick" }, "vec2")).toEqual([]);
+    expect(unsuitedControls({ action: "jump", control: "<Gamepad>/leftStick" }, "button")[0]).toMatch(/2 axes/);
+    expect(unsuitedControls({ action: "jump", control: "<Gamepad>/leftStickX" }, "button")).toEqual([]); // past the press point
+    expect(unsuitedControls({ action: "steer", composite: "dpad", up: "", down: "", left: "", right: "" }, "axis")[0]).toMatch(/Axis \(two buttons\)/);
+    expect(unsuitedControls({ action: "move", composite: "axis", negative: "", positive: "" }, "vec2")[0]).toMatch(/only X/);
+    expect(unsuitedControls({ action: "look", control: "<Gamepad>/leftStick" }, "vec3")).toEqual([]);
+  });
+
+  it("converts a mapping for a new type, keeping what still means something", () => {
+    const dpadMove: MappingSpec = { action: "move", composite: "dpad", up: "<Keyboard>/w", down: "<Keyboard>/s", left: "<Keyboard>/a", right: "<Keyboard>/d", consume: false };
+    const toAxis = convertMapping(dpadMove, "vec2", "axis");
+    expect(toAxis.mapping).toEqual({ action: "move", composite: "axis", negative: "<Keyboard>/a", positive: "<Keyboard>/d", consume: false });
+    expect(toAxis.note).toMatch(/dropped up \(<Keyboard>\/w\), down \(<Keyboard>\/s\)/);
+    const toButton = convertMapping(dpadMove, "vec2", "button");
+    expect(toButton.mapping).toEqual({ action: "move", control: "<Keyboard>/w", consume: false });
+    const axis: MappingSpec = { action: "steer", composite: "axis", negative: "<Keyboard>/a", positive: "<Keyboard>/d" };
+    expect(convertMapping(axis, "axis", "button").mapping).toEqual({ action: "steer", control: "<Keyboard>/d" });
+    expect(convertMapping(axis, "axis", "vec2").mapping).toEqual({ action: "steer", composite: "dpad", up: "", down: "", left: "<Keyboard>/a", right: "<Keyboard>/d" });
+    const single: MappingSpec = { action: "jump", control: "<Gamepad>/leftStick" };
+    expect(convertMapping(single, "vec2", "button")).toEqual({ mapping: single, note: null });
+    expect(mappingControls(toAxis.mapping)).toEqual(["<Keyboard>/a", "<Keyboard>/d"]);
   });
 });

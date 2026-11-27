@@ -107,7 +107,7 @@ describe("matching paths", () => {
 
 describe("core kinds", () => {
   it("register like plugin kinds, and the module answers folder, sprite and other itself", () => {
-    expect(assetKinds.list().map((k) => k.id)).toEqual(["scene", "prefab", "image", "audio", "rendertexture", "strings", "inputContext", "json", "xml", "script", "javascript", "typescript", "text"]);
+    expect(assetKinds.list().map((k) => k.id)).toEqual(["scene", "prefab", "image", "audio", "rendertexture", "strings", "inputContext", "actionSet", "json", "xml", "script", "javascript", "typescript", "text"]);
     expect([kindLabel("folder"), kindLabel("sprite"), kindLabel("other")]).toEqual(["Folder", "Sprite", "File"]);
     for (const k of ["folder", "sprite", "other"]) expect(kindIcon(k)).toMatch(/^M/);
   });
