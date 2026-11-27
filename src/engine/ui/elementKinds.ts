@@ -210,6 +210,22 @@ export function cssFontWeight(w: string): string {
 
 const WRAPS: Readonly<Record<UIWordBreak, UITextWrap>> = { "break-word": "word", "break-all": "anywhere", "keep-all": "none" };
 
+/**
+ * ADR 0428: the base direction an element's text is laid out in: its own `direction`, else the nearest ancestor's below
+ * its canvas (HTML's `dir`), else the current language's (ADR 0356 §5), as before `direction` existed.
+ */
+function textDirectionOf(c: UIComponentType): "ltr" | "rtl" {
+  const world = c._world;
+  for (let e = c.owner.entity; e >= 0; e = world.parentEntity(e)) {
+    for (const k of world._componentsOf(e)) {
+      if (k instanceof UICanvas) return Locale.direction;
+      const d = (k as { direction?: string | null }).direction;
+      if (isUIKind(k) && (d === "ltr" || d === "rtl")) return d;
+    }
+  }
+  return Locale.direction;
+}
+
 /** A `textAlign` value as an edge: `start` and `end` resolved for the direction (ADR 0356 §5). */
 function textAlignEdge(align: UITextAlign, direction: "ltr" | "rtl"): UITextRun["align"] {
   if (align === "start") return direction === "rtl" ? "right" : "left";
@@ -231,12 +247,12 @@ export type UIInlineAtomSizes = (c: UIComponentType) => UIInlineAtomSize | null;
 export function textRunOf(c: UIComponentType, atoms?: UIInlineAtomSizes): UITextRun | null {
   if (c instanceof UITextArea) {
     // ADR 0424: lines as typed, wrapped at its width unless `wrap` is `off`; a password-like mask doesn't apply.
-    const direction = Locale.direction;
+    const direction = textDirectionOf(c);
     return { text: c.value || c.placeholder, fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: c.wrap === "off" ? "none" : "word", direction, align: textAlignEdge("start", direction) };
   }
   if (c instanceof UISelect) {
     // ADR 0424: the chosen option's label, on one line.
-    const direction = Locale.direction;
+    const direction = textDirectionOf(c);
     return { text: selectLabel(c).replace(/[\r\n]/g, " "), fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: "none", direction, align: textAlignEdge("start", direction) };
   }
   if (c instanceof UIInputField) {
@@ -245,11 +261,11 @@ export function textRunOf(c: UIComponentType, atoms?: UIInlineAtomSizes): UIText
     const shown = c.value && c.type === "password" ? "•".repeat(c.value.length) : c.value;
     const text = (shown || c.placeholder).replace(/[\r\n]/g, " ");
     // Drawn from the language's start edge (ADR 0356 §5).
-    const direction = Locale.direction;
+    const direction = textDirectionOf(c);
     return { text, fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: "none", direction, align: textAlignEdge("start", direction) };
   }
   if (c instanceof UIText) {
-    const direction = Locale.direction;
+    const direction = textDirectionOf(c);
     const fontFamily = fontFamilyOf(c.font);
     // ADR 0428: `text-wrap-mode: nowrap` keeps lines whole (an editable text wraps, as `pre-wrap`).
     const nowrap = !c.contentEditable && c.textWrapMode === "nowrap";

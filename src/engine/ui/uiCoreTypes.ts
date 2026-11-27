@@ -205,7 +205,13 @@ export interface UIScrollInfo {
   /** Its scroll offset after clamping (what's drawn). */
   readonly x: number;
   readonly y: number;
-  /** The largest offsets: how far the content reaches past the padding box. */
+  /**
+   * The offsets' range. An axis scrolling from its start has `min` 0 and `max` how far the content reaches past the
+   * padding box; ADR 0428: one scrolling from its end (`row-reverse`/`column-reverse`, `direction: rtl`) has `max` 0
+   * and a negative `min`, as CSSOM's `scrollLeft`/`scrollTop` there.
+   */
+  readonly minX: number;
+  readonly minY: number;
   readonly maxX: number;
   readonly maxY: number;
   readonly clientWidth: number;
@@ -220,6 +226,30 @@ export interface UIScrollInfo {
   /** The scrollbars shown (null: none on that axis). */
   readonly barX: UIScrollbar | null;
   readonly barY: UIScrollbar | null;
+  /** ADR 0428: its scroll snapping (`scroll-snap-type` and its descendants' snap areas); null when it doesn't snap. */
+  readonly snap: UIScrollSnap | null;
+}
+
+/** ADR 0428: one snap area's snap positions (scroll offsets, unclamped; null: it doesn't snap on that axis). */
+export interface UIScrollSnapArea {
+  readonly comp: UIComponentType;
+  readonly x: number | null;
+  readonly y: number | null;
+  /** `scroll-snap-stop: always`. */
+  readonly stop: boolean;
+  /** Its snap area (border box plus `scroll-margin`) in content space: where it is at scroll offset 0, from the padding box's corner. */
+  readonly area: UIRect;
+}
+
+/** ADR 0428: a scroller's snapping at the last layout. */
+export interface UIScrollSnap {
+  /** The axes it snaps on. */
+  readonly x: boolean;
+  readonly y: boolean;
+  readonly mandatory: boolean;
+  /** Its snapport (the padding box inset by `scroll-padding`), relative to the padding box's corner. */
+  readonly port: UIRect;
+  readonly areas: readonly UIScrollSnapArea[];
 }
 
 /** An element (not a canvas) as laid out in the last `sync`. */

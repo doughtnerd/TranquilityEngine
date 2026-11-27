@@ -454,7 +454,7 @@ describe("layout wave 1 on Babylon GUI (ADR 0418)", () => {
     const list = node("List", canvas.node, UIPanel, { overflow: "auto", scrollbarThumbColor: new Color(1, 0, 0, 1) });
     const core = new FakeCore();
     const client = { x: 0, y: 0, width: 100, height: 100 };
-    const scroll = { x: 0, y: 30, maxX: 0, maxY: 300, clientWidth: 100, clientHeight: 100, scrollWidth: 100, scrollHeight: 400, userX: true, userY: true, client, barX: null, barY: { track: { x: 90, y: 0, width: 10, height: 100 }, thumb: { x: 90, y: 7.5, width: 10, height: 25 } } };
+    const scroll = { x: 0, y: 30, minX: 0, minY: 0, snap: null, maxX: 0, maxY: 300, clientWidth: 100, clientHeight: 100, scrollWidth: 100, scrollHeight: 400, userX: true, userY: true, client, barX: null, barY: { track: { x: 90, y: 0, width: 10, height: 100 }, thumb: { x: 90, y: 7.5, width: 10, height: 25 } } };
     core.set([canvasInfo(canvas)], [[list, canvas, { x: 0, y: 0, width: 100, height: 100, order: 2, childClip: client, scroll }]]);
     sync(core);
     const track = byName(rootOf(), "List.scrollbar-y") as Rectangle;

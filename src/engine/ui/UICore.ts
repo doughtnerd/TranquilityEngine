@@ -22,9 +22,9 @@ import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
 import { canvasScale, estimateText, inRect, intersectRect, isMixedLength, loadYogaOnce, loadedYoga, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
-import type { UIInlineAtomSize, UIInlineEditing, UIInlineRun, TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPart, UIPickRay, UIScrollbar, UIScrollInfo } from "./uiCoreTypes";
+import type { UIInlineAtomSize, UIInlineEditing, UIInlineRun, TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPart, UIPickRay, UIScrollbar, UIScrollInfo, UIScrollSnap, UIScrollSnapArea } from "./uiCoreTypes";
 import { fireUIEvent, uiDomCode, uiDomKey, uiEventRecord, UIDataTransfer, type UIEventData, type UIEventRecord } from "./events";
-import { advanceUIScrolling, canMove, uiScrollBy, uiScrollMoving, uiScrollTo, uiStartMomentum, uiStopScrolling, type UIScrollable } from "./scrolling";
+import { advanceUIScrolling, canMove, uiEndScrollGesture, uiResnap, uiScrollBy, uiScrollMoving, uiScrollTo, uiStopScrolling, uiWheelScroll, type UIScrollable } from "./scrolling";
 import { applyAffine, boundsOf, compose, invert, localTransform, multiply, transformRect, type UIAffine, type UITransformFields } from "./transform2d";
 import { filterStepsOf, transformFilterSteps, type UIFilterFields, type UIFilterStep } from "./filters";
 import { INLINE_ASCENT, INLINE_DESCENT, caretAt, indexAt, inlineFont, layoutInline, selectionRects, type RunMeasure, type UIInlineLayout } from "./text/inlineLayout";
@@ -288,6 +288,8 @@ interface Gesture {
   scroller: Entry | null;
   axis: "x" | "y" | null;
   startScroll: number;
+  /** ADR 0428: a touch drag's or thumb drag's scroller's offsets when it took the gesture (where a snap measures `scroll-snap-stop` from). */
+  scrollFrom: { x: number; y: number } | null;
   /** Recent positions (seconds, CSS pixels) for momentum. */
   samples: { t: number; x: number; y: number }[];
   /** A UI drag's data, the element under the pointer, and whether its last `dragover` was prevented (a drop allowed). */
@@ -359,8 +361,8 @@ function pickScroller(chain: readonly Entry[], dx: number, dy: number): Entry | 
   if (dx === 0 && dy === 0) return null;
   for (const e of chain) {
     const s = e.place.scroll!;
-    const okX = dx === 0 || (s.userX && canMove(s.x, s.maxX, dx));
-    const okY = dy === 0 || (s.userY && canMove(s.y, s.maxY, dy));
+    const okX = dx === 0 || (s.userX && canMove(s.x, s.minX, s.maxX, dx));
+    const okY = dy === 0 || (s.userY && canMove(s.y, s.minY, s.maxY, dy));
     if (okX && okY) return e;
     if ((e.comp as UIScrollable).overscrollBehavior !== "auto") return null;
   }
@@ -852,7 +854,11 @@ export class UICore implements UICoreLike {
     // ADR 0418 wave 1: each side its own value, else the all-sides one (slots 5, 6 and 16 are the top edges).
     const pad = uiEdges(c.padding, c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft);
     const mar = uiEdges(c.margin, c.marginTop, c.marginRight, c.marginBottom, c.marginLeft);
-    const bor = uiBorderEdges(c);
+    let bor = uiBorderEdges(c);
+    // ADR 0428: `scrollbar-gutter: stable` reserves the vertical scrollbar's space between the border and the padding:
+    // to Yoga, a wider border on that side (the padding box, `clientWidth`, shrinks; the drawn border doesn't change).
+    const gutter = gutterOf(c, directionOf(entry) === "rtl");
+    if (gutter.right || gutter.left) bor = [bor[0], bor[1] + gutter.right, bor[2], bor[3] + gutter.left];
     for (let i = 0; i < 4; i++) {
       const edge = t.edges[i];
       if (put(i === 0 ? 5 : 16 + i, pad[i])) n.setPadding(edge, pad[i]);
@@ -885,6 +891,8 @@ export class UICore implements UICoreLike {
     if (put(33, (v = uiLength(c.flexBasis, rowParent ? bw : bh) ?? "auto"))) n.setFlexBasis(v as never);
     if (put(34, (v = Number.isFinite(c.aspectRatio) && c.aspectRatio > 0 ? c.aspectRatio : undefined))) n.setAspectRatio(v as never);
     if (put(35, (v = isUserScroller(c) ? yoga.OVERFLOW_SCROLL : clipsChildren(c) ? yoga.OVERFLOW_HIDDEN : yoga.OVERFLOW_VISIBLE))) n.setOverflow(v as never);
+    // ADR 0428: `direction` (null inherits, Yoga's own inheritance from the canvas's LTR).
+    if (put(36, (v = c.direction === "rtl" ? yoga.DIRECTION_RTL : c.direction === "ltr" ? yoga.DIRECTION_LTR : yoga.DIRECTION_INHERIT))) n.setDirection(v as never);
 
     if (entry.run) this.updateRun(entry);
   }
@@ -1187,16 +1195,24 @@ export class UICore implements UICoreLike {
    * its padding box's corner) plus its end padding, at least the padding box; its offsets are clamped to that, and the
    * routing core writes the clamped values back. Scrollbars show on an axis the player scrolls: always for `scroll`,
    * for `auto` when the content overflows, never with `scrollbar-width: none`.
+   *
+   * ADR 0428: an axis whose content starts at its far end (`row-reverse`, `column-reverse`, `direction: rtl`) reaches
+   * past its start edge instead, with offsets from a negative `min` to 0 (CSSOM's); the vertical bar is on the left in
+   * `rtl`, and in a reserved gutter (`scrollbar-gutter: stable`) outside the padding box. A snapping scroller's snap
+   * areas are measured here, and (the routing core, nothing holding it) it snaps again to what the layout moved.
    */
   private scrollOf(e: Entry, client: UIRect, bl: number, bt: number): UIScrollInfo {
     const yoga = this.yoga!;
     const c = e.comp as UIScrollable;
     const n = e.node;
-    let right = 0, bottom = 0;
+    const pl = n.getComputedPadding(yoga.EDGE_LEFT), pt = n.getComputedPadding(yoga.EDGE_TOP);
+    const pr = n.getComputedPadding(yoga.EDGE_RIGHT), pb = n.getComputedPadding(yoga.EDGE_BOTTOM);
+    const origin = e.kind === "textarea" ? { x: false, y: false } : endOrigin(e);
+    // The content's edges from the padding box's corner (the start ones from the content box, so none reach nothing).
+    let left = pl, top = pt, right = 0, bottom = 0;
     if (e.kind === "textarea" && e.run) {
       // ADR 0424: a text area's content is its text, wrapped at its content width (inside its padding).
-      const pl = n.getComputedPadding(yoga.EDGE_LEFT), pt = n.getComputedPadding(yoga.EDGE_TOP);
-      const inner = Math.max(0, client.width - pl - n.getComputedPadding(yoga.EDGE_RIGHT));
+      const inner = Math.max(0, client.width - pl - pr);
       const text = this.host.measureText?.({ ...e.run, maxWidth: e.run.wrap === "none" ? Infinity : inner }) ?? estimateText({ ...e.run, maxWidth: e.run.wrap === "none" ? Infinity : inner });
       right = pl + text.width;
       bottom = pt + text.height;
@@ -1205,34 +1221,84 @@ export class UICore implements UICoreLike {
       const cc = ch.comp as UIScrollable;
       if (!cc.isActiveAndEnabled || cc.display === "none") continue;
       const cn = ch.node;
+      left = Math.min(left, cn.getComputedLeft() - bl - cn.getComputedMargin(yoga.EDGE_LEFT));
+      top = Math.min(top, cn.getComputedTop() - bt - cn.getComputedMargin(yoga.EDGE_TOP));
       right = Math.max(right, cn.getComputedLeft() - bl + cn.getComputedWidth() + cn.getComputedMargin(yoga.EDGE_RIGHT));
       bottom = Math.max(bottom, cn.getComputedTop() - bt + cn.getComputedHeight() + cn.getComputedMargin(yoga.EDGE_BOTTOM));
     }
-    const scrollWidth = Math.max(client.width, right + n.getComputedPadding(yoga.EDGE_RIGHT));
-    const scrollHeight = Math.max(client.height, bottom + n.getComputedPadding(yoga.EDGE_BOTTOM));
-    const maxX = scrollWidth - client.width, maxY = scrollHeight - client.height;
-    const at = (v: number, max: number) => (Number.isFinite(v) ? Math.min(Math.max(0, v), max) : 0);
-    const x = at(c.scrollX, maxX), y = at(c.scrollY, maxY);
+    const minX = origin.x ? Math.min(0, left - pl) : 0, minY = origin.y ? Math.min(0, top - pt) : 0;
+    const maxX = origin.x ? 0 : Math.max(0, right + pr - client.width), maxY = origin.y ? 0 : Math.max(0, bottom + pb - client.height);
+    const scrollWidth = client.width + maxX - minX, scrollHeight = client.height + maxY - minY;
+    const at = (v: number, min: number, max: number) => (Number.isFinite(v) ? Math.min(Math.max(min, v), max) : 0);
+    let x = at(c.scrollX, minX, maxX), y = at(c.scrollY, minY, maxY);
+    const axes = overflowAxes(c);
+    const userX = userScrollsAxis(axes.x), userY = userScrollsAxis(axes.y);
+    const base: UIScrollInfo = { x, y, minX, minY, maxX, maxY, clientWidth: client.width, clientHeight: client.height, scrollWidth, scrollHeight, userX, userY, client, barX: null, barY: null, snap: this.snapOf(e, client, bl, bt) };
     if (!this.passive) {
+      // ADR 0428: snapping again after a layout change, unless a drag or thumb holds it.
+      const held = this.gesture?.scroller === e && (this.gesture.kind === "scroll" || this.gesture.kind === "thumb");
+      if (this.world && !held) ({ x, y } = uiResnap(this.world, c, base, x, y));
       if (c.scrollX !== x) c.scrollX = x;
       if (c.scrollY !== y) c.scrollY = y;
     }
-    const axes = overflowAxes(c);
-    const userX = userScrollsAxis(axes.x), userY = userScrollsAxis(axes.y);
+    const rtl = directionOf(e) === "rtl";
+    const gutter = gutterOf(c, rtl);
     const t = SCROLLBAR_WIDTH[c.scrollbarWidth] ?? SCROLLBAR_WIDTH.auto;
-    const showX = t > 0 && userX && (axes.x === "scroll" || maxX > 0.5);
-    const showY = t > 0 && userY && (axes.y === "scroll" || maxY > 0.5);
+    const showX = t > 0 && userX && (axes.x === "scroll" || maxX - minX > 0.5);
+    const showY = t > 0 && userY && (axes.y === "scroll" || maxY - minY > 0.5);
+    // The vertical bar in its gutter (outside the padding box), else over the content's edge.
+    const inGutter = rtl ? gutter.left > 0 : gutter.right > 0;
+    const overlayY = showY && !inGutter;
     const bar = (along: "x" | "y"): UIScrollbar => {
       if (along === "y") {
-        const track = { x: client.x + client.width - t, y: client.y, width: t, height: Math.max(0, client.height - (showX ? t : 0)) };
+        const tx = inGutter ? (rtl ? client.x - t : client.x + client.width) : rtl ? client.x : client.x + client.width - t;
+        const track = { x: tx, y: client.y, width: t, height: Math.max(0, client.height - (showX && !inGutter ? t : 0)) };
         const len = Math.min(track.height, Math.max(MIN_THUMB, (track.height * client.height) / scrollHeight));
-        return { track, thumb: { x: track.x, y: track.y + (maxY > 0 ? ((track.height - len) * y) / maxY : 0), width: t, height: len } };
+        return { track, thumb: { x: track.x, y: track.y + (maxY > minY ? ((track.height - len) * (y - minY)) / (maxY - minY) : 0), width: t, height: len } };
       }
-      const track = { x: client.x, y: client.y + client.height - t, width: Math.max(0, client.width - (showY ? t : 0)), height: t };
+      const track = { x: client.x + (rtl && overlayY ? t : 0), y: client.y + client.height - t, width: Math.max(0, client.width - (overlayY ? t : 0)), height: t };
       const len = Math.min(track.width, Math.max(MIN_THUMB, (track.width * client.width) / scrollWidth));
-      return { track, thumb: { x: track.x + (maxX > 0 ? ((track.width - len) * x) / maxX : 0), y: track.y, width: len, height: t } };
+      return { track, thumb: { x: track.x + (maxX > minX ? ((track.width - len) * (x - minX)) / (maxX - minX) : 0), y: track.y, width: len, height: t } };
     };
-    return { x, y, maxX, maxY, clientWidth: client.width, clientHeight: client.height, scrollWidth, scrollHeight, userX, userY, client, barX: showX ? bar("x") : null, barY: showY ? bar("y") : null };
+    return { ...base, x, y, barX: showX ? bar("x") : null, barY: showY ? bar("y") : null };
+  }
+
+  /**
+   * ADR 0428: a scroller's snapping (`scroll-snap-type`): its snapport (the padding box inset by `scroll-padding`) and
+   * the snap areas of the descendants it's the nearest clipping ancestor of (border box plus `scroll-margin`, transforms
+   * aside), each with its snap positions per `scroll-snap-align`. Null when it doesn't snap.
+   */
+  private snapOf(e: Entry, client: UIRect, bl: number, bt: number): UIScrollSnap | null {
+    const c = e.comp as UIScrollable;
+    const axis = c.scrollSnapAxis;
+    if (!axis || axis === "none") return null;
+    const sx = axis === "x" || axis === "inline" || axis === "both";
+    const sy = axis === "y" || axis === "block" || axis === "both";
+    const f = finite;
+    const port = { x: f(c.scrollPaddingLeft), y: f(c.scrollPaddingTop), width: Math.max(0, client.width - f(c.scrollPaddingLeft) - f(c.scrollPaddingRight)), height: Math.max(0, client.height - f(c.scrollPaddingTop) - f(c.scrollPaddingBottom)) };
+    const position = (align: string, start: number, size: number, portStart: number, portSize: number): number | null =>
+      align === "start" ? start - portStart : align === "end" ? start + size - (portStart + portSize) : align === "center" ? start + size / 2 - (portStart + portSize / 2) : null;
+    const areas: UIScrollSnapArea[] = [];
+    const visit = (parent: Entry, ox: number, oy: number) => {
+      for (const ch of parent.popup ? [] : parent.children) {
+        const cc = ch.comp as UIScrollable;
+        if (ch.inlineIn || !cc.isActiveAndEnabled || cc.display === "none") continue;
+        const cn = ch.node;
+        const x = ox + cn.getComputedLeft(), y = oy + cn.getComputedTop();
+        const ab = cc.scrollSnapAlignBlock ?? "none", ai = cc.scrollSnapAlignInline ?? "none";
+        if (ab !== "none" || ai !== "none") {
+          const ml = f(cc.scrollMarginLeft), mt = f(cc.scrollMarginTop);
+          const area = { x: x - ml, y: y - mt, width: cn.getComputedWidth() + ml + f(cc.scrollMarginRight), height: cn.getComputedHeight() + mt + f(cc.scrollMarginBottom) };
+          const px = sx ? position(ai, area.x, area.width, port.x, port.width) : null;
+          const py = sy ? position(ab, area.y, area.height, port.y, port.height) : null;
+          if (px !== null || py !== null) areas.push({ comp: cc, x: px, y: py, stop: cc.scrollSnapStop === "always", area });
+        }
+        // A clipping descendant is its own scroll container: its descendants snap in it.
+        if (!clipsChildren(cc)) visit(ch, x, y);
+      }
+    };
+    visit(e, -bl, -bt);
+    return { x: sx, y: sy, mandatory: c.scrollSnapStrictness === "mandatory", port, areas };
   }
 
   /** Publish the results for the drawing layer, bumping `layoutVersion` only if something changed. */
@@ -1607,7 +1673,7 @@ export class UICore implements UICoreLike {
       this.activeScroller = chain[0] ?? null;
       let source: Entry | null = null;
       for (let at = over; at && at.kind !== "canvas" && !source; at = up(at)) if ((at.comp as UIScrollable).draggable) source = at;
-      const gesture: Gesture = { kind: "pending", pointerType: raw.pointerType, startX: raw.x, startY: raw.y, lastX: raw.x, lastY: raw.y, armed: true, target: over, source, chain, scroller: null, axis: null, startScroll: 0, samples: [{ t: now, x: raw.x, y: raw.y }], data: null, dropTarget: null, accepts: false };
+      const gesture: Gesture = { kind: "pending", pointerType: raw.pointerType, startX: raw.x, startY: raw.y, lastX: raw.x, lastY: raw.y, armed: true, target: over, source, chain, scroller: null, axis: null, startScroll: 0, scrollFrom: null, samples: [{ t: now, x: raw.x, y: raw.y }], data: null, dropTarget: null, accepts: false };
       let barAction: (() => void) | null = null;
       if (blocked?.bar && over) barAction = this.pressBar(world, gesture, over, blocked.bar, blocked.ux, blocked.uy);
       // ADR 0424: a press on a slider drags its thumb (not a scroll or a UI drag).
@@ -1682,6 +1748,8 @@ export class UICore implements UICoreLike {
       // ADR 0424: a slider let go after its value moved: `change` (its `input`s were sent as it moved).
       const slid = done?.kind === "slider" ? live(done.scroller) : null;
       if (slid && (slid.comp as UISlider).value !== done!.startScroll) log.record("change", slid.comp as UISlider);
+      // ADR 0428: a scrollbar thumb let go snaps (as a gesture's end).
+      if (done?.kind === "thumb" && done.scroller && done.scrollFrom && this.entries.has(done.scroller.comp)) uiEndScrollGesture(world, done.scroller.comp as UIScrollable, 0, 0, done.scrollFrom.x, done.scrollFrom.y);
       if (done?.kind === "scroll" && done.scroller) this.fling(world, done);
       else if (done?.kind === "drag") {
         const target = live(done.dropTarget);
@@ -1725,8 +1793,8 @@ export class UICore implements UICoreLike {
       records.push(
         uiEventRecord("wheel", over.comp, pdata(over, { button: 0, deltaX: raw.wheelX, deltaY: raw.wheelY, deltaMode: 0 }), (prevented) => {
           if (prevented) return;
-          if (sx) uiScrollBy(world, sx.comp as UIScrollable, dx, 0, "instant");
-          if (sy) uiScrollBy(world, sy.comp as UIScrollable, 0, dy, "instant");
+          if (sx) uiWheelScroll(world, sx.comp as UIScrollable, dx, 0);
+          if (sy) uiWheelScroll(world, sy.comp as UIScrollable, 0, dy);
         }),
       );
     }
@@ -1807,6 +1875,7 @@ export class UICore implements UICoreLike {
       g.scroller = scroller;
       g.axis = axis;
       g.startScroll = axis === "x" ? s.x : s.y;
+      g.scrollFrom = { x: s.x, y: s.y };
       return null;
     }
     g.kind = "none";
@@ -1831,12 +1900,13 @@ export class UICore implements UICoreLike {
         if (scroller) {
           g.kind = "scroll";
           g.scroller = scroller;
+          g.scrollFrom = { x: (scroller.comp as UIScrollable).scrollX, y: (scroller.comp as UIScrollable).scrollY };
           const target = g.target && this.entries.has(g.target.comp) ? g.target : null;
           if (target) records.push(uiEventRecord("pointercancel", target.comp, pdata(target, { button: 0 })));
           this.pressed = null;
           this.pressTarget = null;
           const scale = scaleOf(scroller);
-          uiScrollBy(world, scroller.comp as UIScrollable, -fx / scale, -fy / scale, "instant");
+          uiScrollBy(world, scroller.comp as UIScrollable, -fx / scale, -fy / scale, "instant", "none");
         }
       }
       // A draggable element dragged past the threshold starts a UI drag, unless `dragstart` is prevented.
@@ -1858,16 +1928,16 @@ export class UICore implements UICoreLike {
       if (at) this.slideTo(world, g.scroller, at.x, at.y, records);
     } else if (g.kind === "scroll" && g.scroller) {
       const scale = scaleOf(g.scroller);
-      uiScrollBy(world, g.scroller.comp as UIScrollable, -(raw.x - g.lastX) / scale, -(raw.y - g.lastY) / scale, "instant");
+      uiScrollBy(world, g.scroller.comp as UIScrollable, -(raw.x - g.lastX) / scale, -(raw.y - g.lastY) / scale, "instant", "none");
     } else if (g.kind === "thumb" && g.scroller && g.axis) {
       const s = g.scroller.place.scroll;
       const bar = g.axis === "x" ? s?.barX : s?.barY;
       if (s && bar) {
         const room = g.axis === "x" ? bar.track.width - bar.thumb.width : bar.track.height - bar.thumb.height;
         const moved = (g.axis === "x" ? raw.x - g.startX : raw.y - g.startY) / scaleOf(g.scroller);
-        const max = g.axis === "x" ? s.maxX : s.maxY;
-        const to = g.startScroll + (room > 0 ? (moved * max) / room : 0);
-        uiScrollTo(world, g.scroller.comp as UIScrollable, g.axis === "x" ? to : null, g.axis === "y" ? to : null, "instant");
+        const range = g.axis === "x" ? s.maxX - s.minX : s.maxY - s.minY;
+        const to = g.startScroll + (room > 0 ? (moved * range) / room : 0);
+        uiScrollTo(world, g.scroller.comp as UIScrollable, g.axis === "x" ? to : null, g.axis === "y" ? to : null, "instant", { snap: "none" });
       }
     }
     g.lastX = raw.x;
@@ -1916,16 +1986,21 @@ export class UICore implements UICoreLike {
     return true;
   }
 
-  /** ADR 0423: a touch or pen drag scroll let go: it keeps moving at the speed of its last tenth of a second. */
+  /**
+   * ADR 0423: a touch or pen drag scroll let go: it keeps moving at the speed of its last tenth of a second (ADR 0428:
+   * or, snapping, eases to the snap position nearest where that would end).
+   */
   private fling(world: World, g: Gesture): void {
     const a = g.samples[0], b = g.samples[g.samples.length - 1];
     const dt = b.t - a.t;
-    if (!g.scroller || dt <= 0) return;
+    if (!g.scroller || !this.entries.has(g.scroller.comp)) return;
     const scale = g.scroller.canvas?.comp.mode === "screen" ? g.scroller.canvas.scale : 1;
     const s = g.scroller.place.scroll;
-    const vx = s?.userX ? -(b.x - a.x) / dt / scale : 0;
-    const vy = s?.userY ? -(b.y - a.y) / dt / scale : 0;
-    uiStartMomentum(world, g.scroller.comp as UIScrollable, vx, vy);
+    const vx = s?.userX && dt > 0 ? -(b.x - a.x) / dt / scale : 0;
+    const vy = s?.userY && dt > 0 ? -(b.y - a.y) / dt / scale : 0;
+    const comp = g.scroller.comp as UIScrollable;
+    const from = g.scrollFrom ?? { x: comp.scrollX, y: comp.scrollY };
+    uiEndScrollGesture(world, comp, vx, vy, from.x, from.y);
   }
 
   /**
@@ -1944,7 +2019,7 @@ export class UICore implements UICoreLike {
     const s = scroller?.place.scroll;
     if (!scroller || !s) return;
     const comp = scroller.comp as UIScrollable;
-    if (edge) uiScrollTo(world, comp, null, sign < 0 ? 0 : s.maxY);
+    if (edge) uiScrollTo(world, comp, null, sign < 0 ? s.minY : s.maxY);
     else if (page) uiScrollBy(world, comp, 0, sign * s.clientHeight * PAGE_SHARE);
     else uiScrollBy(world, comp, horizontal ? sign * ARROW_STEP : 0, horizontal ? 0 : sign * ARROW_STEP);
   }
@@ -2197,7 +2272,44 @@ function sameElements(a: readonly UILaidOutElement[], b: readonly UILaidOutEleme
 function sameScroll(a: UIScrollInfo | null, b: UIScrollInfo | null): boolean {
   if (!a || !b) return a === b;
   const bar = (p: UIScrollbar | null, q: UIScrollbar | null) => (!p || !q ? p === q : sameRect(p.track, q.track) && sameRect(p.thumb, q.thumb));
-  return a.x === b.x && a.y === b.y && a.maxX === b.maxX && a.maxY === b.maxY && a.userX === b.userX && a.userY === b.userY && sameRect(a.client, b.client) && bar(a.barX, b.barX) && bar(a.barY, b.barY);
+  return a.x === b.x && a.y === b.y && a.minX === b.minX && a.minY === b.minY && a.maxX === b.maxX && a.maxY === b.maxY && a.userX === b.userX && a.userY === b.userY && sameRect(a.client, b.client) && bar(a.barX, b.barX) && bar(a.barY, b.barY) && sameSnap(a.snap, b.snap);
+}
+
+/** ADR 0428: true when two scrollers' snapping is the same. */
+function sameSnap(a: UIScrollSnap | null, b: UIScrollSnap | null): boolean {
+  if (!a || !b) return a === b;
+  if (a.x !== b.x || a.y !== b.y || a.mandatory !== b.mandatory || !sameRect(a.port, b.port) || a.areas.length !== b.areas.length) return false;
+  return a.areas.every((p, i) => {
+    const q = b.areas[i];
+    return p.comp === q.comp && p.x === q.x && p.y === q.y && p.stop === q.stop && sameRect(p.area, q.area);
+  });
+}
+
+/** ADR 0428: an element's direction: its own `direction`, else its nearest ancestor's, else `ltr` (the canvas's). */
+function directionOf(e: Entry | null): "ltr" | "rtl" {
+  for (let at = e; at && at.kind !== "canvas"; at = at.parent) {
+    const d = (at.comp as UIScrollable).direction;
+    if (d === "ltr" || d === "rtl") return d;
+  }
+  return "ltr";
+}
+
+/**
+ * ADR 0428: the axes of a scroller whose content starts at the far end, so it scrolls from there (CSS's scroll origin):
+ * horizontally in `rtl` (unless `row-reverse` turns it back) or `row-reverse`, vertically in `column-reverse`.
+ */
+function endOrigin(e: Entry): { x: boolean; y: boolean } {
+  const c = e.comp as UIScrollable;
+  return { x: (directionOf(e) === "rtl") !== (c.flexDirection === "row-reverse"), y: c.flexDirection === "column-reverse" };
+}
+
+/** ADR 0428: the scrollbar gutter `scrollbar-gutter: stable` reserves on each side (UI pixels): the bar's side (left in `rtl`), or both. */
+function gutterOf(c: UIScrollable, rtl: boolean): { left: number; right: number } {
+  const g = c.scrollbarGutter;
+  if ((g !== "stable" && g !== "stable both-edges") || !clipsChildren(c)) return { left: 0, right: 0 };
+  const t = SCROLLBAR_WIDTH[c.scrollbarWidth] ?? SCROLLBAR_WIDTH.auto;
+  if (g === "stable both-edges") return { left: t, right: t };
+  return rtl ? { left: t, right: 0 } : { left: 0, right: t };
 }
 
 /**

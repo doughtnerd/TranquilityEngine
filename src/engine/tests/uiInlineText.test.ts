@@ -270,3 +270,23 @@ describe("Babylon UI: drawing inline boxes and atomic boxes (ADR 0428)", () => {
     babylon.dispose();
   });
 });
+
+describe("a text's base direction from `direction` (ADR 0428)", () => {
+  it("lays runs out right to left under dir=\"rtl\" (its own or an ancestor's), else in the language's direction", async () => {
+    const ui = buildUI(`<Canvas><div flex-direction="column" align-items="flex-start"><div dir="rtl"><p id="r" width="100">ab <b>cd</b></p></div><p id="l" width="100">ab <b>cd</b></p><p id="own" dir="rtl" width="100">plain</p></div></Canvas>`);
+    engine.step(DT);
+    const r = byId(ui, "r", UIText), l = byId(ui, "l", UIText), own = byId(ui, "own", UIText);
+    expect(textRunOf(r)).toMatchObject({ direction: "rtl", align: "right" });
+    expect(textRunOf(l)).toMatchObject({ direction: "ltr", align: "left" });
+    expect(textRunOf(own)).toMatchObject({ direction: "rtl", align: "right" });
+    const { core, el } = await laidOut();
+    const [ab, cd] = el(r).inline!.lines[0].fragments;
+    // Logical order from the right edge: "ab " at the right, "cd" to its left.
+    expect(ab.x + ab.width).toBeCloseTo(100, 3);
+    expect(cd.x).toBeLessThan(ab.x);
+    const [lab, lcd] = el(l).inline!.lines[0].fragments;
+    expect(lab.x).toBe(0);
+    expect(lcd.x).toBeGreaterThan(lab.x);
+    core.dispose();
+  });
+});
