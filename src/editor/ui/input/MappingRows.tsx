@@ -44,6 +44,8 @@ import {
   type ActionChoice,
   type CompositeKind,
   type ModifierName,
+  isOff,
+  setOff,
   type ParamSpec,
   type StepSpec,
   type TriggerName,
@@ -255,7 +257,7 @@ const startValue = (dims: number): number[] => (dims === 1 ? [0.5] : dims === 2 
 
 /**
  * A mapping's modifiers as an ordered stack: one numbered row each with its parameters, the value it hands on, and a ⋯
- * menu (Move up, Move down, Duplicate, Remove); rows reorder by their handle, by drag or Space, arrows, Space. Above
+ * menu (Move up, Move down, Turn off / on, Duplicate, Remove); rows reorder by their handle, by drag or Space, arrows, Space. Above
  * them "Try a value", tried through the chain with the engine's modifiers; below, what the action gets.
  */
 function ModifierStack(props: { mapping: MappingSpec; kind: ActionKind; actions: readonly ActionChoice[]; readOnly: boolean; onChange: (steps: ModifierSpec[], label: string) => void }) {
@@ -321,18 +323,23 @@ function ModifierStack(props: { mapping: MappingSpec; kind: ActionKind; actions:
             const s = (MODIFIERS as Record<string, StepSpec>)[stepName(step)];
             const t = traced[i];
             return (
-              <div class="input-step input-modifier" aria-label={`${labelOf(step)} modifier`}>
+              <div class={`input-step input-modifier${isOff(step) ? " is-off" : ""}`} aria-label={`${labelOf(step)} modifier${isOff(step) ? ", off" : ""}`}>
                 <span class="input-step-number">{i + 1}</span>
                 <span class="input-step-name">{labelOf(step)}</span>
                 {s ? <StepParams step={step} spec={s} actions={props.actions} readOnly={readOnly} onChange={(next) => set(replaceAt(steps, i, next as ModifierSpec), "Set Modifier")} /> : <code class="input-step-raw">{JSON.stringify(step)}</code>}
-                {t && (
+                {t?.off && (
+                  <output class="input-trace input-muted" aria-label={`${labelOf(step)} gives`} title="Turned off: skipped, as if it weren't there">
+                    off
+                  </output>
+                )}
+                {t && !t.off && (
                   <output class={`input-trace${t.error ? " failed" : ""}`} aria-label={`${labelOf(step)} gives`} title={t.error ?? (t.timeBased ? "Smooth follows its input over time, so one value passes through; in Play it eases toward it" : undefined)}>
                     → {shownValue(t.value)}
                     {t.timeBased && <span class="input-muted"> (over time)</span>}
                     {t.error && <span> (skipped)</span>}
                   </output>
                 )}
-                <button class="input-step-more" disabled={readOnly} aria-label={`More for ${labelOf(step)}`} aria-haspopup="menu" title="Move, duplicate or remove" onClick={(e) => setMenu({ index: i, at: e.currentTarget })}>
+                <button class="input-step-more" disabled={readOnly} aria-label={`More for ${labelOf(step)}`} aria-haspopup="menu" title="Move, turn off, duplicate or remove" onClick={(e) => setMenu({ index: i, at: e.currentTarget })}>
                   ⋯
                 </button>
               </div>
@@ -355,6 +362,7 @@ function ModifierStack(props: { mapping: MappingSpec; kind: ActionKind; actions:
           entries={[
             { id: "up", label: "Move up", disabled: menu.index === 0, run: () => set(moveItem(steps, menu.index, -1), "Move Modifier") },
             { id: "down", label: "Move down", disabled: menu.index === steps.length - 1, run: () => set(moveItem(steps, menu.index, 1), "Move Modifier") },
+            { id: "off", label: isOff(steps[menu.index] ?? ({} as ModifierSpec)) ? "Turn on" : "Turn off", run: () => set(replaceAt(steps, menu.index, setOff(steps[menu.index], !isOff(steps[menu.index]))), isOff(steps[menu.index]) ? "Turn On Modifier" : "Turn Off Modifier") },
             { id: "duplicate", label: "Duplicate", run: () => set([...steps.slice(0, menu.index + 1), structuredClone(steps[menu.index]), ...steps.slice(menu.index + 1)], "Duplicate Modifier") },
             { id: "remove", label: "Remove", danger: true, run: () => set(removeAt(steps, menu.index), "Remove Modifier") },
           ]}

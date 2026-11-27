@@ -177,3 +177,8 @@
   .input-action-row { grid-template-columns: 1fr 1fr; }
   .input-mapping .import-row { grid-template-columns: 1fr; }
 }
+
+/* A turned-off modifier (ADR 0417): kept in the stack, skipped; its name struck through, its parameters dimmed. */
+.input-modifier.is-off .input-step-name { text-decoration: line-through; color: var(--muted); }
+.input-modifier.is-off .input-param,
+.input-modifier.is-off .input-step-raw { opacity: 0.6; }

@@ -173,6 +173,16 @@ describe("traceInputModifiers", () => {
     expect(t.out).toEqual([0, -1]);
   });
 
+  it("skips a turned-off modifier, and a turned-off dead zone brings back a stick's default one (ADR 0417)", () => {
+    const t = traceInputModifiers([{ scale: 3, off: true }, { scale: 2 }], [0.25], { kind: "axis" });
+    expect(t.steps.map((s) => [s.value, s.off])).toEqual([
+      [[0.25], true],
+      [[0.5], false],
+    ]);
+    const stick = traceInputModifiers([{ deadzone: { min: 0.5 }, off: true }], [0.1, 0], { kind: "vec2", controls: ["<Gamepad>/leftStick"] });
+    expect(stick.steps[0].implicit).toBe(true);
+  });
+
   it("keeps the order: the same modifiers in another order give another value", () => {
     const a = traceInputModifiers([{ scale: 0.5 }, { deadzone: { min: 0.3 } }], [0.5]).out;
     const b = traceInputModifiers([{ deadzone: { min: 0.3 } }, { scale: 0.5 }], [0.5]).out;
@@ -190,7 +200,7 @@ describe("traceInputModifiers", () => {
 
   it("runs the engine's stick dead zone first when a stick's mapping has none, and reads a button's magnitude", () => {
     const t = traceInputModifiers([], [0.1, 0.05], { kind: "vec2", controls: ["<Gamepad>/leftStick"] });
-    expect(t.steps).toEqual([{ value: [0, 0], error: null, timeBased: false, implicit: true }]);
+    expect(t.steps).toEqual([{ value: [0, 0], error: null, timeBased: false, implicit: true, off: false }]);
     expect(traceInputModifiers([{ deadzone: { min: 0.05 } }], [0.5], { controls: ["<Gamepad>/leftStickX"] }).steps).toHaveLength(1);
     expect(traceInputModifiers([], [0.6, 0.8], { kind: "button" }).out).toEqual([1]);
     expect(traceInputModifiers([{ swizzle: "yx" }], [0.7], { kind: "vec2" }).out).toEqual([0, expect.closeTo(0.7, 5)]);

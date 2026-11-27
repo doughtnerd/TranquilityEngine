@@ -354,6 +354,8 @@ export interface ModifierTraceStep {
   readonly timeBased: boolean;
   /** Added by the engine, not the mapping: a stick's dead zone when the mapping has none (the default 0.15). */
   readonly implicit: boolean;
+  /** Turned off (`off: true`): skipped, the value passes through. */
+  readonly off: boolean;
 }
 
 /** A value tried through a mapping's modifiers: each step's output, and what the action gets. */
@@ -371,7 +373,8 @@ const KIND_DIMS = { button: 1, axis: 1, vec2: 2, vec3: 3 } as const;
  * `input` passed through `modifiers` top to bottom as Play runs them (ADR 0336, 0417): the engine's own modifier
  * functions, on as many components as the larger of the input's and the action's (`kind`). `controls` are the
  * mapping's control paths: when one is a gamepad stick and the stack has no dead zone, the engine's default one runs
- * first and shows as an implicit step. `smooth` follows its input over time, so one value passes through it.
+ * first and shows as an implicit step. `smooth` follows its input over time, so one value passes through it, and a
+ * turned-off modifier (`off: true`) is skipped.
  */
 export function traceInputModifiers(modifiers: readonly ModifierSpec[], input: readonly number[], options: { readonly kind?: ActionKind; readonly controls?: readonly string[] } = {}): ModifierTrace {
   const dims = Math.max(1, Math.min(3, Math.max(input.length, options.kind ? KIND_DIMS[options.kind] : 1)));
@@ -382,18 +385,19 @@ export function traceInputModifiers(modifiers: readonly ModifierSpec[], input: r
     return src?.device === "gamepad" && (src.read === "stick" || src.read === "axis");
   });
   const specs: { spec: ModifierSpec; implicit: boolean }[] = modifiers.map((spec) => ({ spec, implicit: false }));
-  if (stick && !modifiers.some((m) => "deadzone" in m)) specs.unshift({ spec: { deadzone: { min: DEFAULT_STICK_DEADZONE } }, implicit: true });
+  if (stick && !modifiers.some((m) => "deadzone" in m && !m.off)) specs.unshift({ spec: { deadzone: { min: DEFAULT_STICK_DEADZONE } }, implicit: true });
   const round = (x: number) => Math.round(x * 1e6) / 1e6;
   const steps = specs.map(({ spec, implicit }): ModifierTraceStep => {
     const timeBased = "smooth" in spec;
     let error: string | null = null;
+    if (spec.off) return { value: Array.from(v.subarray(0, dims), round), error, timeBased, implicit, off: true };
     try {
       const run = compileModifier(spec);
       if (!timeBased) run(v, dims, 0);
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
-    return { value: Array.from(v.subarray(0, dims), round), error, timeBased, implicit };
+    return { value: Array.from(v.subarray(0, dims), round), error, timeBased, implicit, off: false };
   });
   const out = Float32Array.from(v);
   if (options.kind === "button") out[0] = Math.min(1, Math.sqrt(out[0] * out[0] + (dims > 1 ? out[1] * out[1] : 0) + (dims > 2 ? out[2] * out[2] : 0)));

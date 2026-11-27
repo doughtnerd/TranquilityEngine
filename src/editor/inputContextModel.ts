@@ -156,8 +156,19 @@ export type TriggerName = keyof typeof TRIGGERS;
 
 export const TRIGGER_TYPES: readonly TriggerType[] = ["explicit", "implicit", "blocker"];
 
-/** The name of a modifier or trigger (its one key besides `type`). */
-export const stepName = (step: ModifierSpec | TriggerSpec): string => Object.keys(step).find((k) => k !== "type") ?? "";
+/** The name of a modifier or trigger (its one key besides a trigger's `type` and a modifier's `off`). */
+export const stepName = (step: ModifierSpec | TriggerSpec): string => Object.keys(step).find((k) => k !== "type" && k !== "off") ?? "";
+
+/** Whether a modifier is turned off (kept in the stack, skipped: ADR 0417). */
+export const isOff = (step: ModifierSpec): boolean => step.off === true;
+
+/** A modifier turned off or back on; on drops the key. */
+export function setOff(step: ModifierSpec, off: boolean): ModifierSpec {
+  const out: Record<string, unknown> = { ...step };
+  if (off) out.off = true;
+  else delete out.off;
+  return out as unknown as ModifierSpec;
+}
 
 /** A step's parameters as an object (a flag's are none; a scalar's is `{ [name]: value }`). */
 export function stepParams(step: ModifierSpec | TriggerSpec): Record<string, unknown> {
@@ -198,7 +209,8 @@ export function setStepParam<S extends ModifierSpec | TriggerSpec>(step: S, key:
   const name = stepName(step);
   const s = spec(name);
   const type = (step as { type?: TriggerType }).type;
-  const withType = (o: Record<string, unknown>) => (type ? { ...o, type } : o) as unknown as S;
+  const off = (step as { off?: boolean }).off;
+  const withType = (o: Record<string, unknown>) => ({ ...o, ...(type ? { type } : {}), ...(off ? { off } : {}) }) as unknown as S;
   if (s?.scalar) return withType({ [name]: value });
   const params = { ...stepParams(step) };
   if (value === undefined) delete params[key];

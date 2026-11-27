@@ -142,7 +142,7 @@ function compileMapping(spec: MappingSpec, context: string, index: number, addit
     else source = { kind: "single", control: ctl("control", spec.control) };
     const all: Control[] = source.kind === "single" ? [source.control] : source.kind === "dpad" ? [source.up, source.down, source.left, source.right] : source.kind === "axis" ? [source.negative, source.positive] : [...source.modifiers, source.control];
     const options = target.action.type.options;
-    const specs: ModifierSpec[] = [...(spec.modifiers ?? [])];
+    const specs: ModifierSpec[] = (spec.modifiers ?? []).filter((m) => !m.off); // a turned-off modifier is as if absent
     const stick = all.some(isStickControl);
     const override = a11y.deadzone;
     const hasDeadzone = specs.some((m) => "deadzone" in m);
@@ -231,7 +231,7 @@ function tableFor(world: World, index: number, previous: PlayerTable | undefined
   const actionModifiers = new Map<string, Modifier[]>();
   for (const set of actionSets()) {
     for (const a of set.actions) {
-      const specs = a.type.options.modifiers;
+      const specs = a.type.options.modifiers?.filter((m) => !m.off);
       if (!specs?.length) continue;
       try {
         actionModifiers.set(actionKey(set, a), specs.map(compileModifier));

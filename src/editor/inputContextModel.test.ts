@@ -25,6 +25,9 @@ import {
   setConsume,
   setPart,
   setStepParam,
+  setOff,
+  isOff,
+  stepName,
   setTriggerType,
   stepParams,
   withSteps,
@@ -266,5 +269,16 @@ describe("a mapping's note and summary (ADR 0417)", () => {
     expect(controlSummary({ action: "a", composite: "axis", negative: "<Keyboard>/a", positive: "<Keyboard>/d" })).toBe("Axis a / d");
     expect(controlSummary({ action: "a", composite: "modifier", modifier: ["<Keyboard>/shift", "<Keyboard>/control"], control: "<Keyboard>/b" })).toBe("shift + control + b");
     expect(controlSummary({ action: "a" })).toBe("no control");
+  });
+});
+
+describe("turning a modifier off (ADR 0417)", () => {
+  it("keeps its name and parameters, survives a parameter change, and drops the key when turned back on", () => {
+    const off = setOff({ scale: 2 }, true);
+    expect(off).toEqual({ scale: 2, off: true });
+    expect(isOff(off)).toBe(true);
+    expect(stepName({ off: true, scale: 2 } as never)).toBe("scale");
+    expect(setStepParam(off, "x", 3)).toEqual({ scale: { x: 3, y: 2, z: 2 }, off: true });
+    expect(setOff(off, false)).toEqual({ scale: 2 });
   });
 });
