@@ -17,7 +17,7 @@ import { devices, type InputClaim, type PointerFrame } from "../input/devices";
 import { UIButton, UICanvas, UIImage, UIInputField, UIOption, UISelect, UISlider, UIText, UITextArea, isFocusableUI, type UIComponentType, type UIFocusableElement } from "./components";
 import { controlState, dragSlider, formOf, pageSlider, playerTyped, selectLabels, setSelectOpen, settleSelect, sliderToEnd, stepNumberField, submitForm, uiClickRecord } from "./formModel";
 import { formPartsOf, partsKey } from "./formParts";
-import { paintOf, samePaint } from "./paint";
+import { paintOf } from "./paint";
 import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInlineAtom, isInteractiveKind, isLeafKind, isRaycastTarget, isUserScroller, overflowAxes, sameTextMeasure, sameTextRun, textRunOf, uiKindOf, userScrollsAxis, type UIInlineAtomSizes } from "./elementKinds";
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
@@ -1342,9 +1342,8 @@ export class UICore implements UICoreLike {
           e.partsKey = key;
           e.parts = parts;
         }
-        // ADR 0437: its paint, its state colours resolved (the same object while unchanged, as parts are).
-        const paint = paintOf(e.comp);
-        if (e.paint === undefined || !samePaint(e.paint, paint)) e.paint = paint;
+        // ADR 0437: its paint, its state colours resolved (the same object, nothing allocated, while unchanged, as parts are).
+        e.paint = paintOf(e.comp, e.paint);
         elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll, parts: e.parts ?? null, paint: e.paint ?? null, filter: p.filter, backdrop: p.backdrop ?? null, inline: e.kind === "text" ? (e.inline ?? null) : null, editing: this.editingOf(e) });
       }
     }

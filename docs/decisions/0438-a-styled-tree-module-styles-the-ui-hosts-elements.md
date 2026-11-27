@@ -60,3 +60,8 @@ None.
 
 - Built as decided. A pure refactor, apart from the edge case under Consequences. The Svelte conformance check stays at 1278 of 1278 in scope. The HUD bundle tripwire (`MEASURED_GZIP`) is unchanged and passes.
 - Outside the UI module, `editor/uiViews.ts` reads `el._style.target`/`el._style.resolved`, the Svelte renderer reads `hosted._style.target.state`, and `editor/prefetch.ts` prefetches `document/styledTree`.
+
+### Follow-up (2026-11-27)
+
+- **Callers outside the UI module read an element's style through the host element, not `_style`.** `UIHostElement.styleTarget` (what selectors match: id, classes, attributes, pseudo-class `state`, parent, children; the same object for the element's life, so a resolved value inherited `from` a target names its element) and `UIHostElement.resolvedStyle` (the resolved style by field, with each value's source). `editor/uiViews.ts` maps an inherited value's target back to its element with `styleTarget` and reads field sources from `resolvedStyle`; the Svelte renderer's selector targets take a hosted element's pseudo-state from `styleTarget.state`. No `_style` read is left outside `ui/document/` and `ui/host/` (the styled tree's own tests, `uiStyledTree.test.ts`, keep their plain host's `_style`, which `UIStyledNode` requires).
+- With ADR 0437's follow-up, the paint states written to `UIPanel._styledStates` are those a winning rule's matching selector names anywhere outside an odd number of `:not()`s, not only in its subject compound.

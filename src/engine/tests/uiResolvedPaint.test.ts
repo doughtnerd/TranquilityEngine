@@ -158,6 +158,24 @@ describe("resolved paint: the style's own state rules (ADR 0437)", () => {
     expect(fillOf(p, b)).toEqual([1, 0, 1, 1]);
   });
 
+  it("counts a state named outside the subject: through an ancestor's :has(), not under :not()", async () => {
+    const ui = buildUI(`<Canvas><div id="row"><button id="b" width="100" height="40" hover-color="#ff00ff"/></div><div id="row2"><button id="c" width="100" height="40" hover-color="#ff00ff"/></div></Canvas>`, {
+      css: `#row:has(#b:hover) #b { background-color: #00ff00 } #row2:not(:hover) #c { background-color: #333333 }`,
+    });
+    const b = byId(ui, "b", UIButton);
+    const c = byId(ui, "c", UIButton);
+    const p = await core();
+    p.hover(b);
+    frame(p);
+    expect(b.hovered).toBe(true);
+    expect(fillOf(p, b)).toEqual([0, 1, 0, 1]); // the rule states the hovered look: drawn over hoverColor
+    p.hover(c);
+    frame(p);
+    expect(fillOf(p, b)).toEqual(css(new UIButton().backgroundColor!)); // no longer hovered: the rule stops matching
+    // `#row2:not(:hover) #c` matches while #c is hovered, but it states the look of a row not hovered: hoverColor shows.
+    expect(fillOf(p, c)).toEqual([1, 0, 1, 1]);
+  });
+
   it("draws a :hover background's transition as it runs", async () => {
     const ui = buildUI(`<Canvas><button id="b" width="100" height="40"/></Canvas>`, {
       css: `#b { background-color: #000000; transition: background-color 1s linear } #b:hover { background-color: #ffffff }`,
@@ -234,5 +252,24 @@ describe("resolved paint: borders and corners (ADR 0437, 0422, 0432)", () => {
     frame(p);
     expect(paintOf(p, button)).not.toBe(before);
     expect(p.core.layoutVersion).toBeGreaterThan(version);
+  });
+
+  it("keeps the paint object across a write that draws the same, and replaces it when a painted field changes", async () => {
+    const canvas = node("C", null, UICanvas);
+    const panel = node("P", canvas.node, UIPanel, { width: "100", height: "40", backgroundColor: new Color(1, 0, 0, 1), borderWidth: 1 });
+    const p = await core();
+    const before = paintOf(p, panel);
+    panel.backgroundColor = new Color(1, 0, 0, 1); // a new colour object, the same colour
+    panel.borderTopWidth = 1; // its own width, the same as borderWidth
+    p.sync();
+    expect(paintOf(p, panel)).toBe(before);
+    panel.borderColor = new Color(0, 0, 1, 1);
+    p.sync();
+    const after = paintOf(p, panel);
+    expect(after).not.toBe(before);
+    expect(after).toEqual({ ...before, borderColor: [0, 0, 1, 1] });
+    panel.backgroundColor = new Color(1, 0, 0, 0); // transparent: no fill
+    p.sync();
+    expect(paintOf(p, panel).background).toBeNull();
   });
 });
