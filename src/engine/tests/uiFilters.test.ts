@@ -134,3 +134,32 @@ describe("the pixel fallback (ADR 0426, filterPixels)", () => {
     expect(img.data[7]).toBe(0);
   });
 });
+
+describe("backdrop-filter (ADR 0428)", () => {
+  it("expands into the backdrop fields, transitions them, shows as CSS, and reaches the UI core through the element's transform only", async () => {
+    await uiAnimationReady(World.require());
+    const doc = buildUI(`<Canvas><div id="p" scale="2"><div id="q" class="g" style="backdrop-filter: blur(2px) saturate(1.5)"/></div><div id="r" class="t"/></Canvas>`, {
+      css: `.t { transition: backdrop-filter 1s linear } .t.on { backdrop-filter: blur(8px) brightness(0.5) }`,
+    });
+    const q = byId(doc, "q", UIPanel);
+    expect([q.backdropBlur, q.backdropSaturate, q.backdropBrightness, q.filterBlur]).toEqual([2, 1.5, 1, 0]);
+    expect(doc.query("#q")!.computedStyle().backdropFilter).toBe("blur(2px) saturate(1.5)");
+    const core = new UICore({ interactive: false });
+    await core.ready;
+    try {
+      core.sync(World.require(), 1280, 720, DT);
+      const of = (id: string) => core.elements().find((e) => e.comp === byId(doc, id, UIPanel))!;
+      expect(filterText(of("q").backdrop!)).toBe("blur(4px) saturate(1.5)"); // through its parent's scale
+      expect(of("q").filter ?? null).toBeNull(); // not a filter of its subtree
+      expect(of("p").backdrop ?? null).toBeNull();
+    } finally {
+      core.dispose();
+    }
+    const r = byId(doc, "r", UIPanel);
+    engine.step(DT);
+    classList(doc.query("#r")!).add("on");
+    for (let i = 0; i < 33; i++) engine.step(DT);
+    expect(r.backdropBlur).toBeCloseTo(4, 4);
+    expect(r.backdropBrightness).toBeCloseTo(0.75, 4);
+  });
+});

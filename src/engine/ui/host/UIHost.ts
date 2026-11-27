@@ -35,13 +35,15 @@ import type { FieldInfo } from "../../core/registry";
 import type { GameObject } from "../../scene/GameObject";
 import { Locale } from "../../localisation/Locale";
 import { uiPreferencesVersion } from "../preferences";
-import { UIButton, UICanvas, UIInputField, UIText, isFocusableUI, type UIComponentType } from "../components";
+import { UIButton, UICanvas, UIInputField, UIPanel, UIText, isFocusableUI, type UIComponentType } from "../components";
 import { clickUI, setUIValue, uiValueOf } from "../formControls";
+import { setUIPartStyles, type UIPartStyle } from "../formParts";
 import { samePseudoState, uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
-import { filterStepsOf, filterText, type UIFilterFields } from "../filters";
-import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudo, UIPseudoState, UIStylesheet, UITag } from "../document/types";
+import { backdropFilterFields, filterStepsOf, filterText, type UIFilterFields } from "../filters";
+import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudo, UIPseudoElement, UIPseudoState, UIStylesheet, UITag } from "../document/types";
+import type { UIContentPiece } from "../document/contentValue";
 import type { UIAnimationSpec, UITransitionSpec } from "../document/animationValues";
 import type { UIElementUnits, UIHasUse } from "../document/cascade";
 import { takeUIAnimationEvents, uiAnimatedField, uiAnimating, uiAnimationOwnerGone, uiAnimator, type UIAnimationEvent, type UIAnimationStop, type UIPlayback, type UIPlayHooks, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "../animation/UIAnimator";
@@ -117,6 +119,8 @@ let sheetsUseMedia = false;
 let sheetsUseViewport = false;
 /** ADR 0428: how the sheets use `:has()` (null: they don't), so changes inside the tree restyle the elements it may match. */
 let sheetsHas: UIHasUse | null = null;
+/** ADR 0428: the pseudo-elements the sheets style (`::before`, `::placeholder`, form parts…). */
+let sheetsPseudoElements: ReadonlySet<UIPseudoElement> = new Set();
 
 /**
  * Set (or with null, remove) the stylesheet `file` contributes to every hosted tree: a Svelte component's
@@ -161,6 +165,7 @@ function hostSheets(): readonly UIStylesheet[] {
   sheetsUseMedia = P.usesMedia(sheets);
   sheetsUseViewport = P.usesViewportUnits(sheets);
   sheetsHas = P.hasUse(sheets);
+  sheetsPseudoElements = P.pseudoElementsUsed(sheets);
   return sheets;
 }
 
@@ -311,6 +316,14 @@ export class UIHostElement {
   /** @internal Styled at least once (a first style starts no transitions, ADR 0418 wave 4). */ _styled = false;
   /** @internal The attributes as written, which attribute selectors match (ADR 0418 wave 5). */ _written: ReadonlyMap<string, string> = new Map();
   /** @internal Its child elements' targets, until its children change. */ _childTargetList: MutableTarget[] | null = null;
+  /** @internal ADR 0428: the pseudo-element this generated element is (`::before`/`::after`, made by the host), or null. */ _pseudo: "before" | "after" | null = null;
+  /**
+   * @internal ADR 0428: its generated `::before` and `::after` elements: nodes under its node (first and last), not in
+   * `children`, so queries, structural selectors and the renderer never see them.
+   */
+  _before: UIHostElement | null = null;
+  /** @internal */ _after: UIHostElement | null = null;
+  /** @internal ADR 0428: the part styles its form part pseudo-elements gave it last (null: none). */ _parts: Partial<Record<UIPseudoElement, UIPartStyle>> | null = null;
 
   /** @internal Its child elements' style targets, in order (text labels aren't elements). */
   _childTargets(): MutableTarget[] {
@@ -321,6 +334,14 @@ export class UIHostElement {
   _hasContent(): boolean {
     if (this._comp instanceof UIText && this._comp.text !== "") return true;
     return this._children.some((c) => c.synthetic && c._alive);
+  }
+
+  /** @internal An attribute as written (`attr()` in `content`, ADR 0428), by name in any case. */
+  _attribute(name: string): string | undefined {
+    const v = this._written.get(name);
+    if (v !== undefined) return v;
+    for (const [k, w] of this._written) if (k.toLowerCase() === name) return w;
+    return undefined;
   }
 
   /** @internal */
@@ -526,6 +547,8 @@ export class UIHostElement {
       fontSize: px(num(c.fontSize, 16)),
       // ADR 0426: the filter fields as CSS (their fixed order); SVG stroke properties belong to SVG shapes, not elements.
       filter: filterText(filterStepsOf(c as Partial<UIFilterFields>)),
+      // ADR 0428: the backdrop fields as CSS, the same way.
+      backdropFilter: filterText(filterStepsOf(backdropFilterFields(c))),
       zoom: "1",
       strokeLinecap: "butt",
       strokeWidth: "1px",
@@ -560,7 +583,7 @@ export class UIHostElement {
         const raw = substituted === undefined ? undefined : P.withElementUnits(substituted, field, units);
         const values = substituted === undefined ? "uses a variable that isn't defined." : raw === undefined ? "uses a viewport length before the canvas size is known." : P.keyframeValues(field, raw, fields, file);
         if (typeof values === "string") {
-          const later = /^backdrop-filter$/.test(name) ? " backdrop-filter isn't supported (ADR 0426); the rest of the animation runs." : /^stroke|^fill/.test(name) ? " SVG paint applies to shapes inside an <svg> (ADR 0426); the rest of the animation runs." : "";
+          const later = /^stroke|^fill/.test(name) ? " SVG paint applies to shapes inside an <svg> (ADR 0426); the rest of the animation runs." : "";
           // Once per tag, property and reason (a transition's keyframes hold a new value each frame).
           const key = `${this.tag}|${name}|${values}`;
           if (!animateWarned.has(key)) {
@@ -840,6 +863,43 @@ function walk(el: UIHostElement, fn: (el: UIHostElement) => void): void {
   for (const c of el._children) walk(c, fn);
 }
 
+/** `walk`, with the generated `::before`/`::after` elements (ADR 0428) too. */
+function walkAll(el: UIHostElement, fn: (el: UIHostElement) => void): void {
+  fn(el);
+  if (el._before) walkAll(el._before, fn);
+  for (const c of el._children) walkAll(c, fn);
+  if (el._after) walkAll(el._after, fn);
+}
+
+/** ADR 0428: the element kinds that generate `::before`/`::after` (as in CSS, not replaced elements, controls or media). */
+const GENERATES: ReadonlySet<UITag> = new Set<UITag>(["Panel", "Text", "Button", "Label", "Form"]);
+
+/** ADR 0428: form controls' part pseudo-elements, by the kind they style. */
+const PART_ELEMENTS: Readonly<Partial<Record<UITag, readonly UIPseudoElement[]>>> = {
+  Slider: ["-webkit-slider-thumb", "-webkit-slider-runnable-track"],
+  Progress: ["-webkit-progress-bar", "-webkit-progress-value"],
+  Meter: ["-webkit-meter-optimum-value", "-webkit-meter-suboptimum-value", "-webkit-meter-even-less-good-value"],
+  Toggle: ["checkmark"],
+  Radio: ["checkmark"],
+  Select: ["picker-icon"],
+};
+
+/** ADR 0428: a pseudo-element's style target: matched through its originating element (`parent`). */
+function pseudoTarget(el: UIHostElement, which: UIPseudoElement): MutableTarget {
+  return {
+    tag: `::${which}`,
+    id: null,
+    classes: [],
+    state: { hover: false, pressed: false, focus: false, disabled: false },
+    parent: el._target,
+    lang: el._target.lang,
+    media: null,
+    viewport: null,
+    pseudoElement: which,
+    children: [],
+  } as MutableTarget;
+}
+
 /** Whether attributes name another element by id (`nav-up`, `first-selected`…, ADR 0340): a cheap name test first, as attributes change often. */
 function hasReferenceAttribute(attributes: ReadonlyMap<string, string>): boolean {
   for (const name of attributes.keys()) {
@@ -1001,7 +1061,7 @@ export class UIHostTree {
       const i = parent._children.indexOf(el);
       if (i >= 0) parent._children.splice(i, 1);
     }
-    walk(el, (e) => {
+    walkAll(el, (e) => {
       e._alive = false;
       e._listeners.clear();
       this.dirty.delete(e);
@@ -1381,7 +1441,8 @@ export class UIHostTree {
     let i = before ? siblings.indexOf(before) : -1;
     if (i < 0) i = siblings.length;
     siblings.splice(i, 0, el);
-    this.world._setSiblingIndex(el._node.entity, i); // node order is layout and draw order
+    // Node order is layout and draw order; a generated `::before` (ADR 0428) stays first, an `::after` last.
+    this.world._setSiblingIndex(el._node.entity, i + (parent._before ? 1 : 0));
   }
 
   /** `parent`'s children were added, removed or reordered: with structural selectors, it restyles with them (ADR 0418 wave 5). */
@@ -1436,6 +1497,11 @@ export class UIHostTree {
 
   /** Restyle an element and (`deep`, or when what it passes on changed, ADR 0428) its subtree. */
   private resolve(el: UIHostElement, deep = true): void {
+    if (el._pseudo) {
+      // ADR 0428: a generated `::before`/`::after` restyles with its originating element.
+      if (el._parent?._alive) this.resolve(el._parent, false);
+      return;
+    }
     const P = requireCascade();
     const type = el._comp.constructor as ComponentClass;
     const sheets = parsedSheets;
@@ -1445,7 +1511,20 @@ export class UIHostTree {
       // The canvas takes no style (its fields are its owner's), but `:root` variables start here for its children.
       // ADR 0428: and what it inherits from `:root` rules (text properties, the font size `rem` is relative to).
       for (const [k, v] of P.resolveStyle(el._target, el._markup, type, sheets, null, () => {})) if (k.startsWith("--") || k === P.UNITS_KEY || P.INHERITED_FIELDS.has(k)) resolved.set(k, v);
-    }
+    } else if (sheetsPseudoElements.size || el._parts) this.pseudoFields(el, resolved, P);
+    const passOn = this.apply(el, resolved, P) || deep;
+    if (el !== this.root && !el.synthetic && (el._before || el._after || sheetsPseudoElements.has("before") || sheetsPseudoElements.has("after"))) this.generate(el, P);
+    if (passOn) for (const child of el._children) this.resolve(child);
+  }
+
+  /**
+   * Write a resolved style to an element's component (transitions and keyframe animations through the animator); returns
+   * whether what it passes on to children changed (ADR 0428).
+   */
+  private apply(el: UIHostElement, resolved: Map<string, ResolvedValue>, P: Cascade): boolean {
+    const type = el._comp.constructor as ComponentClass;
+    const sheets = parsedSheets;
+    const parentResolved = el._parent?._resolved ?? null;
     const comp = el._comp as unknown as Record<string, unknown>;
     const fields = P.fieldsOf(type);
     const content = new Set(CONTENT_ATTRIBUTES[el.uiTag] ?? []);
@@ -1505,11 +1584,185 @@ export class UIHostTree {
       if (hover && hover.source !== base?.source && hover.value) el._comp.hoverColor = P.cloneValue(hover.value) as Color;
       if (pressed && pressed.source !== base?.source && pressed.value) el._comp.pressedColor = P.cloneValue(pressed.value) as Color;
     }
-    const passOn = deep || !passesOnSame(el._resolved, resolved, P);
+    const changed = !passesOnSame(el._resolved, resolved, P);
     el._resolved = resolved;
     el._applied = next;
-    if (passOn) for (const child of el._children) this.resolve(child);
+    return changed;
   }
+
+  /**
+   * ADR 0428: what `::placeholder`, `::selection` and form part pseudo-elements style on the element itself. The first
+   * two become entries of its resolved style (`placeholderColor`, `placeholderFontStyle`, `selectionColor`,
+   * `selectionBackgroundColor`), applied, transitioned and reset as its own fields are; only what a pseudo-element rule
+   * declares counts (not what it inherits), so the fields' own values stay the defaults. Parts go to the control's parts
+   * (`setUIPartStyles`).
+   */
+  private pseudoFields(el: UIHostElement, resolved: Map<string, ResolvedValue>, P: Cascade): void {
+    const c = el._comp;
+    const style = (which: UIPseudoElement, type: ComponentClass) => P.resolveStyle(pseudoTarget(el, which), { tag: el.uiTag, attributes: [], file: el._markup.file }, type, parsedSheets, resolved, warn);
+    const own = (map: ReadonlyMap<string, ResolvedValue>, field: string) => {
+      const v = map.get(field);
+      return v && v.source.kind !== "inherited" && v.source.kind !== "default" ? v : undefined;
+    };
+    const set = (field: string, value: unknown, source: ResolvedValue["source"]) => resolved.set(field, { field, value, source });
+    if ((c instanceof UIInputField || c instanceof UIText) && sheetsPseudoElements.has("selection")) {
+      const r = style("selection", UIText);
+      const color = own(r, "color"), background = own(r, "backgroundColor");
+      if (color) set("selectionColor", color.value, color.source);
+      if (background) set("selectionBackgroundColor", background.value, background.source);
+    }
+    if (c instanceof UIInputField && sheetsPseudoElements.has("placeholder")) {
+      const r = style("placeholder", UIText);
+      const color = own(r, "color"), opacity = own(r, "opacity"), fontStyle = own(r, "fontStyle");
+      if (color || opacity) {
+        // `opacity` fades the placeholder's colour (as Firefox's user-agent sheet does), over its own or the default.
+        const base = (color?.value ?? resolved.get("placeholderColor")?.value ?? defaultOf(el._comp.constructor as ComponentClass, "placeholderColor")) as Color;
+        const a = typeof opacity?.value === "number" ? Math.min(1, Math.max(0, opacity.value)) : 1;
+        set("placeholderColor", new Color(base.r, base.g, base.b, base.a * a), (color ?? opacity)!.source);
+      }
+      if (fontStyle) set("placeholderFontStyle", fontStyle.value, fontStyle.source);
+    }
+    const parts = PART_ELEMENTS[el.uiTag];
+    if (parts) {
+      let styles: Partial<Record<UIPseudoElement, UIPartStyle>> | null = null;
+      for (const name of parts) {
+        if (!sheetsPseudoElements.has(name)) continue;
+        const part = partStyleOf(style(name, UIPanel), own, P);
+        if (part) (styles ??= {})[name] = part;
+      }
+      if (styles || el._parts) {
+        el._parts = styles;
+        setUIPartStyles(c, styles);
+      }
+    }
+  }
+
+  /** ADR 0428: make, restyle or remove an element's `::before` and `::after` by their `content`. */
+  private generate(el: UIHostElement, P: Cascade): void {
+    const inText = el._comp instanceof UIText;
+    for (const which of ["before", "after"] as const) {
+      let g = which === "before" ? el._before : el._after;
+      let resolved: Map<string, ResolvedValue> | null = null;
+      let text: string | null = null;
+      if (sheetsPseudoElements.has(which) && GENERATES.has(el.uiTag)) {
+        // Inside a text element it's an inline run (a text); elsewhere a box (a panel) holding its text as a label.
+        resolved = P.resolveStyle(g?._target ?? pseudoTarget(el, which), { tag: inText ? "Text" : "Panel", attributes: [], file: el._markup.file }, inText ? UIText : UIPanel, parsedSheets, el._resolved, warn);
+        const pieces = resolved.get(P.CONTENT_KEY)?.value as readonly UIContentPiece[] | null | undefined;
+        if (pieces) text = P.contentText(pieces, (name) => el._attribute(name));
+      }
+      if (text === null || !resolved) {
+        if (g) this.removeGenerated(el, which);
+        continue;
+      }
+      g ??= this.makeGenerated(el, which, inText ? "Text" : "Panel");
+      if (g._comp instanceof UIText) g._comp.text = text;
+      this.apply(g, resolved, P);
+      if (!inText) this.generatedLabel(g, text, P);
+    }
+  }
+
+  private makeGenerated(el: UIHostElement, which: "before" | "after", uiTag: UITag): UIHostElement {
+    const g = new UIHostElement(this, `::${which}`, uiTag, null, true);
+    g._pseudo = which;
+    g._node = this.world._createNode(`::${which}`, el._node.entity);
+    g._comp = this.world._addComponent(g._node.entity, uiTypeOfTag(uiTag));
+    if (g._comp instanceof UIText) g._comp._pseudo = which;
+    g._parent = el;
+    g._target = pseudoTarget(el, which);
+    g._markup = { tag: uiTag, attributes: [], file: el._markup.file };
+    elementByComponent.set(g._comp, g);
+    this.world._setSiblingIndex(g._node.entity, which === "before" ? 0 : Number.MAX_SAFE_INTEGER);
+    if (which === "before") el._before = g;
+    else el._after = g;
+    this.shapeChanged = true;
+    hostVersion++;
+    return g;
+  }
+
+  /** ADR 0428: a generated box's text, as a label it holds (none for `""`), which inherits its text properties. */
+  private generatedLabel(g: UIHostElement, text: string, P: Cascade): void {
+    let label: UIHostElement | null = g._children[0] ?? null;
+    if (text === "") {
+      if (label) {
+        g._children = [];
+        this.destroyGenerated(label);
+      }
+      return;
+    }
+    if (!label) {
+      label = new UIHostElement(this, P.TEXT_PIECE_TAG, "Text", null, true);
+      label._node = this.world._createNode(P.TEXT_PIECE_TAG, g._node.entity);
+      label._comp = this.world._addComponent(label._node.entity, UIText);
+      label._parent = g;
+      label._target = targetOf(label, P.TEXT_PIECE_TAG, g._target);
+      label._markup = { tag: "Text", attributes: [], file: g._markup.file };
+      elementByComponent.set(label._comp, label);
+      g._children = [label];
+      this.shapeChanged = true;
+      hostVersion++;
+    }
+    (label._comp as UIText).text = text;
+    this.resolve(label);
+  }
+
+  private removeGenerated(el: UIHostElement, which: "before" | "after"): void {
+    const g = which === "before" ? el._before : el._after;
+    if (!g) return;
+    if (which === "before") el._before = null;
+    else el._after = null;
+    this.destroyGenerated(g);
+  }
+
+  private destroyGenerated(g: UIHostElement): void {
+    walkAll(g, (e) => {
+      e._alive = false;
+      this.dirty.delete(e);
+    });
+    if (g._node.isValid) {
+      g._node.setActive(false);
+      this.world._destroyNode(g._node.entity);
+      this.world.applyDestroys();
+    }
+    this.shapeChanged = true;
+    hostVersion++;
+  }
+}
+
+/** ADR 0428: a form part's style from its pseudo-element's resolved style (as a panel), or null when it declares nothing. */
+function partStyleOf(r: ReadonlyMap<string, ResolvedValue>, own: (map: ReadonlyMap<string, ResolvedValue>, field: string) => ResolvedValue | undefined, P: Cascade): UIPartStyle | null {
+  const out: { -readonly [K in keyof UIPartStyle]: UIPartStyle[K] } = {};
+  const num = (field: string) => {
+    const v = own(r, field)?.value;
+    return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  };
+  const px = (field: string) => {
+    const v = own(r, field)?.value;
+    return typeof v === "string" && /^-?(\d+\.?\d*|\.\d+)(px)?$/.test(v.trim()) ? parseFloat(v) : undefined;
+  };
+  const color = (field: string) => {
+    const v = own(r, field);
+    if (!v) return undefined;
+    if (v.value instanceof Color || v.value === null) return v.value;
+    return typeof v.value === "string" ? (P.parseColor(v.value) ?? undefined) : undefined;
+  };
+  const background = color("backgroundColor");
+  if (background !== undefined) out.background = background;
+  const fg = color("color");
+  if (fg) out.color = fg;
+  const radius = num("borderRadius") ?? num("borderTopLeftRadius");
+  if (radius !== undefined && radius >= 0) out.radius = radius;
+  const bw = num("borderWidth") ?? num("borderTopWidth");
+  if (bw !== undefined) out.borderWidth = bw;
+  const bc = color("borderColor");
+  if (bc) out.borderColor = bc;
+  const w = px("width"), h = px("height");
+  if (w !== undefined) out.width = w;
+  if (h !== undefined) out.height = h;
+  const sc = color("boxShadowColor");
+  if (sc !== undefined) out.shadow = sc ? { color: sc, x: num("boxShadowOffsetX") ?? 0, y: num("boxShadowOffsetY") ?? 0, blur: num("boxShadowBlur") ?? 0 } : null;
+  const opacity = num("opacity");
+  if (opacity !== undefined) out.opacity = opacity;
+  return Object.keys(out).length ? out : null;
 }
 
 /**

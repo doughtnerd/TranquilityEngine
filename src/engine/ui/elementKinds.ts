@@ -477,34 +477,43 @@ function pushRuns(c: UIText, outer: InlineContext, b: RunBuild, root: boolean): 
       };
   const box = root ? null : boxOf(c, first, first, ctx);
   const inner: InlineContext = box ? { ...ctx, background: outer.background } : ctx;
-  // A text piece's events go to the element it's in.
-  const owner = c._textPiece ? ownerAbove(c) : c;
+  // A text piece's events go to the element it's in, as a generated `::before`/`::after`'s do (ADR 0428).
+  const owner = c._textPiece || c._pseudo ? ownerAbove(c) : c;
+  const children = inlineChildren(c);
+  // ADR 0428: a `::before` comes before the element's own text (a run, or an atomic box when it's `inline-block`).
+  const before = children[0] instanceof UIText && children[0]._pseudo === "before" ? children[0] : null;
+  const rest = before ? children.slice(1) : children;
+  if (before) pushChild(c, before, inner, b);
   if (c.text !== "") out.push(textRun(c, c.text, inner, owner, b.editable));
-  for (const k of inlineChildren(c)) {
-    if (isInlineAtom(k)) {
-      // ADR 0428: an atomic inline box: one object run, the size of its own layout's margin box.
-      const va = (k as { verticalAlign?: UIVerticalAlign }).verticalAlign ?? "baseline";
-      const size = b.atoms(k) ?? { width: 0, height: 0, baseline: 0 };
-      out.push({ ...textRun(c, OBJECT, inner, k, b.editable), verticalAlign: alignOf(va), shift: inner.shift + shiftOf(va, c.fontSize), decoration: "", background: null, atom: { width: size.width, height: size.height, baseline: size.baseline }, owner: k, source: null });
-      continue;
-    }
-    if (k instanceof UIText) {
-      // A `<br>`: a line break in the run's style.
-      pushRuns(k, inner, b, false);
-      continue;
-    }
-    const img = k as UIImage;
-    const size = c.fontSize;
-    const w = pixelsOr(img.width, NaN), h = pixelsOr(img.height, NaN);
-    const width = Number.isFinite(w) ? w : Number.isFinite(h) ? h : size;
-    const height = Number.isFinite(h) ? h : width;
-    const va = img.verticalAlign ?? "baseline";
-    out.push({ ...textRun(c, OBJECT, inner, img, b.editable), verticalAlign: alignOf(va), shift: inner.shift + shiftOf(va, c.fontSize), decoration: "", background: null, image: { src: img.image, width, height }, owner: img, source: null });
-  }
+  for (const k of rest) pushChild(c, k, inner, b);
   if (boxIndex >= 0) {
     if (box && out.length > first) b.boxes[boxIndex] = { ...box, last: out.length - 1 };
     else b.boxes.splice(boxIndex, 1);
   }
+}
+
+/** One inline child's runs: an atomic inline box's object run, a child text's runs, or an image's object run. */
+function pushChild(c: UIText, k: Exclude<UIComponentType, UICanvas>, inner: InlineContext, b: RunBuild): void {
+  const out = b.out;
+  if (isInlineAtom(k)) {
+    // ADR 0428: an atomic inline box: one object run, the size of its own layout's margin box.
+    const va = (k as { verticalAlign?: UIVerticalAlign }).verticalAlign ?? "baseline";
+    const size = b.atoms(k) ?? { width: 0, height: 0, baseline: 0 };
+    out.push({ ...textRun(c, OBJECT, inner, k, b.editable), verticalAlign: alignOf(va), shift: inner.shift + shiftOf(va, c.fontSize), decoration: "", background: null, atom: { width: size.width, height: size.height, baseline: size.baseline }, owner: k, source: null });
+    return;
+  }
+  if (k instanceof UIText) {
+    // A child text, a `<br>` (a line break in the run's style) or a generated `::before`/`::after` (ADR 0428).
+    pushRuns(k, inner, b, false);
+    return;
+  }
+  const img = k as UIImage;
+  const size = c.fontSize;
+  const w = pixelsOr(img.width, NaN), h = pixelsOr(img.height, NaN);
+  const width = Number.isFinite(w) ? w : Number.isFinite(h) ? h : size;
+  const height = Number.isFinite(h) ? h : width;
+  const va = img.verticalAlign ?? "baseline";
+  out.push({ ...textRun(c, OBJECT, inner, img, b.editable), verticalAlign: alignOf(va), shift: inner.shift + shiftOf(va, c.fontSize), decoration: "", background: null, image: { src: img.image, width, height }, owner: img, source: null });
 }
 
 /** The element a text piece belongs to: its parent's component. */

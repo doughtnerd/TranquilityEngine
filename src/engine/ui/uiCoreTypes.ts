@@ -311,6 +311,11 @@ export interface UILaidOutElement {
    */
   readonly filter?: readonly UIFilterStep[] | null;
   /**
+   * ADR 0428: its `backdrop-filter` (`filters.ts` steps, its own, lengths in canvas UI pixels through its transform): what's
+   * drawn behind it within its border box (and rounded corners), filtered, under its background. Null or absent: none.
+   */
+  readonly backdrop?: readonly UIFilterStep[] | null;
+  /**
    * ADR 0424: what a form element draws over its own box (a checkbox's fill and mark, a slider's track, fill and thumb,
    * a progress bar's fill, a select's arrow), in its box's frame; null for other elements and when there's nothing.
    */
@@ -330,6 +335,10 @@ export interface UIPart {
   readonly color: readonly [number, number, number, number];
   readonly radius: number;
   readonly rotate: number;
+  /** ADR 0428 (part pseudo-elements): a border inside its edge, `width` UI pixels; absent: none. */
+  readonly border?: { readonly width: number; readonly color: readonly [number, number, number, number] };
+  /** ADR 0428: a box shadow (offset and blur in UI pixels); absent: none. */
+  readonly shadow?: { readonly color: readonly [number, number, number, number]; readonly x: number; readonly y: number; readonly blur: number };
 }
 
 /** A ray in world space, for picking world canvases. */

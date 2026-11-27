@@ -26,7 +26,7 @@ import type { UIInlineAtomSize, UIInlineEditing, UIInlineRun, TextMeasureRequest
 import { fireUIEvent, uiDomCode, uiDomKey, uiEventRecord, UIDataTransfer, type UIEventData, type UIEventRecord } from "./events";
 import { advanceUIScrolling, canMove, uiEndScrollGesture, uiResnap, uiScrollBy, uiScrollMoving, uiScrollTo, uiStopScrolling, uiWheelScroll, type UIScrollable } from "./scrolling";
 import { applyAffine, boundsOf, compose, invert, localTransform, multiply, transformRect, type UIAffine, type UITransformFields } from "./transform2d";
-import { filterStepsOf, transformFilterSteps, type UIFilterFields, type UIFilterStep } from "./filters";
+import { backdropFilterFields, filterStepsOf, transformFilterSteps, type UIFilterFields, type UIFilterStep } from "./filters";
 import { INLINE_ASCENT, INLINE_DESCENT, caretAt, indexAt, inlineFont, layoutInline, selectionRects, type RunMeasure, type UIInlineLayout } from "./text/inlineLayout";
 import { applyInlineEdit } from "./text/inlineEdit";
 
@@ -61,6 +61,8 @@ interface Placement {
   scroll: UIScrollInfo | null;
   /** ADR 0426: the filter drawn over it: its own steps, then its ancestors' (lengths in canvas UI pixels); null: none. */
   filter: readonly UIFilterStep[] | null;
+  /** ADR 0428: its `backdrop-filter` (its own steps only, lengths through its transform); null: none. */
+  backdrop?: readonly UIFilterStep[] | null;
 }
 
 /** One clip (ADR 0418): a rectangle in layout space, tested after mapping the point through `inverse`. `empty`: hides everything (a clipper scaled to 0). */
@@ -490,6 +492,13 @@ export class UICore implements UICoreLike {
   caretOf(c: UIInputField): number | null {
     if (!this.dom || this.active !== c) return null;
     return this.dom.selectionStart ?? this.dom.value.length;
+  }
+
+  /** ADR 0428: the selection (`[start, end)`) in the input field being typed in, or null when it isn't the one or nothing is selected. */
+  selectionOf(c: UIInputField): readonly [number, number] | null {
+    if (!this.dom || this.active !== c) return null;
+    const s = this.dom.selectionStart, e = this.dom.selectionEnd;
+    return s !== null && e !== null && e > s ? [s, e] : null;
   }
 
   rectOf(c: UIComponentType): { x: number; y: number; width: number; height: number } | null {
@@ -1070,7 +1079,10 @@ export class UICore implements UICoreLike {
         // ADR 0426: its own filter (lengths through its transform) applies to it and its descendants, before its ancestors'.
         const own = filterStepsOf(c as unknown as UIFilterFields);
         const filter = own.length ? [...transformFilterSteps(own, transform), ...(parentFilter ?? [])] : parentFilter;
-        e.place = { clip, clipper, childClip, order: 0, clips, transform, inverse, bounds: drawnBounds(e.box, transform, clips), reachClips, reach: drawnBounds(e.box, transform, reachClips), scroll, filter };
+        // ADR 0428: its backdrop filter, its own only (what's behind it, not its subtree).
+        const backdropOwn = filterStepsOf(backdropFilterFields(c));
+        const backdrop = backdropOwn.length ? transformFilterSteps(backdropOwn, transform) : null;
+        e.place = { clip, clipper, childClip, order: 0, clips, transform, inverse, bounds: drawnBounds(e.box, transform, clips), reachClips, reach: drawnBounds(e.box, transform, reachClips), scroll, filter, backdrop };
         canvas.elements.push(e);
         // ADR 0425: a text with inline runs is laid out at its content width; its runs get their fragments' bounds.
         if (e.kind === "text") this.placeInline(e);
@@ -1323,7 +1335,7 @@ export class UICore implements UICoreLike {
           e.partsKey = key;
           e.parts = parts;
         }
-        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll, parts: e.parts ?? null, filter: p.filter, inline: e.kind === "text" ? (e.inline ?? null) : null, editing: this.editingOf(e) });
+        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll, parts: e.parts ?? null, filter: p.filter, backdrop: p.backdrop ?? null, inline: e.kind === "text" ? (e.inline ?? null) : null, editing: this.editingOf(e) });
       }
     }
     const changed = !sameCanvases(this.canvasList, canvasList) || !sameElements(this.elementList, elementList);

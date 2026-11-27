@@ -365,6 +365,23 @@ abstract class UIElement extends UIComponent {
   @field(Number) filterDropShadowOffsetX = 0;
   @field(Number) filterDropShadowOffsetY = 0;
   @field(Number) filterDropShadowBlur = 0;
+
+  // ADR 0428: `backdrop-filter`, the same functions applied to what's drawn behind the element within its box (and its
+  // rounded corners), under its background. Each is a field, so transitions and keyframes animate them. Drawing one reads
+  // back the UI texture under the box each time the element is redrawn (the 3D scene behind the UI isn't sampled).
+  @field(Number) backdropBlur = 0;
+  @field(Number) backdropBrightness = 1;
+  @field(Number) backdropContrast = 1;
+  @field(Number) backdropGrayscale = 0;
+  @field(Number) backdropHueRotate = 0;
+  @field(Number) backdropInvert = 0;
+  @field(Number) backdropOpacity = 1;
+  @field(Number) backdropSaturate = 1;
+  @field(Number) backdropSepia = 0;
+  @field(Color) backdropDropShadowColor: Color | null = null;
+  @field(Number) backdropDropShadowOffsetX = 0;
+  @field(Number) backdropDropShadowOffsetY = 0;
+  @field(Number) backdropDropShadowBlur = 0;
 }
 
 /** A box: background, border and rounded corners, laying out its children. */
@@ -461,6 +478,10 @@ export class UIText extends UIElement {
   @field(Color) backgroundColor: Color | null = null;
   /** `contenteditable`: the player edits the text (a press puts the caret, typing and the IME go through the hidden input, `input` events follow); whitespace is kept as typed. */
   @field(Boolean) contentEditable = false;
+  /** ADR 0428: an editable text's selected glyphs (`::selection`'s `color`); null keeps their own colour. */
+  @field(Color) selectionColor: Color | null = null;
+  /** ADR 0428: painted behind an editable text's selection (`::selection`'s `background-color`); null: the default highlight. */
+  @field(Color) selectionBackgroundColor: Color | null = null;
   /** @internal A run of text between a text element's inline children (not an element): events on it go to its parent. */
   _textPiece = false;
   /** @internal ADR 0428: a `<br>`: a forced line break, whatever the white space rules. */
@@ -485,6 +506,8 @@ export class UIText extends UIElement {
   @field(Color) borderColor = Color.black;
   /** Rounds the corners of its border and background, in UI pixels (`border-radius` with one value). */
   @field(Number) borderRadius = 0;
+  /** @internal ADR 0428: a generated `::before`/`::after` run of a text element (its run comes before or after the element's own text). */
+  _pseudo: "before" | "after" | null = null;
 }
 
 /** A texture laid out as an element. */
@@ -825,6 +848,12 @@ export class UIInputField extends UIFocusable {
   @field(Color) color = Color.white;
   /** The placeholder's colour: browsers' default, `darkgray` (#a9a9a9, Chromium's user-agent stylesheet), legible on light and dark fields. */
   @field(Color) placeholderColor = new Color(169 / 255, 169 / 255, 169 / 255, 1);
+  /** ADR 0428: the placeholder's slant (`::placeholder`'s `font-style`): `italic` or `oblique` draw it italic. */
+  @field(String, { choices: ["normal", "italic", "oblique"] }) placeholderFontStyle: UIFontStyle = "normal";
+  /** ADR 0428: selected text's colour while typing (`::selection`'s `color`); null keeps the text's. */
+  @field(Color) selectionColor: Color | null = null;
+  /** ADR 0428: painted behind selected text while typing (`::selection`'s `background-color`); null: the default highlight. */
+  @field(Color) selectionBackgroundColor: Color | null = null;
   /**
    * ADR 0424: `text`; `password`, drawn as dots; or `number`, whose arrow keys (while typing) step `value` by `step`
    * between `min` and `max`. The value stays text, as on the web.

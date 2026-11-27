@@ -105,6 +105,18 @@ export type UIPseudo = "hover" | "pressed" | "focus" | "disabled" | "checked" | 
 /** An element's pseudo-class state: the first four always, ADR 0424's form states where the element has them (absent: false). */
 export type UIPseudoState = Record<"hover" | "pressed" | "focus" | "disabled", boolean> & Partial<Record<"checked" | "indeterminate" | "placeholder-shown", boolean>>;
 
+/**
+ * ADR 0428: the pseudo-elements UI selectors style, by their names without the colons. `before` and `after` are generated
+ * elements (with `content`); `placeholder` and `selection` style an input's placeholder and selected text; the rest are
+ * form controls' parts (ADR 0424), by the standard name where there is one and the WebKit/Blink names authors use.
+ */
+export type UIPseudoElement =
+  | "before" | "after" | "placeholder" | "selection"
+  | "-webkit-slider-thumb" | "-webkit-slider-runnable-track"
+  | "-webkit-progress-bar" | "-webkit-progress-value"
+  | "-webkit-meter-optimum-value" | "-webkit-meter-suboptimum-value" | "-webkit-meter-even-less-good-value"
+  | "checkmark" | "picker-icon";
+
 /** How a compound joins the one on its left: descendant, child, next sibling or any later sibling (ADR 0418 wave 5). */
 export type Combinator = " " | ">" | "+" | "~";
 
@@ -115,6 +127,11 @@ export interface Selector {
   readonly specificity: readonly [number, number, number];
   /** The selector is `:root` alone, where variables are declared (its compound says `root` too). */
   readonly root: boolean;
+  /**
+   * ADR 0428: the pseudo-element it styles (`p:hover::before` is `before`, its parts matching the originating element);
+   * absent: it styles elements. It counts as a tag in `specificity`, as in CSS.
+   */
+  readonly pseudoElement?: UIPseudoElement;
 }
 
 export interface Declaration {
@@ -213,6 +230,11 @@ export interface StyleTarget {
    * the first layout its reference resolution. Absent: `media`.
    */
   readonly viewport?: UIMediaEnvironment | null;
+  /**
+   * ADR 0428: the target is this pseudo-element of its `parent`, the originating element: only selectors naming it match,
+   * their compounds matched against the parent. Absent: an element, which selectors with a pseudo-element never match.
+   */
+  readonly pseudoElement?: UIPseudoElement;
 }
 
 /** Where an element's field value comes from (the Inspector shows this in wave B). */

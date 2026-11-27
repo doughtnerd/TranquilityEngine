@@ -93,7 +93,7 @@ export class BabylonUIFeature implements BabylonFeature {
     const core = this.mainCore;
     core.setInteractive(this.host.interactive());
     core.sync(world, cssW, cssH, world.time.unscaledDeltaTime);
-    this.draw.sync(world, core, { caretOf: (c) => core.caretOf(c) }, cssW, cssH, pixelRatio);
+    this.draw.sync(world, core, { caretOf: (c) => core.caretOf(c), selectionOf: (c) => core.selectionOf(c) }, cssW, cssH, pixelRatio);
     this.syncPreview(world, cssW, cssH, pixelRatio);
   }
 

@@ -1,12 +1,13 @@
 // Selector lists for queries (`UIView.query("#play")`, ADR 0419), read without a CSS parser: the
 // cascade's selector grammar (tags, `*`, `#id`, `.class`, `:hover`/`:pressed`/`:focus`/`:disabled`,
 // `:lang()`, `:is()`/`:where()`/`:not()`, the structural pseudo-classes, `:empty`, `:root`, attribute
-// selectors, and the descendant, child and sibling combinators, ADR 0418 wave 5; `:has()` with relative selectors, ADR 0428) as the same `Selector`
+// selectors, and the descendant, child and sibling combinators, ADR 0418 wave 5; `:has()` with relative selectors and
+// a trailing pseudo-element, `::before`, ADR 0428) as the same `Selector`
 // data the stylesheet parser makes, so games using only Svelte UI can query without loading css-tree.
 // The stylesheet parser reads attribute selectors and the wave 5 pseudo-classes with it too
 // (`parseCompoundText`), so rule data and queries read them alike.
-import { isKnownTag, PSEUDO, selectorSpecificity, type SelectorGroup } from "./cascade";
-import type { Combinator, Selector, SimpleSelector, UIAttributeSelector, UINthSelector, UIPseudo } from "./types";
+import { isKnownTag, PSEUDO, PSEUDO_ELEMENTS, selectorSpecificity, type SelectorGroup } from "./cascade";
+import type { Combinator, Selector, SimpleSelector, UIAttributeSelector, UINthSelector, UIPseudo, UIPseudoElement } from "./types";
 
 type Compound = {
   tag: string | null;
@@ -25,8 +26,8 @@ type Compound = {
 
 const IDENT = /^-?(?:[A-Za-z_]|[^\x00-\x7f]|\\.)(?:[\w-]|[^\x00-\x7f]|\\.)*/;
 
-/** The pseudo-classes of the cascade, for messages. */
-const SUPPORTED = ":hover, :pressed (or :active), :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), :first-of-type, :last-of-type, :only-of-type, :nth-of-type(), :nth-last-of-type(), :empty, :root and :has()";
+/** The UI's pseudo-classes and (ADR 0428) pseudo-elements, for messages. */
+const supported = (): string => `:hover, :pressed (or :active), :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), :first-of-type, :last-of-type, :only-of-type, :nth-of-type(), :nth-last-of-type(), :empty, :root and :has(); pseudo-elements: ${[...PSEUDO_ELEMENTS].map((n) => `::${n}`).join(", ")}`;
 
 /**
  * Parse a selector list (`#shop .row > span, button:hover`) into selectors to match. Throws an Error
@@ -59,6 +60,10 @@ interface Reader {
   i: number;
   /** Inside `:has()`, where another `:has()` isn't supported (ADR 0428). */
   inHas?: boolean;
+  /** How many functional pseudo-classes it's inside (ADR 0428: pseudo-elements only at the top). */
+  depth?: number;
+  /** ADR 0428: the pseudo-element the compound just read ends with, which its selector takes. */
+  pseudoElement?: UIPseudoElement;
 }
 
 function fail(r: Reader, why: string): never {
@@ -95,6 +100,7 @@ function readComplex(r: Reader, leading: Combinator | null = null): Selector {
   skipSpace(r);
   const parts: { selector: SimpleSelector; combinator: Combinator | null }[] = [];
   let combinator: Combinator | null = null;
+  let pseudoElement: UIPseudoElement | undefined;
   for (;;) {
     const compound = readCompound(r);
     if (!compound) {
@@ -102,6 +108,15 @@ function readComplex(r: Reader, leading: Combinator | null = null): Selector {
       break;
     }
     parts.push({ selector: compound, combinator: parts.length === 0 ? leading : (combinator ?? " ") });
+    if (r.pseudoElement) {
+      // ADR 0428: a pseudo-element ends its selector.
+      pseudoElement = r.pseudoElement;
+      r.pseudoElement = undefined;
+      skipSpace(r);
+      const next = r.text[r.i];
+      if (next !== undefined && next !== "," && next !== ")") fail(r, `a pseudo-element (::${pseudoElement}) ends its selector`);
+      break;
+    }
     const spaced = skipSpace(r);
     const c = r.text[r.i];
     if (c === ">" || c === "+" || c === "~") {
@@ -111,9 +126,10 @@ function readComplex(r: Reader, leading: Combinator | null = null): Selector {
     } else if (spaced && c !== undefined && c !== "," && c !== ")") combinator = " ";
     else break;
   }
-  const only = parts.length === 1 ? parts[0].selector : null;
+  const only = parts.length === 1 && !pseudoElement ? parts[0].selector : null;
   const root = !leading && !!only?.root && !only.tag && !only.id && !only.classes.length && !only.pseudo.length && !only.lang.length && !only.is && !only.not && !only.nth && !only.attributes && !only.empty && !only.has;
-  return { parts, specificity: selectorSpecificity(parts), root };
+  const specificity = selectorSpecificity(parts, pseudoElement);
+  return pseudoElement ? { parts, specificity, root, pseudoElement } : { parts, specificity, root };
 }
 
 /** `:has()`'s argument (ADR 0428): relative selectors, each with an optional leading `>`, `+` or `~` (descendants without). */
@@ -161,14 +177,39 @@ function readCompound(r: Reader): SimpleSelector | null {
       out.classes.push(ident(r, "a class"));
     } else if (c === ":") {
       r.i++;
-      if (r.text[r.i] === ":") fail(r, "pseudo-elements aren't supported");
+      if (r.text[r.i] === ":") {
+        r.i++;
+        readPseudoElement(r, ident(r, "a pseudo-element").toLowerCase());
+        any = true;
+        break;
+      }
       readPseudo(r, out);
+      if (r.pseudoElement) {
+        any = true;
+        break; // `:before`, `:after`
+      }
     } else if (c === "[") {
       (out.attributes ??= []).push(readAttribute(r));
     } else break;
     any = true;
   }
   return any ? out : null;
+}
+
+/** ADR 0428: a pseudo-element's name (`::before`): known, outside functional pseudo-classes, ending its compound. */
+function readPseudoElement(r: Reader, name: string): void {
+  const at = r.i - name.length;
+  if (!PSEUDO_ELEMENTS.has(name)) {
+    r.i = at;
+    fail(r, `::${name} isn't supported; UI pseudo-elements are ${[...PSEUDO_ELEMENTS].map((n) => `::${n}`).join(", ")}`);
+  }
+  if (r.depth) {
+    r.i = at;
+    fail(r, `a pseudo-element (::${name}) can't be inside a pseudo-class's argument`);
+  }
+  const next = r.text[r.i];
+  if (next === "." || next === "#" || next === ":" || next === "[") fail(r, `nothing may follow a pseudo-element (::${name}) in its compound`);
+  r.pseudoElement = name as UIPseudoElement;
 }
 
 const NTH: Readonly<Record<string, { last?: true; ofType?: true }>> = {
@@ -183,6 +224,7 @@ function readPseudo(r: Reader, out: Compound): void {
   const name = ident(r, "a pseudo-class").toLowerCase();
   if (PSEUDO.has(name)) out.pseudo.push(name as UIPseudo);
   else if (name === "active") out.pseudo.push("pressed"); // ADR 0428: CSS's name for `:pressed`
+  else if (name === "before" || name === "after") readPseudoElement(r, name); // CSS 2's one-colon form
   else if (name === "is" || name === "where") {
     open(r, name);
     const selectors = readList(r);
@@ -236,7 +278,7 @@ function readPseudo(r: Reader, out: Compound): void {
   else if (name === "root") out.root = true;
   else {
     r.i = at;
-    fail(r, `:${name} isn't supported; UI pseudo-classes are ${SUPPORTED}`);
+    fail(r, `:${name} isn't supported; UI pseudo-classes are ${supported()}`);
   }
 }
 
@@ -295,10 +337,12 @@ function readAttribute(r: Reader): UIAttributeSelector {
 function open(r: Reader, name: string): void {
   if (r.text[r.i] !== "(") fail(r, `:${name}() needs its argument in parentheses`);
   r.i++;
+  r.depth = (r.depth ?? 0) + 1;
 }
 
 function close(r: Reader, name: string): void {
   skipSpace(r);
   if (r.text[r.i] !== ")") fail(r, `:${name}( isn't closed`);
   r.i++;
+  r.depth = (r.depth ?? 1) - 1;
 }

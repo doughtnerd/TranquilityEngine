@@ -169,6 +169,16 @@ HTML's form elements work as in a browser ([ADR 0424](../../decisions/0424-ui-ga
 - **Events:** `input` then `change` when the player changes a control (a slider sends `input` as it moves and `change` when it's let go); a script writing a field sends none. Each control's `changed` is true for that frame. A form sends `submit` (cancelable; nothing else happens) for a `submit` button's click (a button's `type`: `submit`, the default, `reset` or `button`) or Enter in one of its fields, and `reset`, after which its controls go back to how they were built unless a handler prevented it. Every default action can be prevented: a checkbox's `click` handler calling `e.preventDefault()` keeps it as it was.
 - **`interactable`** is HTML's `disabled` (the attribute sets it): every control has it. Disabled controls draw their marks faded.
 - **Pseudo-classes:** `:checked` (checkboxes, radios, chosen options), `:indeterminate` (checkboxes, progress bars without a value), `:disabled` and `:placeholder-shown` (fields showing their placeholder).
+- **Parts** ([ADR 0428](../../decisions/0428-the-ui-closes-its-remaining-css-text-scroll-and-tooling-gaps.md)): `accent-color` is the simple route; part pseudo-elements style each part, by the names browsers use: `::-webkit-slider-thumb` (`width`, `height`, `background-color`, `border`, `border-radius`, `box-shadow`, `opacity`), `::-webkit-slider-runnable-track` (`height` is its thickness, and the same paint), `::-webkit-progress-bar` (the bar's track, drawn over the element's own box) and `::-webkit-progress-value`, `::-webkit-meter-optimum-value`, `::-webkit-meter-suboptimum-value` and `::-webkit-meter-even-less-good-value` (the meter's value in each of HTML's regions), `::checkmark` (a checkbox's mark or a radio's dot: `color`) and `::picker-icon` (a select's arrow: `color`). Properties a part doesn't take are ignored; a slider's fill keeps the accent colour.
+
+```css
+input[type="range"]::-webkit-slider-thumb { width: 12px; height: 24px; border-radius: 3px; background-color: #fff; box-shadow: 0 1px 3px #0008; }
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; background-color: #333; }
+progress::-webkit-progress-value { background-color: gold; }
+input[type="checkbox"]::checkmark { color: black; }
+```
+
+- **`::placeholder`** styles a field's placeholder: `color`, `opacity` (which fades its colour) and `font-style`; without a rule it's `placeholderColor`'s grey. **`::selection`** colours a typing field's selected text and its highlight (`color`, `background-color`), as it does an editable text's (`contenteditable`). They set the fields `placeholderColor`, `placeholderFontStyle`, `selectionColor` and `selectionBackgroundColor`, so transitions animate them and scripts can write them.
 - **Svelte bindings:** `bind:checked` and `bind:indeterminate` on checkboxes, `bind:group` on radios (the bound value is the checked one's `value`) and checkboxes (an array of the checked ones' values), and `bind:value` on inputs (a number, or null when empty, for `type="number"` and `"range"`), text areas and selects (the chosen option's `value` as given, `value={2}` binding the number 2; an array with `multiple`). After a form's reset, the bindings read the controls again. Nodes have `checked`, `indeterminate`, `selected`, `options`, `selectedIndex`, `valueAsNumber`, `form`, and on forms `requestSubmit()` and `reset()`. An `<input>` whose `type` changes is made again in place as the new kind.
 
 ## Paint: shadows, gradients and rounded corners
@@ -246,10 +256,22 @@ Any element can be drawn moved, turned and scaled ([ADR 0418](../../decisions/04
 ```
 
 - **Each function is a field** (`filterBlur`, `filterBrightness`, `filterContrast`, `filterGrayscale`, `filterHueRotate`, `filterInvert`, `filterOpacity`, `filterSaturate`, `filterSepia`, and `filterDropShadowColor`/`OffsetX`/`OffsetY`/`Blur`), so transitions and keyframes animate them and scripts write them. `filter` sets them all (the ones it doesn't list back to no effect).
-- **They apply in one fixed order**, the order above, whatever order `filter` lists them in. A function listed twice folds where it can (brightness, contrast, saturate and opacity factors multiply, hue-rotate angles add, blurs combine as Gaussians); `grayscale`, `sepia` or `invert` twice and several drop shadows are refused with a warning, as is `url()`. `backdrop-filter` isn't supported.
+- **They apply in one fixed order**, the order above, whatever order `filter` lists them in. A function listed twice folds where it can (brightness, contrast, saturate and opacity factors multiply, hue-rotate angles add, blurs combine as Gaussians); `grayscale`, `sepia` or `invert` twice and several drop shadows are refused with a warning, as is `url()`.
 - **A filter applies to the subtree:** its children are drawn through it too (theirs first, then their parent's). Each drawn piece is filtered as it's drawn, so a blur blurs each piece, and translucent pieces overlapping each other are filtered one by one rather than flattened first.
 - Lengths (a blur, a drop shadow's offset) scale and turn with the element's transform, as shadows do. A `drop-shadow` without a colour is black.
 - **Cost:** a filter redraws the region it covers, grown by how far a blur or shadow reaches. Browsers with `CanvasRenderingContext2D.filter` (Chromium, Firefox, Safari 18) apply it while drawing; elsewhere the element is drawn to an offscreen canvas and filtered there (blurs approximated by box blurs), which costs more for big elements.
+
+### `backdrop-filter`
+
+`backdrop-filter` ([ADR 0428](../../decisions/0428-the-ui-closes-its-remaining-css-text-scroll-and-tooling-gaps.md)) takes the same functions and applies them to what's drawn **behind** the element, within its box and rounded corners, under its own background: frosted glass.
+
+```css
+.glass { background-color: #ffffff22; border-radius: 12px; backdrop-filter: blur(8px) saturate(1.4); transition: backdrop-filter 0.3s; }
+```
+
+- **Fields:** `backdropBlur`, `backdropBrightness`, `backdropContrast`, `backdropGrayscale`, `backdropHueRotate`, `backdropInvert`, `backdropOpacity`, `backdropSaturate`, `backdropSepia` and `backdropDropShadowColor`/`OffsetX`/`OffsetY`/`Blur`, applied in the same fixed order; transitions and keyframes animate them. It's the element's own (its children don't get one), lengths through its transform; the element's `opacity` fades it, its `filter` doesn't apply to it.
+- **What's behind** is the UI drawn under it on the same texture (lower elements and canvases): the 3D scene behind the UI isn't part of it.
+- **Cost:** each time the element is redrawn, the texture under its box (grown by a blur's reach) is copied into an offscreen canvas, filtered (with `ctx.filter`, or by reading the pixels back and filtering them on the CPU where it's missing, `filterPixels`) and drawn back. Anything redrawn under it redraws the whole element and the area it samples, so an animated element behind a large backdrop redraws that area every frame. Keep backdrop elements small, or few, over UI that moves.
 
 ## Inline SVG, video and audio
 
@@ -355,6 +377,8 @@ label:has(+ input:disabled)    { opacity: 0.5; }
 
 - **Selectors:** `:not(list)` (with complex arguments: `:not(.a .b)`), `:first-child`, `:last-child`, `:only-child`, `:nth-child(an+b [of S])`, `:nth-last-child()`, `:first-of-type`, `:last-of-type`, `:only-of-type`, `:nth-of-type()`, `:nth-last-of-type()`, `:empty`, `:root`, attribute selectors `[a]`, `[a=v]`, `[a~=v]`, `[a|=v]`, `[a^=v]`, `[a$=v]`, `[a*=v]` (each with an `i` flag for case-insensitive values), and the sibling combinators `+` and `~`. Specificity is CSS's: attribute selectors and pseudo-classes count like classes, `:not()`, `:has()` and `:nth-child(… of S)` add their most specific argument.
 - **`:has()`** (ADR 0428) takes relative selectors: `:has(.x)` (a descendant), `:has(> .x)` (a child), `:has(+ .x)` (the next sibling), `:has(~ .x)` (a later sibling), each with more compounds after it (`:has(> .a .b)`), in a list. `:has()` inside `:has()` isn't supported. With `:has()` in the styles, an element appearing, going or moving, or changing class, attribute, text or state (`:has(:hover)`, `:has(input:focus)`), restyles the ancestors (and with `+`/`~`, the earlier siblings) that could match it: only those whose tag, id and classes fit a `:has()` compound, each alone, and its subtree only when what it passes on changed. With no `:has()` in any stylesheet this costs nothing.
+- **Pseudo-elements** (ADR 0428) end a selector: `::before`, `::after` (also `:before`, `:after`), `::placeholder`, `::selection` and the [form parts](#form-elements). The rest of the selector matches the element they belong to, so `button:hover::before` works; a pseudo-element counts as a type selector in specificity. Nothing may follow one (`::before:hover` is refused), and they can't be inside `:is()`, `:not()` or `:has()`. Queries never return them (`view.query("p::before")` is null, as `querySelector` is).
+- **`::before` and `::after`** with `content` (strings, `attr(name)` of the element, both concatenated: `content: "(" attr(data-count) ")"`) generate an element first or last inside theirs, styled by their rules and inheriting from it; `content: none` or `normal` (or no `content`) generates nothing. Inside a text element (`<p>`, `<span>`…) it's an inline run before or after the text; elsewhere a box (a panel, its text a label inside), laid out as a first or last child: `content: ""` with a size and background is a decoration. It's not an element of the component: queries, children, structural selectors and `:empty` don't count it, and its pointer events go to its element (a click on a `::before` clicks the button). It restyles with its element (its classes, attributes, state, the rules), and transitions like any element. Counters, quotes and images in `content` aren't supported; nor are `::before` on replaced elements and controls (inputs, images, media, selects), as in browsers.
 - **Positions count elements, not text:** a button's label text doesn't make the `<span>` after it a second child. `:empty` is an element with no child elements and no text. `:root` is the tree's root: a view's canvas (where `:global(:root) { --accent: … }` declares a theme's variables).
 - **Attributes** are matched as written: an element's attributes as the component writes them, `data-*`, `aria-*`, `type` and other HTML-only ones included. Names match in any case.
 - **Restyling:** adding, removing and reordering elements (Svelte's `{#each}` and `{#if}`) restyles their siblings when the styles use structural selectors or `+`/`~`; a class or attribute change restyles the element, and its siblings with them. New elements start no transitions from their first styles when their later siblings arrive; a class you add after a view has rendered transitions as usual.
@@ -377,7 +401,7 @@ UIPreferences.reset();                // follow the system for both
 ```
 
 Until the player chooses, each follows the system's setting (the browser's or desktop window's, live); outside a browser it's no reduced motion and light. A choice is saved in player storage (`settings`, `myco.ui`) and comes back the next time the game starts, before its first scene. Rules restyle when a preference changes.
-- **Not supported:** `:has()`, namespaces in attribute selectors, `em`/`rem`/viewport units in `calc()`, and `!important` (specificity and `:where()` cover it).
+- **Not supported:** `:has()` inside `:has()`, `::first-line`/`::first-letter`, namespaces in attribute selectors, and `!important` (specificity and `:where()` cover it).
 
 ## Scripting
 
@@ -567,9 +591,10 @@ A view renders its elements in any World. Only a World with a render backend lay
 
 ## Known gaps
 
-- Form controls have no part pseudo-elements yet (style a checkbox's mark or a slider's thumb through `accent-color` only), no `<datalist>`, `<optgroup>` labels, `<input type="date|color|file">` (drawn as text fields) or on-screen number spinners; a text area's caret ignores soft-wrapped lines. `flex-wrap: wrap-reverse` doesn't move where scrolling starts; snap areas ignore transforms.
+- Form controls' part pseudo-elements take the properties listed [above](#form-elements) only (no `::-webkit-meter-bar`, `::-moz-*` or a slider's fill); there's no `<datalist>`, `<optgroup>` labels, `<input type="date|color|file">` (drawn as text fields) or on-screen number spinners; a text area's caret ignores soft-wrapped lines. `flex-wrap: wrap-reverse` doesn't move where scrolling starts; snap areas ignore transforms.
 - Events from the pointer go only to elements that stop it (raycast targets): a click on a bare layout panel's gap goes to the game, not to the panel's handlers. Touch events (`touchstart`…) aren't sent; touches arrive as pointer events.
-- No 3D transforms, `backdrop-filter`, SVG filters (`filter: url(…)`) or SMIL animation in inline SVG. Stylesheet rules don't reach the shapes inside an `<svg>` (only the `<svg>` itself).
+- `::placeholder` takes colour, opacity and slant (not a font size, weight or family); `::selection` is per element (a parent's rule doesn't reach its children's text), and a text area's selection, like its caret, follows line breaks, not soft wraps. A `backdrop-filter` doesn't sample the 3D scene behind the UI.
+- No 3D transforms, SVG filters (`filter: url(…)`) or SMIL animation in inline SVG. Stylesheet rules don't reach the shapes inside an `<svg>` (only the `<svg>` itself).
 - No on-screen keyboard: a gamepad can focus an input field but not type in it.
 - Inline text (ADR 0425, 0428): no floats; a block element inside a text (`<div>` in a `<p>`) is an inline block rather than breaking the paragraph; an inline block sizes to its content (CSS's shrink-to-fit without the available width: a percentage width inside it has nothing to resolve against); an empty run with padding takes no room; `tab-size` is fixed at 8. Bidi reordering across runs is simplified; editable text has no undo history beyond the hidden text area's, and its caret doesn't blink.
 - In a Svelte component, `ontransitionend={…}` and the other animation event attributes aren't wired yet; listen with `on("transitionend", …)` on the element from `UIView.query`.

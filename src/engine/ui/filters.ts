@@ -31,6 +31,17 @@ export interface UIFilterFields {
   readonly filterDropShadowBlur: number;
 }
 
+/**
+ * ADR 0428: an element's `backdrop-filter` fields (`backdropBlur`…) as filter fields, so the same steps draw them: what's
+ * behind the element within its box is filtered by them, under its background.
+ */
+export function backdropFilterFields(c: object): Partial<UIFilterFields> {
+  const f = c as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(FILTER_DEFAULTS)) out[key] = f[`backdrop${key.slice("filter".length)}`];
+  return out as Partial<UIFilterFields>;
+}
+
 /** A filter function with a factor. */
 export type UIFilterAmountKind = "brightness" | "contrast" | "grayscale" | "invert" | "opacity" | "saturate" | "sepia";
 

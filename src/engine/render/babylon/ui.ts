@@ -87,6 +87,15 @@ export interface BabylonUIOptions {
   screenOnly?: boolean;
 }
 
+/**
+ * What `sync` asks the UI core about input fields: the caret index of the one being typed in, and (ADR 0428) its selection
+ * (`[start, end)` in its value).
+ */
+export interface UIDrawExtra {
+  caretOf?(c: UIInputField): number | null;
+  selectionOf?(c: UIInputField): readonly [number, number] | null;
+}
+
 /** Where `sync` puts the screen UI: a rectangle of the drawing canvas, in CSS pixels. */
 export interface ScreenRect {
   x: number;
@@ -179,6 +188,11 @@ function drawsFilters(ctx: ICanvasRenderingContext): boolean {
  *   drawing where the browser supports `CanvasRenderingContext2D.filter`; otherwise it's drawn to an offscreen canvas and
  *   filtered there (`filterPixels.ts`). `filterReach` (texture pixels) grows its redraw region and clip for blur and
  *   drop shadows, as Babylon grows them for its own shadow.
+ * - **A backdrop filter** (`backdrop`, ADR 0428): before it draws, what's already drawn under its box (grown by the
+ *   filter's reach) is copied from the texture's canvas into an offscreen canvas, filtered there (the context's `filter`,
+ *   or `filterPixels` reading it back), and drawn back clipped to its box and rounded corners, so its own background goes
+ *   over it. A redraw that touches it redraws all of it and what it samples (`growForBackdrops`), so it never samples its
+ *   own last drawing.
  */
 function Drawn<T extends ControlClass>(Base: T) {
   class DrawnControl extends Base {
@@ -187,8 +201,11 @@ function Drawn<T extends ControlClass>(Base: T) {
     /** The filter's steps, lengths in texture pixels: the offscreen fallback's. */
     filterSteps: readonly UIFilterStep[] = [];
     filterReach = 0;
+    /** ADR 0428: its backdrop filter (CSS text and steps, lengths in texture pixels; reach in texture pixels; corner radii in UI pixels, top-left first), or null. */
+    backdrop: Backdrop | null = null;
     private readonly local = Matrix2D.Identity();
     private offscreen: { canvas: ICanvas; width: number; height: number } | null = null;
+    private backdropCanvases: { copy: ICanvas; filtered: ICanvas; width: number; height: number } | null = null;
 
     protected override _transform(context?: ICanvasRenderingContext): void {
       const m = this.affine;
@@ -250,8 +267,63 @@ function Drawn<T extends ControlClass>(Base: T) {
     }
 
     override _render(context: ICanvasRenderingContext, invalidatedRectangle?: Nullable<Measure>): boolean {
+      if (this.backdrop && this.isVisible && !this.notRenderable) this.drawBackdrop(context);
       if (!this.filter || drawsFilters(context) || !this.filterSteps.length) return super._render(context, invalidatedRectangle);
       return this.renderFiltered(context, invalidatedRectangle);
+    }
+
+    /** ADR 0428: what's drawn behind its box, filtered, drawn back under it (see `Drawn`). */
+    private drawBackdrop(context: ICanvasRenderingContext): void {
+      const b = this.backdrop!;
+      const self = this as unknown as ControlInternals;
+      const host = self._host;
+      // Only on the texture's own context: the texture's canvas is what's behind it there.
+      if (!host || context !== host.getContext()) return;
+      const source = (context as unknown as { canvas?: unknown }).canvas;
+      const engine = host.getScene()?.getEngine();
+      if (!source || !engine) return;
+      this._transform(); // its matrix and drawn bounds now
+      const em = self._evaluatedMeasure;
+      const size = host.getSize();
+      const r = b.reach;
+      const x0 = Math.max(0, Math.floor(em.left - r)), y0 = Math.max(0, Math.floor(em.top - r));
+      const x1 = Math.min(size.width, Math.ceil(em.left + em.width + r)), y1 = Math.min(size.height, Math.ceil(em.top + em.height + r));
+      const w = x1 - x0, h = y1 - y0;
+      if (w <= 0 || h <= 0) return;
+      let c = this.backdropCanvases;
+      if (!c || c.width < w || c.height < h) {
+        const cw = Math.max(w, c?.width ?? 0), ch = Math.max(h, c?.height ?? 0);
+        c = this.backdropCanvases = { copy: engine.createCanvas(cw, ch), filtered: engine.createCanvas(cw, ch), width: cw, height: ch };
+      }
+      const copy = c.copy.getContext("2d") as unknown as ICanvasRenderingContext;
+      copy.setTransform(1, 0, 0, 1, 0, 0);
+      copy.clearRect(0, 0, c.width, c.height);
+      copy.drawImage(source, x0, y0, w, h, 0, 0, w, h);
+      let out: ICanvas = c.copy;
+      const filtered = c.filtered.getContext("2d") as unknown as ICanvasRenderingContext;
+      if (drawsFilters(filtered)) {
+        filtered.setTransform(1, 0, 0, 1, 0, 0);
+        filtered.clearRect(0, 0, c.width, c.height);
+        filtered.filter = b.text;
+        filtered.drawImage(c.copy, 0, 0, w, h, 0, 0, w, h);
+        filtered.filter = "none";
+        out = c.filtered;
+      } else {
+        const image = copy.getImageData(0, 0, w, h);
+        filterPixels(image, b.steps);
+        copy.putImageData(image, 0, 0);
+      }
+      // Clipped to its box and corners, through its whole matrix; at its opacity, unfiltered by its own filter.
+      const m = self._transformMatrix.m, cm = self._currentMeasure;
+      context.save();
+      context.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+      roundedBoxPath(context, cm.left, cm.top, cm.width, cm.height, b.radii);
+      context.clip();
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      if (drawsFilters(context)) context.filter = "none";
+      context.globalAlpha = this.alpha;
+      context.drawImage(out, 0, 0, w, h, x0, y0, w, h);
+      context.restore();
     }
 
     /** The offscreen fallback: draw into a canvas the size of its drawn bounds (grown by the reach), filter it, and draw that. */
@@ -295,6 +367,68 @@ function Drawn<T extends ControlClass>(Base: T) {
 
 const DrawnRectangle = Drawn(Rectangle);
 const DrawnImage = Drawn(Image);
+
+/** ADR 0428: a control's backdrop filter as `Drawn` draws it. */
+interface Backdrop {
+  readonly text: string;
+  readonly steps: readonly UIFilterStep[];
+  readonly reach: number;
+  readonly radii: readonly [number, number, number, number];
+}
+
+/** A rounded rectangle's path (radii top-left, top-right, bottom-right, bottom-left, shrunk to fit as CSS does). */
+function roundedBoxPath(ctx: ICanvasRenderingContext, x: number, y: number, w: number, h: number, radii: readonly [number, number, number, number]): void {
+  let [tl, tr, br, bl] = radii.map((r) => Math.max(0, r));
+  const f = Math.min(1, w / (tl + tr || 1), w / (bl + br || 1), h / (tl + bl || 1), h / (tr + br || 1));
+  tl *= f;
+  tr *= f;
+  br *= f;
+  bl *= f;
+  const q = Math.PI / 2;
+  ctx.beginPath();
+  ctx.moveTo(x + tl, y);
+  ctx.lineTo(x + w - tr, y);
+  if (tr) ctx.arc(x + w - tr, y + tr, tr, -q, 0);
+  ctx.lineTo(x + w, y + h - br);
+  if (br) ctx.arc(x + w - br, y + h - br, br, 0, q);
+  ctx.lineTo(x + bl, y + h);
+  if (bl) ctx.arc(x + bl, y + h - bl, bl, q, 2 * q);
+  ctx.lineTo(x, y + tl);
+  if (tl) ctx.arc(x + tl, y + tl, tl, 2 * q, 3 * q);
+  ctx.closePath();
+}
+
+/** ADR 0428: the controls with a backdrop filter on each texture, whose redraws `growForBackdrops` widens. */
+const backdropControls = new WeakMap<AdvancedDynamicTexture, Set<Control & { backdrop: Backdrop | null }>>();
+
+/**
+ * ADR 0428: after layout, before the texture clears what it redraws: a redraw region touching a backdrop element's box or
+ * what it samples (its box grown by its filter's reach) grows to cover both, so the element is redrawn whole over freshly
+ * drawn pixels. Repeated until no backdrop element is partly in it.
+ */
+function growForBackdrops(adt: AdvancedDynamicTexture, set: Set<Control & { backdrop: Backdrop | null }>): void {
+  const internal = adt as unknown as { _invalidatedRectangle: { left: number; top: number; width: number; height: number } | null };
+  for (let grown = true; grown; ) {
+    grown = false;
+    const r = internal._invalidatedRectangle;
+    if (!r) return;
+    for (const c of set) {
+      if (!c.backdrop || !c.parent || c.host !== adt) {
+        set.delete(c); // gone, or no longer filtering: `applyBackdrop` adds it again when it does
+        continue;
+      }
+      if (!c.isVisible) continue;
+      const m = (c as unknown as ControlInternals)._evaluatedMeasure;
+      const k = c.backdrop.reach;
+      const minX = Math.floor(m.left - k), minY = Math.floor(m.top - k), maxX = Math.ceil(m.left + m.width + k), maxY = Math.ceil(m.top + m.height + k);
+      const rMaxX = r.left + r.width - 1, rMaxY = r.top + r.height - 1;
+      if (minX > rMaxX || minY > rMaxY || maxX < r.left || maxY < r.top) continue; // apart
+      if (minX >= r.left && minY >= r.top && maxX <= rMaxX && maxY <= rMaxY) continue; // inside already
+      adt.invalidateRect(minX, minY, maxX, maxY);
+      grown = true;
+    }
+  }
+}
 
 /** What `MediaImage` draws: an image element, a video element, a canvas. */
 type Drawable = { readonly width?: number; readonly height?: number };
@@ -420,6 +554,14 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
   /** ADR 0428: the element's own border (widths top, right, bottom, left in UI pixels), its colour and corner radius; null: none. */
   boxBorder: { readonly widths: readonly [number, number, number, number]; readonly color: string } | null = null;
   boxRadius = 0;
+  /** ADR 0428 (`::selection`): the selection's highlight (CSS colour) and its glyphs' colour (null: their own). */
+  selectionFill = SELECTION_COLOR;
+  selectionText: string | null = null;
+  /**
+   * ADR 0428: an input field's selected text (its plain text, not runs), as rectangles from the block's corner (UI pixels):
+   * highlighted under the glyphs, and with `selectionText` the glyphs drawn again in that colour inside them. Null: none.
+   */
+  fieldSelection: readonly { readonly x: number; readonly y: number; readonly width: number; readonly height: number }[] | null = null;
 
   override _draw(context: ICanvasRenderingContext): void {
     if (this.boxBackground || this.boxBorder) {
@@ -428,11 +570,36 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
       paintInlineBox(context, m.left, m.top, m.width, m.height, this.boxBackground, this.boxBorder?.widths ?? NO_BORDER, this.boxBorder?.color ?? "", this.boxRadius, true, true);
       context.restore();
     }
+    if (!this.inline && this.fieldSelection?.length) return this.drawFieldSelection(context, this.fieldSelection);
     if (!this.inline) return super._draw(context);
     context.save();
     this._applyStates(context);
     this.drawRuns(context, this.inline);
     context.restore();
+  }
+
+  /** ADR 0428: an input field's text with its selection: highlight, glyphs, then the selected glyphs again in `selectionText`. */
+  private drawFieldSelection(context: ICanvasRenderingContext, rects: NonNullable<LocalisedTextBlock["fieldSelection"]>): void {
+    const m = this._currentMeasure;
+    context.save();
+    context.fillStyle = this.selectionFill;
+    for (const r of rects) context.fillRect(m.left + r.x, m.top + r.y, r.width, r.height);
+    context.restore();
+    super._draw(context);
+    if (!this.selectionText) return;
+    context.save();
+    context.beginPath();
+    for (const r of rects) context.rect(m.left + r.x, m.top + r.y, r.width, r.height);
+    context.clip();
+    const self = this as unknown as { _color: string };
+    const own = self._color;
+    self._color = this.selectionText;
+    try {
+      super._draw(context);
+    } finally {
+      self._color = own;
+      context.restore();
+    }
   }
 
   /**
@@ -452,7 +619,7 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
       }
     }
     for (const r of editing?.selection ?? []) {
-      context.fillStyle = SELECTION_COLOR;
+      context.fillStyle = this.selectionFill;
       context.fillRect(ox + r.x, oy + r.y, r.width, r.height);
     }
     for (const line of layout.lines) {
@@ -471,19 +638,43 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
       ctx.shadowOffsetX = this.shadowOffsetX * ratio;
       ctx.shadowOffsetY = this.shadowOffsetY * ratio;
     }
+    this.drawFragments(context, layout, runs, ox, oy, null);
+    // ADR 0428 (`::selection`'s `color`): the selected glyphs again in that colour, inside the selection.
+    const selected = editing?.selection ?? [];
+    if (this.selectionText && selected.length) {
+      context.save();
+      ctx.shadowColor = "transparent";
+      context.beginPath();
+      for (const r of selected) context.rect(ox + r.x, oy + r.y, r.width, r.height);
+      context.clip();
+      this.drawFragments(context, layout, runs, ox, oy, this.selectionText);
+      context.restore();
+    }
+    const caret = editing?.caret;
+    if (caret) {
+      ctx.shadowColor = "transparent";
+      const at = runs.find((r) => !r.image) ?? null;
+      context.fillStyle = at?.color ?? "white";
+      context.fillRect(ox + caret.x - 0.5, oy + caret.top, 1, caret.height);
+    }
+  }
+
+  /** Each fragment's glyphs (outline under the fill) or image, and its decorations; `color` overrides the runs' colours. */
+  private drawFragments(context: ICanvasRenderingContext, layout: UIInlineLayout, runs: readonly UIInlineRun[], ox: number, oy: number, color: string | null): void {
     for (const line of layout.lines) {
       for (const f of line.fragments) {
         const r = runs[f.run];
         const x = ox + f.x;
         if (r.image) {
+          if (color) continue;
           const picture = this.inlineImage(r.image.src);
           if (picture) context.drawImage(picture, x, oy + f.top, f.width, f.height);
           continue;
         }
         if (r.atom) continue; // ADR 0428: an atomic inline box is an element of its own, drawn as itself
         context.font = inlineFont(r);
-        context.fillStyle = r.color;
-        if (this.outlineWidth) context.strokeText(f.text, x, oy + f.baseline);
+        context.fillStyle = color ?? r.color;
+        if (this.outlineWidth && !color) context.strokeText(f.text, x, oy + f.baseline);
         context.fillText(f.text, x, oy + f.baseline);
         if (r.decoration) {
           const thick = Math.max(1, r.fontSize * 0.07);
@@ -493,13 +684,6 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
           if (r.decoration.includes("overline")) at(-r.fontSize * INLINE_ASCENT);
         }
       }
-    }
-    const caret = editing?.caret;
-    if (caret) {
-      ctx.shadowColor = "transparent";
-      const at = runs.find((r) => !r.image) ?? null;
-      context.fillStyle = at?.color ?? "white";
-      context.fillRect(ox + caret.x - 0.5, oy + caret.top, 1, caret.height);
     }
   }
 }
@@ -633,7 +817,7 @@ export class BabylonUI {
    * the screen UI out for `cssWidth × cssHeight`; `origin` (CSS pixels, default the canvas's top-left)
    * is where that rectangle is on the drawing canvas.
    */
-  sync(_world: World, core: UICoreLike, extra: { caretOf?(c: UIInputField): number | null }, cssWidth: number, cssHeight: number, pixelRatio: number, origin: { x: number; y: number } = { x: 0, y: 0 }): void {
+  sync(_world: World, core: UICoreLike, extra: UIDrawExtra, cssWidth: number, cssHeight: number, pixelRatio: number, origin: { x: number; y: number } = { x: 0, y: 0 }): void {
     if (this.disposed) return;
     const stamp = ++this.stamp;
     this.origin = { x: origin.x * pixelRatio, y: origin.y * pixelRatio };
@@ -790,7 +974,7 @@ export class BabylonUI {
 
   // --- elements ---
 
-  private syncElement(el: UILaidOutElement, canvas: CanvasEntry, extra: { caretOf?(c: UIInputField): number | null }, stamp: number): void {
+  private syncElement(el: UILaidOutElement, canvas: CanvasEntry, extra: UIDrawExtra, stamp: number): void {
     let e = this.elements.get(el.comp);
     if (!e) {
       e = this.createElement(el, canvas);
@@ -813,6 +997,7 @@ export class BabylonUI {
     if (put(ctl, "z", el.order)) ctl.zIndex = el.order;
     if (put(ctl, "alpha", el.opacity)) ctl.alpha = el.opacity;
     applyFilter(ctl, el.filter ?? null, canvas.root.scaleX);
+    applyBackdrop(ctl, el.backdrop ?? null, canvas.root.scaleX, el.comp);
 
     const c = el.comp;
     switch (el.kind) {
@@ -844,14 +1029,14 @@ export class BabylonUI {
         this.syncInput(e, c as UIInputField | UISelect, el, extra);
         break;
     }
-    this.syncParts(e, el);
+    this.syncParts(e, el, canvas.root.scaleX);
   }
 
   /**
    * ADR 0424: a form element's parts (a checkbox's fill and mark, a slider's track, fill and thumb, a bar's fill, a
    * select's arrow), from the core's `parts`: filled rectangles over its box, made as needed and reused.
    */
-  private syncParts(e: ElementEntry, el: UILaidOutElement): void {
+  private syncParts(e: ElementEntry, el: UILaidOutElement, scale: number): void {
     const parts = el.parts ?? [];
     if (!parts.length && !e.parts?.length) return;
     const host = e.control instanceof Rectangle ? e.control : null;
@@ -885,6 +1070,19 @@ export class BabylonUI {
       const [cr, cg, cb, ca] = p.color;
       const css = `rgba(${Math.round(cr * 255)}, ${Math.round(cg * 255)}, ${Math.round(cb * 255)}, ${ca})`;
       if (put(r, "color", css)) r.background = css;
+      // ADR 0428: part pseudo-elements' borders and shadows.
+      const rgbaCss = (c: readonly number[]) => `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${c[3]})`;
+      const bw = p.border?.width ?? 0;
+      if (put(r, "bw", bw)) r.thickness = bw;
+      const bc = p.border ? rgbaCss(p.border.color) : "transparent";
+      if (put(r, "bc", bc)) r.color = bc;
+      const sh = p.shadow;
+      if (put(r, "shadow", sh ? `${sh.x},${sh.y},${sh.blur},${sh.color.join(",")}` : "")) {
+        r.shadowColor = sh ? rgbaCss(sh.color) : "transparent";
+        r.shadowOffsetX = sh ? sh.x * scale : 0;
+        r.shadowOffsetY = sh ? sh.y * scale : 0;
+        r.shadowBlur = sh ? sh.blur * scale : 0;
+      }
     });
   }
 
@@ -1315,6 +1513,14 @@ export class BabylonUI {
       t.boxRadius = Math.max(0, c.borderRadius || 0);
       t._markAsDirty();
     }
+    // ADR 0428: `::selection`'s colours for an editable text's selection.
+    const fill = c.selectionBackgroundColor ? c.selectionBackgroundColor.toCss() : SELECTION_COLOR;
+    const text = c.selectionColor ? c.selectionColor.toCss() : null;
+    if (put(t, "selection", `${fill}|${text}`)) {
+      t.selectionFill = fill;
+      t.selectionText = text;
+      t._markAsDirty();
+    }
     const layout = el.inline ?? null, runs = el.text?.runs ?? null, editing = el.editing ?? null;
     const boxes = el.text?.boxes ?? NO_BOXES;
     const changed = put(t, "inline", layout);
@@ -1450,7 +1656,7 @@ export class BabylonUI {
    * An input field's box, text and caret. ADR 0424: a select's too (its chosen option's label, no caret), and a text
    * area's: its lines from the top, wrapped, moved up by its scroll, the caret on the line it's in (soft wraps aside).
    */
-  private syncInput(e: ElementEntry, c: UIInputField | UISelect, el: UILaidOutElement, extra: { caretOf?(c: UIInputField): number | null }): void {
+  private syncInput(e: ElementEntry, c: UIInputField | UISelect, el: UILaidOutElement, extra: UIDrawExtra): void {
     this.syncPanel(e, c, el, e.canvas.root.scaleX);
     const label = e.label!;
     const caret = e.caret!;
@@ -1476,6 +1682,9 @@ export class BabylonUI {
     const field = c instanceof UIInputField ? c : null;
     const color = !field || field.value ? c.color : field.placeholderColor;
     if (put(label, "color", colorKey(color))) label.color = color.toCss();
+    // ADR 0428: `::placeholder`'s `font-style` slants the placeholder.
+    const slant = field && !field.value && field.placeholderFontStyle !== "normal" ? "italic" : "";
+    if (put(label, "slant", slant)) label.fontStyle = slant;
     if (put(label, "wrap", run.wrap)) label.textWrapping = run.wrap === "none" ? WRAP_CLIP : WRAP_WORD;
     // A text area's lines start below its top padding, moved up by its scroll; it clips them (a Rectangle clips its children).
     const scrollY = el.scroll?.y ?? 0;
@@ -1487,6 +1696,7 @@ export class BabylonUI {
     const lh = area ? Math.max(0, el.scroll?.scrollHeight ?? el.height) : Math.max(0, el.height - bt - bb);
     if (put(label, "h", lh)) label.heightInPixels = lh;
 
+    this.syncFieldSelection(label as LocalisedTextBlock, field, run, field?.typing ? (extra.selectionOf?.(field) ?? null) : null, { area: !!area, rtl, lw });
     const index = field?.typing ? (extra.caretOf?.(field) ?? null) : null;
     if (!field || index === null) {
       caret.isVisible = false;
@@ -1509,6 +1719,40 @@ export class BabylonUI {
 
     if (put(caret, "h", ch)) caret.heightInPixels = ch;
     if (put(caret, "color", colorKey(c.color))) caret.background = c.color.toCss();
+  }
+
+  /**
+   * ADR 0428: an input field's selection while typing (`[start, end)` in its value), as rectangles in its text block's
+   * frame: per line by line breaks in a text area (soft wraps aside, as the caret), measured as the caret is; with
+   * `::selection`'s colours (the default highlight, the glyphs' own colour). Marks the block dirty when it changed.
+   */
+  private syncFieldSelection(label: LocalisedTextBlock, field: UIInputField | null, run: UITextRun, sel: readonly [number, number] | null, g: { area: boolean; rtl: boolean; lw: number }): void {
+    const rects: { x: number; y: number; width: number; height: number }[] = [];
+    if (field && sel && sel[1] > sel[0] && field.value) {
+      const ch = run.fontSize * run.lineHeight;
+      const width = (s: string) => (s ? textSize(s, run.fontSize, run.fontWeight, run.fontFamily, run.lineHeight).width : 0);
+      const lines = g.area ? run.text.split("\n") : [run.text];
+      const height = label.heightInPixels;
+      let offset = 0;
+      lines.forEach((line, i) => {
+        const a = Math.max(sel[0], offset) - offset, b = Math.min(sel[1], offset + line.length) - offset;
+        if (b > a) {
+          const wa = width(line.slice(0, a)), wb = width(line.slice(0, b));
+          const end = g.rtl && !g.area ? Math.max(g.lw, width(line)) : 0;
+          const xa = g.rtl && !g.area ? end - wa : wa, xb = g.rtl && !g.area ? end - wb : wb;
+          rects.push({ x: Math.min(xa, xb), y: g.area ? i * ch : (height - ch) / 2, width: Math.abs(xb - xa), height: ch });
+        }
+        offset += line.length + 1;
+      });
+    }
+    const fill = field?.selectionBackgroundColor ? field.selectionBackgroundColor.toCss() : SELECTION_COLOR;
+    const text = field?.selectionColor ? field.selectionColor.toCss() : null;
+    const key = `${rects.map((r) => `${r.x},${r.y},${r.width},${r.height}`).join("|")}|${fill}|${text}`;
+    if (!put(label, "selection", key)) return;
+    label.fieldSelection = rects.length ? rects : null;
+    label.selectionFill = fill;
+    label.selectionText = text;
+    label._markAsDirty();
   }
 
   /** Font properties of a TextBlock; line spacing makes the line height `lineHeight` times the size. */
@@ -1605,6 +1849,39 @@ function applyFilter(ctl: Control, steps: readonly UIFilterStep[] | null, scale:
   d.filter = text;
   d.filterSteps = scaled;
   d.filterReach = filterReach(scaled);
+  ctl._markAsDirty();
+}
+
+/**
+ * ADR 0428: a control's backdrop filter from the core's steps (UI pixels) in texture pixels, with the element's corner
+ * radii; registers it with its texture so redraws touching it redraw it whole. Marks it dirty when it changed.
+ */
+function applyBackdrop(ctl: Control, steps: readonly UIFilterStep[] | null, scale: number, comp: UIComponentType): void {
+  const d = ctl as Control & { backdrop?: Backdrop | null };
+  if (d.backdrop === undefined) return;
+  let next: Backdrop | null = null;
+  if (steps?.length) {
+    const scaled = transformFilterSteps(steps, null, scale);
+    const p = comp instanceof UIPanel ? comp : null;
+    const corner = (v: number) => (v >= 0 ? v : (p?.borderRadius ?? 0));
+    const radii: [number, number, number, number] = p ? [corner(p.borderTopLeftRadius), corner(p.borderTopRightRadius), corner(p.borderBottomRightRadius), corner(p.borderBottomLeftRadius)] : [0, 0, 0, 0];
+    next = { text: filterText(scaled), steps: scaled, reach: filterReach(scaled), radii };
+  }
+  const adt = ctl.host;
+  if (next && adt) {
+    let set = backdropControls.get(adt);
+    if (!set) {
+      const made = new Set<Control & { backdrop: Backdrop | null }>();
+      set = made;
+      backdropControls.set(adt, made);
+      adt.onEndLayoutObservable.add(() => growForBackdrops(adt, made));
+    }
+    set.add(d as Control & { backdrop: Backdrop | null });
+  }
+  const was = d.backdrop;
+  if (was === next || (was && next && was.text === next.text && was.radii.join() === next.radii.join())) return;
+  if (was && ctl.host) ctl.invalidateRect(); // where it drew before
+  d.backdrop = next;
   ctl._markAsDirty();
 }
 

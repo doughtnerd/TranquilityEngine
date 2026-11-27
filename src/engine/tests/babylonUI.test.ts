@@ -1253,3 +1253,139 @@ describe("ADR 0426 on Babylon GUI: inline SVG and video", () => {
     }
   });
 });
+
+describe("ADR 0428 on Babylon GUI: backdrop-filter, part pseudo-elements, ::placeholder and ::selection", () => {
+  /** The control drawing `c`, anywhere under the screen canvas roots. */
+  const controlOf = (c: UIComponentType): Control => {
+    const find = (ctl: Control): Control | null => {
+      if (ctl.name === c.owner.name) return ctl;
+      for (const child of (ctl as Container).children ?? []) {
+        const f = find(child);
+        if (f) return f;
+      }
+      return null;
+    };
+    for (const root of screenRoots()) {
+      const f = find(root);
+      if (f) return f;
+    }
+    throw new Error(`no control for "${c.owner.name}"`);
+  };
+
+  /** Offscreen canvases made from here on, with their contexts' `drawImage` calls and (`filters`) a `filter` they draw. */
+  function watchCanvases(filters: boolean) {
+    const made: { ctx: Record<string, unknown>; drawn: unknown[][]; filters: string[] }[] = [];
+    const create = (babylon as unknown as { createCanvas: (w: number, h: number) => ReturnType<typeof fakeCanvas> }).createCanvas;
+    (babylon as unknown as { createCanvas: unknown }).createCanvas = (w: number, h: number) => {
+      const c = create(w, h);
+      const ctx = c.getContext() as unknown as Record<string, unknown>;
+      const entry = { ctx, drawn: [] as unknown[][], filters: [] as string[] };
+      ctx.drawImage = (...a: unknown[]) => entry.drawn.push(a);
+      ctx.getImageData = (_x: number, _y: number, iw: number, ih: number) => ({ width: iw, height: ih, data: new Uint8ClampedArray(iw * ih * 4).fill(255) });
+      ctx.putImageData = (img: unknown) => entry.drawn.push(["put", img]);
+      if (filters) {
+        let f = "none";
+        Object.defineProperty(ctx, "filter", { configurable: true, get: () => f, set: (v: string) => (entry.filters.push(v), (f = v)) });
+      }
+      made.push(entry);
+      return c;
+    };
+    return { made, restore: () => ((babylon as unknown as { createCanvas: unknown }).createCanvas = create) };
+  }
+
+  it("draws what's behind a backdrop element filtered, under it, clipped to its box, in texture pixels", async () => {
+    ui.screen.scaleTo(1280, 720);
+    const doc = buildUI(`<Canvas><div id="under" position="absolute" left="0" top="0" width="200" height="200" background-color="#f00"/>
+        <div id="glass" position="absolute" left="20" top="30" width="100" height="50" border-radius="8" backdrop-filter="blur(2px) grayscale(1)"/></Canvas>`);
+    const pointer = await UIPointer.create(World.require());
+    const ctx = ui.screen.getContext() as unknown as Record<string, unknown>;
+    const drawn: unknown[][] = [];
+    const draw = ctx.drawImage;
+    ctx.drawImage = (...a: unknown[]) => drawn.push(a);
+    const watch = watchCanvases(true);
+    try {
+      pointer.sync();
+      ui.sync(World.require(), pointer.core, {}, 1280, 720, 2); // two texture pixels per UI pixel
+      ui.screen._checkUpdate(null);
+      const glass = controlOf(byId(doc, "glass", UIPanel)) as unknown as { backdrop: { text: string; reach: number; radii: number[] } };
+      expect(glass.backdrop).toMatchObject({ text: "blur(4px) grayscale(1)", reach: 12, radii: [8, 8, 8, 8] });
+      const [copy, filtered] = watch.made;
+      // The texture's canvas under the box, grown by the blur's reach: (40, 60) to (240, 160) in texture pixels.
+      expect(copy.drawn[0].slice(0, 9)).toEqual([ctx.canvas, 28, 48, 224, 124, 0, 0, 224, 124]);
+      expect(filtered.filters).toEqual(["blur(4px) grayscale(1)", "none"]);
+      // Drawn back where it came from, onto the texture.
+      expect(drawn.some((a) => a[0] !== ctx.canvas && a[5] === 28 && a[6] === 48 && a[7] === 224 && a[8] === 124)).toBe(true);
+    } finally {
+      ctx.drawImage = draw;
+      watch.restore();
+      pointer.dispose();
+    }
+  });
+
+  it("filters the backdrop by reading it back where the context has no filter, and redraws it whole when something under it changes", async () => {
+    ui.screen.scaleTo(1280, 720);
+    const doc = buildUI(`<Canvas><div id="under" position="absolute" left="0" top="0" width="10" height="10" background-color="#fff"/>
+        <div id="glass" position="absolute" left="0" top="0" width="100" height="50" backdrop-filter="invert(1)"/></Canvas>`);
+    const pointer = await UIPointer.create(World.require());
+    const ctx = ui.screen.getContext() as unknown as Record<string, unknown>;
+    const cleared: number[][] = [];
+    const clear = ctx.clearRect;
+    ctx.clearRect = (...a: number[]) => cleared.push(a);
+    const watch = watchCanvases(false);
+    try {
+      pointer.sync();
+      ui.sync(World.require(), pointer.core, {}, 1280, 720, 1);
+      ui.screen._checkUpdate(null);
+      const put = watch.made[0].drawn.find((a) => a[0] === "put")![1] as { data: Uint8ClampedArray };
+      expect([...put.data.slice(0, 4)]).toEqual([0, 0, 0, 255]); // white inverted
+      // A change to the small element under it redraws the whole backdrop element, not just the small one's box.
+      cleared.length = 0;
+      byId(doc, "under", UIPanel).backgroundColor = Color.from("#000");
+      pointer.sync();
+      ui.sync(World.require(), pointer.core, {}, 1280, 720, 1);
+      ui.screen._checkUpdate(null);
+      const last = cleared[cleared.length - 1];
+      expect(last[2]).toBeGreaterThanOrEqual(100);
+      expect(last[3]).toBeGreaterThanOrEqual(50);
+    } finally {
+      ctx.clearRect = clear;
+      watch.restore();
+      pointer.dispose();
+    }
+  });
+
+  it("draws a part's border and shadow, and a placeholder's slant", () => {
+    const canvas = node("C", null, UICanvas);
+    const toggle = node("T", canvas.node, UIToggle);
+    const field = node("F", canvas.node, UIInputField, { placeholder: "Name", placeholderFontStyle: "italic" });
+    const core = new FakeCore();
+    const thumb = { x: 0, y: 0, width: 16, height: 16, color: [1, 0, 0, 1] as const, radius: 3, rotate: 0, border: { width: 2, color: [0, 0, 1, 1] as const }, shadow: { x: 1, y: 2, blur: 3, color: [0, 0, 0, 1] as const } };
+    core.set([canvasInfo(canvas, { scale: 2 })], [[toggle, canvas, { width: 16, height: 16, parts: [thumb] }], [field, canvas, { width: 200, height: 30 }]]);
+    sync(core);
+    const part = (byName(rootOf(), "T") as Rectangle).children.find((c) => c.name === "T.part0") as Rectangle;
+    expect([part.thickness, part.color, part.shadowColor, part.shadowOffsetX, part.shadowOffsetY, part.shadowBlur]).toEqual([2, "rgba(0, 0, 255, 1)", "rgba(0, 0, 0, 1)", 2, 4, 6]);
+    const label = (byName(rootOf(), "F") as Rectangle).children.find((c) => c.name === "F.text") as TextBlock;
+    expect(label.fontStyle).toBe("italic");
+    field.value = "Ann";
+    sync(core);
+    expect(label.fontStyle).toBe(""); // the value isn't slanted
+  });
+
+  it("highlights an input field's selection in ::selection's colours and draws its glyphs again inside it", () => {
+    const canvas = node("C", null, UICanvas);
+    const field = node("F", canvas.node, UIInputField, { value: "abcd", fontSize: 20, padding: 8, borderWidth: 0, selectionBackgroundColor: Color.from("#00f"), selectionColor: Color.from("#fff") });
+    field.focused = true;
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas)], [[field, canvas, { width: 240, height: 36 }]]);
+    sync(core, { caretOf: () => 3, selectionOf: () => [1, 3] });
+    const label = (byName(rootOf(), "F") as Rectangle).children.find((c) => c.name === "F.text") as unknown as { fieldSelection: { x: number; y: number; width: number; height: number }[]; selectionFill: string; selectionText: string };
+    expect(label.fieldSelection).toHaveLength(1);
+    const [r] = label.fieldSelection;
+    expect(r.x).toBeCloseTo(20 * 0.55); // the prefix "a", measured as the caret is
+    expect(r.width).toBeCloseTo(2 * 20 * 0.55);
+    expect(r.height).toBeCloseTo(20 * 1.2);
+    expect([label.selectionFill, label.selectionText]).toEqual(["rgba(0, 0, 255, 1)", "rgba(255, 255, 255, 1)"]);
+    sync(core, { caretOf: () => 3, selectionOf: () => null });
+    expect(label.fieldSelection).toBeNull();
+  });
+});
