@@ -750,14 +750,13 @@ describe("a stamped group on the loopback host (ADR 0166 P1)", () => {
     // ADR 0221: the production assembly on the loopback, with its own mixer; no limiter look-ahead (output frames are core frames).
     const loop = await loopbackAudio({ mixer: "own", preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 }, decode: () => ({ channelData: [dc] }) });
     if (!loop) return ctx.skip();
-    const { backend, mixer } = loop;
+    const { backend } = loop;
     /** The core frame `out[0]` was rendered at. */
     const origin = loop.frame;
     const out: number[] = [];
     const step = async (n: number) => {
       for (let f = 0; f < n; f++) {
-        mixer.update(0.003);
-        loop.tick(0.003);
+        loop.mainFrame(0.003);
         const { left } = loop.render(4);
         for (const s of left) out.push(s);
         await Promise.resolve();

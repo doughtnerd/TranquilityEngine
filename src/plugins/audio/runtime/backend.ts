@@ -760,6 +760,20 @@ export interface AudioBackend {
    * play to the core at the hand-over.
    */
   readonly generators?: AudioGenerators;
+  /**
+   * ADR 0434 (another capability, 0179): which Worlds have the view (architecture §3.9, A3.4b). The audio system reports
+   * every World holding a share of the host each frame. The core has it; the Babylon fallback, the pending backend and the
+   * fake don't (every World is heard there, as before the core).
+   */
+  readonly worldViews?: AudioWorldViews;
+}
+
+/**
+ * ADR 0434: the World-view capability. World `key`'s voices are audible, or forced virtual (in time, silent) while it
+ * doesn't have the view; it takes effect at the next frame's selection. Key 0 (no World) is always audible.
+ */
+export interface AudioWorldViews {
+  setWorldAudible(key: number, audible: boolean): void;
 }
 
 /**

@@ -15,7 +15,7 @@ import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike }
 import hash from "../wasm/hash.json";
 import { type LoopbackAudio, type LoopbackStreamPort, loopbackAudio, closeLoopbackAudio } from "../testing";
 import { ZoneState } from "../wire.generated";
-import { runAudioFrame } from "../audioFrame";
+import { stepAudioFrame } from "../audioFrame";
 import { ListenerFrame } from "./spatial";
 import { createZoneIrService } from "./zoneIr";
 
@@ -63,20 +63,20 @@ async function rig(slots: number, maxActive: number, standby: number) {
   const warnings: string[] = [];
   const warn = console.warn;
   console.warn = (m: string) => void warnings.push(String(m));
-  // ADR 0221: the production assembly on the loopback, with its own mixer. ADR 0270: each step runs the production frame
-  // (`runAudioFrame`) with a listener frame of this test's own, which holds the zones' World.
+  // ADR 0221: the production assembly on the loopback, with its own mixer. ADR 0434: each step runs the main-thread frame
+  // (`stepAudioFrame`) with a listener frame of this test's own, which holds the zones' World.
   audio = await loopbackAudio({ mixer: "own", settings, preset: { maxZoneSlots: slots, zoneMaxSeconds: 1 }, decode: () => ({ channelData: [tone] }), backend: { zoneIr } });
   if (!audio) throw new Error("the loopback core did not load");
   audio.link.connectStreamPort(worklet as unknown as MessagePort);
   const loop = audio;
   const { backend, mixer } = audio;
   const frame = new ListenerFrame();
+  const parts = { mixer, playlists: null, backend, frame };
   let world: import("../../../../engine/core/World").World | null = null;
   const pose = { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } };
   const step = async () => {
-    mixer.update(0.016);
     frame.set(world, 0, null, pose, 0.016);
-    runAudioFrame(backend, frame, 0.016, mixer.audioSettings);
+    stepAudioFrame(parts, 0.016);
     loop.render(6);
     await Promise.all(pending.splice(0));
     await new Promise((r) => setTimeout(r, 0));

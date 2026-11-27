@@ -73,14 +73,13 @@ describe("no decodeAudioData on the core path (B6)", () => {
       clipRegistry: { fetchBytes: async (path) => fixture(path), decodeWorker: client, warn, nextQuantum: (cb) => void setTimeout(cb, 0) },
     });
     if (!audio) return ctx.skip();
-    const { backend, mixer } = audio;
+    const { backend } = audio;
     const clips = backend.clips;
     FORMATS.forEach((name) => backend.play({ path: name, url: name, loop: false, stream: false, bus: "SFX" }));
     let peak = 0;
     let mostResident = 0;
     for (let f = 0; f < 60; f++) {
-      mixer.update(0.003);
-      audio.tick(0.003);
+      audio.mainFrame(0.003);
       const { left } = audio.render(4);
       for (const s of left) peak = Math.max(peak, Math.abs(s));
       mostResident = Math.max(mostResident, clips.residentIds().length);

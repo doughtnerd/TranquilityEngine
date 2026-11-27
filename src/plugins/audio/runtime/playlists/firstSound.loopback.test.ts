@@ -6,7 +6,6 @@ import { afterEach, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { audioBackend, setAudioBackend } from "../backend";
 import { Audio } from "../index";
-import { playlistHost } from "./host";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const RATE = 48_000;
@@ -45,13 +44,10 @@ it.each([
     decode: (path: string) => ({ channelData: [path.includes("warm") ? new Float32Array(RATE) : dc] }), recovery: { now: () => 0, warn: () => {} },
   });
   if (!loop) return;
-  const { mixer } = loop;
   const out: number[] = [];
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
-      playlistHost().update(0.0107);
-      mixer.update(0.0107);
-      loop.tick(0.0107);
+      loop.mainFrame(0.0107);
       for (const s of loop.render(4).left) out.push(s);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }

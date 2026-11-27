@@ -90,7 +90,8 @@ async function rig() {
   const warn = vi.fn();
   // ADR 0221: the production assembly over this host.
   const backend: CoreBackend = assembleCore(host, { clips, clock: loop.clock, mixer, recovery: { now: () => now.ms, warn } }).createBackend();
-  const tick = testing.audioFrameDriver(backend, mixer);
+  /** ADR 0434: the main-thread audio frame as the audio system runs it. */
+  const mainFrame = testing.audioFrameDriver(backend, mixer);
   const settle = async () => {
     for (let k = 0; k < 8; k++) await Promise.resolve();
   };
@@ -99,8 +100,7 @@ async function rig() {
     const start = loop.frame;
     const out: number[] = [];
     for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      tick(0.003);
+      mainFrame(0.003);
       const { left } = loop.renderQuanta(4);
       for (const v of left) out.push(v);
       await settle();

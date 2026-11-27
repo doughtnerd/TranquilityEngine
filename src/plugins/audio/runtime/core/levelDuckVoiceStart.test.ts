@@ -50,8 +50,7 @@ async function rig() {
   const frames = async (n: number) => {
     let min = 1;
     for (let f = 0; f < n; f++) {
-      mixer.update(0.016);
-      loop.tick(0.016);
+      loop.mainFrame(0.016);
       loop.render(6);
       for (let k = 0; k < 8; k++) await Promise.resolve();
       min = Math.min(min, mixer.bus("Music").duckGain);

@@ -34,10 +34,9 @@ async function coreRig() {
     decode: () => ({ channelData: [dcClip] }),
   });
   if (!loop) return null;
-  const { backend, mixer } = loop;
+  const { backend } = loop;
   const quantum = async (): Promise<Float32Array> => {
-    mixer.update(DT);
-    loop.tick(DT);
+    loop.mainFrame(DT);
     const out = loop.render(1).left;
     for (let k = 0; k < 4; k++) await Promise.resolve();
     return out;

@@ -54,13 +54,10 @@ it("pause holds a playback at one frame and resume continues it from exactly the
     decode: () => ({ channelData: [ramp] }), recovery: { now: () => 0, warn: () => {} },
   });
   if (!loop) return ctx.skip();
-  const { mixer } = loop;
   const out: number[] = [];
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
-      playlistHost().update(0.0107);
-      mixer.update(0.0107);
-      loop.tick(0.0107);
+      loop.mainFrame(0.0107);
       for (const s of loop.render(4).left) out.push(s);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }
@@ -137,13 +134,11 @@ it("stop ends a paused playback on the core (loopback)", { timeout: 30_000 }, as
     decode: () => ({ channelData: [ramp] }), recovery: { now: () => 0, warn: () => {} },
   });
   if (!loop) return ctx.skip();
-  const { mixer, link } = loop;
+  const { link } = loop;
   const out: number[] = [];
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
-      playlistHost().update(0.0107);
-      mixer.update(0.0107);
-      loop.tick(0.0107);
+      loop.mainFrame(0.0107);
       for (const s of loop.render(4).left) out.push(s);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }

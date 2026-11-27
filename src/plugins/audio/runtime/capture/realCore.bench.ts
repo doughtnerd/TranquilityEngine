@@ -18,7 +18,7 @@
 //
 // **Measured.** Per quantum, the loopback host's `renderQuanta(1)` (the core's `process` plus the delivery and handling of the
 // STATUS that quantum carries): quanta without a STATUS (the core alone, plus the host's two output copies) and quanta
-// with one, each median / p95 / max in microseconds; per frame the main side (`mixer.update`, `backend.update`, which is
+// with one, each median / p95 / max in microseconds; per frame the main side (the rig's `mainFrame`: `mixer.update` and the backend frame, which is
 // where the event taps run); the recorder's tap alone, timed around the call; and the bytes the recorder wrote (ring bytes
 // per minute, by record type, and the take deflated, as the save does) against 0172's sizes.
 //
@@ -125,7 +125,7 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
     },
   });
   if (!audio) return null;
-  const { backend, mixer, link } = audio;
+  const { backend, link } = audio;
   // Each STATUS as it arrives (the backend's decoder reuses one block, so a block is read in the listener, never kept).
   let statusSeen = 0;
   let liveSum = 0;
@@ -185,8 +185,7 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
 
   const frameStep = async (measure: boolean): Promise<void> => {
     const t0 = performance.now();
-    mixer.update(dt);
-    audio.tick(dt);
+    audio.mainFrame(dt); // ADR 0434: the frame a game runs (its own mixer: no playlists)
     // Replace what ended (S3: the replacement starts in the same frame) and stop loopers at their deadline.
     for (let i = 0; i < capacity; i++) {
       if (deadline[i]! <= audioSeconds) {

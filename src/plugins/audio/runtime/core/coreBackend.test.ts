@@ -642,8 +642,7 @@ describe("CoreBackend: ducking counts and Bus.peak (A2.3)", () => {
     const { backend, mixer } = loop;
     const step = async (frames: number) => {
       for (let f = 0; f < frames; f++) {
-        mixer.update(0.003);
-        loop.tick(0.003);
+        loop.mainFrame(0.003);
         loop.render(4);
         await Promise.resolve();
       }
@@ -716,8 +715,7 @@ describe("CoreBackend on the loopback host (loopbackAudio, ADR 0221)", () => {
     const settle = async (n: number) => {
       let level = NaN;
       for (let f = 0; f < n; f++) {
-        mixer.update(0.003);
-        loop.tick(0.003);
+        loop.mainFrame(0.003);
         for (let q = 0; q < 4; q++) {
           const { left, right } = loop.render(1);
           level = left[0]!;

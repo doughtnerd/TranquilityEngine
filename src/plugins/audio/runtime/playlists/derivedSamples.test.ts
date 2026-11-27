@@ -171,8 +171,7 @@ async function heardOnCore(files: Record<string, unknown>, play: () => void): Pr
     const frames = Math.ceil(1.5 / FRAME_SECONDS);
     for (let f = 0; f < frames; f++) {
       if (f === 0) play();
-      playlistHost().update(FRAME_SECONDS);
-      loop.tick(FRAME_SECONDS);
+      loop.mainFrame(FRAME_SECONDS);
       const out = loop.render(FRAME_QUANTA);
       for (let q = 0; q < FRAME_QUANTA; q++) {
         let s = 0;

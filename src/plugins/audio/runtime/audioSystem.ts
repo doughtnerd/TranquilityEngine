@@ -7,10 +7,10 @@
  * markers arrive in late update.)
  *
  * `engine.Audio` (lateUpdate): the listener (an enabled `AudioListener`, else the main camera) into the backend and
- * the frame's `ListenerFrame`, `mixer.update`, the occlusion pass's source bindings, then the backend frame
- * (`audioFrame.ts`, ADR 0270: attenuation, Doppler, zones, occlusion, selection, panner pick, fx, listener, commit; the
- * Babylon fallback and plain backends take the parts they have), then the playlist runtime and the sources' sync.
- * Nothing in this file changes for a feature: each fills its own file.
+ * the frame's `ListenerFrame`, the occlusion pass's source bindings, then the main-thread audio frame (`audioFrame.ts`
+ * `stepAudioFrame`, ADR 0434: `mixer.update`, the backend frame of ADR 0270, the playlist runtime), then the sources' sync.
+ * The order inside the frame is written there, once, for the system and the test rigs alike. Nothing in this file changes
+ * for a feature: each fills its own file.
  */
 import { mixer } from "../../../engine/audio/mixer";
 import type { BuiltinSystem } from "../../../engine/core/systems";
@@ -21,21 +21,14 @@ import type { GameObject } from "../../../engine/scene/GameObject";
 import { AudioListener, listenerPose } from "./AudioListener";
 import { isSpatialPassHost, ListenerFrame } from "./core/spatial";
 import type { OcclusionPass } from "./core/occlusion";
-import { runAudioFrame } from "./audioFrame";
+import { stepAudioFrame, type AudioFrameParts } from "./audioFrame";
 import { AudioSource, worldKeyOf, worldPlays } from "./AudioSource";
-import { audioBackend, hasAudioBackend, isPendingCoreBackend } from "./backend";
+import { audioBackend, hasAudioBackend, isPendingCoreBackend, type AudioWorldViews } from "./backend";
 import { playlistHost } from "./playlists/host";
 import { AUDIO, type AudioWorldService } from "./core/service";
 
 /** Worlds whose audio system already asked for the core's World service. */
 const askedCore = new WeakSet<World>();
-
-/** What the audio system needs of the core backend to say which World has the view (A3.1 `CoreBackend.setWorldAudible`). */
-interface WorldAudibleSink {
-  setWorldAudible(key: number, audible: boolean): void;
-}
-
-const hasWorldAudible = (b: unknown): b is WorldAudibleSink => typeof (b as Partial<WorldAudibleSink>).setWorldAudible === "function";
 
 /**
  * A3.4b, architecture §3.9: tells the core which Worlds have the view. Runs in every World the Engine steps (the view's
@@ -46,11 +39,11 @@ const hasWorldAudible = (b: unknown): b is WorldAudibleSink => typeof (b as Part
  */
 function reportView(world: World): void {
   if (!hasAudioBackend()) return;
-  const backend: unknown = audioBackend();
-  if (!hasWorldAudible(backend)) return;
+  const views = audioBackend().worldViews; // ADR 0434: a capability (0179); the core has it
+  if (!views) return;
   const service = _worldServiceOf(world, AUDIO) as AudioWorldService | null;
   if (!service?.core.host) return;
-  reportTo = backend;
+  reportTo = views;
   liveKeys.clear();
   service.core.host.forEachWorld(reportOne);
   reportTo = null;
@@ -58,7 +51,7 @@ function reportView(world: World): void {
   playlistHost().keepWorlds(liveKeys);
 }
 
-let reportTo: WorldAudibleSink | null = null;
+let reportTo: AudioWorldViews | null = null;
 const reportOne = (key: number, owner: object): void => {
   reportTo?.setWorldAudible(key, worldPlays(owner as World));
   liveKeys.add(key);
@@ -68,6 +61,9 @@ const liveKeys = new Set<number>();
 
 /** ADR 0162 (K4): the listener frame main's passes share (one: only the World with the view runs the frame). */
 const frame = new ListenerFrame();
+
+/** ADR 0434: what the main-thread audio frame runs over; the backend and the playlist host are read each frame (reused, so nothing allocates). */
+let parts: AudioFrameParts | null = null;
 
 /**
  * ADR 0162 (D2a, C14): tells the occlusion pass which node plays each AudioSource's voice, so its rays exclude the
@@ -121,12 +117,13 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
       // ADR 0162 (K4): the frame's listener for the passes (R14: this World has the view).
       frame.set(world, worldKeyOf(world), listener, pose, dt);
       frame.setOverride(listenerComponent?._velocityOverride ?? null);
-      mixer.update(dt);
       const backend = audioBackend();
       if (isSpatialPassHost(backend)) bindOcclusionSources(world, backend.occlusion);
-      runAudioFrame(backend, frame, dt, mixer.audioSettings); // ADR 0270: the frame order, in one module
+      parts ??= { mixer, playlists: null, backend, frame };
+      parts.backend = backend;
+      parts.playlists = playlistHost();
+      stepAudioFrame(parts, dt); // ADR 0434: mixer, backend frame (0270), playlists, in one module
       listenerComponent?._noteVelocity(frame.velX, frame.velY, frame.velZ);
-      playlistHost().update(dt); // ADR 0343: the playlist instances' frame; the fallback's automation
       for (const s of world._componentsOfType(AudioSource)) s._sync();
     },
   },
