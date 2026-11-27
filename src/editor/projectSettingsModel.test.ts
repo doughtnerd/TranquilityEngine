@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addAutoload, addSortingLayer, addTier, graphicsOf, moveTier, removeTier, renameTier, setPlatformDefault, setAutoDetect, setDefaultTier, setTargetFrameRate, setTierValue, moveAutoload, moveSortingLayer, setName, settingsProblems, settingsWarnings, setValue, withSettings, type SettingsDraft } from "./projectSettingsModel";
+import { actionSetsOf, addActionSet, moveActionSetTo, removeActionSet, addAutoload, addSortingLayer, addTier, graphicsOf, moveTier, removeTier, renameTier, setPlatformDefault, setAutoDetect, setDefaultTier, setTargetFrameRate, setTierValue, moveAutoload, moveSortingLayer, setName, settingsProblems, settingsWarnings, setValue, withSettings, type SettingsDraft } from "./projectSettingsModel";
 import { raw, readDraft } from "./testing";
 
 const FLAPPY = raw["../../samples/flappy/project.json"];
@@ -223,5 +223,18 @@ describe("display scaling (ADR 0116)", () => {
   it("accepts the three scale modes and flags others", () => {
     for (const m of ["fit", "stretch", "pixel-perfect"]) expect(settingsProblems({ display: { scaleMode: m as never } })).toEqual([]);
     expect(settingsProblems({ display: { scaleMode: "zoom" as never } }).map((p) => p.field)).toEqual(["display.scaleMode"]);
+  });
+});
+
+describe("action set files (ADR 0417)", () => {
+  it("adds once, removes and moves input.actionSets, keeping the section's other fields", () => {
+    let d: SettingsDraft = { input: { join: "single" } };
+    d = addActionSet(addActionSet(addActionSet(d, "input/a.actions.json"), "input/b.actions.json"), "input/a.actions.json");
+    d = addActionSet(d, "input/c.actions.json");
+    expect(actionSetsOf(d)).toEqual(["input/a.actions.json", "input/b.actions.json", "input/c.actions.json"]);
+    d = moveActionSetTo(d, 2, 0);
+    expect(actionSetsOf(d)).toEqual(["input/c.actions.json", "input/a.actions.json", "input/b.actions.json"]);
+    d = removeActionSet(d, 1);
+    expect(d.input).toEqual({ join: "single", actionSets: ["input/c.actions.json", "input/b.actions.json"] });
   });
 });

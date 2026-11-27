@@ -82,7 +82,7 @@ export const sortingLayersOf = (d: SettingsDraft): string[] => d.render?.sorting
 export const autoloadsOf = (d: SettingsDraft): string[] => d.autoload ?? [];
 
 /** Set one value in a section (undefined removes it, so the default applies); drops a section left empty. */
-export function setValue<S extends "display" | "time" | "physics" | "render" | "build">(draft: SettingsDraft, section: S, key: string, value: unknown): SettingsDraft {
+export function setValue<S extends "display" | "time" | "physics" | "render" | "build" | "input">(draft: SettingsDraft, section: S, key: string, value: unknown): SettingsDraft {
   const next: Record<string, unknown> = { ...(draft[section] ?? {}) };
   if (value === undefined) delete next[key];
   else next[key] = value;
@@ -114,6 +114,21 @@ export const moveSortingLayer = (d: SettingsDraft, index: number, by: number) =>
 export const addAutoload = (d: SettingsDraft, path: string): SettingsDraft => ({ ...d, autoload: [...autoloadsOf(d), path] });
 export const removeAutoload = (d: SettingsDraft, index: number): SettingsDraft => ({ ...d, autoload: autoloadsOf(d).filter((_, i) => i !== index) });
 export const moveAutoload = (d: SettingsDraft, index: number, by: number): SettingsDraft => ({ ...d, autoload: moved(autoloadsOf(d), index, by) });
+
+// --- action set files (ADR 0417) -------------------------------------------------------------------
+
+/** The draft's `input.actionSets`: the action set files defined at boot, in order. */
+export const actionSetsOf = (d: SettingsDraft): string[] => {
+  const input = d.input;
+  const list = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>).actionSets : undefined;
+  return Array.isArray(list) ? list.filter((p): p is string => typeof p === "string") : [];
+};
+const withActionSets = (d: SettingsDraft, list: string[]): SettingsDraft => setValue(d, "input", "actionSets", list);
+/** Add an action set file at the end of the list (no change when it's listed already). */
+export const addActionSet = (d: SettingsDraft, path: string): SettingsDraft => (actionSetsOf(d).includes(path) ? d : withActionSets(d, [...actionSetsOf(d), path]));
+export const removeActionSet = (d: SettingsDraft, index: number): SettingsDraft => withActionSets(d, actionSetsOf(d).filter((_, i) => i !== index));
+/** Move the action set at `index` to position `to` (a drag drops it there; ↑ ↓ move by one). */
+export const moveActionSetTo = (d: SettingsDraft, index: number, to: number): SettingsDraft => withActionSets(d, moved(actionSetsOf(d), index, to - index));
 
 // --- graphics quality tiers (ADR 0050) ------------------------------------------------------------
 
