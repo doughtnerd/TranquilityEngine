@@ -1,4 +1,4 @@
-// The prefab brush in the scene (ADR 0426): with prefabs chosen in the Tile Palette, the pencil, rectangle and eraser
+// The prefab brush in the scene (ADR 0440): with prefabs chosen in the Tile Palette, the pencil, rectangle and eraser
 // place and remove prefab instances, children of the Tilemap's node at their cells' centres (`cellToLocal`, so every
 // grid works). A stroke collects its cells while the pointer moves and, released, applies `prefabBrushLogic.ts`'s plan
 // as node removes and inserts in the gesture's one undo step. The instances are ordinary prefab instances (ADR 0086),

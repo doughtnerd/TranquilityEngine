@@ -32,7 +32,7 @@ export interface BabylonSpriteHost {
   pixelsPerUnit(): number;
   /** The project's sorting layers, bottom to top (`render.sortingLayers`). */
   sortingLayers(): readonly string[];
-  /** The project's y-sorted sorting layers (`render.ySortedLayers`, ADR 0424). */
+  /** The project's y-sorted sorting layers (`render.ySortedLayers`, ADR 0438). */
   ySortedLayers(): readonly string[];
   /**
    * A colour texture asset if loaded (sampled again if its import settings changed), else null: it starts loading and
@@ -67,7 +67,7 @@ interface SpriteEntry {
   size: [number, number] | null;
   /** The world matrix the quad is frozen at (Babylon keeps it), or null before the first sync. */
   matrix: Matrix | null;
-  /** Its place (`drawPlace`: the draw order, plus its height in a y-sorted layer, ADR 0424), as last drawn. */
+  /** Its place (`drawPlace`: the draw order, plus its height in a y-sorted layer, ADR 0438), as last drawn. */
   order: number;
 }
 
@@ -130,7 +130,7 @@ export class BabylonSprites implements BabylonFeature {
     this.batcher.dispose();
   }
 
-  /** Draw place: `sortingLayer` index × 10000 + `orderInLayer`, plus the height `y`'s offset in a y-sorted layer (ADR 0424). */
+  /** Draw place: `sortingLayer` index × 10000 + `orderInLayer`, plus the height `y`'s offset in a y-sorted layer (ADR 0438). */
   sortOrder(layer: string, order: number, y = 0): number {
     return drawPlace(this.render(), layer, order, y, (l) => this.host.warnOnce(`layer|${l}`, unknownLayerMessage(l)));
   }
@@ -207,7 +207,7 @@ export class BabylonSprites implements BabylonFeature {
       entry.item = null;
     }
 
-    // Its sort point is the node's world position (the pivot), Unity's default (ADR 0424).
+    // Its sort point is the node's world position (the pivot), Unity's default (ADR 0438).
     const e = s.node.entity;
     const render = this.render();
     const order = drawPlace(render, s.sortingLayer, s.orderInLayer, world.worldMatrix(e)[e * 16 + 13], (l) => this.host.warnOnce(`layer|${l}`, unknownLayerMessage(l)));

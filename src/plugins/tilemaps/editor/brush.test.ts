@@ -258,7 +258,7 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     expect([map.getTile(0, 5), map.getTile(1, 5), map.getTile(2, 5)]).toEqual([11, 12, 13]);
   });
 
-  it("on a hexagonal map, flips tiles but not a stamp's layout, doesn't turn, and fills across every side (ADR 0421)", () => {
+  it("on a hexagonal map, flips tiles but not a stamp's layout, doesn't turn, and fills across every side (ADR 0435)", () => {
     const { map } = newMap();
     map.gridShape = "hexagonal";
     brushStamp.value = { width: 2, height: 1, values: [1, 2] };

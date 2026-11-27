@@ -1,4 +1,4 @@
-// The tile editor's next tier in the editor (ADR 0425, 0426): locked layers, stamps of several layers, the editor
+// The tile editor's next tier in the editor (ADR 0439, 0440): locked layers, stamps of several layers, the editor
 // clipboard across tilesets, the selection tool's operations as undo steps, Replace with… and the prefab brush.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine, type AssetSource } from "../../../engine";
@@ -21,7 +21,7 @@ const TILESET = { format: "myco.tileset@1", tileSize: [16, 16], tiles: tiles(["u
 const OTHER = { format: "myco.tileset@1", tileSize: [16, 16], tiles: [{ id: 9, uuid: "u2", sprite: "" }, { id: 8, uuid: "u1", sprite: "" }] };
 const PIPE = "prefabs/pipe-pair.prefab.json"; // the sample's
 
-describe("tile editing in the editor (ADR 0425, 0426)", () => {
+describe("tile editing in the editor (ADR 0439, 0440)", () => {
   useEditorPlugins([tilemapsEditorPlugin]);
   let engine: Engine;
   let source: AssetSource;

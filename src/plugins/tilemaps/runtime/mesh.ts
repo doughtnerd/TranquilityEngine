@@ -2,9 +2,9 @@
  * Chunk geometry for tilemap rendering (ADR 0103). Pure: one chunk of one layer becomes one
  * vertex buffer per texture (usually one), quads in the tilemap's local units, so the render
  * backend draws a whole chunk in one call and rebuilds only chunks that changed. A caller can split a chunk's tiles
- * further into groups (a y-sorted layer's rows, ADR 0424; a square chunk's animated tiles, ADR 0421).
+ * further into groups (a y-sorted layer's rows, ADR 0438; a square chunk's animated tiles, ADR 0435).
  *
- * Each tile's sprite is placed in its cell's box (`TileGrid.cellBox`, ADR 0421) by its anchor (ADR 0119). On
+ * Each tile's sprite is placed in its cell's box (`TileGrid.cellBox`, ADR 0435) by its anchor (ADR 0119). On
  * non-square grids, where tall tiles overlap the rows behind them, a mesh's quads come in painter's order
  * (`TileGrid.drawKey`: higher on screen first).
  */
@@ -103,7 +103,7 @@ export function buildChunkMeshes(
 
 /**
  * Write quad `q` of a mesh (its 4 corners' xyz in `positions`, uv in `uvs`): cell (x, y)'s tile drawing `frame` with
- * flip `flags`, placed in the cell's box by the frame's size and anchor (ADR 0119, 0421). What `buildChunkMeshes` lays
+ * flip `flags`, placed in the cell's box by the frame's size and anchor (ADR 0119, 0435). What `buildChunkMeshes` lays
  * each tile out with, and what an animated tile's quad is rewritten with when its frame changes.
  */
 export function writeTileQuad(positions: Float32Array, uvs: Float32Array, q: number, grid: TileGrid | { x: number; y: number }, x: number, y: number, frame: TileFrame, flags: number): void {

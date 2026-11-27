@@ -24,7 +24,7 @@ export function Row(props: { label: string; problems: readonly SettingsProblem[]
   );
 }
 
-/** A checkbox column beside a `NameList`'s names (a sorting layer's "Y-sort", ADR 0424). */
+/** A checkbox column beside a `NameList`'s names (a sorting layer's "Y-sort", ADR 0438). */
 export interface NameListCheck {
   /** The column's heading. */
   title: string;

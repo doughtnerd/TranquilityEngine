@@ -45,7 +45,7 @@ export class CharacterController2D extends Collider2D {
   @field(Number) mass = 1;
   /** Ride kinematic and dynamic bodies it stands on (moving platforms), moving with them each fixed step. */
   @field(Boolean) moveWithPlatforms = true;
-  /** A character controller is never a one-way platform itself; it honours other colliders' `oneWay` (ADR 0423). */
+  /** A character controller is never a one-way platform itself; it honours other colliders' `oneWay` (ADR 0437). */
   @field(Boolean, { hidden: true }) override oneWay = false;
 
   /** @internal */ _flags: CollisionFlags = NO_FLAGS;
@@ -91,7 +91,7 @@ export class CharacterController2D extends Collider2D {
   }
 
   /**
-   * Pass down through every one-way collider it stands on or overlaps now (ADR 0423): Down + Jump on a plank. One-way
+   * Pass down through every one-way collider it stands on or overlaps now (ADR 0437): Down + Jump on a plank. One-way
    * colliders reached later still hold it, so the next platform below catches it; solid colliders always do. Does
    * nothing on a backend without one-way platforms.
    */

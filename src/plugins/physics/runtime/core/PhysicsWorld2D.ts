@@ -55,7 +55,7 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
   protected readonly down = { x: 0, y: -1 };
   protected readonly identity = 0;
   declare readonly backend: PhysicsWorld2DBackend;
-  /** Shape colliders (ADR 0105, 0136, 0423). */
+  /** Shape colliders (ADR 0105, 0136, 0437). */
   private readonly shapes: ShapeColliders2D;
 
   constructor(world: World, backend: PhysicsBackend2D) {
@@ -157,7 +157,7 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
     return { signature: parts.join("|"), scale: ws };
   }
 
-  /** Whether `c` is built one-way (ADR 0423): its `oneWay` is on and it isn't a trigger or a character controller. */
+  /** Whether `c` is built one-way (ADR 0437): its `oneWay` is on and it isn't a trigger or a character controller. */
   private isOneWay(c: Collider2D): boolean {
     return c.oneWay && !c.isTrigger && !(c instanceof CharacterController2D);
   }
@@ -171,7 +171,7 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
     return oneWayOf(shape, this.colliderWorldPose(c), oneWayUp(frame2DOf(c.node)));
   }
 
-  /** @internal `RigidBody2D.dropThrough` and `CharacterController2D.dropThrough` (ADR 0423). */
+  /** @internal `RigidBody2D.dropThrough` and `CharacterController2D.dropThrough` (ADR 0437). */
   dropThrough(target: RigidBody2D | CharacterController2D): void {
     if (!this.capabilities.oneWayPlatforms) return;
     const body = target instanceof RigidBody2D ? target._state?.body : target._state?.ownBody;

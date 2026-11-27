@@ -1,4 +1,4 @@
-// One-way 2D colliders, character controllers honouring them, and drop-through (ADR 0423), on Rapier.
+// One-way 2D colliders, character controllers honouring them, and drop-through (ADR 0437), on Rapier.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, BoxCollider2D, CharacterController2D, Engine, GameObject, RigidBody2D, SceneManager } from "../../myco";
 
@@ -65,7 +65,7 @@ function controller(x: number, y: number) {
   return { player, cc, frame };
 }
 
-describe("one-way 2D colliders (ADR 0423)", () => {
+describe("one-way 2D colliders (ADR 0437)", () => {
   it("a one-way BoxCollider2D lets a body up through and holds it on top", async () => {
     const engine = await setup();
     slab("plank", 0, 2, [6, 0.5], true); // top at 2.25
@@ -109,7 +109,7 @@ describe("one-way 2D colliders (ADR 0423)", () => {
   });
 });
 
-describe("character controllers and one-way colliders (ADR 0423)", () => {
+describe("character controllers and one-way colliders (ADR 0437)", () => {
   it("a CharacterController2D jumps up through a one-way box and lands on it", async () => {
     const engine = await setup();
     slab("floor", 0, -0.5, [20, 1], false);
@@ -144,7 +144,7 @@ describe("character controllers and one-way colliders (ADR 0423)", () => {
   });
 });
 
-describe("drop-through (ADR 0423)", () => {
+describe("drop-through (ADR 0437)", () => {
   it("RigidBody2D.dropThrough falls through the plank it stands on and is caught by the next one-way plank", async () => {
     const engine = await setup();
     slab("upper", 0, 2, [6, 0.5], true); // top at 2.25

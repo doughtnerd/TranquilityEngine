@@ -27,7 +27,7 @@ const keys = (...cells: Cell[]) => new Set(cells.map(([x, y]) => cellKey(x, y)))
 const block = (map: Tilemap, x0: number, y0: number, w: number, h: number, layer = 0) =>
   Array.from({ length: h }, (_, r) => Array.from({ length: w }, (_, c) => map.getCell(x0 + c, y0 + h - 1 - r, layer)));
 
-describe("the tile selection (ADR 0426)", () => {
+describe("the tile selection (ADR 0440)", () => {
   it("adds and takes rectangles, and selects every used cell", () => {
     let sel = selectRect(new Set(), [0, 0], [2, 1], "replace");
     expect(sel.size).toBe(6);

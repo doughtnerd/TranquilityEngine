@@ -1,4 +1,4 @@
-// ADR 0424: y-sorted sorting layers. A draw's height decides its place within its order in layer, in one place
+// ADR 0438: y-sorted sorting layers. A draw's height decides its place within its order in layer, in one place
 // (`ySortWithin`), and its place (`drawPlace`) is what layered 2D content sits at and what picking ranks by.
 import { describe, expect, it } from "vitest";
 import { drawPlace, isYSorted, sortingOrder, WITHIN_SPAN, withinOrder, ySortFraction, ySortWithin } from "../render/sortOrder";

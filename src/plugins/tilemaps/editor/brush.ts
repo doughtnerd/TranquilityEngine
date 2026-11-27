@@ -1,12 +1,12 @@
 // Tilemap painting in the editor (ADR 0103, 0289): the brush the Tile Palette sets up, and the strokes
 // it paints. The brush owns the stamp's layout under its flips, the stroke rules and the footprint.
 // Strokes paint the Editor World's Tilemap at once (so painting shows while the pointer moves) and
-// commit to the scene document as one write of `layers` when they end. On every grid shape (ADR 0421) the brush works
+// commit to the scene document as one write of `layers` when they end. On every grid shape (ADR 0435) the brush works
 // in cell space: rectangles are cell-space rectangles (diamonds on an isometric map), flood fill follows the cells
 // sharing a side, and stamps keep their layout. On hexagonal maps a quarter turn isn't a symmetry, so the brush only
 // flips tiles' images there: Rotate is off and a multi-cell stamp's layout is neither mirrored nor turned.
-// The brush skips locked layers (ADR 0425). A stamp of several named layers (a selection copied across layers, a saved
-// stamp, ADR 0426) pastes with the pencil into the map's layers of the same names. The brush remembers the tileset its
+// The brush skips locked layers (ADR 0439). A stamp of several named layers (a selection copied across layers, a saved
+// stamp, ADR 0440) pastes with the pencil into the map's layers of the same names. The brush remembers the tileset its
 // tile ids are of, so a stamp copied from one Tilemap paints another with another tileset by tile uuid.
 import { signal, type ReadonlySignal } from "@preact/signals";
 import { type GameObject } from "../../../engine";
@@ -52,19 +52,19 @@ export const brushFlags = signal(0);
 /** The layer painted, by index. */
 export const activeLayer = signal(0);
 /**
- * ADR 0426: the stamp's named layers when it has several (a selection copied across layers, a saved stamp): the
+ * ADR 0440: the stamp's named layers when it has several (a selection copied across layers, a saved stamp): the
  * pencil pastes each into the map's layer of the same name. Null: `brushStamp` alone, into the active layer.
  */
 export const brushLayers = signal<StampBlock | null>(null);
-/** ADR 0426: the tileset the brush's tile ids are of (null: the painted map's). Another map's tileset gets the tiles by uuid. */
+/** ADR 0440: the tileset the brush's tile ids are of (null: the painted map's). Another map's tileset gets the tiles by uuid. */
 export const brushSource = signal<Tileset | null>(null);
 /**
- * ADR 0426: the prefabs the prefab brush places (project paths), several for random mode. While any is chosen, the
+ * ADR 0440: the prefabs the prefab brush places (project paths), several for random mode. While any is chosen, the
  * pencil, rectangle and eraser place and remove prefab instances instead of tiles (`prefabBrush.ts`).
  */
 export const brushPrefabs = signal<readonly string[]>([]);
 /**
- * ADR 0425: while a Tilemap is being painted, its other layers draw at `DIM_FACTOR` of their opacity in the edit view.
+ * ADR 0439: while a Tilemap is being painted, its other layers draw at `DIM_FACTOR` of their opacity in the edit view.
  * Per user, saved with the editor's settings, never in the scene.
  */
 export const dimInactiveLayers = persisted("myco.tilemaps.dimInactiveLayers", false);
@@ -99,7 +99,7 @@ export function chooseStamp(stamp: Stamp, random = false, source: Tileset | null
 }
 
 /**
- * Brush a block of named layers (ADR 0426) of `source`'s tiles: with one layer it paints the active layer, with several
+ * Brush a block of named layers (ADR 0440) of `source`'s tiles: with one layer it paints the active layer, with several
  * the layers of the same names. The brush's flips start over. Picks the pencil unless a painting tool is picked.
  */
 export function chooseBlock(block: StampBlock, source: Tileset | null): void {
@@ -121,7 +121,7 @@ export function chooseTerrain(name: string | null): void {
   if (name && (!t || t === "pick" || t === "select")) pickBrushTool("pencil");
 }
 
-/** Brush prefabs (ADR 0426; empty: back to tiles), with several one at random per cell. Picks the pencil unless the pencil, rectangle or eraser is picked. */
+/** Brush prefabs (ADR 0440; empty: back to tiles), with several one at random per cell. Picks the pencil unless the pencil, rectangle or eraser is picked. */
 export function choosePrefabs(paths: readonly string[]): void {
   brushPrefabs.value = paths;
   if (paths.length === 0) return;
@@ -130,12 +130,12 @@ export function choosePrefabs(paths: readonly string[]): void {
   if (t !== "pencil" && t !== "rect" && t !== "erase") pickBrushTool("pencil");
 }
 
-/** Whether the brush can turn on `map`'s grid: not on hexagonal maps (ADR 0421). */
+/** Whether the brush can turn on `map`'s grid: not on hexagonal maps (ADR 0435). */
 export function canRotateOn(map: Tilemap | null): boolean {
   return map?.gridShape !== "hexagonal";
 }
 
-/** Flip or turn the brush. Turning does nothing when `map` is hexagonal (ADR 0421). */
+/** Flip or turn the brush. Turning does nothing when `map` is hexagonal (ADR 0435). */
 export function flipBrush(axis: "x" | "y" | "rotate", map: Tilemap | null = null): void {
   if (axis === "rotate" && !canRotateOn(map)) return;
   const f = brushFlags.peek();
@@ -171,7 +171,7 @@ export interface BrushStroke {
 
 /**
  * Start a stroke with `tool` on the cell pressed: pencil and erase paint it, fill floods from it.
- * The brush read is the Tile Palette's (stamp, flips, random, terrain) as it is now. A locked active layer (ADR 0425)
+ * The brush read is the Tile Palette's (stamp, flips, random, terrain) as it is now. A locked active layer (ADR 0439)
  * isn't painted, filled or picked from, and says so; a stamp of several layers still paints the unlocked layers it names.
  * The selection tool's strokes (`select`) only track the dragged rectangle: the paint tool acts on the selection.
  */
@@ -213,7 +213,7 @@ export function beginStroke(map: Tilemap, tool: BrushTool, cell: Cell): BrushStr
   };
 }
 
-/** Says in the status bar that the active layer is locked, when it is (ADR 0425). */
+/** Says in the status bar that the active layer is locked, when it is (ADR 0439). */
 function tellIfLocked(map: Tilemap): void {
   const layer = paintLayer(map);
   if (layer >= 0 && layerLocked(map, layer)) editor.messages.info(`The layer “${map.toLayerData()[layer]?.name ?? layer}” is locked. Unlock it in the Tile Palette to paint it.`);
@@ -251,7 +251,7 @@ function paintLayer(map: Tilemap): number {
 }
 
 /**
- * The brush's block as tiles of `map`'s tileset (ADR 0426): as it is when the brush's tiles are that tileset's, else
+ * The brush's block as tiles of `map`'s tileset (ADR 0440): as it is when the brush's tiles are that tileset's, else
  * matched by uuid, the tiles the map's tileset lacks left out with a message.
  */
 function brushBlockFor(map: Tilemap): StampBlock {
@@ -271,7 +271,7 @@ function fillBounds(map: Tilemap, x: number, y: number): { minX: number; minY: n
 }
 
 /**
- * The cells sharing a side with a cell, for flood fill on a non-square grid (ADR 0421): every neighbour of a hexagon,
+ * The cells sharing a side with a cell, for flood fill on a non-square grid (ADR 0435): every neighbour of a hexagon,
  * the N E S W neighbours of a diamond. Undefined on square grids (the fill's own 4 neighbours).
  */
 function sideNeighbours(map: Tilemap): ((x: number, y: number) => readonly (readonly [number, number])[]) | undefined {

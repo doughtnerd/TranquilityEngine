@@ -1,4 +1,4 @@
-// ADR 0423 and 0425: tile shapes merged per chunk and cached, layer offsets in the shapes, and shadow shapes per tile.
+// ADR 0437 and 0439: tile shapes merged per chunk and cached, layer offsets in the shapes, and shadow shapes per tile.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, Light2D, SceneManager, ShadowCaster2D, Tilemap, Vector2, type TilemapLayerData } from "../../../myco";
 import { buildTileShapes, type TileShapes } from "./collision";
@@ -14,7 +14,7 @@ const TILESET = {
     { id: 2, sprite: "", collision: "oneWay" },
     { id: 3, sprite: "", collision: { polygon: [[0, 0], [1, 0], [1, 1]] } },
     { id: 4, sprite: "", collision: { shapes: [{ polygon: [[0, 0], [0.5, 0], [0.5, 0.5], [0, 0.5]] }, { polygon: [[0, 0.8], [1, 0.8], [1, 1], [0, 1]], oneWay: true }] } },
-    // Occluders (ADR 0423).
+    // Occluders (ADR 0437).
     { id: 5, sprite: "", collision: "full", occluder: "none" }, // glass: blocks bodies, not light
     { id: 6, sprite: "", collision: "none", occluder: "full" }, // a fence you walk behind
     { id: 7, sprite: "", collision: "none", occluder: { shapes: [{ polygon: [[0.25, 0], [0.75, 0], [0.75, 1], [0.25, 1]] }] } },
@@ -71,7 +71,7 @@ const totalArea = (s: Pick<TileShapes, "boxes" | "polygons">) => s.boxes.reduce(
 
 /**
  * The shapes of every colliding layer's tiles merged as one, the way the Tilemap merged them before chunks (ADR 0105,
- * 0421). A whole or one-way cell in two layers counts once (the union; the whole-map merge counted such a cell's edges
+ * 0435). A whole or one-way cell in two layers counts once (the union; the whole-map merge counted such a cell's edges
  * twice).
  */
 function wholeMap(map: Tilemap, mode: "rectangles" | "outline", params: GridParams): TileShapes {
@@ -123,7 +123,7 @@ const GRIDS: GridParams[] = [
   { shape: "hexagonal", cellSize: { x: 2, y: 2 }, staggerAxis: "y", staggerIndex: "even", hexSide: 0 },
 ];
 
-describe("tile shapes cached per chunk (ADR 0423)", () => {
+describe("tile shapes cached per chunk (ADR 0437)", () => {
   for (const params of GRIDS) {
     it(`gives the shapes of a whole-map merge, before and after edits (${params.shape} ${params.staggerAxis ?? ""} ${params.hexSide ?? ""})`, async () => {
       const map = await newMap({ gridShape: params.shape, cellSize: new Vector2(params.cellSize.x, params.cellSize.y), staggerAxis: params.staggerAxis ?? "y", staggerIndex: params.staggerIndex ?? "odd", hexSide: params.hexSide ?? 0.5 });
@@ -181,7 +181,7 @@ describe("tile shapes cached per chunk (ADR 0423)", () => {
   });
 });
 
-describe("layer offsets in the shapes (ADR 0425)", () => {
+describe("layer offsets in the shapes (ADR 0439)", () => {
   it("moves a layer's shapes by its offset in local units, on a square map in cell units", async () => {
     const map = await newMap({ cellSize: new Vector2(2, 1) });
     const walkway: TilemapLayerData = { ...newLayer("Walkway"), offset: [1, 0.5] };
@@ -211,7 +211,7 @@ describe("layer offsets in the shapes (ADR 0425)", () => {
   });
 });
 
-describe("shadow shapes per tile (ADR 0423)", () => {
+describe("shadow shapes per tile (ADR 0437)", () => {
   it("casts with the collision by default: the same outlines shadows had from collision shapes", async () => {
     const map = await newMap({ cellSize: new Vector2(2, 0.5) });
     const rnd = random(7);

@@ -99,7 +99,7 @@ describe("Babylon quad batches drawing triangles (ADR 0370, 0371: skinned sprite
   });
 });
 
-describe("Babylon quad batches updated in place (ADR 0421: animated tiles)", () => {
+describe("Babylon quad batches updated in place (ADR 0435: animated tiles)", () => {
   it("takes setQuads with the same texture, vertex count and indices array as a vertex update, not a new mesh", () => {
     const scene = new Scene(new NullEngine());
     const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false } as unknown as Texture;

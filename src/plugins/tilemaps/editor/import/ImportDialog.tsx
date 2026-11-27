@@ -1,4 +1,4 @@
-// The Import as Myco assets dialog (ADR 0422): for a Tiled map or tileset or an LDtk project, the output folder, pixels
+// The Import as Myco assets dialog (ADR 0436): for a Tiled map or tileset or an LDtk project, the output folder, pixels
 // per unit, whether objects (entities) become nodes and their shapes trigger colliders, and each LDtk IntGrid value's
 // collision; then every file it will write (marking the ones it overwrites) and every warning, before writing them in
 // one batch. Loaded on demand with the importer (`importJob.ts`), opened by the Assets panel's action and the source

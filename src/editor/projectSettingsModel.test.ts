@@ -52,7 +52,7 @@ describe("the Project panel's settings", () => {
     expect(setValue({ display: { width: 3 } }, "display", "width", undefined).display).toBeUndefined();
   });
 
-  it("y-sorts sorting layers (ADR 0424), keeping the list in step when a layer is renamed or removed", () => {
+  it("y-sorts sorting layers (ADR 0438), keeping the list in step when a layer is renamed or removed", () => {
     const layers = flappy().render!.sortingLayers!;
     let d = setYSortedLayer(flappy(), layers.indexOf("Player"), true);
     d = setYSortedLayer(d, layers.indexOf("Pipes"), true);

@@ -1,5 +1,5 @@
 /**
- * 2D shadow shape sources (ADR 0423). A Component that knows what its node should cast 2D shadows with, apart from its
+ * 2D shadow shape sources (ADR 0437). A Component that knows what its node should cast 2D shadows with, apart from its
  * collision (a Tilemap's tiles, whose occluders may differ from their collision), implements `ShadowShapeSource2D`;
  * a ShadowCaster2D in "auto" or "collider" mode on the same node casts from it in preference to the node's collision
  * shapes (`lights2D/casterOutlines.ts`, ADR 0413). Renderer-neutral: no renderer types, local units only.

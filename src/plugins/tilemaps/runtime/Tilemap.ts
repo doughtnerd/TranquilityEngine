@@ -1,7 +1,7 @@
 /**
  * The Tilemap component (ADR 0103): a grid of tiles from one tileset asset, in several layers
  * drawn in chunks. On a square grid cell (x, y) covers local x·cellSize.x .. (x+1)·cellSize.x (and the same in y),
- * on the node's XY plane, y up; isometric, staggered and hexagonal grids (ADR 0421) place cells as `grids.ts` says.
+ * on the node's XY plane, y up; isometric, staggered and hexagonal grids (ADR 0435) place cells as `grids.ts` says.
  *
  * The `layers` field is the scene data (run-length chunk strings, `format.ts`). At runtime the
  * component decodes it into typed arrays; scripts edit those through `setTile` and friends, and
@@ -133,7 +133,7 @@ function loadTileset(path: string): Tileset | null {
   return ts;
 }
 
-/** ADR 0421: a Tilemap's cell layout. */
+/** ADR 0435: a Tilemap's cell layout. */
 export type TileGridShape = "square" | "isometric" | "staggered" | "hexagonal";
 
 let nextVersion = 1;
@@ -155,24 +155,24 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
    * The editor's Re-roll button does both. Shown under the Tilemap's fields rather than as one.
    */
   @field(Number, { hidden: true }) variantSeed = 0;
-  /** ADR 0421: the cell layout. `cellSize` is one cell's bounding box (a diamond's or hexagon's width and height). */
+  /** ADR 0435: the cell layout. `cellSize` is one cell's bounding box (a diamond's or hexagon's width and height). */
   @field(String, { choices: ["square", "isometric", "staggered", "hexagonal"], animatable: false }) gridShape: TileGridShape = "square";
-  /** ADR 0421: staggered and hexagonal grids: which rows ("y") or columns ("x") shift by half a cell. */
+  /** ADR 0435: staggered and hexagonal grids: which rows ("y") or columns ("x") shift by half a cell. */
   @field(String, { choices: ["y", "x"], animatable: false, shownWhen: (t) => t.gridShape === "staggered" || t.gridShape === "hexagonal" }) staggerAxis: "x" | "y" = "y";
-  /** ADR 0421: staggered and hexagonal grids: whether the odd or the even rows (columns) shift. */
+  /** ADR 0435: staggered and hexagonal grids: whether the odd or the even rows (columns) shift. */
   @field(String, { choices: ["odd", "even"], animatable: false, shownWhen: (t) => t.gridShape === "staggered" || t.gridShape === "hexagonal" }) staggerIndex: "odd" | "even" = "odd";
-  /** ADR 0421: hexagonal grids: the flat sides' length along the stagger axis, as a fraction of `cellSize` on that axis. */
+  /** ADR 0435: hexagonal grids: the flat sides' length along the stagger axis, as a fraction of `cellSize` on that axis. */
   @field(Number, { animatable: false, shownWhen: (t) => t.gridShape === "hexagonal" }) hexSide = 0.5;
-  /** ADR 0421: how fast tile animations play (0 stops them). */
+  /** ADR 0435: how fast tile animations play (0 stops them). */
   @field(Number) animationSpeed = 1;
 
   private source: unknown = null;
   private runtime: RuntimeLayer[] = [];
   private listeners: ((change: TileChange) => void)[] = [];
   private grid: { key: string; grid: TileGrid } | null = null;
-  /** ADR 0425: view-only opacity factors by layer index (`_setViewOpacity`). */
+  /** ADR 0439: view-only opacity factors by layer index (`_setViewOpacity`). */
   private readonly viewOpacity = new Map<number, number>();
-  /** ADR 0423: tile shapes merged per chunk. */
+  /** ADR 0437: tile shapes merged per chunk. */
   private shapeCache = new TileShapeCache();
   /** The last shapes put together per merge mode (and "shadow"), with the key they were made for. */
   private shapeResults = new Map<string, { key: string; shapes: CollisionShapes2D | ShadowShapes2D }>();
@@ -216,7 +216,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
         }
       }
       if (prev) for (const key of prev.chunks.keys()) if (!layer.chunks.has(key)) changed = true;
-      if (prev && !samePair(prev.meta.offset, meta.offset, 0)) changed = true; // collision follows the offset (ADR 0425)
+      if (prev && !samePair(prev.meta.offset, meta.offset, 0)) changed = true; // collision follows the offset (ADR 0439)
       if (changed) layer.version = nextVersion++;
       meta.chunks = {}; // the runtime arrays hold the cells now
       meta.palette = {}; // and the runtime maps the palette
@@ -307,7 +307,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
     return loadTileset(this.tileset);
   }
 
-  // --- grid (ADR 0421) ------------------------------------------------------------------------
+  // --- grid (ADR 0435) ------------------------------------------------------------------------
 
   private gridParams(): GridParams {
     return { shape: this.gridShape, cellSize: this.cellSize, staggerAxis: this.staggerAxis, staggerIndex: this.staggerIndex, hexSide: this.hexSide };
@@ -326,7 +326,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
     return gridKey(this.gridParams());
   }
 
-  // --- 2D collision and shadow shapes (ADR 0105, 0136, 0423, 0425) ------------------------------
+  // --- 2D collision and shadow shapes (ADR 0105, 0136, 0437, 0439) ------------------------------
 
   /** @internal The 2D shape source signature: changes with the grid, the tileset and the colliding layers' cells and offsets. */
   collisionSignature(): string {
@@ -338,8 +338,8 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
   /**
    * @internal The tiles' collision shapes (each tile's from the tileset; layers with `collision: false`
    * skipped), for whatever 2D collider sits on this node. Null while the tileset is missing. On a square grid they are
-   * in cell units (`unit` is the cell size); on other grids in local units (`unit` 1 × 1, ADR 0421). A layer's
-   * `offset` (ADR 0425) moves its shapes. Merged per chunk and cached (ADR 0423): an edit re-merges the chunks it touched.
+   * in cell units (`unit` is the cell size); on other grids in local units (`unit` 1 × 1, ADR 0435). A layer's
+   * `offset` (ADR 0439) moves its shapes. Merged per chunk and cached (ADR 0437): an edit re-merges the chunks it touched.
    */
   collisionShapes(merge: ShapeMerge2D): CollisionShapes2D | null {
     const ts = this.tilesetAsset;
@@ -353,7 +353,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
   }
 
   /**
-   * @internal The 2D shadow shape source signature (ADR 0423): changes with the grid, the tileset and every layer's
+   * @internal The 2D shadow shape source signature (ADR 0437): changes with the grid, the tileset and every layer's
    * cells and offsets (a layer's collision flag doesn't gate its shadows).
    */
   shadowSignature(): string {
@@ -362,7 +362,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
   }
 
   /**
-   * @internal What the tiles cast 2D shadows with (ADR 0423), in local units: each tile's `occluder` ("collision", the
+   * @internal What the tiles cast 2D shadows with (ADR 0437), in local units: each tile's `occluder` ("collision", the
    * default, is its collision shapes without the one-way ones; "full" the cell's outline; "none" nothing; or its own
    * shapes in box units), whole cells merged into outlines per chunk as collision is, layer offsets applied. Every
    * layer casts, whatever its collision flag. Null while the tileset is missing.
@@ -438,14 +438,14 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
     return l;
   }
 
-  /** ADR 0425: how far a layer's drawing and collision are shifted, in local units ((0, 0) for a missing layer). */
+  /** ADR 0439: how far a layer's drawing and collision are shifted, in local units ((0, 0) for a missing layer). */
   layerOffset(layer: number | string): Vector2 {
     const o = this.layerAt(layer)?.meta.offset;
     return new Vector2(o?.[0] ?? 0, o?.[1] ?? 0);
   }
 
   /**
-   * ADR 0425: shift a layer's drawing and collision by (x, y) local units. Cells keep their coordinates (`worldToCell`
+   * ADR 0439: shift a layer's drawing and collision by (x, y) local units. Cells keep their coordinates (`worldToCell`
    * with the layer reads them under the offset). Changes the runtime layer only, like other script edits
    * (`toLayerData()` writes it). Throws for a missing layer or a value that isn't finite.
    */
@@ -456,18 +456,18 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
     if (was[0] === x && was[1] === y) return;
     if (x === 0 && y === 0) delete l.meta.offset;
     else l.meta.offset = [x, y];
-    l.version = nextVersion++; // collision follows the offset (ADR 0425)
+    l.version = nextVersion++; // collision follows the offset (ADR 0439)
     this._version = nextVersion++;
   }
 
-  /** ADR 0425: how much a layer moves with the view camera, per axis ((1, 1) moves with the map; for a missing layer too). */
+  /** ADR 0439: how much a layer moves with the view camera, per axis ((1, 1) moves with the map; for a missing layer too). */
   layerParallax(layer: number | string): Vector2 {
     const p = this.layerAt(layer)?.meta.parallax;
     return new Vector2(p?.[0] ?? 1, p?.[1] ?? 1);
   }
 
   /**
-   * ADR 0425: a layer's parallax factor (Tiled's): 1 moves with the map, 0 stays with the view camera, 0.5 scrolls at
+   * ADR 0439: a layer's parallax factor (Tiled's): 1 moves with the map, 0 stays with the view camera, 0.5 scrolls at
    * half speed. Visual only: collision and `worldToCell` ignore it. Changes the runtime layer only, like other script
    * edits. Throws for a missing layer or a value that isn't finite.
    */
@@ -482,7 +482,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
   }
 
   /**
-   * @internal ADR 0425: the editor's Dim inactive layers: draw layer `layer` at `factor` × its opacity in this World's
+   * @internal ADR 0439: the editor's Dim inactive layers: draw layer `layer` at `factor` × its opacity in this World's
    * view, or as it is (null). View state only: never touches `layers`, isn't saved or copied.
    */
   _setViewOpacity(layer: number, factor: number | null): void {
@@ -490,7 +490,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
     else this.viewOpacity.set(layer, Math.max(0, factor));
   }
 
-  /** @internal ADR 0425: what the renderer multiplies a layer's opacity by (`_setViewOpacity`; 1 when unset). */
+  /** @internal ADR 0439: what the renderer multiplies a layer's opacity by (`_setViewOpacity`; 1 when unset). */
   _viewOpacity(layer: number): number {
     return this.viewOpacity.get(layer) ?? 1;
   }
@@ -590,7 +590,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
 
   /**
    * Replace every cell of tile `fromId` with tile `toId` (0 clears them), keeping each cell's flip flags, in one layer
-   * or every layer (ADR 0426). Returns how many cells changed. Changes are reported like other script edits
+   * or every layer (ADR 0440). Returns how many cells changed. Changes are reported like other script edits
    * (`TilemapChanges`, `onTileChanged`). Throws for a missing layer or a `toId` the tileset doesn't have.
    */
   replaceTile(fromId: number, toId: number, layer?: number | string): number {
@@ -700,7 +700,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
 
   /**
    * The cell holding a point in the node's local space (on any grid shape). With `layer`, the cell of that layer drawn
-   * there: its offset (ADR 0425) is taken off first (parallax is visual only and ignored).
+   * there: its offset (ADR 0439) is taken off first (parallax is visual only and ignored).
    */
   localToCell(p: Vec2Like, layer?: number | string): Vector2 {
     const o = layer === undefined ? undefined : this.layerAt(layer)?.meta.offset;
@@ -715,7 +715,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
   }
 
   /**
-   * A cell's neighbours (ADR 0421): 8 on square, isometric and staggered grids (N NE E SE S SW W NW of the grid's own
+   * A cell's neighbours (ADR 0435): 8 on square, isometric and staggered grids (N NE E SE S SW W NW of the grid's own
    * axes, so an isometric "N" is up-left on screen), 6 on hexagonal ones (clockwise from the first side at or clockwise
    * of north). Auto-tiling patterns name them in this order.
    */
@@ -728,7 +728,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
     return this._grid().cellOutline(Math.floor(x), Math.floor(y)).map(([px, py]) => new Vector2(px, py));
   }
 
-  /** The cell holding a world point. With `layer`, the cell of that layer drawn there, under its offset (ADR 0425). */
+  /** The cell holding a world point. With `layer`, the cell of that layer drawn there, under its offset (ADR 0439). */
   worldToCell(p: Vec2Like | Vec3Like, layer?: number | string): Vector2 {
     const t = this.node.transform;
     const local = t ? t.localToWorld.inverseTransformPoint({ x: p.x, y: p.y, z: (p as Vec3Like).z ?? 0 }) : p;
@@ -757,7 +757,7 @@ function tilesetToken(ts: Tileset): number {
   return t;
 }
 
-/** ADR 0425: a layer's offset in local units. */
+/** ADR 0439: a layer's offset in local units. */
 function layerOffsetOf(l: RuntimeLayer): [number, number] {
   const o = l.meta.offset;
   return o && Number.isFinite(o[0]) && Number.isFinite(o[1]) ? [o[0], o[1]] : [0, 0];
@@ -769,7 +769,7 @@ function offsetKey(l: RuntimeLayer): string {
 }
 
 /**
- * ADR 0423: what a tile casts shadows with, as a collision the shape merge reads (`TileCollision`): its occluder, or its
+ * ADR 0437: what a tile casts shadows with, as a collision the shape merge reads (`TileCollision`): its occluder, or its
  * collision for `"collision"` (one-way parts land among the one-way shapes, which cast nothing). Occluder shapes are
  * never one-way.
  */

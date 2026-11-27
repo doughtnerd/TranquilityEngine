@@ -13,7 +13,7 @@ interface FakeBatch extends QuadBatch {
   /** The farthest vertex from the map's origin, in local units. */
   extent: [number, number];
   order: [string, number];
-  /** `setOrder`'s third argument (ADR 0421): undefined when none was passed. */
+  /** `setOrder`'s third argument (ADR 0435): undefined when none was passed. */
   within: number | undefined;
   material: string | null;
   tint: [string, number];
@@ -152,7 +152,7 @@ describe("the tile renderer (ADR 0103, 0136)", () => {
     expect(batches.filter((b) => b.disposed)).toHaveLength(1);
   });
 
-  it("orders a non-square layer's chunks back to front, and draws again when the grid changes (ADR 0421)", async () => {
+  it("orders a non-square layer's chunks back to front, and draws again when the grid changes (ADR 0435)", async () => {
     Assets.clearSources();
     Assets.addSource(
       Assets.fromObject({
@@ -210,7 +210,7 @@ const SLICES = { format: "myco.import@1", sprites: ["a", "b", "c"].map((name, i)
 /** u0 of slice i of `SLICES` in the fake 64 × 32 texture. */
 const sliceU = (i: number) => (i * 16) / 64;
 
-describe("the tile renderer's animated tiles (ADR 0421)", () => {
+describe("the tile renderer's animated tiles (ADR 0435)", () => {
   const files = (start?: "random") => ({
     "t.png.meta.json": SLICES,
     "ts.tileset.json": {
@@ -315,7 +315,7 @@ describe("the tile renderer's animated tiles (ADR 0421)", () => {
   });
 });
 
-describe("the tile renderer's layer offset, parallax and view opacity (ADR 0425)", () => {
+describe("the tile renderer's layer offset, parallax and view opacity (ADR 0439)", () => {
   const files = { "ts.tileset.json": { format: "myco.tileset@1", tileSize: [16, 16], tiles: [{ id: 1, sprite: "asset:t.png" }] } };
 
   it("shifts a layer by its offset in the batch matrix, without rebuilding, and reads cells under it", async () => {
@@ -387,7 +387,7 @@ describe("the tile renderer's layer offset, parallax and view opacity (ADR 0425)
   });
 });
 
-describe("the tile renderer on y-sorted sorting layers (ADR 0424)", () => {
+describe("the tile renderer on y-sorted sorting layers (ADR 0438)", () => {
   const files = {
     "t.png.meta.json": SLICES,
     "ts.tileset.json": { format: "myco.tileset@1", tileSize: [16, 16], tiles: [{ id: 1, sprite: "asset:t.png#a" }, { id: 2, sprite: "asset:t.png#b", sortOffset: 1 }, { id: 3, sprite: "asset:u.png" }] },
@@ -440,7 +440,7 @@ describe("the tile renderer on y-sorted sorting layers (ADR 0424)", () => {
   });
 });
 
-describe("the tile renderer's painter's order across textures (ADR 0421)", () => {
+describe("the tile renderer's painter's order across textures (ADR 0435)", () => {
   it("gives a non-square chunk's texture batches ordered steps of their own, inside the chunk's", async () => {
     const { engine, host, live } = await setup({ "ts.tileset.json": { format: "myco.tileset@1", tileSize: [16, 16], tiles: [{ id: 1, sprite: "asset:t.png" }, { id: 2, sprite: "asset:u.png" }] } });
     const tiles = new TilemapRenderer(host);

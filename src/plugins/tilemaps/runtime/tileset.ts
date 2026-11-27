@@ -35,39 +35,39 @@ export interface TilePolygon {
   oneWay?: boolean;
 }
 
-/** ADR 0423: several polygons, each optionally one-way, in the tile's box units. */
+/** ADR 0437: several polygons, each optionally one-way, in the tile's box units. */
 export interface TileShapes {
   shapes: TilePolygon[];
 }
 
 /**
  * How a tile collides: not at all, as the whole cell, as a one-way platform the size of the cell, as a polygon, or as
- * several polygons (ADR 0423). Polygons are in the tile's cell box units (ADR 0421): `[0, 0]` bottom-left, `[1, 1]`
+ * several polygons (ADR 0437). Polygons are in the tile's cell box units (ADR 0435): `[0, 0]` bottom-left, `[1, 1]`
  * top-right of the box its sprite is drawn in; `"full"` and `"oneWay"` mean the cell's own outline on any grid.
  */
 export type TileCollision = "none" | "full" | "oneWay" | TilePolygon | TileShapes;
 
-/** ADR 0423: what a tile casts 2D shadows with. `"collision"` (the default): its collision shapes. */
+/** ADR 0437: what a tile casts 2D shadows with. `"collision"` (the default): its collision shapes. */
 export type TileOccluder = "collision" | "none" | "full" | TileShapes;
 
-/** ADR 0421: one frame of a tile's animation. Every frame comes from the tile sprite's image. */
+/** ADR 0435: one frame of a tile's animation. Every frame comes from the tile sprite's image. */
 export interface TileFrameDef {
   sprite: string;
   /** Seconds, > 0. */
   duration: number;
 }
 
-/** ADR 0421: a tile's frame animation. */
+/** ADR 0435: a tile's frame animation. */
 export interface TileAnimation {
   frames: TileFrameDef[];
   /** `"together"` (default): every cell shows the same frame. `"random"`: each cell starts at an offset from `cellRandom`. */
   start?: "together" | "random";
 }
 
-/** ADR 0423: which cell outline the tileset editor draws over tiles. Editor-only. */
+/** ADR 0437: which cell outline the tileset editor draws over tiles. Editor-only. */
 export type TilesetPreviewGrid = "square" | "isometric" | "hexagonal";
 
-/** ADR 0426: one layer of a saved stamp, in the layer encoding (palette numbers to tile uuids, run-length cells). */
+/** ADR 0440: one layer of a saved stamp, in the layer encoding (palette numbers to tile uuids, run-length cells). */
 export interface TileStampLayer {
   name: string;
   palette: Record<string, string>;
@@ -75,7 +75,7 @@ export interface TileStampLayer {
   cells: string;
 }
 
-/** ADR 0426: a named multi-cell stamp saved in the tileset. */
+/** ADR 0440: a named multi-cell stamp saved in the tileset. */
 export interface TileStamp {
   name: string;
   size: [number, number];
@@ -105,11 +105,11 @@ export interface TileDef {
   anchor?: [number, number];
   /** Anything the game wants, read with `Tilemap.getTileData`. */
   data?: Record<string, unknown>;
-  /** ADR 0421: frame animation. */
+  /** ADR 0435: frame animation. */
   animation?: TileAnimation;
-  /** ADR 0423: shadow shapes; absent means `"collision"`. */
+  /** ADR 0437: shadow shapes; absent means `"collision"`. */
   occluder?: TileOccluder;
-  /** ADR 0424: in a y-sorted layer, the tile sorts this many cells above its cell's bottom. Absent: 0. */
+  /** ADR 0438: in a y-sorted layer, the tile sorts this many cells above its cell's bottom. Absent: 0. */
   sortOffset?: number;
 }
 
@@ -126,11 +126,11 @@ export interface TilesetData {
   anchor?: [number, number];
   terrains: TerrainDef[];
   tiles: TileDef[];
-  /** ADR 0423: the cell outline the editor draws over tiles. Editor-only. */
+  /** ADR 0437: the cell outline the editor draws over tiles. Editor-only. */
   previewGrid?: TilesetPreviewGrid;
-  /** ADR 0426: saved stamps. */
+  /** ADR 0440: saved stamps. */
   stamps?: TileStamp[];
-  /** ADR 0426: prefabs offered by the prefab brush (`asset:` references). */
+  /** ADR 0440: prefabs offered by the prefab brush (`asset:` references). */
   prefabs?: string[];
 }
 
@@ -175,7 +175,7 @@ export function legacyTileUuid(id: number): string {
 }
 
 /** True for a valid neighbour pattern. */
-export const isPattern = (p: unknown): p is string => typeof p === "string" && /^([01*]{8}|[01*]{6})$/.test(p); // 6 on hexagonal grids (ADR 0421)
+export const isPattern = (p: unknown): p is string => typeof p === "string" && /^([01*]{8}|[01*]{6})$/.test(p); // 6 on hexagonal grids (ADR 0435)
 
 function parsePolygon(raw: unknown): TilePolygon | null {
   if (!isObject(raw) || !Array.isArray(raw.polygon)) return null;
@@ -184,7 +184,7 @@ function parsePolygon(raw: unknown): TilePolygon | null {
   return raw.oneWay === true ? { polygon: pts, oneWay: true } : { polygon: pts };
 }
 
-/** ADR 0423: `{ shapes: [...] }`, or null. A single shape reads as the single-polygon form. */
+/** ADR 0437: `{ shapes: [...] }`, or null. A single shape reads as the single-polygon form. */
 function parseShapes(raw: unknown): TilePolygon | TileShapes | null {
   if (!isObject(raw) || !Array.isArray(raw.shapes)) return null;
   const shapes = raw.shapes.map(parsePolygon).filter((p): p is TilePolygon => !!p);

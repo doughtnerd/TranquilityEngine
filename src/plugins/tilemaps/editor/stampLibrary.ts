@@ -1,4 +1,4 @@
-// Stamps with named layers (ADR 0426): what the selection tool copies, the editor's tile clipboard and the stamps saved
+// Stamps with named layers (ADR 0440): what the selection tool copies, the editor's tile clipboard and the stamps saved
 // in a tileset. A `StampBlock` holds tileset ids (with flip flags) of one tileset; saved stamps (`TileStamp`) name
 // tiles by uuid through a palette per layer, in the layer encoding of `format.ts` (run-length cells, row by row from
 // the bottom-left), so they travel with the tileset. Moving a block to another tileset matches tiles by uuid. Pure.

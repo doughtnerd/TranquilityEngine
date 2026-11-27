@@ -52,11 +52,11 @@ export interface TilemapLayerData {
   palette: Record<string, string>;
   /** `"cx,cy"` → run-length string of the chunk's 256 cell values. */
   chunks: Record<string, string>;
-  /** ADR 0425: shifts the layer's drawing and collision, in local units. Absent: `[0, 0]`. */
+  /** ADR 0439: shifts the layer's drawing and collision, in local units. Absent: `[0, 0]`. */
   offset?: [number, number];
-  /** ADR 0425: how much the layer moves with the view camera (Tiled's parallax factor), visual only. Absent: `[1, 1]`. */
+  /** ADR 0439: how much the layer moves with the view camera (Tiled's parallax factor), visual only. Absent: `[1, 1]`. */
   parallax?: [number, number];
-  /** ADR 0425: the editor's brushes skip it. Absent: false. */
+  /** ADR 0439: the editor's brushes skip it. Absent: false. */
   locked?: boolean;
 }
 
@@ -132,7 +132,7 @@ export function migrateLayer(raw: unknown, where = "tilemap layer"): TilemapLaye
     opacity: num("opacity", 1),
     palette,
     chunks,
-    // ADR 0425: additive, written only when not the default.
+    // ADR 0439: additive, written only when not the default.
     ...((o) => (o && (o[0] !== 0 || o[1] !== 0) ? { offset: o } : {}))(pair("offset")),
     ...((p) => (p && (p[0] !== 1 || p[1] !== 1) ? { parallax: p } : {}))(pair("parallax")),
     ...(layer.locked === true ? { locked: true } : {}),
@@ -176,7 +176,7 @@ export function decodeChunk(text: string, problems?: string[]): Int32Array {
 
 /**
  * Decode a run-length string (`encodeChunk`'s) into `count` cells: a chunk's 256, or a saved stamp layer's
- * width × height (ADR 0426). Bad tokens read as empty cells and a short string leaves the rest empty; `problems`
+ * width × height (ADR 0440). Bad tokens read as empty cells and a short string leaves the rest empty; `problems`
  * (if given) notes either.
  */
 export function decodeRuns(text: string, count: number, problems?: string[]): Int32Array {

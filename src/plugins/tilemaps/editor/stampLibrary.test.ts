@@ -22,7 +22,7 @@ const HOUSE: StampBlock = {
   ],
 };
 
-describe("saved stamps (ADR 0426)", () => {
+describe("saved stamps (ADR 0440)", () => {
   it("encode in the layer encoding, palette numbers naming uuids, and decode back", () => {
     const stamp = encodeStamp("House", HOUSE, A);
     expect(stamp.size).toEqual([4, 2]);
@@ -85,7 +85,7 @@ describe("saved stamps (ADR 0426)", () => {
   });
 });
 
-describe("stamp blocks between tilesets (ADR 0426)", () => {
+describe("stamp blocks between tilesets (ADR 0440)", () => {
   it("match tiles by uuid and skip the ones the other tileset lacks", () => {
     const B = tilesetOf([
       { id: 5, uuid: "u-wall" },

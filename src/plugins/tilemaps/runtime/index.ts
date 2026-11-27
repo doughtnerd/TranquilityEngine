@@ -1,5 +1,5 @@
 // The Tilemaps plugin's runtime half (ADR 0103, 0135, 0136): the `Tilemap` Component, the `MapObject` Component
-// imported Tiled objects and LDtk entities carry (ADR 0422), tilesets, layer
+// imported Tiled objects and LDtk entities carry (ADR 0436), tilesets, layer
 // formats, auto-tiling, brushes, tile collision shapes, the chunk mesh builder and the tiles render
 // feature. The feature draws through the renderer core's quad batches (`QuadBatchHost`), so no tile code
 // is left in the backend: `BabylonQuadBatches` knows quads, not tiles. `Tilemap` offers its tile

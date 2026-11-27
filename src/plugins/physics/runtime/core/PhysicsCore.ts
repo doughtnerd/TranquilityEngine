@@ -338,7 +338,7 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
     return false;
   }
 
-  /** A dimension's one-way description of a collider being built (2D, ADR 0423), or null. */
+  /** A dimension's one-way description of a collider being built (2D, ADR 0437), or null. */
   protected colliderOneWay(_c: T["collider"], _shape: D["shape"], _scale: readonly number[]): ColliderDesc<D>["oneWay"] {
     return null;
   }

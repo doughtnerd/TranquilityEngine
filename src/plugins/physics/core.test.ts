@@ -342,7 +342,7 @@ describe("with no physics backend enabled (ADR 0137)", () => {
   });
 });
 
-describe("one-way colliders and drop-through in the core (ADR 0423)", () => {
+describe("one-way colliders and drop-through in the core (ADR 0437)", () => {
   /** A World on a fake backend with or without one-way platforms. */
   async function oneWaySetup(oneWayPlatforms: boolean) {
     const id = oneWayPlatforms ? "fake-oneway" : "fake";

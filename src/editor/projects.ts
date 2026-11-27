@@ -505,7 +505,7 @@ async function listFiles(fs: FileSystem, root: string, dir: string, accept: (pat
 
 /**
  * The project files under `dir` (ADR 0254): what `isProjectFile` accepts, and each `.tsx` whose text is a Tiled tileset
- * (ADR 0422; a TypeScript `.tsx` stays out, as scripts are read apart).
+ * (ADR 0436; a TypeScript `.tsx` stays out, as scripts are read apart).
  */
 async function listProjectFiles(fs: FileSystem, root: string, dir: string, folders?: Set<string>): Promise<string[]> {
   const found = await listFiles(fs, root, dir, (path) => isProjectFile(path) || isTsxPath(path), folders);

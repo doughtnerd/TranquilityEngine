@@ -1,10 +1,10 @@
-# 0422. Tiled and LDtk files import once into native tilesets and prefabs, from the Tilemaps plugin's editor half
+# 0436. Tiled and LDtk files import once into native tilesets and prefabs, from the Tilemaps plugin's editor half
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0040, 0085, 0086, 0103, 0105, 0133, 0149, 0392, 0400, 0421, 0423, 0425
+- **Related:** 0040, 0085, 0086, 0103, 0105, 0133, 0149, 0392, 0400, 0435, 0437, 0439
 
 ## Context
 
@@ -22,9 +22,9 @@ Where they meet Myco:
   layers hold one tile per cell from one tileset per Tilemap, named by uuid through a palette (0392), with the same
   flip bits Tiled uses (0103).
 - **Tile data.** Tiled has per-tile typed properties, collision object groups (rectangles, ellipses, polygons) and
-  animations; LDtk has per-tile custom data strings and enum tags. Myco tiles carry JSON `data`, collision (0423
-  allows several polygons) and animations (0421).
-- **Grids.** Tiled has orthogonal, isometric, staggered and hexagonal maps; LDtk is orthogonal. 0421 adds those
+  animations; LDtk has per-tile custom data strings and enum tags. Myco tiles carry JSON `data`, collision (0437
+  allows several polygons) and animations (0435).
+- **Grids.** Tiled has orthogonal, isometric, staggered and hexagonal maps; LDtk is orthogonal. 0435 adds those
   shapes to Myco.
 - **Objects and entities.** Tiled object layers (points, rectangles, ellipses, polygons, polylines, tile objects,
   text, with a class and properties) and LDtk entities (typed fields, references to other entities) have no Myco
@@ -74,10 +74,10 @@ runtime never reads either format.
   tileset's tiles name their whole images. Tile ids are the source index + 1 (Myco's 0 is empty).
 - Tiled tile properties and class → `data` (class as `data.class`); LDtk custom data → `data.customData` (parsed as
   JSON when it is JSON), enum tags → `data.tags`.
-- Tiled collision object groups → collision polygons in the tile's box units (0423's `shapes`): rectangles as four
+- Tiled collision object groups → collision polygons in the tile's box units (0437's `shapes`): rectangles as four
   points, ellipses as 16-gons, polygons as given; points and polylines are skipped with a warning. A shape whose
   object has a boolean property `oneWay` is one-way.
-- Tiled animations → `animation` (0421), durations from milliseconds to seconds.
+- Tiled animations → `animation` (0435), durations from milliseconds to seconds.
 - Tiled Wang sets → terrains with patterns, for sets with one colour against empty (the 16-tile and 47-tile layouts
   most sets use): the tile's terrain is that colour, a side character is `1` when the tile's label on that side is the
   colour, a corner character likewise; edge sets leave corners `*`, corner sets derive sides from both adjacent
@@ -86,15 +86,15 @@ runtime never reads either format.
 
 **Tiled maps** (`.tmx`/`.tmj` → one `*.prefab.json`, root node named after the map):
 
-- `orientation`, `staggeraxis`, `staggerindex` and `hexsidelength` → the Tilemap's grid fields (0421); `cellSize` from
+- `orientation`, `staggeraxis`, `staggerindex` and `hexsidelength` → the Tilemap's grid fields (0435); `cellSize` from
   the tile size and pixels per unit. Tile positions convert from Tiled's y-down rows to Myco's y-up cells so the
   picture matches (on isometric maps that also swaps and negates the axes; `grids.ts` owns the conversion).
 - **One Tilemap child per tileset the map uses**, each holding the layers' cells from that tileset. A Tiled layer
   that mixes tilesets appears in each Tilemap under the same name. Every imported layer gets order in layer = its
   position in Tiled's layer stack, so layers in different Tilemaps interleave as they did in Tiled. Tilemaps whose
-  tiles collide get a `ShapeCollider2D` (0423).
+  tiles collide get a `ShapeCollider2D` (0437).
 - Layer `visible`, `opacity`, `tintcolor`, `locked`, offsets and parallax factors map directly (offset and parallax
-  per 0425); group layers flatten (names joined with `/`, opacity and visibility multiplied, offsets added,
+  per 0439); group layers flatten (names joined with `/`, opacity and visibility multiplied, offsets added,
   parallax multiplied).
 - Cell data: CSV, base64, base64 with zlib or gzip (through the platform's `DecompressionStream`), finite and
   infinite (chunked) maps. zstd-compressed layers are refused with a message saying to save the map uncompressed.
@@ -112,10 +112,10 @@ runtime never reads either format.
   levels at their world positions (y flipped), for the Free and GridVania layouts; linear layouts place them in a row.
 - Tiles layers and auto-layers → Tilemap layers of their baked tiles (auto-layer rules are not re-run in Myco). Where
   a layer stacks several tiles in one cell, the extra tiles go into further layers (`Walls`, `Walls#2`) at the next
-  order. Tiles off the layer's grid snap to it, with a warning. Layer opacity, visibility and pixel offsets map directly (0425).
+  order. Tiles off the layer's grid snap to it, with a warning. Layer opacity, visibility and pixel offsets map directly (0439).
 - **IntGrid layers** → a Tilemap of their own, hidden, on a generated `<project>.intgrid.tileset.json` with one tile
   per IntGrid value: no sprite, `data` `{ intGrid: value, name: identifier }`, and the collision chosen in the dialog
-  (default none). A `ShapeCollider2D` (0423) is added when any value collides. Scripts read the semantics with
+  (default none). A `ShapeCollider2D` (0437) is added when any value collides. Scripts read the semantics with
   `getTileData`.
 - Entities → nodes with a `MapObject`: the identifier as its type, field instances as its properties (points in local
   units, colours as `#rrggbb`, entity references as the target node's id), and the entity's tile, if any, as a

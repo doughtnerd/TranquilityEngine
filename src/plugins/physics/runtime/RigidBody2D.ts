@@ -74,7 +74,7 @@ export class RigidBody2D extends Component {
   }
 
   /**
-   * Pass down through every one-way collider (ADR 0423) the body stands on or overlaps now. One-way colliders reached
+   * Pass down through every one-way collider (ADR 0437) the body stands on or overlaps now. One-way colliders reached
    * later still hold it, so the next platform below catches it; solid colliders always do. Does nothing on a backend
    * without one-way platforms.
    */

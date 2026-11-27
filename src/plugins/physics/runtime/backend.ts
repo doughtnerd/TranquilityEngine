@@ -177,7 +177,7 @@ export interface ColliderDesc<D extends DimensionTypes> {
   /** Collision groups: layer membership in the high 16 bits, the layers it meets in the low 16 (`physics/layers.ts`). */
   readonly groups: number;
   /**
-   * 2D, capability `oneWayPlatforms` (ADR 0105, 0423): collide only with bodies coming down onto it from above `top` along
+   * 2D, capability `oneWayPlatforms` (ADR 0105, 0437): collide only with bodies coming down onto it from above `top` along
    * `up` (`base`: its own height along `up` when made). Rigid bodies (through contacts) and character controllers
    * (through their moves, ground snap and casts) both honour it, and `dropThrough` lets a body through.
    */
@@ -266,7 +266,7 @@ export interface PhysicsCapabilities {
   readonly characterController: boolean;
   readonly jointMotors: boolean;
   readonly continuousCollision: boolean;
-  /** 2D one-way colliders (one-way tiles, any 2D collider's `oneWay`) and `dropThrough` (ADR 0105, 0423). */
+  /** 2D one-way colliders (one-way tiles, any 2D collider's `oneWay`) and `dropThrough` (ADR 0105, 0437). */
   readonly oneWayPlatforms: boolean;
   /** 3D triangle-mesh colliders. */
   readonly meshColliders: boolean;
@@ -316,7 +316,7 @@ export type PhysicsBackend2D = PhysicsBackend<Dim2, PhysicsWorld2DBackend>;
 export type PhysicsBackend3D = PhysicsBackend<Dim3, PhysicsWorld3DBackend>;
 export interface PhysicsWorld2DBackend extends PhysicsWorldBackend<Dim2> {
   /**
-   * Capability `oneWayPlatforms` (ADR 0423): let `body` (a rigid body, or a character controller's own body) pass down
+   * Capability `oneWayPlatforms` (ADR 0437): let `body` (a rigid body, or a character controller's own body) pass down
    * through every one-way collider it stands on or overlaps now. Each such pair stays dropping until the body's top is
    * below the collider's top, the two no longer touch, or 0.5 s have passed; one-way colliders it reaches later, and
    * solid ones, still hold it. A backend without the capability does nothing.

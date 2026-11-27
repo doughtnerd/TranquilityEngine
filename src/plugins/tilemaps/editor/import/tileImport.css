@@ -1,4 +1,4 @@
-/* The Import as Myco assets dialog (ADR 0422). Theme tokens only (src/editor/theme.ts). */
+/* The Import as Myco assets dialog (ADR 0436). Theme tokens only (src/editor/theme.ts). */
 .tile-import-lead { margin: 0; color: var(--muted); }
 .tile-import-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .tile-import-form label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); }

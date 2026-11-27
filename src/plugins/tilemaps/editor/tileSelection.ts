@@ -1,4 +1,4 @@
-// The selection tool's state and operations (ADR 0426): the selected cells of the selected Tilemap, the "All layers"
+// The selection tool's state and operations (ADR 0440): the selected cells of the selected Tilemap, the "All layers"
 // toggle, and copy, cut, delete, move, flip and turn, each one undo step (one write of `layers`, as a stroke is). Copy
 // takes the cells into the brush as its stamp (named layers with "All layers"), so the pencil pastes them, in this
 // Tilemap or another (`brush.ts` matches another tileset's tiles by uuid). The cell rules are `selectionLogic.ts`'s;
@@ -16,7 +16,7 @@ const NOTHING: CellSelection = new Set();
 
 /** The selected cells and the Tilemap they're of (an empty selection: no map). */
 export const tileSelection = signal<{ map: Tilemap | null; cells: CellSelection }>({ map: null, cells: NOTHING });
-/** Select, copy, cut and delete act on every unlocked layer instead of the active one (ADR 0426, 0425). */
+/** Select, copy, cut and delete act on every unlocked layer instead of the active one (ADR 0440, 0439). */
 export const selectAllLayers = signal(false);
 
 /** The selection's cells when it's of `map`, else none. */
@@ -98,7 +98,7 @@ export function deleteTiles(): boolean {
 
 /**
  * Flip (X, Y) or turn (Z) the selected cells in place, as one undo step. On hexagonal maps the tiles' images flip
- * where they are and Rotate does nothing (ADR 0421).
+ * where they are and Rotate does nothing (ADR 0435).
  */
 export function transformTiles(axis: "x" | "y" | "rotate"): boolean {
   const t = target();

@@ -1,8 +1,8 @@
-// The tile selection (ADR 0426): a set of cells of a Tilemap and what the selection tool does to the layers it acts on
+// The tile selection (ADR 0440): a set of cells of a Tilemap and what the selection tool does to the layers it acts on
 // (copy, clear, move, flip and turn in place), on the map's cells as the brush paints them. Works in cell space on
-// every grid (ADR 0421), as the brush does: a rectangle is a cell-space rectangle, and flips and turns lay the cells out
+// every grid (ADR 0435), as the brush does: a rectangle is a cell-space rectangle, and flips and turns lay the cells out
 // as the brush lays out a stamp (`stampLayout.ts`); on hexagonal maps only the tiles' images flip. Locked layers
-// (ADR 0425) are the caller's to leave out of `layers`. The editor glue (paintTool.ts) commits each operation as one
+// (ADR 0439) are the caller's to leave out of `layers`. The editor glue (paintTool.ts) commits each operation as one
 // undo step.
 import type { Tilemap } from "../runtime";
 import type { Cell } from "../runtime/brushes";
@@ -24,7 +24,7 @@ export function keyCell(key: string): Cell {
   return [Number(key.slice(0, i)), Number(key.slice(i + 1))];
 }
 
-/** Whether layer `i` of `map` is locked (ADR 0425): the editor's brushes, fills, picks and selection skip it. */
+/** Whether layer `i` of `map` is locked (ADR 0439): the editor's brushes, fills, picks and selection skip it. */
 export function layerLocked(map: Tilemap, i: number): boolean {
   return map._layers()[i]?.meta.locked === true;
 }
@@ -130,7 +130,7 @@ export function moveSelection(map: Tilemap, sel: CellSelection, layers: readonly
 /**
  * Flip (`FLIP_X`, `FLIP_Y`) or turn (`TURN_CLOCKWISE`) the selected cells of `layers` in place, within the selection's
  * bounds (a turn keeps the bottom-left corner and swaps the bounds' width and height), each tile's flips composed with
- * `flags`. Without `layout` (hexagonal maps, ADR 0421) cells stay where they are and only their images flip; turns
+ * `flags`. Without `layout` (hexagonal maps, ADR 0435) cells stay where they are and only their images flip; turns
  * do nothing. Returns the transformed selection.
  */
 export function transformSelection(map: Tilemap, sel: CellSelection, layers: readonly number[], flags: number, layout = true): Set<string> {
@@ -151,7 +151,7 @@ export function transformSelection(map: Tilemap, sel: CellSelection, layers: rea
 }
 
 /**
- * The map layers a block pastes into (ADR 0426): a one-layer block into `active`, a block of several layers into the
+ * The map layers a block pastes into (ADR 0440): a one-layer block into `active`, a block of several layers into the
  * map's layers of the same names. Missing and locked layers are skipped.
  */
 export function blockTargets(map: Tilemap, block: StampBlock, active: number): { layer: number; values: number[] }[] {

@@ -160,7 +160,7 @@ export function ProjectSettingsPanel() {
                 onMove={(i, by) => set("Reorder sorting layers", moveSortingLayer(draft, i, by))}
                 check={{
                   title: "Y-sort",
-                  description: "Draws with the same order in layer sort by height: higher ones first, so lower ones draw over them (ADR 0424).",
+                  description: "Draws with the same order in layer sort by height: higher ones first, so lower ones draw over them (ADR 0438).",
                   checked: (i) => isYSortedLayer(draft, i),
                   onChange: (i, on) => set(on ? "Y-sort sorting layer" : "Stop y-sorting sorting layer", setYSortedLayer(draft, i, on)),
                 }}

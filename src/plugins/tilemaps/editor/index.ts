@@ -2,7 +2,7 @@
 // that edits tiles, terrains and collision, accepted by Tilemap's tileset field; New Tileset is its `create`) and
 // its asset format, the Tile Palette panel, the scene-view paint tool, the Tilemap's Inspector section, the
 // Hierarchy's Create Tilemap, the Assets panel's Create Tileset from Slices, and its layers' references to sorting layers.
-// ADR 0422: the `tiledmap`, `tiledtileset` and `ldtkproject` asset kinds and Import as Myco assets… (the Assets panel's
+// ADR 0436: the `tiledmap`, `tiledtileset` and `ldtkproject` asset kinds and Import as Myco assets… (the Assets panel's
 // action and their Inspector), whose dialog and importer load on first use.
 import { createTilesetFromSlices, hasSlices } from "./tilesetAssets";
 import { tilemapsManifest } from "../manifest";
@@ -24,7 +24,7 @@ const TILED_MAP_ICON = "M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14";
 /** A grid of levels (LDtk projects). */
 const LDTK_ICON = "M3 4h8v7H3zM13 4h8v4h-8zM13 10h8v10h-8zM3 13h8v7H3z";
 
-/** ADR 0422: the source kinds Import as Myco assets… reads. */
+/** ADR 0436: the source kinds Import as Myco assets… reads. */
 const IMPORT_KINDS = new Set(["tiledmap", "tiledtileset", "ldtkproject"]);
 const importSourceInspector = () => import("./import/ImportSourceInspector").then((m) => m.ImportSourceInspector);
 
@@ -62,7 +62,7 @@ export const tilemapsEditorPlugin: EditorPlugin = {
         { type: "engine.ShapeCollider2D", data: {} },
       ],
     });
-    // ADR 0422: Tiled and LDtk files, imported once into native tilesets and prefabs. A `.tsx` reaches the Assets
+    // ADR 0436: Tiled and LDtk files, imported once into native tilesets and prefabs. A `.tsx` reaches the Assets
     // panel only when it is a Tiled tileset (TypeScript `.tsx` files aren't project files, `projectFiles.ts`).
     context.registerAssetKind({ id: "tiledmap", extensions: [".tmx", ".tmj"], label: "Tiled Map", icon: TILED_MAP_ICON, inspector: importSourceInspector });
     context.registerAssetKind({ id: "tiledtileset", extensions: [".tsx", ".tsj"], label: "Tiled Tileset", icon: TILESET_ICON, inspector: importSourceInspector });

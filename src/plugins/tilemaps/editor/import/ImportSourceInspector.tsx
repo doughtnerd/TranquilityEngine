@@ -1,4 +1,4 @@
-// The Inspector of a Tiled map or tileset or an LDtk project (ADR 0422): what it is, and Import as Myco assets…, which
+// The Inspector of a Tiled map or tileset or an LDtk project (ADR 0436): what it is, and Import as Myco assets…, which
 // opens the import dialog (loaded on first use with the importer, so `fast-xml-parser` stays out of the first bundle).
 import { editor } from "../../../../editor/sdk";
 import "./tileImport.css";

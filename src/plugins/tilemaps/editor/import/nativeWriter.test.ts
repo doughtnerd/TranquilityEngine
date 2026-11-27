@@ -372,7 +372,7 @@ describe("writeLdtkProject", () => {
   });
 });
 
-describe("MapObject (ADR 0422)", () => {
+describe("MapObject (ADR 0436)", () => {
   it("is registered by the Tilemaps plugin and loads its type and properties", async () => {
     Assets.clearSources();
     Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@5", nodes: [{ id: "a", name: "spawn", components: [{ type: "engine.MapObject", data: { type: "Spawn", properties: { team: 2, path: [[1, 2]] } } }] }] } }));

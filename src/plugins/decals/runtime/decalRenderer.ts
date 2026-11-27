@@ -50,7 +50,7 @@ interface Quads {
   texture: string;
   sortingLayer: string;
   orderInLayer: number;
-  /** How far into its order it sits: its height in a y-sorted layer (`ySortWithin`, ADR 0424), else 0. */
+  /** How far into its order it sits: its height in a y-sorted layer (`ySortWithin`, ADR 0438), else 0. */
   within: number;
   /** Its draw place (`drawPlace`), for picking. */
   order: number;
@@ -213,7 +213,7 @@ export class DecalRenderer implements BabylonFeature {
     const [w, h] = frame?.size ?? size ?? [1, 1];
     const [pvx, pvy] = frame?.pivot ?? [0.5, 0.5];
     const [u0, v0, u1, v1] = frame?.uv ?? [0, 0, 1, 1];
-    // In a y-sorted layer (ADR 0424) its sort point is its pivot's world height, so only decals at one height share a batch.
+    // In a y-sorted layer (ADR 0438) its sort point is its pivot's world height, so only decals at one height share a batch.
     const render = world.settings.render, y = m[mo + 13]!;
     const order = drawPlace(render, layer, orderInLayer, y); // the batch warns about an unknown layer
     const within = ySortWithin(render, layer, y);

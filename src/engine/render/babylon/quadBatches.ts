@@ -5,7 +5,7 @@
  * tint: shared by batches asking for the same, lit by the sorting layer's 2D lights or not, replaced in place when the
  * 2D lighting changes. Knows nothing of tiles or bones: the features (tiles, 2D lines and decals, skinned sprites with
  * `setTriangles`, updated in place each frame, light volumes) decide what the geometry is. Either call with the same
- * texture, vertex count and `indices` array as before moves the vertices in place (an animated tile's frame, ADR 0421).
+ * texture, vertex count and `indices` array as before moves the vertices in place (an animated tile's frame, ADR 0435).
  *
  * A deforming mesh (`setTriangles`) whose material has a normal map gets a 2D tangent per vertex, worked out here from
  * its positions and UVs (`tangents2D`) each time it moves, so the normals follow its bones or its line; quads
@@ -121,7 +121,7 @@ class BabylonQuadBatch implements QuadBatch {
   ) {}
 
   setQuads(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void {
-    // ADR 0421: the same texture, vertex count and `indices` array again (an animated tile's frame) moves the vertices in
+    // ADR 0435: the same texture, vertex count and `indices` array again (an animated tile's frame) moves the vertices in
     // place. A static mesh is rebuilt once with updatable buffers the first time, then updated in place.
     if (this.sameGeometry(texture, positions, indices) && this.updatable) this.update(positions, uvs, colors ?? null, false);
     else this.build(texture, positions, uvs, indices, colors ?? null, this.sameGeometry(texture, positions, indices), false);
@@ -141,7 +141,7 @@ class BabylonQuadBatch implements QuadBatch {
   private update(positions: Float32Array, uvs: Float32Array, colors: Float32Array | null, deforming: boolean): void {
     const mesh = this.mesh!;
     mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
-    mesh.updateVerticesData(VertexBuffer.UVKind, uvs); // a 2D ribbon's texture moves along it (ADR 0396); a tile's frame changes (ADR 0421)
+    mesh.updateVerticesData(VertexBuffer.UVKind, uvs); // a 2D ribbon's texture moves along it (ADR 0396); a tile's frame changes (ADR 0435)
     this.positions = positions;
     this.uvs = uvs;
     this.deforming = deforming;

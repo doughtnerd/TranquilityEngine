@@ -1,10 +1,10 @@
-# 0424. Y-sorted sorting layers interleave sprites and tile rows by their height on screen
+# 0438. Y-sorted sorting layers interleave sprites and tile rows by their height on screen
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0014 and 0103)
-- **Related:** 0014, 0103, 0108, 0136, 0186, 0399, 0418, 0421
+- **Related:** 0014, 0103, 0108, 0136, 0186, 0399, 0418, 0435
 
 ## Context
 
@@ -12,7 +12,7 @@
 (`sortOrder.ts`, `layeredQuads.ts`). Within one order, sprite runs of different textures step by `RUN_STEP` (1e-4),
 and a tile layer's chunks share their layer's order. Nothing sorts by position: a character can be entirely in front
 of a tile layer or entirely behind it, never behind one wall and in front of the next. Top-down and isometric games
-(0421) need that: Unity sorts along a Transparency Sort Axis (usually Y) and draws Tilemaps in Individual mode for
+(0435) need that: Unity sorts along a Transparency Sort Axis (usually Y) and draws Tilemaps in Individual mode for
 it; Godot has `y_sort_enabled` on a parent node and on TileMapLayers.
 
 Sprites are batched (0108): within an order, one thin-instance mesh per material run. A tile layer is one batch per
@@ -36,7 +36,7 @@ now.
   that share a material and the same place (equal heights, common on a grid).
 - **Tile layers** on a y-sorted sorting layer draw one batch per (chunk, row, texture) instead of per (chunk, texture),
   placed at the row's sort point: the bottom of the row's cell boxes on square maps, the bottom corner of each
-  diamond row or hexagon row on the grids of 0421 (`TileGrid.drawKey` already ranks those rows). A tile that should
+  diamond row or hexagon row on the grids of 0435 (`TileGrid.drawKey` already ranks those rows). A tile that should
   sort by a point other than its cell's bottom (a tree whose trunk is in the cell above) can set `sortOffset` (cells,
   default 0) in the tileset; the row is split by sort point when its tiles differ. Floors go on a layer that isn't
   y-sorted, so they stay one batch per chunk.
@@ -61,7 +61,7 @@ This is a constraint on this design, not a plan.
 - **A per-node switch** (Godot's `y_sort_enabled` on a parent). Flexible, but sorting is a property of what shares a
   layer; a per-layer setting is one checkbox and matches how scenes are organised in Unity.
 - **A sort axis** (Unity's custom axis, e.g. (0, 1, −0.26) for isometric). Y covers top-down and the isometric and
-  hex grids of 0421; an axis can be added later as a setting without changing the per-draw key.
+  hex grids of 0435; an axis can be added later as a setting without changing the per-draw key.
 - **Depth test with alpha cut-out.** No sorting at all, but breaks semi-transparent edges, shadows and lit sprites'
   blending; kept as a possible option.
 - **Per-tile batches.** Exact for any sort point, but thousands of meshes for a big layer; rows give the same result
@@ -90,7 +90,7 @@ Nothing.
 ## References
 
 - ADR 0014 (amended: within an order, a y-sorted layer orders by height), 0103 (amended: tiles sort by row there),
-  0108 (sprite runs), 0421 (grid draw keys).
+  0108 (sprite runs), 0435 (grid draw keys).
 - Unity Transparency Sort Mode/Axis and Tilemap Renderer Individual mode; Godot `CanvasItem.y_sort_enabled`.
 - Code: `src/engine/render/sortOrder.ts`, `src/engine/render/babylon/layeredQuads.ts`,
   `src/plugins/tilemaps/runtime/tilemapRenderer.ts`, `src/engine/core/settings.ts`.

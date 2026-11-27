@@ -1,5 +1,5 @@
 /**
- * Colliders for ShapeCollider2D (ADR 0105, 0136, 0423), as neutral descriptions for the 2D backend (ADR 0137).
+ * Colliders for ShapeCollider2D (ADR 0105, 0136, 0437), as neutral descriptions for the 2D backend (ADR 0137).
  * Internal, loaded with the shared core. The shapes come from the 2D shape source on the collider's node
  * (a Tilemap, say; ADR 0136); this module knows nothing of what offers them.
  *
@@ -9,7 +9,7 @@
  * - in "outline" mode, one oriented polyline collider per solid region outline (solid on the left);
  * - one collider per one-way run or polygon, which the backend lets bodies through from below
  *   (capability `oneWayPlatforms`; without it they're solid). With the collider's `oneWay` on, every shape is
- *   one-way: each rectangle, polygon part and outline its own one-way collider (ADR 0423).
+ *   one-way: each rectangle, polygon part and outline its own one-way collider (ADR 0437).
  * Everything is rebuilt when the source's signature, the collider's settings or the node's scale change.
  * Poses and scales are the nodes' 2D frames (`scene/frame2d.ts`, ADR 0301): a mirrored tilemap is mirrored.
  */
@@ -123,7 +123,7 @@ export class ShapeColliders2D {
     };
 
     if (allOneWay) {
-      // Every shape one-way (ADR 0423): each its own collider, judged by its own top.
+      // Every shape one-way (ADR 0437): each its own collider, judged by its own top.
       for (const b of shapes.boxes) make(box(b), true);
       for (const poly of shapes.polygons) make({ kind: "convexHull", points: points(poly) }, true);
       for (const loop of shapes.loops) make(outline(loop), true);

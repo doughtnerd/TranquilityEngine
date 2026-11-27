@@ -1,5 +1,5 @@
 /**
- * Tile shapes merged per chunk and cached (ADR 0423). A Tilemap's collision (and shadow) shapes are the merge of its
+ * Tile shapes merged per chunk and cached (ADR 0437). A Tilemap's collision (and shadow) shapes are the merge of its
  * tiles; merging a big map whole on every edit is what made editing it slow. This cache keeps one merge result per
  * chunk position and slot (a slot is one set of layers merged together in one mode, such as the colliding layers
  * that share an offset, in outline mode), keyed by the versions of the slot's layers' chunks there and a context key

@@ -45,7 +45,7 @@ test("Create > 2D > Tilemap adds a tilemap node", async ({ page }) => {
   await expect(page.locator(".tilemap-summary")).toContainText("1 layer");
 });
 
-// --- ADR 0276, 0421–0426 ----------------------------------------------------------------------------------------------
+// --- ADR 0276, 0435–0440 ----------------------------------------------------------------------------------------------
 
 /** Focus the scene view on a world point and give the canvas point at its centre. */
 async function focusAt(page: import("./fixtures").Page, x: number, y: number): Promise<{ cx: number; cy: number }> {

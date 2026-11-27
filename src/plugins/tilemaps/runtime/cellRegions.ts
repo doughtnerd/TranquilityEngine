@@ -1,6 +1,6 @@
 /**
  * Regions of grid cells (ADR 0105): solid cells (cell (x, y) covers x..x+1, y..y+1) merged into
- * rectangles, per-row runs or closed outlines; and, for cells of any shape (ADR 0421), outlines traced by cancelling
+ * rectangles, per-row runs or closed outlines; and, for cells of any shape (ADR 0435), outlines traced by cancelling
  * the edges cells share. Pure; the tile collision shapes (`collision.ts`) use it.
  */
 import type { ShapeRect2D } from "../../../engine/physics/shapeSource2D";
@@ -249,7 +249,7 @@ export function chainEdges(edges: readonly OutlineEdge[], quantum: number): [num
 }
 
 /**
- * Outlines of the union of cells of any shape (ADR 0421), given each cell's corners counter-clockwise (`outline`,
+ * Outlines of the union of cells of any shape (ADR 0435), given each cell's corners counter-clockwise (`outline`,
  * `TileGrid.cellOutline`): every cell's edges are collected, an edge two cells share (one each way) cancels, and the
  * rest chain into closed loops with the solid on the left, collinear points merged. Where two loops touch at a point
  * the trace takes the sharpest left turn, keeping them apart. Neighbouring cells must share their corners (hexagons

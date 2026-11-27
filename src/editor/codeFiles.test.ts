@@ -121,7 +121,7 @@ describe("JSON and JavaScript files in a project", () => {
     expect(fs.files.get(joinPath(ROOT, "data/levels.json"))).toBe(LEVELS);
   });
 
-  it("keep a Tiled tileset saved as .tsx as a project file, never a script, and leave TypeScript .tsx out (ADR 0422)", async () => {
+  it("keep a Tiled tileset saved as .tsx as a project file, never a script, and leave TypeScript .tsx out (ADR 0436)", async () => {
     const bytes = (text: string) => new TextEncoder().encode(text);
     fs.files.set(joinPath(ROOT, "tiles/terrain.tsx"), bytes('\uFEFF<?xml version="1.0" encoding="UTF-8"?>\n<tileset name="terrain"/>\n'));
     fs.files.set(joinPath(ROOT, "tiles/bare.tsx"), bytes('<tileset name="bare"/>\n'));

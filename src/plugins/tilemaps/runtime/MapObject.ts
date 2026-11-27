@@ -1,5 +1,5 @@
 /**
- * `MapObject` (ADR 0422): what an object or entity imported from Tiled or LDtk carries, kept on its node. `type` is the
+ * `MapObject` (ADR 0436): what an object or entity imported from Tiled or LDtk carries, kept on its node. `type` is the
  * Tiled class or the LDtk entity identifier; `properties` are its custom properties or field instances, as JSON
  * (references to other objects and entities as their node ids, LDtk points in the map's local units).
  *

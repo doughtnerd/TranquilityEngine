@@ -341,12 +341,12 @@ export function isFieldAnimatable(type: ComponentClass, name: string): boolean {
   return t === Number || t === Boolean || t === AssetRef || t === Vector2 || t === Vector3 || t === Quaternion || t === Color;
 }
 
-/** Component id aliases (ADR 0423): an old id a component was renamed from, mapped to its current id. */
+/** Component id aliases (ADR 0437): an old id a component was renamed from, mapped to its current id. */
 const aliases = new Map<string, string>();
 let aliasVersion = 0;
 
 /**
- * Read the component id `oldId` as `newId` (ADR 0423): scenes, prefabs and prefab overrides that name the old id
+ * Read the component id `oldId` as `newId` (ADR 0437): scenes, prefabs and prefab overrides that name the old id
  * load the class registered under the new one, and documents are written with the new id. For renamed
  * components; registering the same alias again is harmless. Returns the undo.
  */
@@ -376,7 +376,7 @@ export function resolveComponentId(id: string): string {
 /** @internal Changes whenever an alias is added or removed, so files read before can be read again. */
 export const _componentAliasVersion = (): number => aliasVersion;
 
-/** The class registered under `id`, or under the id `id` is an alias of (ADR 0423). */
+/** The class registered under `id`, or under the id `id` is an alias of (ADR 0437). */
 export function getComponentClass(id: string): ComponentClass | undefined {
   return classById.get(id) ?? (aliases.size ? classById.get(resolveComponentId(id)) : undefined);
 }

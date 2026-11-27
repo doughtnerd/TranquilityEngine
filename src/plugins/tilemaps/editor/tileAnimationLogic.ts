@@ -1,4 +1,4 @@
-// The tile animation editor's model (ADR 0421 "Animated tiles"): what the tileset inspector's Animation section edits,
+// The tile animation editor's model (ADR 0435 "Animated tiles"): what the tileset inspector's Animation section edits,
 // as pure functions over a tile's `animation` (`runtime/tileset.ts`). Every frame must come from the tile sprite's
 // image, so an animated tile never changes batch: a frame of another image is refused with a problem the inspector
 // shows. Durations are seconds, > 0. Removing the last frame removes the animation (the field is left out), and the

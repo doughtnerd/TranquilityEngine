@@ -1,5 +1,5 @@
 /**
- * Tile grid geometry (ADR 0421): one module owns where cells are. A `TileGrid` for a shape and its parameters answers
+ * Tile grid geometry (ADR 0435): one module owns where cells are. A `TileGrid` for a shape and its parameters answers
  * every question the rest of the plugin asks about cells (the Tilemap's coordinate methods, chunk meshes, collision,
  * auto-tiling, the brush and the editor overlay). Pure: no engine imports, points as `[x, y]` in the map's local
  * units (y up), cells as integer `[x, y]`.

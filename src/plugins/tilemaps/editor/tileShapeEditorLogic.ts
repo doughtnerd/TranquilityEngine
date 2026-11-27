@@ -1,5 +1,5 @@
-// The tile collision and shadow shape editor's model (ADR 0423): what the tileset inspector's canvas edits, as pure
-// functions over a tile's shapes in its cell box's units (`[0, 0]` bottom-left, `[1, 1]` top-right, ADR 0421).
+// The tile collision and shadow shape editor's model (ADR 0437): what the tileset inspector's canvas edits, as pure
+// functions over a tile's shapes in its cell box's units (`[0, 0]` bottom-left, `[1, 1]` top-right, ADR 0435).
 // - A tile's collision (or occluder) as a list of editable shapes: presets expand to the preview grid's cell outline,
 //   so a full cell can be reshaped by dragging its points; and back to what the file stores: no shape is `"none"`, one
 //   is the single-polygon form, several are `{ shapes }`; an occluder of "Same as collision" is the field left out.

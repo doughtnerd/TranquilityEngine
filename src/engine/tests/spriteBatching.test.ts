@@ -112,7 +112,7 @@ describe("the sprite batcher (ADR 0108)", () => {
     expect(meshes[1].isEnabled()).toBe(false); // runs no longer needed are hidden, kept for reuse
   });
 
-  it("keeps runs of two materials at one y-sorted place below the next height (ADR 0424)", () => {
+  it("keeps runs of two materials at one y-sorted place below the next height (ADR 0438)", () => {
     const atlas = new Texture(null, scene), other = new Texture(null, scene);
     const place = (y: number) => drawPlace({ sortingLayers: ["Default"], ySortedLayers: ["Default"] }, "Default", 0, y);
     const ySortedItem = (texture: Texture, y: number): SpriteItem => ({ ...item(texture, place(y)), ySorted: true });
@@ -160,7 +160,7 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
   let policy: "batched" | "perObject";
   let textures: Map<string, Texture>;
   let warnings: string[];
-  /** The y-sorted sorting layers the feature is told (ADR 0424); undefined: the project's. */
+  /** The y-sorted sorting layers the feature is told (ADR 0438); undefined: the project's. */
   let ySorted: string[] | undefined;
   /** The sprites drawn by a mesh of their own (ADR 0276: drawn as a quad). */
   const own = (f: BabylonSprites): SpriteRenderer[] => [...f.drawn()].filter((d) => d.shape?.kind === "quad").map((d) => d.component as SpriteRenderer);
@@ -313,7 +313,7 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
   /** Each batch's instances' world heights, in draw order. */
   const heights = () => batches(scene).map((m) => Array.from({ length: m.thinInstanceCount }, (_, i) => instance(m, "matrix", i, 16)[13]));
 
-  it("draws each sprite of a y-sorted layer at its own place, higher first, within its order in layer (ADR 0424)", () => {
+  it("draws each sprite of a y-sorted layer at its own place, higher first, within its order in layer (ADR 0438)", () => {
     ySorted = ["Default"];
     const f = make();
     at("a", 2); at("b", 0); at("c", 1); at("d", 5, 1); at("e", -3, 1);

@@ -23,7 +23,7 @@ const roundTrip = (raw: unknown) => {
   return { value: read.value, text: tilesetFormat.format(read.value) };
 };
 
-describe("tileset files keep ADR 0421–0426 fields when saved", () => {
+describe("tileset files keep ADR 0435–0440 fields when saved", () => {
   it("writes back previewGrid, several shapes, occluders, animation, sort offsets, stamps and prefabs", () => {
     const { text } = roundTrip(file);
     expect(JSON.parse(text)).toEqual(file);

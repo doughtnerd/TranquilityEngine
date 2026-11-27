@@ -38,7 +38,7 @@ async function tiledProject() {
   return { fs, project };
 }
 
-describe("importing Tiled and LDtk files in the editor (ADR 0422)", () => {
+describe("importing Tiled and LDtk files in the editor (ADR 0436)", () => {
   it("knows the source kinds, and keeps a Tiled .tsx tileset in the project", async () => {
     expect(assetKind("levels/forest.tmx")).toBe("tiledmap");
     expect(assetKind("levels/forest.tmj")).toBe("tiledmap");

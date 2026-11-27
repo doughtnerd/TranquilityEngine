@@ -1,4 +1,4 @@
-// ADR 0421: the grid module that owns cell geometry on square, isometric, staggered and hexagonal maps.
+// ADR 0435: the grid module that owns cell geometry on square, isometric, staggered and hexagonal maps.
 import { describe, expect, it } from "vitest";
 import { axialToOffset, diamondToStaggered, offsetToAxial, staggeredToDiamond, tiledCellToCell, tileGrid, type GridParams, type GridPoint, type TileGrid } from "./grids";
 
@@ -35,7 +35,7 @@ function insidePoints(grid: TileGrid, x: number, y: number): GridPoint[] {
   return [[cx, cy], ...grid.cellOutline(x, y).map(([px, py]): GridPoint => [cx + (px - cx) * 0.9, cy + (py - cy) * 0.9])];
 }
 
-describe("tile grids (ADR 0421)", () => {
+describe("tile grids (ADR 0435)", () => {
   for (const params of VARIANTS) {
     describe(name(params), () => {
       const grid = tileGrid(params);

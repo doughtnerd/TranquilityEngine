@@ -5,7 +5,7 @@
  *
  * A cell belongs to terrain T when its tile's `terrain` is T. To place a terrain tile, the
  * neighbour pattern of the cell is read (8 neighbours, N NE E SE S SW W NW; same terrain or not;
- * on other grids the grid's own neighbours, ADR 0421: 6 on hexagonal maps, whose tiles have 6-character patterns)
+ * on other grids the grid's own neighbours, ADR 0435: 6 on hexagonal maps, whose tiles have 6-character patterns)
  * and the terrain tile whose pattern matches best is chosen: every `1`/`0` must match, and of the
  * tiles that match, the most specific one (fewest `*`) wins, ties broken by weight. If none
  * matches, the tile with the most agreeing positions is used, so a partial tile set still paints.
@@ -22,7 +22,7 @@ import type { TileDef, Tileset, TilesetData } from "./tileset";
 export interface CellAccess {
   get(x: number, y: number): number;
   set(x: number, y: number, id: number): void;
-  /** A cell's neighbours in pattern order (ADR 0421: `TileGrid.neighbours`). Absent: the square grid's 8. */
+  /** A cell's neighbours in pattern order (ADR 0435: `TileGrid.neighbours`). Absent: the square grid's 8. */
   neighbours?(x: number, y: number): readonly (readonly [number, number])[];
   /** How many neighbours a cell has (8, or 6 on hexagonal grids): the pattern length that fits. Absent: 8. */
   neighbourCount?: number;
@@ -74,7 +74,7 @@ export function paintTerrain(
   seed = 0,
 ): [number, number][] {
   const terrainAt = (x: number, y: number) => tileset.tile(access.get(x, y) & 0xffffff)?.terrain;
-  // Tiles whose pattern doesn't fit the grid (6 characters on a square map, 8 on a hexagonal one) are skipped (ADR 0421).
+  // Tiles whose pattern doesn't fit the grid (6 characters on a square map, 8 on a hexagonal one) are skipped (ADR 0435).
   const tiles = terrain ? (tileset.byTerrain.get(terrain) ?? []).filter((t) => patternFits(t.pattern, access.neighbourCount ?? 8)) : [];
   if (terrain && !tiles.length) return [];
   const { set, changed } = changeTracker(access);
@@ -107,7 +107,7 @@ export function missingBlobMasks(tiles: readonly TileDef[]): number[] {
 }
 
 /**
- * Terrain tiles whose pattern can't serve the grid their terrain is for (ADR 0421), as messages naming them: when the
+ * Terrain tiles whose pattern can't serve the grid their terrain is for (ADR 0435), as messages naming them: when the
  * tileset says which cells it is drawn for (`previewGrid`), a pattern of the other length (6 characters for hexagonal
  * maps, 8 for the rest); otherwise a pattern whose length differs from most of its terrain's. Auto-tiling skips such
  * tiles on a map they don't fit.

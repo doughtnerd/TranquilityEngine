@@ -24,7 +24,7 @@ export interface QuadBatch {
    * v up) and 6 `indices`, and optionally a colour per vertex (`colors`: RGBA, 0..1 sRGB and alpha, multiplying the tint).
    * Shown once it has quads and is visible. A call with the same texture, vertex count and `indices` array as the last
    * one only updates the vertices (positions, UVs and colours) in place, as `setTriangles` does: an animated tile layer
-   * rewrites its quads' UVs in the same arrays and calls again (ADR 0421), with no rebuild.
+   * rewrites its quads' UVs in the same arrays and calls again (ADR 0435), with no rebuild.
    */
   setQuads(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void;
   /**
@@ -38,7 +38,7 @@ export interface QuadBatch {
   setMatrix(m: ArrayLike<number>, offset?: number): void;
   /**
    * Its place among layered 2D content (ADR 0014): a sorting layer and an order in it, as sprites have. Lit batches read
-   * that layer's 2D light. `within` (ADR 0421, 0424; [0, 1), default 0) orders draws of the same order among themselves,
+   * that layer's 2D light. `within` (ADR 0435, 0438; [0, 1), default 0) orders draws of the same order among themselves,
    * larger drawing later: an isometric layer's chunks in painter's order, heights in a y-sorted layer.
    */
   setOrder(sortingLayer: string, orderInLayer: number, within?: number): void;

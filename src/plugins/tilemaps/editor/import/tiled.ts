@@ -1,5 +1,5 @@
 /**
- * Tiled importer, parsing half (ADR 0422): TMX/TMJ maps and TSX/TSJ tilesets into the neutral model of `model.ts`.
+ * Tiled importer, parsing half (ADR 0436): TMX/TMJ maps and TSX/TSJ tilesets into the neutral model of `model.ts`.
  *
  * Both encodings go through one path: TMX (XML, read with `fast-xml-parser`, the only importer of it) is first turned
  * into the shapes TMJ uses, then a single converter builds the model. Pure over text: files the map names (external
@@ -383,7 +383,7 @@ const PATTERN_SIDES: [number, number, number][] = [
   [6, 5, 7],
 ];
 
-/** Wang sets → terrains and patterns (ADR 0422): tiles labelled with one colour against empty get that terrain. */
+/** Wang sets → terrains and patterns (ADR 0436): tiles labelled with one colour against empty get that terrain. */
 function applyWangSets(ts: ImportTileset, sets: unknown, where: string, ctx: Ctx): void {
   if (!Array.isArray(sets)) return;
   const byIndex = new Map(ts.tiles.map((t) => [t.index, t]));

@@ -1,5 +1,5 @@
 /**
- * Tile collision shapes after single-cell edits on a big map (ADR 0423's benchmark).
+ * Tile collision shapes after single-cell edits on a big map (ADR 0437's benchmark).
  * Run: `npx vitest bench --run bench/tileShapes.bench.ts`.
  *
  * A 512 × 512 square map, 30 % of its cells solid at random (seeded). Each round flips one random cell and times:

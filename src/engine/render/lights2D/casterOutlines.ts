@@ -1,6 +1,6 @@
 /**
  * Where a ShadowCaster2D's outline comes from (ADR 0413), renderer-neutral: the node's shadow shape source (a Tilemap's
- * tile occluders, ADR 0423), else its 2D collision shapes (a shape source such as a Tilemap, merged as outlines; or any 2D collider, through the backend-neutral `_shapeFields()` every
+ * tile occluders, ADR 0437), else its 2D collision shapes (a shape source such as a Tilemap, merged as outlines; or any 2D collider, through the backend-neutral `_shapeFields()` every
  * 2D collider class gives, ADR 0305), its SpriteRenderer's slice outline (ADR 0414) or rectangle, or a custom path.
  * Outlines are in the node's local XY; the light pass places them with the node's world matrix.
  */
@@ -54,7 +54,7 @@ export function casterOutline(world: World, caster: ShadowCaster2D, textureSize:
 
 function colliderOutline(world: World, caster: ShadowCaster2D): CasterOutline | null {
   const node = caster.node;
-  // ADR 0423: a shadow shape source (a Tilemap's tile occluders) says what the node casts with, before its collision.
+  // ADR 0437: a shadow shape source (a Tilemap's tile occluders) says what the node casts with, before its collision.
   const shadow = findShadowShapeSource2D(node);
   if (shadow) {
     const shapes = shadow.shadowShapes();
