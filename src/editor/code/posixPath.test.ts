@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import path, { basename, dirname, extname, join, normalize, relative, resolve } from "./posixPath";
+import { posix as nodePosix } from "node:path";
+import path, { basename, dirname, extname, format, join, normalize, parse, relative, resolve } from "./posixPath";
 
 describe("POSIX path for the browser", () => {
   it("names files and folders as Node's path.posix does", () => {
@@ -20,5 +21,13 @@ describe("POSIX path for the browser", () => {
     expect(resolve("/a", "/b", "c")).toBe("/b/c");
     expect(relative("/project/ui", "/project/scripts/A.ts")).toBe("../scripts/A.ts");
     expect(path.posix).toBe(path);
+  });
+
+  it("parses and formats as Node's path.posix does (svelte2tsx names a component's class from parse().name)", () => {
+    for (const p of ["ui/Hud.svelte", "Hud.svelte", "/ui/Hud.svelte", "ui/score.svelte.ts", ".hidden", "ui/", "/", "a/b/c.d.e", ""]) {
+      expect(parse(p), p).toEqual(nodePosix.parse(p));
+      expect(format(parse(p)), p).toBe(nodePosix.format(nodePosix.parse(p)));
+    }
+    expect(path.parse("ui/Music.svelte").name).toBe("Music");
   });
 });

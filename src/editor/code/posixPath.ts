@@ -54,6 +54,25 @@ export function extname(path: string): string {
   return at <= 0 ? "" : base.slice(at);
 }
 
+/** Node's `path.parse`: `{ root, dir, base, ext, name }` (svelte2tsx names a component's class from `name`). */
+export function parse(path: string): { root: string; dir: string; base: string; ext: string; name: string } {
+  const root = isAbsolute(path) ? "/" : "";
+  const trimmed = path.length > 1 ? path.replace(/\/+$/, "") : path;
+  const at = trimmed.lastIndexOf("/");
+  const base = at < 0 ? trimmed : trimmed.slice(at + 1);
+  const dir = at < 0 ? "" : at === 0 ? "/" : trimmed.slice(0, at);
+  const dot = base.lastIndexOf(".");
+  const ext = dot <= 0 ? "" : base.slice(dot);
+  return { root, dir, base, ext, name: ext ? base.slice(0, -ext.length) : base };
+}
+
+/** Node's `path.format`, the inverse of `parse`. */
+export function format(p: { root?: string; dir?: string; base?: string; ext?: string; name?: string }): string {
+  const base = p.base ?? `${p.name ?? ""}${p.ext ?? ""}`;
+  const dir = p.dir ?? p.root ?? "";
+  return dir ? (dir === p.root ? `${dir}${base}` : `${dir}/${base}`) : base;
+}
+
 const path = {
   sep,
   delimiter,
@@ -65,6 +84,8 @@ const path = {
   dirname,
   basename,
   extname,
+  parse,
+  format,
   get posix(): typeof path {
     return path;
   },
