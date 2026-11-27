@@ -101,16 +101,6 @@ export function spatialSoundOptions(p: SpatialParams) {
   };
 }
 
-/** A pitch ratio as a playback rate: finite and above zero. */
-export function playbackRate(pitch: number): number {
-  return Number.isFinite(pitch) && pitch > 0 ? pitch : 1;
-}
-
-/** A sound volume Babylon accepts (finite, not negative). */
-export function soundVolume(v: number): number {
-  return Number.isFinite(v) ? Math.max(0, v) : 1;
-}
-
 /**
  * An engine (left-handed, +Z forward) point or direction in Web Audio's right-handed axes (ADR 0164): z negated. Babylon's
  * audio engine passes positions straight to Web Audio, whatever the scene's handedness.
@@ -180,14 +170,4 @@ export function filterIsActive(filter: { lowpass?: number; highpass?: number } |
   const lp = filter.lowpass;
   const hp = filter.highpass;
   return (lp !== undefined && Number.isFinite(lp) && lp < 20000) || (hp !== undefined && Number.isFinite(hp) && hp > 20);
-}
-
-/** ADR 0162 §8: a voice's Babylon volume: its own volume times the fade's gain times main's occlusion gain (the cutoff has no home here). */
-export function occludedVolume(volume: number, fade: number, occGain: number): number {
-  return soundVolume(volume * fade * (Number.isFinite(occGain) ? Math.min(1, Math.max(0, occGain)) : 1));
-}
-
-/** The playback rate of a decoded clip: its pitch times main's Doppler factor. */
-export function dopplerPlaybackRate(pitch: number, factor: number): number {
-  return playbackRate(playbackRate(pitch) * (Number.isFinite(factor) && factor > 0 ? factor : 1));
 }

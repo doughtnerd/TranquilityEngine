@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.pure";
-import { busCreationSteps, listenerQuaternion, planBuses, playbackRate, spatialParams, spatialSoundOptions, webAudioVector } from "./babylonMapping";
+import { busCreationSteps, listenerQuaternion, planBuses, spatialParams, spatialSoundOptions, webAudioVector } from "./babylonMapping";
 
 describe("planBuses", () => {
   it("creates parents before children, in project order otherwise", () => {
@@ -65,10 +65,6 @@ describe("spatialParams", () => {
     expect(spatialSoundOptions(spatialParams({ minDistance: 2, maxDistance: 50, rolloff: "linear" }))).toEqual({
       spatialEnabled: true, spatialDistanceModel: "linear", spatialMinDistance: 2, spatialMaxDistance: 50, spatialRolloffFactor: 1, spatialPanningModel: "HRTF",
     });
-  });
-
-  it("repairs a pitch", () => {
-    expect([playbackRate(1.5), playbackRate(0), playbackRate(NaN)]).toEqual([1.5, 1, 1]);
   });
 });
 
