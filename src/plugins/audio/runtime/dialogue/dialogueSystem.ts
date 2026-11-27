@@ -256,7 +256,7 @@ class DialogueSystem implements HostedRuntime {
     const o = say.options;
     const node = !o.position && !o.node && loc.line.speaker !== null ? nearestSpeaker(loc.line.speaker) : null;
     dialogueMemory.spoke(say.ev.name, key, this.now(), loc.line.once);
-    startLine(handle, loc, node ? { ...o, node } : o);
+    startLine(handle, loc, node ? { ...o, node } : o, `Audio.say("${say.ev.name}")`);
     if (handle.state !== "playing") return handle;
     channel.speaking = handle;
     handle.onEnd = () => {

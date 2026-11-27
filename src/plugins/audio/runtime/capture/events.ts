@@ -31,7 +31,7 @@
 // reason code as the sink's word, `reasons.ts`), so the arg layouts above are known here and nowhere else. The reader hands
 // the Profiler only typed events.
 import type {
-  ProfileEpochReason, ProfileGapReason, ProfileLoudnessControl, ProfileLoudnessState, ProfilePackageEvent, ProfilePick, ProfilePluginFault, ProfileQueuedReason, ProfileRealReason,
+  ProfileCause, ProfileEpochReason, ProfileGapReason, ProfileLoudnessControl, ProfileLoudnessState, ProfilePackageEvent, ProfilePick, ProfilePluginFault, ProfileQueuedReason, ProfileRealReason,
   ProfileRefusedReason, ProfileSink, ProfileStealReason, ProfileStopReason, ProfileVirtualReason,
 } from "../mix/profileSink";
 import { encodeMixOp } from "../../../../engine/audio/mixOpCodec";
@@ -114,7 +114,7 @@ export class EventSink implements ProfileSink {
   eventsDropped = 0;
 
   // The scratch payload and its args arrays, one per length (the longest EVENT has 10 args: a pick).
-  private readonly args: number[][] = [[], [0], [0, 0], [0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0, 0], [], [], [], [], new Array<number>(10).fill(0)];
+  private readonly args: number[][] = [[], [0], [0, 0], [0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [], [], [], new Array<number>(10).fill(0)];
   private readonly payload: EventPayload = { perfMs: 0, kind: 0, reason: 0, args: this.args[0]!, f32: 0 };
   private readonly f32 = new Float32Array(1);
   private readonly f32bits = new Uint32Array(this.f32.buffer);
@@ -280,8 +280,23 @@ export class EventSink implements ProfileSink {
     this.now2(EventKind.voiceQueued, QUEUED_REASON[reason], this.intern(T_CLIP, clip), busRef);
   }
 
-  eventStart(instance: number, asset: string): void {
-    this.now2(EventKind.eventStart, 0, instance, this.intern(T_EVENT, asset));
+  /**
+   * args: instance, asset (`events` table); with a cause (ADR 0435, appended within format 2: readers take ≥ 2 args) also
+   * its trigger, node, behaviour and system (`parameters` table, `NO_NAME` for null).
+   */
+  eventStart(instance: number, asset: string, cause?: ProfileCause | null): void {
+    if (!cause) {
+      this.now2(EventKind.eventStart, 0, instance, this.intern(T_EVENT, asset));
+      return;
+    }
+    const a = this.args[6]!;
+    a[0] = instance;
+    a[1] = this.intern(T_EVENT, asset);
+    a[2] = this.intern(T_PARAM, cause.trigger);
+    a[3] = this.nameOrNone(T_PARAM, cause.node);
+    a[4] = this.nameOrNone(T_PARAM, cause.behaviour);
+    a[5] = this.nameOrNone(T_PARAM, cause.system);
+    this.write(EventKind.eventStart, 0, a, 0, this.recorder.newestStatusFrame, false, 0);
   }
 
   eventStop(instance: number): void {
@@ -470,7 +485,8 @@ export type CaptureEvent = CaptureEventBase & (
   | { readonly type: "voiceReal"; readonly voice: number; readonly reason: ProfileRealReason | null }
   | { readonly type: "voiceRefused"; readonly clip: number; readonly slot: number; readonly busGen: number; readonly reason: ProfileRefusedReason | null }
   | { readonly type: "voiceQueued"; readonly clip: number; readonly slot: number; readonly busGen: number; readonly reason: ProfileQueuedReason | null }
-  | { readonly type: "eventStart"; readonly instance: number; readonly asset: number }
+  /** `cause` (ADR 0435): what in the game asked, as `parameters` table ids (null for unknown); absent in older captures. */
+  | { readonly type: "eventStart"; readonly instance: number; readonly asset: number; readonly cause?: CaptureEventCause }
   | { readonly type: "eventStop"; readonly instance: number }
   /** `name` in the `parameters` table; `instance` null for a global parameter. */
   | { readonly type: "parameter"; readonly name: number; readonly instance: number | null; readonly value: number }
@@ -501,6 +517,14 @@ export type CaptureEvent = CaptureEventBase & (
   /** ADR 0352 §6: `effect` is the type's name id (`parameters` table). */
   | { readonly type: "pluginFault"; readonly effect: number; readonly instance: number; readonly reason: ProfilePluginFault | null }
 );
+
+/** ADR 0435: an `eventStart`'s cause: ids in the `parameters` table, null for unknown (`ProfileCause` read back). */
+export interface CaptureEventCause {
+  readonly trigger: number | null;
+  readonly node: number | null;
+  readonly behaviour: number | null;
+  readonly system: number | null;
+}
 
 /** Every EVENT type name (one per §5.6 kind). */
 export type CaptureEventType = CaptureEvent["type"];
@@ -535,7 +559,9 @@ export function readCaptureEvent(p: EventPayload): CaptureEvent | null {
     case "voiceSteal": return { ...base, type, voice: a[0]!, thief: a[1]!, reason: stealReason(r) };
     case "voiceRefused": return { ...base, type, clip: a[0]!, slot: a[1]! & 0xff, busGen: a[1]! >>> 8, reason: refusedReason(r) };
     case "voiceQueued": return { ...base, type, clip: a[0]!, slot: a[1]! & 0xff, busGen: a[1]! >>> 8, reason: queuedReason(r) };
-    case "eventStart": return { ...base, type, instance: a[0]!, asset: a[1]! };
+    case "eventStart":
+      if (a.length < 6) return { ...base, type, instance: a[0]!, asset: a[1]! };
+      return { ...base, type, instance: a[0]!, asset: a[1]!, cause: { trigger: orNull(a[2]!), node: orNull(a[3]!), behaviour: orNull(a[4]!), system: orNull(a[5]!) } };
     case "eventStop": return { ...base, type, instance: a[0]! };
     case "parameter":
       readF32Bits[0] = a[2]!;
