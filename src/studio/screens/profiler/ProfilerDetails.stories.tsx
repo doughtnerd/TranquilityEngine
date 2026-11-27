@@ -14,6 +14,7 @@ import { AtCursor, MessageList, ReplayOrigin, VoiceDetails, WhyItPlayed } from "
 import { RecordButton } from "./RecordButton";
 import { buildVoices } from "./voiceModel";
 import type { CaptureEventAt } from "../../../plugins/audio/runtime/capture/reader";
+import type { InstanceDecisions } from "./decisionModel";
 import "./profiler.css";
 
 const names = namesFromStart({ clips: [[1, "impact_01.wav"], [2, "vo_rider_07.wav"]], buses: [[1, "Vehicles"], [2, "Dialogue"]] });
@@ -117,6 +118,26 @@ export const WhyItPlayedNote: Story = {
     await expect(pct.textContent).not.toBe(before);
     await userEvent.click(pct);
     await expect(pct.textContent).toBe("100%");
+  },
+};
+
+/** ADR 0435: a capture that names the request: the game step shows the trigger and the GameObject and hook that asked. */
+const fromScript: InstanceDecisions = {
+  instance: 3, asset: "audio/vehicles/impact.playlist.json", start: 3.2, seq: 0, picks: [],
+  cause: { trigger: "Audio.play", node: "/Player/Bike", behaviour: "BikeAudio.onCollisionEnter", system: null },
+};
+export const WhyItPlayedFromScript: Story = {
+  render: () => (
+    <div style={{ width: "720px", height: "160px" }}>
+      <WhyItPlayed voice={stolen} decision={fromScript} onOpen={openStep} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const graph = within(canvasElement).getByRole("list", { name: `Why ${stolen.clipName} played` });
+    const game = within(graph).getAllByRole("listitem")[0]!;
+    await expect(game.querySelector(".pf-wn-name")).toHaveTextContent("Audio.play");
+    await expect(game.querySelector(".pf-wn-why")).toHaveTextContent("/Player/Bike · BikeAudio.onCollisionEnter");
+    await expect(game.querySelector(".pf-wn")!.getAttribute("title")).toContain("Behaviour: BikeAudio.onCollisionEnter");
   },
 };
 

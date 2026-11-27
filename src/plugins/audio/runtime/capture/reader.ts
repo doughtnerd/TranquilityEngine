@@ -33,7 +33,7 @@ export type {
   CaptureKeyframe, CaptureKeyframeBus, CaptureKeyframeEvent, CaptureKeyframeMetered, CaptureKeyframeMix, CaptureKeyframeMusic,
   CaptureKeyframeVoice, CaptureLane, CaptureMusicState, CaptureVoiceState,
 } from "./format";
-export type { CaptureEvent, CaptureEventType } from "./events";
+export type { CaptureEvent, CaptureEventCause, CaptureEventType } from "./events";
 export { CaptureNames, captureNames, type CaptureNameEntry, type CaptureNameLog } from "./names";
 export { reasonText, type CaptureReason, type CaptureVoiceReason } from "./reasons";
 /**

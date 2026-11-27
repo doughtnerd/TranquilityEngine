@@ -128,7 +128,10 @@ export type NameTable = (typeof NAME_TABLES)[number];
 export const MixOpOrigin = { editor: 0, script: 1, undo: 2, redo: 3, compare: 4, debugLink: 5 } as const;
 export const MIXOP_ORIGIN_MAX = 5;
 
-/** EVENT `kind` (§5.6). */
+/**
+ * EVENT `kind` (§5.6). ADR 0435: an `eventStart` may carry four more args (its cause: trigger, node, behaviour, system),
+ * appended within format 2 as `audioPackage`'s third: a reader takes the first two and older captures read as before.
+ */
 export const EventKind = {
   voiceStart: 1, voiceStop: 2, voiceSteal: 3, voiceVirtual: 4, voiceReal: 5, voiceRefused: 6, voiceQueued: 7,
   eventStart: 8, eventStop: 9, parameter: 10, snapshot: 11, stateChange: 12, musicTransition: 13, busRamp: 14,

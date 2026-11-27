@@ -21,6 +21,7 @@ import { isGeneratorPath } from "../../../../engine/audio/generators/format";
 import { playlistHost, type HostedRuntime } from "./host";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
+import { playCause } from "./cause";
 import { generatorPlaylist, loadPlaylist, samplePlaylist } from "./loader";
 import { PlaylistInstance, type InstanceSystem, type PlaylistOptions, type StingerOutcome } from "./instance";
 import { musicRowOf } from "./musicRows";
@@ -135,7 +136,8 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
       victim.stop(STEAL_FADE_SECONDS);
     }
     this.live.add(instance);
-    if (taps.sink !== NULL_PROFILE_SINK) taps.sink.eventStart(group, path);
+    // ADR 0435: with the cause (the request, its node, the running behaviour hook and system) for "Why it played".
+    if (taps.sink !== NULL_PROFILE_SINK) taps.sink.eventStart(group, path, playCause(options.trigger ?? "Audio.play", options.triggerNode));
     instance.start();
     // ADR 0357 §4: a playlist with a caption reports its instances' start and end (`Audio.onCaption`).
     if (asset.caption) watchCaption(instance, asset.caption);
