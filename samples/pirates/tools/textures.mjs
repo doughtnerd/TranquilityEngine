@@ -105,6 +105,43 @@ function foam() {
 }
 
 /**
+ * A raindrop's ripple: a thin soft ring near the edge and a fainter one inside it, white, the alpha
+ * nothing outside the outer ring and at the middle (drawn on a flat quad that grows and fades).
+ */
+function ripple() {
+  const cv = new Canvas(S);
+  const ring = (d, r, w) => Math.exp(-(((d - r) / w) ** 2));
+  cv.fill((x, y) => {
+    const d = Math.hypot((x + 0.5) / S - 0.5, (y + 0.5) / S - 0.5) * 2; // 1 at the inscribed circle
+    const a = ring(d, 0.82, 0.07) + ring(d, 0.52, 0.06) * 0.45;
+    return [240, 248, 252, Math.min(1, a) * 255];
+  });
+  return cv.png();
+}
+
+/**
+ * Churned water for wakes and bow waves, drawn along a ribbon (u along it, v across): white, the
+ * alpha a soft bump across the ribbon broken into streaks that run along it. It changes only across
+ * (with v), so the ribbon's texture never seems to slide as the wake grows.
+ */
+function wake() {
+  const cv = new Canvas(S);
+  const r = rng(81);
+  const streaks = Array.from({ length: S }, () => 0);
+  for (let i = 0; i < 9; i++) {
+    const c = r() * S, w = 2 + r() * 5, k = 0.4 + r() * 0.6;
+    for (let y = 0; y < S; y++) streaks[y] = Math.max(streaks[y], k * Math.exp(-(((y - c) / w) ** 2)));
+  }
+  cv.fill((_x, y) => {
+    const v = ((y + 0.5) / S) * 2 - 1; // -1..1 across
+    const bump = Math.max(0, 1 - v * v) ** 1.5;
+    const a = bump * (0.45 + 0.55 * streaks[y]);
+    return [236, 244, 248, Math.min(1, a) * 255];
+  });
+  return cv.png();
+}
+
+/**
  * A soft, billowing puff for fog and smoke particles: a few overlapping soft lobes, broken up by
  * noise, white with the alpha falling to nothing well inside the edge (so no square shows).
  */
@@ -210,6 +247,8 @@ export function makeTextures() {
     "flag.png": flag(),
     "foam.png": foam(),
     "smoke.png": smoke(),
+    "ripple.png": ripple(),
+    "wake.png": wake(),
     "icon_wind.png": iconWind(),
     "icon_ghost.png": iconGhost(),
     "icon_storm.png": iconStorm(),
