@@ -424,6 +424,7 @@ How to use the engine. The user docs (guides, FAQ, news) are written in [wiki/](
 | [0439](decisions/0439-tilemap-layers-get-offset-parallax-and-lock-and-the-editor-can-dim-inactive-layers.md) | Tilemap layers get an offset, a parallax factor and a lock; the editor can dim inactive layers | Accepted |
 | [0440](decisions/0440-the-tile-editor-gets-a-selection-tool-saved-stamps-a-replace-tile-command-and-a-prefab-brush.md) | The tile editor gets a selection tool, stamps saved in the tileset, a replace-tile command and a prefab brush | Accepted |
 | [0441](decisions/0441-inspector-fields-can-be-shown-only-when-other-fields-have-certain-values.md) | Inspector fields can be shown only when other fields of the component have certain values | Accepted |
+| [0442](decisions/0442-square-tile-maps-collide-as-editable-voxel-colliders-tile-parallax-follows-each-camera-and-animation-keeps-a-clock-per-map.md) | Square tile maps collide as editable voxel colliders per chunk; tile parallax follows each camera; tile animation keeps a clock per map | Accepted |
 | [0362](decisions/0362-the-ui-fidelity-pass-adds-playback-pause-clip-envelopes-reverse-second-input-curves-occlusion-curves-and-studio-format-fields.md) | The UI fidelity pass adds `pause()`/`resume()` on playback handles, the Amp envelope on clips, reverse clips, sequence marker colour and note, second-input ("And by") curves on voice curves and automation, occlusion curves, Studio fields in `audio.json`, and new loudness target defaults | Accepted |
 
 ## Working with decisions
