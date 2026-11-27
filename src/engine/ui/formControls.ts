@@ -28,6 +28,7 @@ import {
   UIProgress,
   UILabel,
   UIOption,
+  UIPanel,
   UIRadio,
   UISelect,
   UISlider,
@@ -43,9 +44,15 @@ import { dispatchUIEventNow, fireUIEvent, uiEventRecord, type UIEventData, type 
 
 // --- Trees -----------------------------------------------------------------------------------------
 
-/** The form control on a node, or null. */
-function controlOn(node: GameObject): UIComponentType | null {
-  return (node.getComponent(UIToggle) ?? node.getComponent(UIRadio) ?? node.getComponent(UISlider) ?? node.getComponent(UISelect) ?? node.getComponent(UIOption) ?? node.getComponent(UIInputField) ?? node.getComponent(UIButton) ?? null) as UIComponentType | null;
+/** The form control on a node (its UI element, when that takes focus: every control is a panel), or null. */
+function controlOn(node: GameObject): UIFocusableElement | null {
+  const c = node.getComponent(UIPanel);
+  return isFocusableUI(c) ? c : null;
+}
+
+/** A control that keeps a click to itself (a field or a slider takes it as focus or a drag; nothing activates). */
+function keepsClick(c: UIComponentType): boolean {
+  return c instanceof UIInputField || c instanceof UISlider;
 }
 
 /** Each node under `root` (not `root`), depth first in order. */
@@ -318,13 +325,13 @@ export function labelledControl(label: UILabel): UIFocusableElement | null {
     for (const n of descendants(canvasNodeOf(label))) {
       if (n.name !== label.for) continue;
       const c = controlOn(n);
-      if (c && isFocusableUI(c) && !(c instanceof UIOption)) return c;
+      if (c && !(c instanceof UIOption)) return c;
     }
     return null;
   }
   for (const n of descendants(label.owner)) {
     const c = controlOn(n);
-    if (c && isFocusableUI(c) && !(c instanceof UIOption)) return c;
+    if (c && !(c instanceof UIOption)) return c;
   }
   return null;
 }
@@ -449,7 +456,7 @@ function activatedControl(target: UIComponentType): UIComponentType | null {
   for (let n: GameObject | null = target.owner; n?.isValid; n = n.parent) {
     if (n.getComponent(UICanvas)) return null;
     const c = controlOn(n);
-    if (c) return c instanceof UIInputField || c instanceof UISlider ? null : c;
+    if (c) return keepsClick(c) ? null : c;
     if (n.getComponent(UILabel)) return null; // a label sends a click of its own to its control
   }
   return null;
@@ -465,7 +472,7 @@ export function clickDefault(world: World, target: UIComponentType, data: UIEven
     if (n.getComponent(UICanvas)) return;
     const c = controlOn(n);
     if (c) {
-      if (!(c instanceof UIInputField) && !(c instanceof UISlider)) activateControl(world, c);
+      if (!keepsClick(c)) activateControl(world, c);
       return;
     }
     const label = n.getComponent(UILabel);
@@ -481,7 +488,7 @@ function labelActivate(world: World, label: UILabel, data: UIEventData): void {
   const c = labelledControl(label);
   if (!c || !c.interactable || !c.isActiveAndEnabled) return;
   const log = uiInteractions(world);
-  if (c instanceof UIInputField || c instanceof UISlider || c instanceof UISelect) {
+  if (keepsClick(c) || c instanceof UISelect) {
     if (c.focusable) log.focus(c, "press", c instanceof UIInputField);
     return;
   }

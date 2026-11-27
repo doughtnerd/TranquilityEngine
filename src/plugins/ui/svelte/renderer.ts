@@ -69,6 +69,7 @@ import { setLocaleTracker } from "../../../engine/localisation/t";
 import { SVG_CONTENT_TAGS, uiTagOfHtml, uiTagOfInput } from "../../../engine/ui/host/htmlTags";
 import { UIAudio, UIForm, UIOption, UIRadio, UISvg, UIText, UIVideo } from "../../../engine/ui/components";
 import { checkRadio, chooseOption, selectOf, setUIDefaults } from "../../../engine/ui/formControls";
+import { hasFormDefaults, isChildlessTag, isFocusableTag } from "../../../engine/ui/elementKinds";
 import { applyAffine, invert, multiply } from "../../../engine/ui/transform2d";
 import { distanceToOutline, flattenPath, insideFill, parseSvgTransform, pathLength, pointAtLength, shapePath, SVG_GEOMETRY_TAGS, viewBoxMap } from "../../../engine/ui/svg/svgGeometry";
 import { UI_MEDIA_EVENTS, type UIMediaEvent, type UIMediaEventType } from "../../../engine/ui/media";
@@ -576,7 +577,7 @@ export class UIRenderElement extends UINodeBase {
   /** HTML's `tabIndex`: the attribute as a number, else 0 for a focusable control and -1 for anything else. */
   get tabIndex(): number {
     const n = parseInt(this.getAttribute("tabindex") ?? "", 10);
-    return Number.isFinite(n) ? n : FOCUSABLE_TAGS.has(this._uiTag) ? 0 : -1;
+    return Number.isFinite(n) ? n : isFocusableTag(this._uiTag) ? 0 : -1;
   }
 
   set tabIndex(n: number) {
@@ -766,7 +767,7 @@ export class UIRenderElement extends UINodeBase {
    */
   click(): void {
     // A disabled control's `click()` does nothing, as the attribute says now (its UI element hears of it when it restyles).
-    if (this.disabled && FOCUSABLE_TAGS.has(this._uiTag)) return;
+    if (this.disabled && isFocusableTag(this._uiTag)) return;
     if (this._hosted) this._hosted.click();
     else this.dispatchEvent({ type: "click", defaultPrevented: false, bubbles: true });
   }
@@ -1273,9 +1274,8 @@ function treeOf(node: UINode | UIRenderFragment | null): UIHostTree | null {
 }
 
 const isTextKind = (n: unknown): n is UIRenderElement => n instanceof UIRenderElement && n._uiTag === "Text";
-/** Elements with no children (ADR 0428: the form controls but a select, a label and a form; ADR 0430: an <svg>'s shapes are its document, and media). */
-const LEAF_TAGS: ReadonlySet<UITag> = new Set(["Image", "InputField", "TextArea", "Toggle", "Radio", "Slider", "Progress", "Meter", "Svg", "Video", "Audio"]);
-const isLeafKind = (n: UIRenderElement) => LEAF_TAGS.has(n._uiTag);
+/** Elements whose children aren't UI elements (ADR 0428: the form controls but a select; ADR 0430: an <svg>'s shapes are its document, and media). */
+const isChildless = (n: UIRenderElement) => isChildlessTag(n._uiTag);
 const isMediaNode = (n: unknown): n is UIRenderElement & { readonly _uiTag: "Video" | "Audio" } => n instanceof UIRenderElement && (n._uiTag === "Video" || n._uiTag === "Audio");
 
 // --- Inline SVG (ADR 0430) -------------------------------------------------------------------------
@@ -1620,14 +1620,11 @@ function hostAttributes(el: UIRenderElement): Map<string, string> {
     else if (k === "src" && tag === "Image") out.set("image", s);
     else if (k === "inert") out.set("inert", "true"); // HTML's boolean attribute (present: inert)
     else if (k === "disabled") {
-      if (FOCUSABLE_TAGS.has(tag)) out.set("interactable", "false");
+      if (isFocusableTag(tag)) out.set("interactable", "false"); // ADR 0428: what HTML's `disabled` applies to
     } else out.set(k, s);
   }
   return out;
 }
-
-/** ADR 0428: the UI elements HTML's `disabled` applies to (it makes them not interactable). */
-const FOCUSABLE_TAGS: ReadonlySet<UITag> = new Set(["Button", "InputField", "TextArea", "Toggle", "Radio", "Slider", "Select", "Option"]);
 
 /** Every attribute as written (HTML-only, `data-*` and `aria-*` ones too), which attribute selectors match (ADR 0422 wave 5). */
 function writtenAttributes(el: UIRenderElement): Map<string, string> {
@@ -1724,7 +1721,7 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   if (hp === undefined) return null;
   // Text in a control isn't an element: a text area's is its default value (`textAreaContentChanged`), and the rest is
   // HTML's fallback content (`<progress>60%</progress>`), which a browser doesn't show either.
-  if (node instanceof UIRenderText && parent instanceof UIRenderElement && isLeafKind(parent)) return null;
+  if (node instanceof UIRenderText && parent instanceof UIRenderElement && isChildless(parent)) return null;
   if (node instanceof UIRenderText) {
     if (!node.data.trim()) return null;
     const label = tree.create("#text", "Text", hp, hostedBefore(node), new Map(), { synthetic: true });
@@ -1732,7 +1729,7 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
     tree.setText(label, node.data); // ADR 0432: white space is the UI core's (by the text's `white-space`)
     return label;
   }
-  if (parent instanceof UIRenderElement && isLeafKind(parent)) {
+  if (parent instanceof UIRenderElement && isChildless(parent)) {
     warnOnce(`<${node.localName}> inside <${parent.localName}> isn't shown: a <${parent.localName}> has no children.`);
     return null;
   }
@@ -1779,7 +1776,7 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   const pending = node._pendingState;
   node._pendingState = {};
   for (const k of ["checked", "indeterminate", "selected"] as const) if (pending[k] !== undefined) node._writeState(k, pending[k]!);
-  if (DEFAULTED_TAGS.has(node._uiTag)) pushDefaults(node);
+  if (hasFormDefaults(node._uiTag)) pushDefaults(node);
   return made;
 }
 
@@ -1971,9 +1968,6 @@ function listen(node: UIRenderElement, type: string, fn: () => void, onFormReset
 
 /** The default properties Svelte hands a renderer as attributes, by lower-case name. */
 const DEFAULT_KEYS: Readonly<Record<string, "defaultValue" | "defaultChecked" | "defaultSelected" | undefined>> = { defaultvalue: "defaultValue", defaultchecked: "defaultChecked", defaultselected: "defaultSelected" };
-
-/** Controls with HTML defaults. */
-const DEFAULTED_TAGS: ReadonlySet<UITag> = new Set(["InputField", "TextArea", "Slider", "Toggle", "Radio", "Option"]);
 
 /**
  * A control's defaults, handed to its UI element (`setUIDefaults`) for its form's reset: a field without a default

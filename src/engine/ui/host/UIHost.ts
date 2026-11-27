@@ -38,7 +38,7 @@ import { uiPreferencesVersion } from "../preferences";
 import { UIButton, UICanvas, UIInputField, UIPanel, UIText, isFocusableUI, type UIComponentType } from "../components";
 import { clickUI, setUIValue, uiValueOf } from "../formControls";
 import { setUIPartStyles, type UIPartStyle } from "../formParts";
-import { samePseudoState, uiPseudoState, uiTypeOfTag } from "../elementKinds";
+import { generatesPseudoElements, samePseudoState, uiContentAttributes, uiPartElements, uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
 import { backdropFilterFields, filterStepsOf, filterText, type UIFilterFields } from "../filters";
@@ -283,19 +283,6 @@ function targetOf(el: UIHostElement, tag: string, parent: MutableTarget | null):
   };
 }
 
-/** Attributes that are content, written straight to their field (never converted as style, so typed text stays as typed). */
-const CONTENT_ATTRIBUTES: Readonly<Partial<Record<UITag, readonly string[]>>> = {
-  InputField: ["value", "placeholder"],
-  Text: ["text"],
-  // ADR 0428: what the player changes, written only when the attribute does (so a toggle or a drag stays until then).
-  TextArea: ["value", "placeholder"],
-  Toggle: ["checked", "indeterminate"],
-  Radio: ["checked"],
-  Slider: ["value"],
-  Select: ["value"],
-  Option: ["selected"],
-};
-
 const ZERO = { start: 0, end: 0 };
 
 /** A hosted UI element: a node with one UI component, styled by the cascade. */
@@ -312,7 +299,7 @@ export class UIHostElement {
   /** @internal */ _alive = true;
   /** @internal */ _listeners = new Map<UIHostEventType, UIListener<UIHostListener>[]>();
   /** @internal The field's value changed since the last `change` event. */ _edited = false;
-  /** @internal Content attributes last written (`CONTENT_ATTRIBUTES`). */ _content = new Map<string, string>();
+  /** @internal Content attributes last written (`uiContentAttributes`). */ _content = new Map<string, string>();
   /** @internal Styled at least once (a first style starts no transitions, ADR 0422 wave 4). */ _styled = false;
   /** @internal The attributes as written, which attribute selectors match (ADR 0422 wave 5). */ _written: ReadonlyMap<string, string> = new Map();
   /** @internal Its child elements' targets, until its children change. */ _childTargetList: MutableTarget[] | null = null;
@@ -870,19 +857,6 @@ function walkAll(el: UIHostElement, fn: (el: UIHostElement) => void): void {
   for (const c of el._children) walkAll(c, fn);
   if (el._after) walkAll(el._after, fn);
 }
-
-/** ADR 0432: the element kinds that generate `::before`/`::after` (as in CSS, not replaced elements, controls or media). */
-const GENERATES: ReadonlySet<UITag> = new Set<UITag>(["Panel", "Text", "Button", "Label", "Form"]);
-
-/** ADR 0432: form controls' part pseudo-elements, by the kind they style. */
-const PART_ELEMENTS: Readonly<Partial<Record<UITag, readonly UIPseudoElement[]>>> = {
-  Slider: ["-webkit-slider-thumb", "-webkit-slider-runnable-track"],
-  Progress: ["-webkit-progress-bar", "-webkit-progress-value"],
-  Meter: ["-webkit-meter-optimum-value", "-webkit-meter-suboptimum-value", "-webkit-meter-even-less-good-value"],
-  Toggle: ["checkmark"],
-  Radio: ["checkmark"],
-  Select: ["picker-icon"],
-};
 
 /** ADR 0432: a pseudo-element's style target: matched through its originating element (`parent`). */
 function pseudoTarget(el: UIHostElement, which: UIPseudoElement): MutableTarget {
@@ -1468,7 +1442,7 @@ export class UIHostTree {
     el._target.id = attributes.get("id") || null;
     el._target.classes = (attributes.get("class") ?? "").split(/\s+/).filter(Boolean);
     const comp = el._comp as unknown as Record<string, unknown>;
-    for (const name of CONTENT_ATTRIBUTES[el.uiTag] ?? []) {
+    for (const name of uiContentAttributes(el.uiTag)) {
       const value = attributes.get(name);
       const before = el._content.get(name);
       // Written when the attribute changes, so a player's typing stays until the component sets the attribute again.
@@ -1483,7 +1457,7 @@ export class UIHostTree {
   /** What the cascade reads attributes from (ADR 0077 §2: attributes beat rules; an inline style beats attributes). */
   private markup(el: UIHostElement, attributes: ReadonlyMap<string, string>): MarkupElement {
     const attrs: MarkupAttribute[] = [];
-    const content = CONTENT_ATTRIBUTES[el.uiTag] ?? [];
+    const content = uiContentAttributes(el.uiTag);
     for (const [name, value] of attributes) {
       if (name === "style" || content.includes(name)) continue;
       attrs.push({ name, value, span: ZERO, valueSpan: ZERO });
@@ -1527,7 +1501,7 @@ export class UIHostTree {
     const parentResolved = el._parent?._resolved ?? null;
     const comp = el._comp as unknown as Record<string, unknown>;
     const fields = P.fieldsOf(type);
-    const content = new Set(CONTENT_ATTRIBUTES[el.uiTag] ?? []);
+    const content = new Set(uiContentAttributes(el.uiTag));
     const next = new Set<string>();
     const writes: UIStyleWrite[] = [];
     const write = (name: string, value: unknown) => {
@@ -1622,8 +1596,8 @@ export class UIHostTree {
       }
       if (fontStyle) set("placeholderFontStyle", fontStyle.value, fontStyle.source);
     }
-    const parts = PART_ELEMENTS[el.uiTag];
-    if (parts) {
+    const parts = uiPartElements(el.uiTag);
+    if (parts.length) {
       let styles: Partial<Record<UIPseudoElement, UIPartStyle>> | null = null;
       for (const name of parts) {
         if (!sheetsPseudoElements.has(name)) continue;
@@ -1644,7 +1618,7 @@ export class UIHostTree {
       let g = which === "before" ? el._before : el._after;
       let resolved: Map<string, ResolvedValue> | null = null;
       let text: string | null = null;
-      if (sheetsPseudoElements.has(which) && GENERATES.has(el.uiTag)) {
+      if (sheetsPseudoElements.has(which) && generatesPseudoElements(el.uiTag)) {
         // Inside a text element it's an inline run (a text); elsewhere a box (a panel) holding its text as a label.
         resolved = P.resolveStyle(g?._target ?? pseudoTarget(el, which), { tag: inText ? "Text" : "Panel", attributes: [], file: el._markup.file }, inText ? UIText : UIPanel, parsedSheets, el._resolved, warn);
         const pieces = resolved.get(P.CONTENT_KEY)?.value as readonly UIContentPiece[] | null | undefined;
