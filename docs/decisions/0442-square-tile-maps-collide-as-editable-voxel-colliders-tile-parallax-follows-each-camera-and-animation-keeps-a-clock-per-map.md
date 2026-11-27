@@ -67,7 +67,19 @@ Parallax per camera changes only per-camera matrices, which a GPU-driven path wo
 transform; the clock per map changes only when UVs are rewritten. HDR, 2D lights and motion vectors are unaffected (a
 parallax layer's motion vectors come from its per-camera matrix history).
 
-## Alternatives considered
+### As built (2026-11-27)
+
+- **Parallax per camera:** Babylon doesn't fire the scene's before-camera-render observable when a frame graph renders,
+  so each view's render pass in `render/babylon/frameGraph.ts` fires it with that view's camera. A matrix set inside an
+  `onCameraRender` listener applies to that camera's draw only; after the frame each batch returns to its own matrix,
+  which picking and editor tools read. A World without a view camera (thumbnails) draws parallax layers with the node.
+- **Clock per map:** it starts at World time × speed (maps with one speed stay in step), then advances by scaled frame
+  time × the current speed.
+- **Stamps:** a stamp carries `StampFrame { axis, shifted }` (whether its bottom-left row or column is a shifted one);
+  saved stamps store it as `stagger` in the tileset. Stamps saved before, and stamps picked from the Tile Palette's grid,
+  have no frame and land cell for cell. Flips on staggered maps are approximate in some directions, as before.
+- **Wang sets:** see 0436's "As built".
+
 
 - **Region compounds with overlapping skirts.** Cheaper rebuilds, but a body crossing a region border can still meet
   the next region's side faces; Rapier's voxel colliders handle the border by design.

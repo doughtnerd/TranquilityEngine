@@ -138,7 +138,17 @@ class MapObject extends Component {
 Game code finds spawn points and triggers by type (`GameObject.findObjectsOfType(MapObject)` filtered on `type`). It's
 plain data; nothing in the engine reads it.
 
-## Alternatives considered
+### As built (2026-11-27, with 0442)
+
+- Corner sets derive a side as `1` when **either** corner beside it is the terrain's colour and `*` otherwise (not "both
+  corners, else `0`"): checked against Tiled's own isometric, staggered and orthogonal examples, the old rule accepted
+  no transition tile Tiled placed (27–31 % of terrain cells), the new one 87.6 % (isometric) and 88.6 % (staggered,
+  consistently painted cells), the rest being a grass vertex enclosed by water on all four cells, which a terrain
+  stored per cell can't express. Two-colour sets import (0442). The direction order on every grid was confirmed.
+- Hexagonal maps: unverified against a map made by Tiled (its examples have no hex Wang set); the order matches
+  Tiled's `WangFiller`. Corner sets can't round-trip on hex maps: two of Tiled's corner indices name cells two rows
+  away, which a 6-character pattern can't see.
+
 
 - **Runtime loaders** (read `.tmx`/`.ldtk` in the player). No conversion step, and edits in Tiled show on reload, but
   every runtime feature (palettes, auto-tiling, collision, animation) would need a second input path, and the files

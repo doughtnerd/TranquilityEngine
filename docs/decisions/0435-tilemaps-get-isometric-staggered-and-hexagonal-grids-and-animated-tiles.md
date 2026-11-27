@@ -144,9 +144,10 @@ This is a constraint on this design, not a plan.
 - Tiled y-down cells map to Myco cells by `tiledCellToCell` in `grids.ts` (isometric swaps and negates the axes; stagger
   axis y keeps every row's parity).
 - The editor's edit World keeps stepping, so "edit mode shows frame 0" is decided by the World's kind (`"editor"`), not
-  by time. Changing `animationSpeed` during play jumps to the frame for the new speed (time × speed).
-- Staggered and hexagonal multi-cell stamps keep their offset-coordinate layout, so placed an odd number of rows away
-  they change shape on screen.
+  by time. Changing `animationSpeed` during play first jumped to the frame for the new speed; 0442 gives each map its
+  own clock.
+- Staggered and hexagonal multi-cell stamps first kept their offset-coordinate layout, changing shape when placed an
+  odd number of rows away; 0442 fixed it (stamps carry a stagger frame, `editor/stampLattice.ts`).
 
 ## Alternatives considered
 
