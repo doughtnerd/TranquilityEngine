@@ -13,7 +13,7 @@ export const layouttree_setChildren: (a: number, b: number, c: number, d: number
 export const layouttree_setEnum: (a: number, b: number, c: number, d: number) => number;
 export const layouttree_setLength: (a: number, b: number, c: number, d: number, e: number) => number;
 export const layouttree_setNumber: (a: number, b: number, c: number, d: number) => number;
-export const setMeasured: (a: number, b: number) => void;
+export const setMeasured: (a: number, b: number, c: number) => void;
 export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;

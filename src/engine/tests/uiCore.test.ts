@@ -3,6 +3,7 @@ import { Camera, Color, Engine, GameBehavior, GameObject, Input, PenState, Touch
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UILength } from "../ui/components";
 import { World } from "../core/World";
 import { UICore, canvasScale, uiLength } from "../ui/UICore";
+import { LayoutNode } from "../ui/taffy/layoutTree";
 import type { TextMeasureRequest } from "../ui/uiCoreTypes";
 import { Assets } from "../scene/Assets";
 import { FakeInput, fakeDocument, stubDocument } from "./uiPointer";
@@ -95,20 +96,17 @@ describe("UICore layout", () => {
   });
 
   it("gives the layout engine only the properties that changed since the last sync, and still lays out changes", async () => {
-    const { column, play, quit } = menu();
+    const { play } = menu();
     const c = await core();
     sync(c);
-    const layoutNode = (comp: UIPanel) => (c as unknown as { entries: Map<unknown, { node: Record<string, (...a: unknown[]) => unknown> }> }).entries.get(comp)!.node;
+    // Count the calls the core makes into the layout engine's nodes (the adapter's interface).
     let calls = 0;
-    for (const comp of [column, play, quit]) {
-      const n = layoutNode(comp);
-      for (const name of ["setDisplay", "setFlexDirection", "setJustifyContent", "setAlignItems", "setGap", "setPadding", "setMargin", "setWidth", "setHeight", "setPosition", "setInset", "setFlexGrow", "setFlexShrink", "setBorder"]) {
-        const f = n[name].bind(n);
-        n[name] = (...a: unknown[]) => {
-          calls++;
-          return f(...a);
-        };
-      }
+    for (const name of ["setDisplay", "setFlexDirection", "setJustifyContent", "setAlignItems", "setGap", "setPadding", "setMargin", "setWidth", "setHeight", "setPosition", "setInset", "setFlexGrow", "setFlexShrink", "setBorder", "setMinWidth", "setMaxWidth", "setMinHeight", "setMaxHeight", "setFlexWrap", "setAlignSelf", "setAlignContent", "setFlexBasis", "setAspectRatio", "setOverflow", "setDirection"] as const) {
+      const original = LayoutNode.prototype[name] as (...a: unknown[]) => void;
+      vi.spyOn(LayoutNode.prototype, name).mockImplementation(function (this: LayoutNode, ...a: unknown[]) {
+        calls++;
+        return original.apply(this, a);
+      });
     }
     sync(c);
     expect(calls).toBe(0); // a WebAssembly call per property per element every frame added up

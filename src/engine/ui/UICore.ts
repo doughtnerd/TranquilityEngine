@@ -131,7 +131,7 @@ interface Entry {
    * ADR 0433: its text's sizes by wrap width since it was last marked dirty: the layout engine asks a text for several sizes
    * (min-content, max-content, its room), and the same width shouldn't reach the host's text measuring twice.
    */
-  measured?: Map<number, { width: number; height: number }>;
+  measured?: Map<number, MeasuredText>;
   /**
    * ADR 0429: an inline run (a text's inline child): the element it's inside (its text, or an inline element), which events
    * travel up through. It has no layout node in the tree; its box is its fragments' bounds, from its text's layout.
@@ -818,11 +818,13 @@ export class UICore implements UICoreLike {
       canvas.width = this.width / s;
       canvas.height = this.height / s;
     }
+    // Only what changed goes to the layout engine, as for elements (its direction is the initial row).
     const n = canvas.node;
-    n.setFlexDirection("row");
-    n.setWidth(canvas.width);
-    n.setHeight(canvas.height);
-    n.setDisplay(c.isActiveAndEnabled ? "flex" : "none");
+    const last = canvas.applied;
+    if (last[0] !== canvas.width) n.setWidth((last[0] = canvas.width));
+    if (last[1] !== canvas.height) n.setHeight((last[1] = canvas.height));
+    const display = c.isActiveAndEnabled ? "flex" : "none";
+    if (last[2] !== display) n.setDisplay((last[2] = display));
   }
 
   private applyProperties(entry: Entry): void {
@@ -1005,24 +1007,27 @@ export class UICore implements UICoreLike {
    * wraps to the room (none under a max-content constraint, every chance under a min-content one) and its width is CSS's
    * shrink-to-fit width, min(max-content, max(min-content, room)): text that wrapped takes the whole room, not its widest line.
    */
-  private measureNode(entry: Entry, input: MeasureInput): { width: number; height: number } {
-    if (input.knownWidth !== undefined) return { width: input.knownWidth, height: this.measureCached(entry, input.knownWidth).height };
+  private measureNode(entry: Entry, input: MeasureInput): MeasuredText {
+    if (input.knownWidth !== undefined) return { ...this.measureCached(entry, input.knownWidth), width: input.knownWidth };
     const room = input.availableWidth === -Infinity ? 0 : input.availableWidth;
     const size = this.measureCached(entry, room);
     if (!Number.isFinite(room) || size.width >= room) return size;
-    return this.measureCached(entry, Infinity).width > room ? { width: room, height: size.height } : size;
+    return this.measureCached(entry, Infinity).width > room ? { ...size, width: room } : size;
   }
 
   /** `measure`, remembered per width until the entry is marked dirty. */
-  private measureCached(entry: Entry, maxWidth: number): { width: number; height: number } {
+  private measureCached(entry: Entry, maxWidth: number): MeasuredText {
     const cache = (entry.measured ??= new Map());
     let size = cache.get(maxWidth);
     if (!size) cache.set(maxWidth, (size = this.measure(entry, maxWidth)));
     return size;
   }
 
-  /** Measure the entry's text run, wrapped to `maxWidth` unless it doesn't wrap. */
-  private measure(entry: Entry, maxWidth: number): { width: number; height: number } {
+  /**
+   * Measure the entry's text run, wrapped to `maxWidth` unless it doesn't wrap, with its first line's baseline down from
+   * its content box's top (ADR 0433: what `align-items: baseline` lines up). An empty plain text has no line, so none.
+   */
+  private measure(entry: Entry, maxWidth: number): MeasuredText {
     const run = entry.run;
     if (!run) return { width: 0, height: 0 };
     const measure = (r: TextMeasureRequest) => this.host.measureText?.(r) ?? estimateText(r);
@@ -1031,21 +1036,21 @@ export class UICore implements UICoreLike {
     if (entry.kind === "select") {
       let width = 0;
       for (const text of selectLabels(entry.comp as UISelect)) width = Math.max(width, measure({ ...run, text, maxWidth: Infinity }).width);
-      return { width, height: lineHeight };
+      return { width, height: lineHeight, baseline: firstBaseline(run) };
     }
     if (entry.kind === "textarea") {
       const rows = Math.max(1, Math.round((entry.comp as UITextArea).rows) || 1);
-      return { width: Number.isFinite(maxWidth) ? maxWidth : 20 * run.fontSize * 0.55, height: rows * lineHeight };
+      return { width: Number.isFinite(maxWidth) ? maxWidth : 20 * run.fontSize * 0.55, height: rows * lineHeight, baseline: firstBaseline(run) };
     }
     // ADR 0429: inline runs measure together, as they're laid out and drawn.
     if (run.runs) {
       const laid = this.layoutRuns(run, maxWidth);
-      return { width: laid.width, height: laid.height };
+      return { width: laid.width, height: laid.height, baseline: laid.lines[0]?.baseline };
     }
     // An empty text (once its white space has collapsed) has no line box, as an empty block in CSS: 0 × 0.
     if (entry.kind === "text" && run.text === "") return { width: 0, height: 0 };
     const request: TextMeasureRequest = { ...run, maxWidth: run.wrap === "none" ? Infinity : maxWidth };
-    return measure(request);
+    return { ...measure(request), baseline: firstBaseline(run) };
   }
 
   /**
@@ -2244,6 +2249,15 @@ type LengthValue = number | `${number}%` | "auto" | undefined;
 /** `v` when it's one of `allowed`, else `fallback`. */
 function oneOf(v: string | null | undefined, allowed: readonly string[], fallback: string): string {
   return typeof v === "string" && allowed.includes(v) ? v : fallback;
+}
+
+/** A measured text's size and its first baseline down from its content box's top (none for an empty text). */
+type MeasuredText = { width: number; height: number; baseline?: number };
+
+/** A run's first line's baseline down from its top: half the leading, then the font's ascent (as text is drawn, 0432). */
+function firstBaseline(run: UITextRun): number {
+  const fs = run.fontSize, lh = fs * run.lineHeight;
+  return (lh - (INLINE_ASCENT + INLINE_DESCENT) * fs) / 2 + INLINE_ASCENT * fs;
 }
 
 /** A finite number, else 0. */

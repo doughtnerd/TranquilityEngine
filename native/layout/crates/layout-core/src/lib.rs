@@ -10,8 +10,9 @@ use taffy::prelude::*;
 /// What a measured leaf is told about the room on an axis.
 pub use taffy::style::AvailableSpace;
 use taffy::style::{AlignContent, AlignItems, BoxSizing, Direction, Overflow};
-use taffy::tree::LayoutInput;
-use taffy::{compute_leaf_layout, LayoutOutput};
+use taffy::tree::{LayoutInput, RunMode};
+use taffy::util::ResolveOrZero;
+use taffy::{compute_leaf_layout, Baselines, LayoutOutput};
 
 /// Enum properties (`set_enum`).
 pub mod prop_enum {
@@ -137,6 +138,23 @@ pub struct MeasureInput {
     pub known_height: Option<f32>,
     pub available_width: AvailableSpace,
     pub available_height: AvailableSpace,
+}
+
+/// A measured leaf's answer: its content size and, when it has one (text), its first baseline down from the top of
+/// its content box. Layout puts the baseline in the node's border box (adding its padding and border), and flexbox's
+/// `align-items: baseline` and container baselines use it, as CSS's first baseline.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Measured {
+    pub width: f32,
+    pub height: f32,
+    pub baseline: Option<f32>,
+}
+
+impl Measured {
+    /// A size with no baseline.
+    pub fn size(width: f32, height: f32) -> Self {
+        Self { width, height, baseline: None }
+    }
 }
 
 /// A layout tree whose nodes are named by `u32` handles (reused after `remove`).
@@ -393,8 +411,8 @@ impl UiLayout {
     }
 
     /// Lays out the tree under `root` in the given space (a finite size is definite; `+inf` or NaN is
-    /// max-content, `-inf` min-content). Measured leaves get their size from `measure(handle, input)`.
-    pub fn compute(&mut self, root: u32, width: f32, height: f32, mut measure: impl FnMut(u32, MeasureInput) -> (f32, f32)) {
+    /// max-content, `-inf` min-content). Measured leaves get their size (and first baseline) from `measure(handle, input)`.
+    pub fn compute(&mut self, root: u32, width: f32, height: f32, mut measure: impl FnMut(u32, MeasureInput) -> Measured) {
         let Some(id) = self.id(root) else { return };
         let space = |v: f32| {
             if v.is_finite() {
@@ -410,10 +428,27 @@ impl UiLayout {
             match ctx {
                 Some(h) => {
                     let h = *h;
-                    compute_leaf_layout(inputs, style, |_, _| 0.0, |known, avail| {
-                        let (w, hh) = measure(h, MeasureInput { known_width: known.width, known_height: known.height, available_width: avail.width, available_height: avail.height });
-                        Size { width: known.width.unwrap_or(finite_or_0(w)), height: known.height.unwrap_or(finite_or_0(hh)) }
-                    })
+                    let mut baseline: Option<Option<f32>> = None;
+                    let mut output = compute_leaf_layout(inputs, style, |_, _| 0.0, |known, avail| {
+                        let m = measure(h, MeasureInput { known_width: known.width, known_height: known.height, available_width: avail.width, available_height: avail.height });
+                        baseline = Some(m.baseline.filter(|b| b.is_finite()));
+                        Size { width: known.width.unwrap_or(finite_or_0(m.width)), height: known.height.unwrap_or(finite_or_0(m.height)) }
+                    });
+                    let padding = style.padding.resolve_or_zero(inputs.parent_size.width, |_, _| 0.0);
+                    let border = style.border.resolve_or_zero(inputs.parent_size.width, |_, _| 0.0);
+                    // With both sizes known the leaf isn't measured; a full layout (which baseline alignment asks for)
+                    // still needs its baseline, so it's asked at its content size.
+                    if baseline.is_none() && inputs.run_mode == RunMode::PerformLayout {
+                        let inner = |v: f32, edges: f32| AvailableSpace::Definite((v - edges).max(0.0));
+                        let (w, hh) = (output.size.width, output.size.height);
+                        let (ew, eh) = (padding.left + padding.right + border.left + border.right, padding.top + padding.bottom + border.top + border.bottom);
+                        let m = measure(h, MeasureInput { known_width: Some((w - ew).max(0.0)), known_height: Some((hh - eh).max(0.0)), available_width: inner(w, ew), available_height: inner(hh, eh) });
+                        baseline = Some(m.baseline.filter(|b| b.is_finite()));
+                    }
+                    if let Some(Some(b)) = baseline {
+                        output.baselines = Baselines::from_first(Some(padding.top + border.top + b));
+                    }
+                    output
                 }
                 None => compute_leaf_layout(inputs, style, |_, _| 0.0, |_, _| Size::ZERO),
             }

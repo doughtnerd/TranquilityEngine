@@ -45,7 +45,7 @@ const results = await page.evaluate((cases) => {
       for (let i = 0; i < count; i++) {
         if (i > 0) el.append(document.createTextNode(" "));
         const w = document.createElement("span");
-        w.style.cssText = `display:inline-block;vertical-align:top;width:${width}px;height:${lineHeight}px`;
+        w.style.cssText = `display:inline-block;width:${width}px;height:${lineHeight}px`;
         el.append(w);
       }
     }

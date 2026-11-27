@@ -1874,5 +1874,290 @@
     }
    ]
   }
+ },
+ {
+  "name": "baseline: texts of different line heights and padding",
+  "width": 400,
+  "height": 200,
+  "root": {
+   "style": {
+    "width": 400,
+    "height": 200,
+    "alignItems": "baseline"
+   },
+   "children": [
+    {
+     "style": {
+      "padding": 4
+     },
+     "words": [
+      3,
+      20,
+      16
+     ]
+    },
+    {
+     "style": {},
+     "words": [
+      2,
+      30,
+      40
+     ]
+    },
+    {
+     "style": {
+      "paddingTop": 10,
+      "border": 2
+     },
+     "words": [
+      4,
+      10,
+      12
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "baseline: a box without text synthesises its baseline at its bottom",
+  "width": 400,
+  "height": 200,
+  "root": {
+   "style": {
+    "width": 400,
+    "height": 200,
+    "alignItems": "baseline"
+   },
+   "children": [
+    {
+     "style": {},
+     "words": [
+      2,
+      30,
+      30
+     ]
+    },
+    {
+     "style": {
+      "width": 40,
+      "height": 10
+     }
+    },
+    {
+     "style": {
+      "width": 40,
+      "height": 50,
+      "margin": 5
+     }
+    }
+   ]
+  }
+ },
+ {
+  "name": "baseline: wrapped text aligns on its first line",
+  "width": 200,
+  "height": 200,
+  "root": {
+   "style": {
+    "width": 200,
+    "height": 200,
+    "alignItems": "baseline"
+   },
+   "children": [
+    {
+     "style": {
+      "width": 60
+     },
+     "words": [
+      6,
+      25,
+      20
+     ]
+    },
+    {
+     "style": {},
+     "words": [
+      1,
+      40,
+      32
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "baseline: align-self baseline among centred items",
+  "width": 400,
+  "height": 200,
+  "root": {
+   "style": {
+    "width": 400,
+    "height": 200,
+    "alignItems": "center"
+   },
+   "children": [
+    {
+     "style": {
+      "alignSelf": "baseline"
+     },
+     "words": [
+      2,
+      30,
+      20
+     ]
+    },
+    {
+     "style": {
+      "alignSelf": "baseline",
+      "paddingTop": 12
+     },
+     "words": [
+      2,
+      30,
+      14
+     ]
+    },
+    {
+     "style": {
+      "width": 40,
+      "height": 80
+     }
+    }
+   ]
+  }
+ },
+ {
+  "name": "baseline: a container's first baseline is its first item's",
+  "width": 400,
+  "height": 200,
+  "root": {
+   "style": {
+    "width": 400,
+    "height": 200,
+    "alignItems": "baseline"
+   },
+   "children": [
+    {
+     "style": {
+      "flexDirection": "column",
+      "padding": 6
+     },
+     "children": [
+      {
+       "style": {},
+       "words": [
+        2,
+        30,
+        18
+       ]
+      },
+      {
+       "style": {},
+       "words": [
+        3,
+        30,
+        18
+       ]
+      }
+     ]
+    },
+    {
+     "style": {
+      "padding": 3
+     },
+     "children": [
+      {
+       "style": {
+        "marginTop": 8
+       },
+       "words": [
+        1,
+        30,
+        24
+       ]
+      }
+     ]
+    },
+    {
+     "style": {},
+     "words": [
+      2,
+      20,
+      10
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "baseline: wrapped rows align per line",
+  "width": 220,
+  "height": 300,
+  "root": {
+   "style": {
+    "width": 220,
+    "height": 300,
+    "flexWrap": "wrap",
+    "alignItems": "baseline",
+    "alignContent": "flex-start"
+   },
+   "children": [
+    {
+     "style": {
+      "width": 100,
+      "paddingTop": 0
+     },
+     "words": [
+      1,
+      40,
+      12
+     ]
+    },
+    {
+     "style": {
+      "width": 100,
+      "paddingTop": 5
+     },
+     "words": [
+      1,
+      40,
+      22
+     ]
+    },
+    {
+     "style": {
+      "width": 100,
+      "paddingTop": 10
+     },
+     "words": [
+      1,
+      40,
+      12
+     ]
+    },
+    {
+     "style": {
+      "width": 100,
+      "paddingTop": 0
+     },
+     "words": [
+      1,
+      40,
+      22
+     ]
+    },
+    {
+     "style": {
+      "width": 100,
+      "paddingTop": 5
+     },
+     "words": [
+      1,
+      40,
+      12
+     ]
+    }
+   ]
+  }
  }
 ]

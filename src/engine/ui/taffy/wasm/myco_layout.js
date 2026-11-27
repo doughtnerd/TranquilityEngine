@@ -113,12 +113,13 @@ export class LayoutTree {
 if (Symbol.dispose) LayoutTree.prototype[Symbol.dispose] = LayoutTree.prototype.free;
 
 /**
- * The answer to a measure call: the leaf's content size.
+ * The answer to a measure call: the leaf's content size and first baseline (NaN for none).
  * @param {number} width
  * @param {number} height
+ * @param {number} baseline
  */
-export function setMeasured(width, height) {
-    wasm.setMeasured(width, height);
+export function setMeasured(width, height, baseline) {
+    wasm.setMeasured(width, height, baseline);
 }
 function __wbg_get_imports() {
     const import0 = {

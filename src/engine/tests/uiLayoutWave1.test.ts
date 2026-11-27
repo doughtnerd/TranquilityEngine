@@ -343,3 +343,29 @@ describe("content sizes where Yoga's shortcuts differ from CSS", () => {
     expect(core.rectOf(byId(doc, "field", UIInputField))!.height).toBeGreaterThan(20);
   });
 });
+
+describe("baseline alignment (ADR 0433)", () => {
+  it("lines texts of different sizes up on their first lines' baselines, padding included, as CSS does", async () => {
+    const doc = buildUI(`<Canvas><div id="row"><span id="small">Ahoy</span><span id="big">Ahoy</span><span id="padded">Ahoy</span><div id="box" width="30" height="10"/></div></Canvas>`, {
+      css: `#row { align-items: baseline } span { line-height: 1.2 } #small { font-size: 20px } #big { font-size: 40px } #padded { font-size: 20px; padding-top: 10px }`,
+    });
+    const core = await laidOut();
+    // A line's baseline sits at half its leading plus the font's ascent (0.95 em): 19 px for 20 px text, 38 px for 40 px.
+    const top = (id: string) => box(core, byId(doc, id, UIText))[1];
+    expect(top("big")).toBeCloseTo(0, 3);
+    expect(top("small")).toBeCloseTo(19, 3);
+    expect(top("padded")).toBeCloseTo(9, 3);
+    // A box without text synthesises its baseline at its bottom edge.
+    expect(box(core, panel(doc, "box"))[1]).toBeCloseTo(28, 3);
+  });
+
+  it("aligns a container on its first item's baseline", async () => {
+    const doc = buildUI(`<Canvas><div id="row"><div id="col"><span id="first">One</span><span>Two</span></div><span id="big">Big</span></div></Canvas>`, {
+      css: `#row { align-items: baseline } #col { flex-direction: column; padding: 6px } span { line-height: 1.2; font-size: 20px } #big { font-size: 40px }`,
+    });
+    const core = await laidOut();
+    // The column's baseline: 6 px of padding and 19 px into its first line; the big text's is 38 px down.
+    expect(box(core, panel(doc, "col"))[1]).toBeCloseTo(13, 3);
+    expect(box(core, byId(doc, "big", UIText))[1]).toBeCloseTo(0, 3);
+  });
+});

@@ -3,10 +3,11 @@
 //! TypeScript adapter reads through a `Float32Array` view, so reading a box costs one call and no allocation.
 //! A measured leaf's size comes from the JS function passed to `compute`, called as
 //! `measure(handle, knownWidth, knownHeight, availableWidth, availableHeight)` (NaN for an unknown size;
-//! `+Infinity` for max-content room, `-Infinity` for min-content), which answers with `setMeasured(w, h)`.
+//! `+Infinity` for max-content room, `-Infinity` for min-content), which answers with `setMeasured(w, h, baseline)`
+//! (the first baseline down from the content box's top, NaN for none).
 use std::cell::Cell;
 
-use layout_core::{out, AvailableSpace, UiLayout};
+use layout_core::{out, AvailableSpace, Measured, UiLayout};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -18,13 +19,13 @@ extern "C" {
 }
 
 thread_local! {
-    static MEASURED: Cell<(f32, f32)> = const { Cell::new((0.0, 0.0)) };
+    static MEASURED: Cell<(f32, f32, f32)> = const { Cell::new((0.0, 0.0, f32::NAN)) };
 }
 
-/// The answer to a measure call: the leaf's content size.
+/// The answer to a measure call: the leaf's content size and first baseline (NaN for none).
 #[wasm_bindgen(js_name = setMeasured)]
-pub fn set_measured(width: f32, height: f32) {
-    MEASURED.with(|m| m.set((width, height)));
+pub fn set_measured(width: f32, height: f32, baseline: f32) {
+    MEASURED.with(|m| m.set((width, height, baseline)));
 }
 
 fn space(s: AvailableSpace) -> f32 {
@@ -92,7 +93,7 @@ impl LayoutTree {
     /// Lays out the tree under `root` (a finite size is definite, `+Infinity` max-content, `-Infinity` min-content).
     pub fn compute(&mut self, root: u32, width: f32, height: f32, measure: &MeasureFn) {
         self.inner.compute(root, width, height, |h, input| {
-            set_measured(0.0, 0.0);
+            set_measured(0.0, 0.0, f32::NAN);
             measure.call(
                 &JsValue::NULL,
                 h,
@@ -101,7 +102,8 @@ impl LayoutTree {
                 space(input.available_width),
                 space(input.available_height),
             );
-            MEASURED.with(|m| m.get())
+            let (width, height, baseline) = MEASURED.with(|m| m.get());
+            Measured { width, height, baseline: baseline.is_finite().then_some(baseline) }
         })
     }
 

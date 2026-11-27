@@ -33,9 +33,9 @@ export class LayoutTree {
 }
 
 /**
- * The answer to a measure call: the leaf's content size.
+ * The answer to a measure call: the leaf's content size and first baseline (NaN for none).
  */
-export function setMeasured(width: number, height: number): void;
+export function setMeasured(width: number, height: number, baseline: number): void;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -53,7 +53,7 @@ export interface InitOutput {
     readonly layouttree_setEnum: (a: number, b: number, c: number, d: number) => number;
     readonly layouttree_setLength: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly layouttree_setNumber: (a: number, b: number, c: number, d: number) => number;
-    readonly setMeasured: (a: number, b: number) => void;
+    readonly setMeasured: (a: number, b: number, c: number) => void;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;

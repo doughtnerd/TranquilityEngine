@@ -460,6 +460,64 @@
     [50, 0, 60, 70],
     [110, 0, 40, 70]
    ]
+  },
+  {
+   "name": "baseline: texts of different line heights and padding",
+   "boxes": [
+    [0, 0, 400, 200],
+    [0, 20, 68, 24],
+    [68, 0, 60, 40],
+    [128, 16, 44, 26]
+   ]
+  },
+  {
+   "name": "baseline: a box without text synthesises its baseline at its bottom",
+   "boxes": [
+    [0, 0, 400, 200],
+    [0, 25, 60, 30],
+    [60, 45, 40, 10],
+    [105, 5, 40, 50]
+   ]
+  },
+  {
+   "name": "baseline: wrapped text aligns on its first line",
+   "boxes": [
+    [0, 0, 200, 200],
+    [0, 12, 60, 60],
+    [60, 0, 40, 32]
+   ]
+  },
+  {
+   "name": "baseline: align-self baseline among centred items",
+   "boxes": [
+    [0, 0, 400, 200],
+    [0, 6, 60, 20],
+    [60, 0, 60, 26],
+    [120, 60, 40, 80]
+   ]
+  },
+  {
+   "name": "baseline: a container's first baseline is its first item's",
+   "boxes": [
+    [0, 0, 400, 200],
+    [0, 11, 102, 48],
+    [6, 6, 90, 18],
+    [6, 24, 90, 18],
+    [102, 0, 36, 38],
+    [3, 11, 30, 24],
+    [138, 25, 40, 10]
+   ]
+  },
+  {
+   "name": "baseline: wrapped rows align per line",
+   "boxes": [
+    [0, 0, 220, 300],
+    [0, 15, 100, 12],
+    [100, 0, 100, 27],
+    [0, 27, 100, 22],
+    [100, 27, 100, 22],
+    [0, 49, 100, 17]
+   ]
   }
  ]
 }

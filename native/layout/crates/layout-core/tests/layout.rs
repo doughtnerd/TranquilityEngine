@@ -47,7 +47,7 @@ fn hud_with_an_empty_middle_keeps_the_bottom_bar_on_screen() {
     l.set_children(panel, &[lines]);
     l.set_children(row, &[panel]);
     l.set_children(root, &[top, row, bottom]);
-    l.compute(root, 1280.0, 720.0, |_, _| (0.0, 0.0));
+    l.compute(root, 1280.0, 720.0, |_, _| Measured::size(0.0, 0.0));
     assert_eq!(boxed(&l, lines)[3], 24.0);
     assert_eq!(boxed(&l, panel), [622.0, 0.0, 36.0, 60.0]);
     assert_eq!(boxed(&l, bottom), [0.0, 640.0, 1280.0, 80.0]);
@@ -74,7 +74,7 @@ fn measured_leaves_get_their_size_from_the_callback_and_wrap_to_the_room() {
             },
         };
         let w = room.min(300.0);
-        (w, (300.0 / w).ceil() * 10.0)
+        Measured::size(w, (300.0 / w).ceil() * 10.0)
     });
     assert!(calls.iter().all(|(h, _)| *h == text));
     assert_eq!(boxed(&l, text), [0.0, 0.0, 100.0, 30.0]);
@@ -88,13 +88,13 @@ fn a_dirty_measured_leaf_is_measured_again() {
     let text = l.create(true);
     l.set_children(root, &[text]);
     let mut size = 10.0;
-    l.compute(root, 200.0, 200.0, |_, _| (size, size));
+    l.compute(root, 200.0, 200.0, |_, _| Measured::size(size, size));
     assert_eq!(boxed(&l, text)[2], 10.0);
     size = 20.0;
-    l.compute(root, 200.0, 200.0, |_, _| (size, size));
+    l.compute(root, 200.0, 200.0, |_, _| Measured::size(size, size));
     assert_eq!(boxed(&l, text)[2], 10.0, "cached until marked dirty");
     l.mark_dirty(text);
-    l.compute(root, 200.0, 200.0, |_, _| (size, size));
+    l.compute(root, 200.0, 200.0, |_, _| Measured::size(size, size));
     assert_eq!(boxed(&l, text)[2], 20.0);
 }
 
@@ -117,7 +117,7 @@ fn absolute_children_sit_against_their_parent_padding_box() {
     px(&mut l, abs, prop_length::HEIGHT, 20.0);
     l.set_children(parent, &[abs]);
     l.set_children(root, &[parent]);
-    l.compute(root, 400.0, 300.0, |_, _| (0.0, 0.0));
+    l.compute(root, 400.0, 300.0, |_, _| Measured::size(0.0, 0.0));
     assert_eq!(boxed(&l, abs), [170.0, 70.0, 20.0, 20.0]);
 }
 
@@ -141,7 +141,7 @@ fn percentages_gap_wrap_and_auto_margins() {
         .collect();
     l.set_length(kids[2], prop_length::MARGIN_TOP + 3, kind::AUTO, 0.0);
     l.set_children(root, &kids);
-    l.compute(root, 300.0, 200.0, |_, _| (0.0, 0.0));
+    l.compute(root, 300.0, 200.0, |_, _| Measured::size(0.0, 0.0));
     assert_eq!(boxed(&l, kids[0]), [0.0, 0.0, 120.0, 20.0]);
     assert_eq!(boxed(&l, kids[1]), [130.0, 0.0, 120.0, 20.0]);
     assert_eq!(boxed(&l, kids[2]), [180.0, 25.0, 120.0, 20.0]);
@@ -162,7 +162,7 @@ fn display_none_and_removed_nodes_take_no_room() {
     l.set_enum(a, prop_enum::DISPLAY, 1);
     l.remove(b);
     assert_eq!(l.child_count(root), 2);
-    l.compute(root, 100.0, 100.0, |_, _| (0.0, 0.0));
+    l.compute(root, 100.0, 100.0, |_, _| Measured::size(0.0, 0.0));
     assert_eq!(boxed(&l, c)[0], 0.0);
     // The freed handle is reused.
     assert_eq!(l.create(false), b);
@@ -190,8 +190,8 @@ fn min_content_sizing_keeps_items_at_their_content_size() {
     let text = l.create(true);
     l.set_children(root, &[text]);
     l.compute(root, 50.0, f32::INFINITY, |_, input| match input.available_width {
-        AvailableSpace::MinContent => (80.0, 20.0),
-        _ => (160.0, 10.0),
+        AvailableSpace::MinContent => Measured::size(80.0, 20.0),
+        _ => Measured::size(160.0, 10.0),
     });
     assert_eq!(boxed(&l, text)[2], 80.0);
 }
@@ -204,5 +204,27 @@ fn unknown_handles_are_ignored() {
     assert!(!l.layout(7, &mut o));
     assert!(o.iter().all(|v| *v == 0.0));
     l.remove(7);
-    l.compute(7, 1.0, 1.0, |_, _| (0.0, 0.0));
+    l.compute(7, 1.0, 1.0, |_, _| Measured::size(0.0, 0.0));
+}
+
+#[test]
+fn baseline_alignment_uses_measured_first_baselines() {
+    // A row aligning on baselines: text A (20 tall, baseline 16) with 4 px of top padding, text B (40 tall, baseline 30),
+    // and a box with no baseline (CSS synthesises one at its bottom edge).
+    let mut l = UiLayout::new();
+    let root = l.create(false);
+    px(&mut l, root, prop_length::WIDTH, 300.0);
+    l.set_enum(root, prop_enum::ALIGN_ITEMS, items::BASELINE);
+    let a = l.create(true);
+    px(&mut l, a, prop_length::PADDING_TOP, 4.0);
+    let b = l.create(true);
+    let boxed_ = l.create(false);
+    px(&mut l, boxed_, prop_length::WIDTH, 10.0);
+    px(&mut l, boxed_, prop_length::HEIGHT, 10.0);
+    l.set_children(root, &[a, b, boxed_]);
+    l.compute(root, 300.0, 200.0, |h, _| if h == a { Measured { width: 50.0, height: 20.0, baseline: Some(16.0) } } else { Measured { width: 50.0, height: 40.0, baseline: Some(30.0) } });
+    // Baselines from the top: A 4 + 16 = 20, B 30, the box 10. All meet at B's 30.
+    assert_eq!(boxed(&l, a)[1], 10.0);
+    assert_eq!(boxed(&l, b)[1], 0.0);
+    assert_eq!(boxed(&l, boxed_)[1], 20.0);
 }

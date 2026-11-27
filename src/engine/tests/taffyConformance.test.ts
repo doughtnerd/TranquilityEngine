@@ -27,7 +27,9 @@ function words([count, width, lineHeight]: [number, number, number]) {
     const room = input.knownWidth ?? (input.availableWidth === -Infinity ? 0 : input.availableWidth);
     const perLine = Math.max(1, Math.floor((room + 1e-4) / width));
     const lines = Math.ceil(count / perLine);
-    return { width: input.knownWidth ?? Math.min(count * width, Math.max(width, room)), height: lines * lineHeight };
+    // A line's baseline is its words' bottom edge (an inline box with no text sits on the baseline), so the first
+    // baseline is the first line's height.
+    return { width: input.knownWidth ?? Math.min(count * width, Math.max(width, room)), height: lines * lineHeight, baseline: lineHeight };
   };
 }
 
@@ -64,6 +66,10 @@ function build(t: LayoutTree, spec: CaseNode, out: LayoutNode[]): LayoutNode {
       case "padding": for (const e of EDGES) n.setPadding(e, len(v)); break;
       case "border": for (const e of EDGES) n.setBorder(e, len(v)); break;
       case "margin": for (const e of EDGES) n.setMargin(e, len(v)); break;
+      case "paddingTop": n.setPadding("top", len(v)); break;
+      case "paddingRight": n.setPadding("right", len(v)); break;
+      case "paddingBottom": n.setPadding("bottom", len(v)); break;
+      case "paddingLeft": n.setPadding("left", len(v)); break;
       case "marginTop": n.setMargin("top", len(v)); break;
       case "marginRight": n.setMargin("right", len(v)); break;
       case "marginBottom": n.setMargin("bottom", len(v)); break;

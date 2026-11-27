@@ -171,9 +171,30 @@ positions, `display: none`, aspect ratio, overflow and automatic minimums, wrapp
 
 - `calc()` inside Taffy: a custom tree over Taffy's low-level API (with the `calc` feature) would resolve mixed lengths
   during layout and remove the UI core's second pass. Worth it when a case needs it.
-- Text baselines: layout-core could take a first baseline from the measure callback.
+- ~~Text baselines: layout-core could take a first baseline from the measure callback.~~ Done: see Follow-ups.
 - `display: grid` and `display: block` in UI documents: a record of their own.
-- Whether `scrollbar-gutter` should use Taffy's scrollbar room instead of widening the border.
+- Whether `scrollbar-gutter` should use Taffy's scrollbar room instead of widening the border. Decided no for now: see
+  Follow-ups.
+
+## Follow-ups built
+
+**2026-11-27, text baselines.** A measure function returns an optional first baseline, down from the top of the leaf's
+content box (`setMeasured(w, h, baseline)` at the boundary, `Measured` in layout-core). layout-core adds the leaf's
+padding and border and puts it in Taffy's layout output, asking the leaf at its content size when layout already knew
+both sizes (the full layout baseline alignment asks for). Taffy then aligns `align-items: baseline` rows and passes
+containers' first baselines up, as CSS does; a box with none synthesises one at its bottom edge. The UI core reports a
+text's first line's baseline (half its leading plus the 0.95 em ascent it draws with; an inline layout's first line's
+own baseline; a select's or text area's first line), and none for an empty plain text. Six baseline cases joined the
+conformance set (53 now; the word model's boxes now sit on the baseline, which left the other 47 cases' boxes
+unchanged), and all match Chromium. `uiLayoutWave1.test.ts` checks it through a UI document.
+
+**2026-11-27, `scrollbar-gutter`.** It stays a wider border side: Taffy's scrollbar room applies only to
+`overflow: scroll`, while `scrollbar-gutter: stable` also reserves it under `auto`, so moving to it would not remove
+the special case.
+
+**2026-11-27, the layout-call test.** `uiCore.test.ts`'s check that only changed properties reach the layout engine
+read a private field to patch node methods; it now spies on the adapter's `LayoutNode` methods, every setter. The wider
+net found the canvas root's four setters called on every sync; `applyCanvas` now sends only changes too.
 
 ## References
 

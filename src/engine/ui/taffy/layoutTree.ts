@@ -36,8 +36,11 @@ export interface MeasureInput {
   readonly availableHeight: number;
 }
 
-/** A measured leaf's content size for an input. */
-export type MeasureFunction = (input: MeasureInput) => { readonly width: number; readonly height: number };
+/**
+ * A measured leaf's content size for an input, and its first baseline (text's: where its first line sits), down from the
+ * top of its content box. Without one, CSS synthesises it at the box's bottom edge, as for a box with no text.
+ */
+export type MeasureFunction = (input: MeasureInput) => { readonly width: number; readonly height: number; readonly baseline?: number };
 
 export interface LayoutSides {
   readonly top: number;
@@ -81,7 +84,7 @@ const OVERFLOW: Record<LayoutOverflow, number> = { visible: 0, clip: 1, hidden: 
 /** The module's glue and memory, once loaded. */
 interface LayoutModule {
   readonly Tree: new () => WasmTree;
-  readonly setMeasured: (width: number, height: number) => void;
+  readonly setMeasured: (width: number, height: number, baseline: number) => void;
   readonly memory: WebAssembly.Memory;
 }
 
@@ -135,7 +138,7 @@ export class LayoutTree {
     const fn = this.measures.get(handle);
     if (!fn) return;
     const size = fn({ knownWidth: Number.isNaN(kw) ? undefined : kw, knownHeight: Number.isNaN(kh) ? undefined : kh, availableWidth: aw, availableHeight: ah });
-    this.module.setMeasured(size.width, size.height);
+    this.module.setMeasured(size.width, size.height, size.baseline ?? NaN);
   };
 
   /** A new, empty tree. Throws unless `loadLayoutEngine()` has finished. */
