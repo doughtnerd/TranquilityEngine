@@ -1,33 +1,45 @@
 // A context's mapping rows (ADR 0336, 0417), shared by the Input dialog's context view: a mapping's action (a slot
 // the dialog fills with its picker), its controls (a single control, or a composite's parts: typed, picked from a list
 // grouped by device, or captured with Bind, the next press), a warning when a control doesn't suit the action's type,
-// its modifiers (run top to bottom) and triggers with their parameters, and whether it consumes its controls. Under
-// each mapping are the problems the evaluator reports for it, the messages Play would log. Split out of the
-// Inspector's context editor, which the dialog replaced.
+// its modifiers as an ordered stack (run top to bottom; reordered by dragging a handle, from the keyboard, or with a
+// row's ⋯ menu; a value tried through the chain shows each step's output, from the engine's own modifiers), its
+// triggers as chips grouped by how they combine (any of these, all of these, blocked by), whether it consumes its
+// controls, and a note. A card folds to its head, which then says its controls in one line. Under each mapping are the
+// problems the evaluator reports for it, the messages Play would log. Split out of the Inspector's context editor,
+// which the dialog replaced.
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { MappingSpec, ModifierSpec, TriggerSpec, TriggerType } from "../../../engine";
-import { canonicalControlPath } from "../../../engine/editor";
+import { canonicalControlPath, traceInputModifiers } from "../../../engine/editor";
+import type { ActionKind } from "../../../engine/input/actions";
 import { captureControl } from "../../controlCapture";
 import {
   COMPOSITES,
   CONTROL_GROUPS,
   MODIFIERS,
   TRIGGERS,
-  TRIGGER_TYPES,
+  TRIGGER_GROUPS,
   compositeOf,
+  controlSummary,
+  groupTriggers,
+  mappingControls,
   moveItem,
   newStep,
+  newTriggerIn,
   partValue,
   removeAt,
   replaceAt,
   setComposite,
   setConsume,
+  setNote,
   setPart,
   setStepParam,
-  setTriggerType,
+  setTriggerGroup,
   stepName,
   stepParams,
+  triggerSummary,
+  triggerType,
+  typeForMapping,
   withSteps,
   type ActionChoice,
   type CompositeKind,
@@ -36,7 +48,10 @@ import {
   type StepSpec,
   type TriggerName,
 } from "../../inputContextModel";
+import { ContextMenu } from "../ContextMenu";
 import { useDraftText } from "../draftText";
+import { SortableList } from "../SortableList";
+import { moveItem as moveTo } from "../sortableListLogic";
 import "./inputDialog.css";
 
 /** The control suggestions every control box offers (one list per page). */
@@ -54,6 +69,8 @@ export interface MappingProps {
   mapping: MappingSpec;
   /** The action's picker, drawn in the card's head. */
   action: ComponentChildren;
+  /** The type of the action it names, when it names one (a value tried through the modifiers has its components). */
+  actionKind?: ActionKind;
   /** Actions chord and combo triggers may name. */
   actions: readonly ActionChoice[];
   problems: readonly string[];
@@ -64,6 +81,9 @@ export interface MappingProps {
   /** The control suggestions' datalist. */
   listId: string;
   readOnly: boolean;
+  /** Folded to its head. */
+  folded?: boolean;
+  onFold?(folded: boolean): void;
   onChange(next: MappingSpec, label: string): void;
   onMove(by: number): void;
   onDuplicate(): void;
@@ -76,11 +96,24 @@ export function MappingCard(props: MappingProps) {
   const n = props.index + 1;
   const consume = m.consume === undefined ? "" : String(m.consume);
   const name = props.fromScript ? `Script mapping ${n}` : `Mapping ${n}`;
+  const folded = !!props.folded;
   return (
-    <li class={`input-mapping${props.problems.length ? " has-problems" : ""}${props.fromScript ? " from-script" : ""}`} aria-label={name} data-mapping-index={props.fromScript ? undefined : props.index} tabIndex={-1}>
+    <li class={`input-mapping${props.problems.length ? " has-problems" : ""}${props.fromScript ? " from-script" : ""}${folded ? " folded" : ""}`} aria-label={name} data-mapping-index={props.fromScript ? undefined : props.index} tabIndex={-1}>
       <div class="input-mapping-head">
+        {props.onFold && (
+          <button class="input-mapping-fold" aria-expanded={!folded} aria-label={folded ? `Unfold ${name}` : `Fold ${name}`} title={folded ? "Unfold" : "Fold"} onClick={() => props.onFold!(!folded)}>
+            <span aria-hidden="true">{folded ? "▸" : "▾"}</span>
+          </button>
+        )}
         <span class="input-mapping-number">{n}</span>
         <span class="input-mapping-action">{props.action}</span>
+        {folded && (
+          <span class="input-mapping-summary" title={m.note || undefined}>
+            {controlSummary(m)}
+            {(m.modifiers?.length ?? 0) > 0 && <span class="input-muted"> · {m.modifiers!.length} modifier{m.modifiers!.length === 1 ? "" : "s"}</span>}
+            {(m.triggers?.length ?? 0) > 0 && <span class="input-muted"> · {m.triggers!.length} trigger{m.triggers!.length === 1 ? "" : "s"}</span>}
+          </span>
+        )}
         {props.fromScript && <span class="input-tag" title="Given inline in defineActions; change it in the script">from a script</span>}
         {!props.fromScript && <span class="input-mapping-tools">
           <button disabled={readOnly || props.index === 0} title="Move up" aria-label="Move mapping up" onClick={() => props.onMove(-1)}>↑</button>
@@ -89,48 +122,34 @@ export function MappingCard(props: MappingProps) {
           <button disabled={readOnly} class="danger" title="Remove" aria-label="Remove mapping" onClick={props.onRemove}>✕</button>
         </span>}
       </div>
-      <label class="import-row">
-        <span>Controls</span>
-        <select aria-label="Composite" disabled={readOnly} value={kind} onChange={(e) => props.onChange(setComposite(m, e.currentTarget.value as CompositeKind), "Set Composite")}>
-          {(Object.keys(COMPOSITES) as CompositeKind[]).map((k) => (
-            <option key={k} value={k}>
-              {COMPOSITES[k].label}
-            </option>
+      {!folded && (
+        <>
+          <label class="import-row">
+            <span>Controls</span>
+            <select aria-label="Composite" disabled={readOnly} value={kind} onChange={(e) => props.onChange(setComposite(m, e.currentTarget.value as CompositeKind), "Set Composite")}>
+              {(Object.keys(COMPOSITES) as CompositeKind[]).map((k) => (
+                <option key={k} value={k}>
+                  {COMPOSITES[k].label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {COMPOSITES[kind].parts.map((part) => (
+            <ControlRow key={part} part={part} listId={props.listId} single={kind === "single"} value={partValue(m, part)} readOnly={readOnly} onCommit={(path) => path !== partValue(m, part) && props.onChange(setPart(m, part, path), "Set Control")} />
           ))}
-        </select>
-      </label>
-      {COMPOSITES[kind].parts.map((part) => (
-        <ControlRow key={part} part={part} listId={props.listId} single={kind === "single"} value={partValue(m, part)} readOnly={readOnly} onCommit={(path) => path !== partValue(m, part) && props.onChange(setPart(m, part, path), "Set Control")} />
-      ))}
-      <StepList
-        title="Modifiers"
-        noun="modifier"
-        table={MODIFIERS}
-        steps={m.modifiers ?? []}
-        actions={actions}
-        readOnly={readOnly}
-        onChange={(steps, label) => props.onChange(withSteps(m, "modifiers", steps), label)}
-        make={(name) => newStep(name as ModifierName)}
-      />
-      <StepList
-        title="Triggers"
-        noun="trigger"
-        table={TRIGGERS}
-        steps={m.triggers ?? []}
-        actions={actions}
-        readOnly={readOnly}
-        triggers
-        onChange={(steps, label) => props.onChange(withSteps(m, "triggers", steps), label)}
-        make={(name) => newStep(name as TriggerName)}
-      />
-      <label class="import-row" title="A performing mapping takes its controls, so lower-priority contexts don't see them">
-        <span>Consume</span>
-        <select aria-label="Consume" disabled={readOnly} value={consume} onChange={(e) => props.onChange(setConsume(m, e.currentTarget.value as "" | "true" | "false"), "Set Consume")}>
-          <option value="">The action's setting (yes unless it says no)</option>
-          <option value="true">Yes: lower contexts don't see these controls</option>
-          <option value="false">No: lower contexts see them too</option>
-        </select>
-      </label>
+          <ModifierStack mapping={m} kind={props.actionKind ?? typeForMapping(m)} actions={actions} readOnly={readOnly} onChange={(steps, label) => props.onChange(withSteps(m, "modifiers", steps), label)} />
+          <TriggerGroups triggers={m.triggers ?? []} actions={actions} readOnly={readOnly} onChange={(steps, label) => props.onChange(withSteps(m, "triggers", steps), label)} />
+          <label class="import-row" title="A performing mapping takes its controls, so lower-priority contexts don't see them">
+            <span>Consume</span>
+            <select aria-label="Consume" disabled={readOnly} value={consume} onChange={(e) => props.onChange(setConsume(m, e.currentTarget.value as "" | "true" | "false"), "Set Consume")}>
+              <option value="">The action's setting (yes unless it says no)</option>
+              <option value="true">Yes: lower contexts don't see these controls</option>
+              <option value="false">No: lower contexts see them too</option>
+            </select>
+          </label>
+          <NoteRow note={m.note ?? ""} readOnly={readOnly} onCommit={(note) => props.onChange(setNote(m, note), "Set Note")} />
+        </>
+      )}
       {(props.warnings?.length ?? 0) > 0 && (
         <ul class="input-mapping-warnings" aria-label={`${name} warnings`}>
           {props.warnings!.map((w) => (
@@ -146,6 +165,17 @@ export function MappingCard(props: MappingProps) {
         </ul>
       )}
     </li>
+  );
+}
+
+/** A mapping's note: why it's there, for whoever edits the context next (saved in the file; the game ignores it). */
+function NoteRow(props: { note: string; readOnly: boolean; onCommit: (note: string) => void }) {
+  const draft = useDraftText(props.note, (v) => v.trim() !== props.note && props.onCommit(v));
+  return (
+    <label class="import-row" title="Saved in the context file for whoever edits it next; the game ignores it">
+      <span>Note</span>
+      <input type="text" aria-label="Note" placeholder="Why this mapping is here (optional)" disabled={props.readOnly} {...draft.input} />
+    </label>
   );
 }
 
@@ -211,69 +241,245 @@ function ControlRow(props: { part: string; listId: string; single: boolean; valu
 
 type Step = ModifierSpec | TriggerSpec;
 
-/** A mapping's modifiers or triggers: each with its parameters (and a trigger's type), in order, plus Add. */
-function StepList(props: {
-  title: string;
-  noun: string;
-  table: Record<string, StepSpec>;
-  steps: readonly Step[];
-  actions: readonly ActionChoice[];
-  readOnly: boolean;
-  triggers?: boolean;
-  onChange: (steps: Step[], label: string) => void;
-  make: (name: string) => Step;
-}) {
-  const { steps, table, readOnly } = props;
-  const label = props.noun[0].toUpperCase() + props.noun.slice(1);
+const KIND_DIMS: Record<ActionKind, number> = { button: 1, axis: 1, vec2: 2, vec3: 3 };
+const AXES = ["x", "y", "z"] as const;
+
+/** A value as the stack shows it: `0.50`, or `(0.00, 0.76)`. */
+const shownValue = (v: readonly number[]): string => {
+  const parts = v.map((x) => (Object.is(x, -0) ? 0 : x).toFixed(2).replace("-", "−"));
+  return parts.length === 1 ? parts[0] : `(${parts.join(", ")})`;
+};
+
+/** The value tried at first: halfway on each component, so dead zones, curves and scales all show. */
+const startValue = (dims: number): number[] => (dims === 1 ? [0.5] : dims === 2 ? [0.3, 0.8] : [0.3, 0.8, 0.5]);
+
+/**
+ * A mapping's modifiers as an ordered stack: one numbered row each with its parameters, the value it hands on, and a ⋯
+ * menu (Move up, Move down, Duplicate, Remove); rows reorder by their handle, by drag or Space, arrows, Space. Above
+ * them "Try a value", tried through the chain with the engine's modifiers; below, what the action gets.
+ */
+function ModifierStack(props: { mapping: MappingSpec; kind: ActionKind; actions: readonly ActionChoice[]; readOnly: boolean; onChange: (steps: ModifierSpec[], label: string) => void }) {
+  const { readOnly } = props;
+  const steps = props.mapping.modifiers ?? [];
+  const controls = mappingControls(props.mapping);
+  const dims = Math.max(KIND_DIMS[props.kind], KIND_DIMS[typeForMapping(props.mapping)]);
+  const [tried, setTried] = useState<number[]>(() => startValue(dims));
+  const input = tried.length === dims ? tried : startValue(dims);
+  const trace = useMemo(() => traceInputModifiers(steps, input, { kind: props.kind, controls }), [steps, input.join(","), props.kind, controls.join(",")]);
+  const implicit = trace.steps[0]?.implicit ? trace.steps[0] : null;
+  const traced = implicit ? trace.steps.slice(1) : trace.steps;
+  const [menu, setMenu] = useState<{ index: number; at: Element } | null>(null);
+  const labelOf = (step: ModifierSpec) => (MODIFIERS as Record<string, StepSpec>)[stepName(step)]?.label ?? stepName(step);
+  const set = (list: ModifierSpec[], label: string) => props.onChange(list, label);
   return (
-    <div class="input-steps" role="group" aria-label={props.title}>
+    <div class="input-steps input-modifiers" role="group" aria-label="Modifiers">
       <div class="input-steps-head">
-        <span>{props.title}</span>
+        <span>Modifiers</span>
+        <span class="input-count">{steps.length}</span>
+        <span class="input-muted input-steps-hint">Run top to bottom</span>
         <select
-          aria-label={`Add ${props.noun}`}
+          aria-label="Add modifier"
           disabled={readOnly}
           value=""
           onChange={(e) => {
             const name = e.currentTarget.value;
-            if (name) props.onChange([...steps, props.make(name)], `Add ${label}`);
+            if (name) set([...steps, newStep(name as ModifierName)], "Add Modifier");
           }}
         >
-          <option value="">Add…</option>
-          {Object.entries(table).map(([name, s]) => (
+          <option value="">Add modifier…</option>
+          {Object.entries(MODIFIERS).map(([name, s]) => (
             <option key={name} value={name}>
               {s.label}
             </option>
           ))}
         </select>
       </div>
-      {steps.map((step, i) => {
-        const name = stepName(step);
-        const s = table[name];
-        const set = (next: Step) => props.onChange(replaceAt(steps, i, next), `Set ${label}`);
-        return (
-          <div key={i} class="input-step" aria-label={`${s?.label ?? name} ${props.noun}`}>
-            <span class="input-step-name">{s?.label ?? name}</span>
-            {s ? <StepParams step={step} spec={s} actions={props.actions} readOnly={readOnly} onChange={set} /> : <code class="input-step-raw">{JSON.stringify(step)}</code>}
-            {props.triggers && (
-              <select aria-label="Trigger type" disabled={readOnly} value={(step as { type?: TriggerType }).type ?? ""} onChange={(e) => set(setTriggerType(step as TriggerSpec, e.currentTarget.value as TriggerType | ""))}>
-                <option value="">default type</option>
-                {TRIGGER_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            )}
-            <span class="input-step-tools">
-              <button disabled={readOnly || i === 0} aria-label={`Move ${props.noun} up`} title="Move up (they apply in order)" onClick={() => props.onChange(moveItem(steps, i, -1), `Move ${label}`)}>↑</button>
-              <button disabled={readOnly} class="danger" aria-label={`Remove ${props.noun}`} title="Remove" onClick={() => props.onChange(removeAt(steps, i), `Remove ${label}`)}>✕</button>
-            </span>
-          </div>
-        );
-      })}
+      <div class="input-try" role="group" aria-label="Try a value">
+        <span>Try a value</span>
+        {input.map((v, i) => (
+          <label key={i} class="input-param">
+            {dims > 1 && AXES[i]}
+            <TryNumber label={dims > 1 ? `Try ${AXES[i]}` : "Try a value"} value={v} onCommit={(x) => setTried(replaceAt(input, i, x))} />
+          </label>
+        ))}
+        {implicit && (
+          <span class="input-muted" title="A stick's mapping with no dead zone gets the engine's (0.15, or the player's own setting) before its modifiers">
+            stick dead zone first → <output class="input-trace">{shownValue(implicit.value)}</output>
+          </span>
+        )}
+      </div>
+      {steps.length > 0 && (
+        <SortableList
+          items={steps}
+          label="Modifiers, in the order they run"
+          class="input-modifier-list"
+          disabled={readOnly}
+          itemKey={(_, i) => String(i)}
+          itemLabel={(step, i) => `${labelOf(step)} (modifier ${i + 1})`}
+          onMove={(from, to) => set(moveTo(steps, from, to), "Move Modifier")}
+          renderItem={(step, i) => {
+            const s = (MODIFIERS as Record<string, StepSpec>)[stepName(step)];
+            const t = traced[i];
+            return (
+              <div class="input-step input-modifier" aria-label={`${labelOf(step)} modifier`}>
+                <span class="input-step-number">{i + 1}</span>
+                <span class="input-step-name">{labelOf(step)}</span>
+                {s ? <StepParams step={step} spec={s} actions={props.actions} readOnly={readOnly} onChange={(next) => set(replaceAt(steps, i, next as ModifierSpec), "Set Modifier")} /> : <code class="input-step-raw">{JSON.stringify(step)}</code>}
+                {t && (
+                  <output class={`input-trace${t.error ? " failed" : ""}`} aria-label={`${labelOf(step)} gives`} title={t.error ?? (t.timeBased ? "Smooth follows its input over time, so one value passes through; in Play it eases toward it" : undefined)}>
+                    → {shownValue(t.value)}
+                    {t.timeBased && <span class="input-muted"> (over time)</span>}
+                    {t.error && <span> (skipped)</span>}
+                  </output>
+                )}
+                <button class="input-step-more" disabled={readOnly} aria-label={`More for ${labelOf(step)}`} aria-haspopup="menu" title="Move, duplicate or remove" onClick={(e) => setMenu({ index: i, at: e.currentTarget })}>
+                  ⋯
+                </button>
+              </div>
+            );
+          }}
+        />
+      )}
+      <div class="input-try-out">
+        <span>Out</span>
+        <output class="input-trace" aria-label="The action gets">
+          {shownValue(trace.out)}
+        </output>
+        {props.kind === "button" && <span class="input-muted">a button reads the value's size, up to 1</span>}
+      </div>
+      {menu && (
+        <ContextMenu
+          label={`${labelOf(steps[menu.index] ?? {})} menu`}
+          at={menu.at}
+          onClose={() => setMenu(null)}
+          entries={[
+            { id: "up", label: "Move up", disabled: menu.index === 0, run: () => set(moveItem(steps, menu.index, -1), "Move Modifier") },
+            { id: "down", label: "Move down", disabled: menu.index === steps.length - 1, run: () => set(moveItem(steps, menu.index, 1), "Move Modifier") },
+            { id: "duplicate", label: "Duplicate", run: () => set([...steps.slice(0, menu.index + 1), structuredClone(steps[menu.index]), ...steps.slice(menu.index + 1)], "Duplicate Modifier") },
+            { id: "remove", label: "Remove", danger: true, run: () => set(removeAt(steps, menu.index), "Remove Modifier") },
+          ]}
+        />
+      )}
     </div>
   );
 }
+
+/** A number to try: any value, kept while typing, committed on change. */
+function TryNumber(props: { label: string; value: number; onCommit: (v: number) => void }) {
+  const draft = useDraftText(String(props.value), (text) => {
+    const v = Number(text);
+    if (text.trim() !== "" && Number.isFinite(v) && v !== props.value) props.onCommit(v);
+  });
+  return <input type="number" aria-label={props.label} step={0.05} {...draft.input} />;
+}
+
+/**
+ * A mapping's triggers as chips in three groups by how they combine: Any of these (explicit), All of these
+ * (implicit), Blocked by (blocker). Each group adds a trigger into itself; a chip opens its settings below the groups,
+ * where its parameters are edited, its group changed, or it's removed.
+ */
+function TriggerGroups(props: { triggers: readonly TriggerSpec[]; actions: readonly ActionChoice[]; readOnly: boolean; onChange: (steps: TriggerSpec[], label: string) => void }) {
+  const { triggers, readOnly } = props;
+  const [open, setOpen] = useState<number | null>(null);
+  const shown = open !== null && open < triggers.length ? open : null;
+  const groups = groupTriggers(triggers);
+  const labelOf = (t: TriggerSpec) => (TRIGGERS as Record<string, StepSpec>)[stepName(t)]?.label ?? stepName(t);
+  const firstAction = props.actions[0]?.value ?? "";
+  return (
+    <div class="input-steps input-triggers" role="group" aria-label="Triggers">
+      <div class="input-steps-head">
+        <span>Triggers</span>
+        <span class="input-count">{triggers.length}</span>
+        <span class="input-muted input-steps-hint">{triggers.length ? "No order; grouped by how they combine" : "None: the action triggers while its controls are held"}</span>
+      </div>
+      {groups.map((g) => (
+        <div key={g.type} class="input-trigger-group" role="group" aria-label={g.label} title={g.hint}>
+          <span class="input-trigger-group-label">{g.label}</span>
+          <span class="input-chips">
+            {g.items.map(({ trigger, index }) => (
+              <button
+                key={index}
+                class={`input-chip input-trigger-chip${shown === index ? " open" : ""}`}
+                aria-expanded={shown === index}
+                aria-label={`${triggerSummary(trigger)} trigger`}
+                title="Settings"
+                onClick={() => setOpen(shown === index ? null : index)}
+              >
+                {triggerSummary(trigger)}
+              </button>
+            ))}
+            {g.items.length === 0 && <span class="input-muted">none</span>}
+          </span>
+          <select
+            class="input-trigger-add"
+            aria-label={`Add trigger to ${g.label}`}
+            title={`Add a trigger to ${g.label}`}
+            disabled={readOnly}
+            value=""
+            onChange={(e) => {
+              const name = e.currentTarget.value as TriggerName;
+              if (!name) return;
+              props.onChange([...triggers, newTriggerIn(name, g.type, firstAction)], "Add Trigger");
+              setOpen(triggers.length);
+            }}
+          >
+            <option value="">+</option>
+            {Object.entries(TRIGGERS).map(([name, s]) => (
+              <option key={name} value={name}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      ))}
+      {shown !== null && (
+        <TriggerSettings
+          trigger={triggers[shown]}
+          label={labelOf(triggers[shown])}
+          actions={props.actions}
+          readOnly={readOnly}
+          onChange={(next, label) => props.onChange(replaceAt(triggers, shown, next), label)}
+          onRemove={() => {
+            setOpen(null);
+            props.onChange(removeAt(triggers, shown), "Remove Trigger");
+          }}
+          onClose={() => setOpen(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** One trigger's settings, opened from its chip: its parameters, the group it combines in, Remove. */
+function TriggerSettings(props: { trigger: TriggerSpec; label: string; actions: readonly ActionChoice[]; readOnly: boolean; onChange: (next: TriggerSpec, label: string) => void; onRemove(): void; onClose(): void }) {
+  const { trigger, readOnly } = props;
+  const s = (TRIGGERS as Record<string, StepSpec>)[stepName(trigger)];
+  return (
+    <div class="input-trigger-settings" role="group" aria-label={`${props.label} trigger settings`}>
+      <span class="input-step-name">{props.label}</span>
+      {s ? <StepParams step={trigger} spec={s} actions={props.actions} readOnly={readOnly} onChange={(next) => props.onChange(next as TriggerSpec, "Set Trigger")} /> : <code class="input-step-raw">{JSON.stringify(trigger)}</code>}
+      <label class="input-param">
+        Combines as
+        <select aria-label="Group" disabled={readOnly} value={triggerType(trigger)} onChange={(e) => props.onChange(setTriggerGroup(trigger, e.currentTarget.value as TriggerType), "Change Trigger Group")}>
+          {TRIGGER_GROUPS.map((g) => (
+            <option key={g.type} value={g.type}>
+              {g.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span class="input-step-tools">
+        <button disabled={readOnly} class="danger" aria-label="Remove trigger" title="Remove" onClick={props.onRemove}>
+          Remove
+        </button>
+        <button aria-label="Close trigger settings" title="Close" onClick={props.onClose}>
+          Done
+        </button>
+      </span>
+    </div>
+  );
+}
+
 
 /** A step's parameter inputs, from its table entry. */
 function StepParams(props: { step: Step; spec: StepSpec; actions: readonly ActionChoice[]; readOnly: boolean; onChange: (next: Step) => void }) {

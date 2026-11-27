@@ -117,6 +117,37 @@
 .input-param input[type="number"] { width: 64px; }
 .input-param input[type="text"] { width: 64px; }
 .input-combo { flex-direction: column; align-items: flex-start; }
+
+/* A folded mapping card: its head, with the controls in one line. */
+.input-mapping.folded .input-mapping-head { margin-bottom: 0; }
+.input-mapping-fold { flex: none; width: 20px; padding: 0; border: 0; background: none; color: var(--muted); }
+.input-mapping-fold:hover { color: var(--text); }
+.input-mapping.folded .input-mapping-action { flex: 0 1 auto; }
+.input-mapping-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-code); color: var(--text); }
+.input-steps-hint { font-size: calc(11px * var(--ui-scale)); }
+
+/* Modifiers: an ordered stack, a value tried through it. */
+.input-try, .input-try-out { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 4px 8px; color: var(--muted); }
+.input-try input[type="number"] { width: 64px; }
+.input-trace { font-family: var(--font-code); color: var(--muted); white-space: nowrap; font-size: calc(11px * var(--ui-scale)); }
+.input-trace.failed { color: var(--danger); }
+.input-try-out .input-trace { color: var(--text); }
+.input-modifier-list { margin-left: 4px; width: calc(100% - 4px); }
+.input-modifier-list .sortable-row { background: var(--bg-sunken); padding: 0 4px 0 2px; }
+.input-step.input-modifier { flex: 1; min-width: 0; margin: 0; border-top: 0; padding: 2px 0; }
+.input-step-number { min-width: 12px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.input-step-more { flex: none; padding: 0 6px; border: 0; background: none; color: var(--muted); }
+.input-step-more:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+
+/* Triggers: chips grouped by how they combine. */
+.input-trigger-group { display: flex; align-items: center; gap: 8px; margin: 3px 0 0 8px; }
+.input-trigger-group-label { flex: none; width: 96px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.input-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; flex: 1; min-width: 0; }
+.input-trigger-chip { padding: 1px 8px; border: 1px solid var(--border); background: var(--bg-sunken); color: var(--text); font-family: var(--font-code); font-size: calc(11px * var(--ui-scale)); }
+.input-trigger-chip:hover { border-color: var(--border-strong); }
+.input-trigger-chip.open { border-color: var(--accent); background: var(--accent-soft); }
+.input-dialog select.input-trigger-add { flex: none; width: 34px; }
+.input-trigger-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0 8px; padding: 5px 8px; border: 1px solid var(--accent); border-radius: 4px; background: var(--surface); }
 .input-combo-step { display: flex; align-items: center; gap: 4px; }
 
 /* The action picker. */

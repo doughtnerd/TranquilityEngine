@@ -16,12 +16,17 @@ export interface ContextViewProps {
   readonly entry: ContextEntry;
   readonly sets: readonly InputActionSetInfo[];
   readonly pickerSets: readonly PickerSet[];
+  /** The project, for the picker's remembered folds (its folder's path, or a sample's name). */
+  readonly project: string;
   /** The code sets' inline defaults (shown in the default context). */
   readonly scripts: readonly { readonly set: string; readonly mapping: MappingSpec }[];
   readonly users: readonly ContextUser[];
   readonly projectReadOnly: boolean;
   /** A mapping to bring into view (a Mapped in chip was clicked), or null. */
   readonly focus: number | null;
+  /** The mappings folded to their heads (by index), kept while the dialog is open. */
+  readonly folded: ReadonlySet<number>;
+  onFold(index: number, folded: boolean): void;
   onFocused(): void;
   onEdit(next: InputContextSpec, label: string): void;
   onRename(name: string): void;
@@ -53,6 +58,7 @@ export function ContextView(props: ContextViewProps) {
   const setMappings = (mappings: MappingSpec[], label: string) => props.onEdit({ ...spec, mappings }, label);
   useEffect(() => {
     if (props.focus === null) return;
+    if (props.folded.has(props.focus)) props.onFold(props.focus, false);
     const el = root.current?.querySelector<HTMLElement>(`[data-mapping-index="${props.focus}"]`);
     el?.scrollIntoView?.({ block: "center" });
     el?.focus();
@@ -62,6 +68,7 @@ export function ContextView(props: ContextViewProps) {
   const picker = (m: MappingSpec, i: number, ro: boolean) => (
     <ActionPicker
       sets={props.pickerSets}
+      project={props.project}
       current={resolveActionRef(m.action, sets)}
       value={m.action}
       readOnly={ro}
@@ -122,11 +129,14 @@ export function ContextView(props: ContextViewProps) {
               count={spec.mappings.length}
               mapping={m}
               action={picker(m, i, readOnly)}
+              actionKind={kind}
               actions={actions}
               problems={problems.get(i) ?? []}
               warnings={kind ? unsuitedControls(m, kind) : []}
               listId={listId}
               readOnly={readOnly}
+              folded={props.folded.has(i)}
+              onFold={(f) => props.onFold(i, f)}
               onChange={(next, label) => setMappings(replaceAt(spec.mappings, i, next), label)}
               onMove={(by) => setMappings(moveItem(spec.mappings, i, by), "Move Mapping")}
               onDuplicate={() => setMappings([...spec.mappings.slice(0, i + 1), structuredClone(m), ...spec.mappings.slice(i + 1)], "Duplicate Mapping")}

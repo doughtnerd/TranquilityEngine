@@ -223,6 +223,93 @@ export function setTriggerType(t: TriggerSpec, type: TriggerType | ""): TriggerS
   return out as unknown as TriggerSpec;
 }
 
+// --- triggers by how they combine (ADR 0417) ----------------------------------------------------
+
+/** The groups a mapping's triggers show in, by how they combine, with what each group is called. */
+export const TRIGGER_GROUPS: readonly { readonly type: TriggerType; readonly label: string; readonly hint: string }[] = [
+  { type: "explicit", label: "Any of these", hint: "Explicit: any one of them triggers the action" },
+  { type: "implicit", label: "All of these", hint: "Implicit: every one must be satisfied too" },
+  { type: "blocker", label: "Blocked by", hint: "Blocker: while one is satisfied, the action doesn't trigger" },
+];
+
+/** The type a trigger has when its file gives none: a chord is implicit, the rest explicit (as the engine's triggers say). */
+export const defaultTriggerType = (t: TriggerSpec): TriggerType => (stepName(t) === "chord" ? "implicit" : "explicit");
+
+/** How a trigger combines: its `type`, else its kind's default. */
+export const triggerType = (t: TriggerSpec): TriggerType => (t as { type?: TriggerType }).type ?? defaultTriggerType(t);
+
+/** A mapping's triggers in their groups (every group, empty ones too), each with its index in the list. */
+export function groupTriggers(triggers: readonly TriggerSpec[]): { type: TriggerType; label: string; hint: string; items: { trigger: TriggerSpec; index: number }[] }[] {
+  return TRIGGER_GROUPS.map((g) => ({ ...g, items: triggers.flatMap((trigger, index) => (triggerType(trigger) === g.type ? [{ trigger, index }] : [])) }));
+}
+
+/** A trigger moved to the group `type`: written as its kind's default (no `type` key) when that's the group. */
+export const setTriggerGroup = (t: TriggerSpec, type: TriggerType): TriggerSpec => setTriggerType(t, type === defaultTriggerType(t) ? "" : type);
+
+/** A new trigger `name` (default parameters) in the group `type`. */
+export const newTriggerIn = (name: TriggerName, type: TriggerType, firstAction = ""): TriggerSpec => setTriggerGroup(newStep(name, firstAction), type);
+
+const num = (v: unknown) => (typeof v === "number" ? `${Math.round(v * 1000) / 1000}` : "?");
+
+/** A trigger's chip text: its kind and main parameters ("hold 0.4s", "tap 0.2s", "chord sprint", "multi-tap 2×"). */
+export function triggerSummary(t: TriggerSpec): string {
+  const name = stepName(t);
+  const p = stepParams(t);
+  switch (name) {
+    case "hold":
+      return `hold ${num(p.min)}s${p.oneShot ? " once" : ""}`;
+    case "holdAndRelease":
+      return `hold ${num(p.min)}s, release`;
+    case "tap":
+      return `tap ${num(p.max)}s`;
+    case "multiTap":
+      return `${num(p.count)}× tap`;
+    case "pulse":
+      return `pulse ${num(p.interval)}s`;
+    case "chord":
+      return `chord ${typeof p.action === "string" && p.action ? p.action : "?"}`;
+    case "combo": {
+      const steps = (t as { combo?: { steps?: readonly { action?: string }[] } }).combo?.steps;
+      return `combo ${Array.isArray(steps) ? steps.map((s) => s.action || "?").join(" → ") : ""}`.trim();
+    }
+    default:
+      return (TRIGGERS as Record<string, StepSpec>)[name]?.label.toLowerCase() ?? name;
+  }
+}
+
+// --- a mapping's note and summary (ADR 0417) ------------------------------------------------------
+
+/** A mapping with its note (editor-only; the evaluator ignores it); an empty note drops the key. */
+export function setNote(m: MappingSpec, note: string): MappingSpec {
+  const out: Record<string, unknown> = { ...m };
+  const text = note.trim();
+  if (text) out.note = text;
+  else delete out.note;
+  return out as unknown as MappingSpec;
+}
+
+/** A control path as a short name: `<Keyboard>/space` → `space`, `<Gamepad>/leftStick` → `Gamepad leftStick`. */
+const shortControl = (path: string): string => {
+  const m = /^<([^>]+)>\/(.+)$/.exec(path);
+  if (!m) return path;
+  return m[1] === "Keyboard" ? m[2] : `${m[1]} ${m[2]}`;
+};
+
+/** A mapping's controls in one line, for a folded card: "space", "D-pad w s a d", "Axis a / d", "shift + b"; "no control" when it has none. */
+export function controlSummary(m: MappingSpec): string {
+  const part = (p: string) => (partValue(m, p) ? partValue(m, p).split(" + ").map(shortControl).join(" + ") : "—");
+  switch (compositeOf(m)) {
+    case "dpad":
+      return `D-pad ${["up", "down", "left", "right"].map(part).join(" ")}`;
+    case "axis":
+      return `Axis ${part("negative")} / ${part("positive")}`;
+    case "modifier":
+      return `${part("modifier")} + ${part("control")}`;
+    default:
+      return m.control ? shortControl(m.control) : "no control";
+  }
+}
+
 // --- list edits ----------------------------------------------------------------------------------
 
 /** `list` with item `i` replaced. */

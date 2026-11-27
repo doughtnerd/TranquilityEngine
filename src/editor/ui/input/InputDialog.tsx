@@ -8,7 +8,10 @@
 // Every edit is one step of one history across the files it touches (`InputDialogHistory`), written at once: Undo,
 // Redo and History in the header, Ctrl+Z / Ctrl+Shift+Z while the dialog has focus (it registers as the active
 // history). Writing a file goes through the project, which tells `Assets.notifyChanged`, so a playing World picks the
-// change up; the footer says Saving…, Saved, or Live (saved and applied to Play). Removals are undoable from a toast.
+// change up; the footer says Saving…, Saved, or Live (saved and applied to Play). Making, naming and deleting a set or
+// context are steps of the same history (`inputDialogFiles.ts`), with a set's `input.actionSets` entry in the same
+// step; Delete asks nothing and shows a toast whose Undo brings the file (and its entry) back. Mapping cards fold to
+// their heads; the folds last while the dialog is open.
 import { useMemo, useRef, useState } from "preact/hooks";
 import { inputActionSets } from "../../../engine/editor";
 import { ACTION_SET_EXTENSION, type ActionSetFile } from "../../../engine/input/actionAssets";
@@ -16,13 +19,14 @@ import type { ActionKind } from "../../../engine/input/actions";
 import type { InputContextSpec } from "../../../engine/input/contextTypes";
 import type { NodeEntry, SceneFile } from "../../../engine/scene/SceneLoader";
 import { usePanelHistory, type UndoHistory } from "../../activeHistory";
-import { actionSetFileName, newSetId, writeActionSet } from "../../actionSetCreate";
-import { addAction, formatActionSet, freeActionName, parseActionSet, removeAction, renameAction, setActionType, setSetId, whyNotSetId } from "../../actionSetModel";
-import { deleteAssets } from "../../assetDelete";
-import { createAsset } from "../../assetKindHost";
-import { renameAsset } from "../../assetOps";
-import { formatInputContext, parseInputContext, typeForMapping, actionRefFor } from "../../inputContextModel";
-import { InputDialogHistory } from "../../inputDialogHistory";
+import { actionSetFileName, newSetId } from "../../actionSetCreate";
+import { addAction, formatActionSet, freeActionName, newActionSet, parseActionSet, removeAction, renameAction, setActionType, setSetId, whyNotSetId } from "../../actionSetModel";
+import { openScenePaths, whyNotDeletableAsset } from "../../assetDelete";
+import { assetDocumentsDeleted } from "../../assetDocuments";
+import { codeBuffersDeleted } from "../../code/codeBuffers";
+import { emptyInputContext, formatInputContext, parseInputContext, typeForMapping, actionRefFor } from "../../inputContextModel";
+import { deleteFileEdits, freeFilePath, makeFileEdits, moveFileEdits, type DialogFiles } from "../../inputDialogFiles";
+import { InputDialogHistory, type FileEdit } from "../../inputDialogHistory";
 import {
   DEFAULT_CONTEXT_PATH,
   contextEntries,
@@ -52,13 +56,30 @@ import { inputDialogRename } from "./inputDialogIntent";
 import "./inputDialog.css";
 
 const CONTEXT_EXTENSION = ".input.json";
+const NO_FOLDS: ReadonlySet<number> = new Set();
 
 /** Each project's dialog history: kept while the project is open, across closing and opening the dialog. */
 const histories = new WeakMap<EditorProject, InputDialogHistory>();
 
 function historyFor(project: EditorProject): InputDialogHistory {
   let h = histories.get(project);
-  if (!h) histories.set(project, (h = new InputDialogHistory({ read: (p) => project.textOf(p), write: (p, t) => project.writeText(p, t) })));
+  if (!h) {
+    h = new InputDialogHistory({
+      read: (p) => project.textOf(p),
+      write: async (p, t) => {
+        const made = !project.files.includes(p);
+        await project.writeText(p, t);
+        if (made) docVersion.value++; // the Assets panel lists it
+      },
+      remove: async (p) => {
+        await project.deleteFile(p);
+        codeBuffersDeleted([p]); // a Code panel tab on it closes
+        docVersion.value++;
+        await assetDocumentsDeleted([p]);
+      },
+    });
+    histories.set(project, h);
+  }
   return h;
 }
 
@@ -92,7 +113,12 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
   const [menu, setMenu] = useState<{ key: string; at: { x: number; y: number } | Element } | null>(null);
   const [focusMapping, setFocusMapping] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  /** The mapping cards folded to their heads, by context path: kept while the dialog is open. */
+  const [folds, setFolds] = useState<ReadonlyMap<string, ReadonlySet<number>>>(new Map());
   const readOnly = !project.canSave;
+  /** The project's files as the dialog's edits leave them (a file being made is listed, one being deleted isn't). */
+  const files = history.files(project.files);
+  const dialogFiles: DialogFiles = { text: (p) => history.text(p), files };
 
   // --- the files, as the dialog's edits leave them -------------------------------------------------
   const readJson = (path: string): unknown => {
@@ -105,9 +131,9 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
     }
   };
   const engineSets = inputActionSets();
-  const setFiles = project.files.filter((f) => f.endsWith(ACTION_SET_EXTENSION));
+  const setFiles = files.filter((f) => f.endsWith(ACTION_SET_EXTENSION));
   const assetSets = setFiles.map((path) => ({ path, spec: parseActionSet(readJson(path), path).value }));
-  const contexts = contextEntries(project.files.filter((f) => f.endsWith(CONTEXT_EXTENSION)).map((path) => ({ path, spec: parseInputContext(readJson(path), path).value })));
+  const contexts = contextEntries(files.filter((f) => f.endsWith(CONTEXT_EXTENSION)).map((path) => ({ path, spec: parseInputContext(readJson(path), path).value })));
   const sets = setEntries(assetSets, engineSets);
   const infos = setInfos(sets);
   const scripts = scriptMappings(engineSets);
@@ -136,10 +162,10 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
 
   // --- history ---------------------------------------------------------------------------------------
   const textOf = (path: string) => history.text(path) ?? "";
-  const record = (label: string, writes: readonly { path: string; text: string }[]): number | null => {
+  const record = (label: string, writes: readonly { path: string; text: string }[], fileEdits: readonly FileEdit[] = []): number | null => {
     if (readOnly) return null;
     setMessage(null);
-    return history.record(label, writes.map((w) => ({ path: w.path, before: textOf(w.path), after: w.text }))) ? history.current : null;
+    return history.record(label, [...fileEdits, ...writes.map((w) => ({ path: w.path, before: textOf(w.path), after: w.text }))]) ? history.current : null;
   };
   const contextWrites = (changes: readonly ContextChange[]) => changes.map((c) => ({ path: c.path, text: formatInputContext(c.spec) }));
   const editSet = (entry: SetEntry, next: ActionSetFile, label: string, changes: readonly ContextChange[] = []) =>
@@ -234,52 +260,49 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
     ]);
     undoToast(`Added ${name} (${type}) to ${target.path}`, seq);
   };
-  const newSetFor = async (context: ContextEntry, name: string, index: number) => {
+  const newSetFor = (context: ContextEntry, name: string, index: number) => {
     const m = context.spec.mappings[index];
     if (!m || readOnly) return;
-    const path = await writeActionSet(folderFor(project), { id: newSetId(project), actions: [{ name, type: typeForMapping(m) }] });
-    if (!path) return;
-    const now = parseInputContext(readJson(context.path), context.path).value;
-    const mappings = now.mappings.map((x, i) => (i === index ? { ...x, action: name } : x));
-    editContext(context.path, { ...now, mappings }, `Map ${name}`);
-    toasts.show({ text: `Made ${path} with ${name}; rename the set from the list.` });
+    const id = newSetId(project);
+    const path = setPath(id);
+    const mappings = context.spec.mappings.map((x, i) => (i === index ? { ...x, action: name } : x));
+    const seq = record(`New set ${id} with ${name}`, [{ path: context.path, text: formatInputContext({ ...context.spec, mappings }) }], makeFileEdits(dialogFiles, path, formatActionSet({ id, actions: [{ name, type: typeForMapping(m) }] })));
+    undoToast(`Made ${path} with ${name}; rename the set from the list.`, seq);
   };
+  /** A free path for a new set file named after `id`, in the folder new files go in. */
+  const setPath = (id: string) => freeFilePath(files, folderFor(project), actionSetFileName(id).slice(0, -ACTION_SET_EXTENSION.length), ACTION_SET_EXTENSION);
 
   // --- the list's entries -------------------------------------------------------------------------------------
-  const addSet = async () => {
-    const path = await writeActionSet(folderFor(project));
-    if (!path) return;
+  /** Make a file as a step of the history, then show it with its name selected for typing. */
+  const addFile = (label: string, path: string, text: string) => {
+    if (record(label, [], makeFileEdits(dialogFiles, path, text)) === null) return;
     inputDialogRename.value = path;
     select(path);
   };
-  const addContext = async () => {
-    const path = await createAsset<InputContextSpec>("inputContext", { folder: folderFor(project) });
-    if (!path) return;
-    inputDialogRename.value = path;
-    select(path);
+  const addSet = () => {
+    const id = newSetId(project);
+    addFile(`New action set ${id}`, setPath(id), formatActionSet(newActionSet(id)));
   };
-  /** A new entry's name committed: written as it is (no history step: making the file wasn't one), and the file renamed after it. */
-  const commitNew = async (key: string, name: string) => {
+  const addContext = () => {
+    const value = emptyInputContext();
+    addFile("New context", freeFilePath(files, folderFor(project), value.name, CONTEXT_EXTENSION), formatInputContext(value));
+  };
+  /** A new entry's name committed: one step that writes the name and moves the file to a name after it (when that's free). */
+  const commitNew = (key: string, name: string) => {
     inputDialogRename.value = null;
     const set = sets.find((s) => s.path === key);
     const context = contexts.find((c) => c.path === key);
-    try {
-      if (set?.spec && name !== set.id) {
-        await project.writeText(key, formatActionSet(setSetId(set.spec, name)));
-        await renameTo(key, actionSetFileName(name));
-      } else if (context && name !== context.spec.name) {
-        await project.writeText(key, formatInputContext({ ...context.spec, name }));
-        await renameTo(key, `${name}${CONTEXT_EXTENSION}`);
-      }
-    } catch (err) {
-      setMessage(`Couldn't rename ${key}: ${(err as Error).message}`);
+    const folder = key.includes("/") ? key.slice(0, key.lastIndexOf("/") + 1) : "";
+    const named = (fileName: string) => (/[\\/:*?"<>|]/.test(name) ? key : folder + fileName);
+    let to = key;
+    if (set?.spec && name !== set.id) {
+      to = named(actionSetFileName(name));
+      record(`Name ${name}`, [], moveFileEdits(dialogFiles, key, to, formatActionSet(setSetId(set.spec, name))));
+    } else if (context && name !== context.spec.name) {
+      to = named(`${name}${CONTEXT_EXTENSION}`);
+      record(`Name ${name}`, [], moveFileEdits(dialogFiles, key, to, formatInputContext({ ...context.spec, name })));
     }
-  };
-  const renameTo = async (path: string, fileName: string) => {
-    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
-    const to = folder + fileName;
-    if (to === path || project.files.includes(to)) return;
-    if (await renameAsset(path, fileName)) select(to);
+    if (history.text(to) !== undefined) select(to);
   };
   const rename = (key: string, name: string) => {
     const set = sets.find((s) => s.path === key);
@@ -288,24 +311,25 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
       if (key === renaming) inputDialogRename.value = null;
       return setMessage(`Can't rename ${set!.id} to ${name}: ${why}`);
     }
-    if (key === renaming) return void commitNew(key, name);
+    if (key === renaming) return commitNew(key, name);
     if (set) return setOps(set).renameSet(name);
     const context = contexts.find((c) => c.path === key);
     if (context && !context.isDefault && name !== context.spec.name) editContext(key, { ...context.spec, name }, `Rename ${context.name} to ${name}`);
   };
   const [editing, setEditing] = useState<string | null>(null);
-  const duplicate = async (key: string) => {
+  const duplicate = (key: string) => {
     const set = sets.find((s) => keyOfSet(s) === key);
     const context = contexts.find((c) => c.path === key);
-    let path: string | null = null;
+    let made: { path: string; text: string; label: string } | null = null;
     if (set) {
       const actions = set.spec?.actions ?? set.actions.map((a) => ({ name: a.name, type: a.kind, ...(a.consume !== undefined ? { consume: a.consume } : {}) }));
-      path = await writeActionSet(folderFor(project), { ...(set.spec ?? {}), id: newSetId(project, `${set.id}Copy`), actions });
+      const id = newSetId(project, `${set.id}Copy`);
+      made = { path: setPath(id), text: formatActionSet({ ...(set.spec ?? {}), id, actions }), label: `Duplicate ${set.id}` };
     } else if (context) {
       const name = `${context.name} copy`;
-      path = await createAsset<InputContextSpec>("inputContext", { folder: folderFor(project), name, value: { ...context.spec, name } });
+      made = { path: freeFilePath(files, folderFor(project), name, CONTEXT_EXTENSION), text: formatInputContext({ ...context.spec, name }), label: `Duplicate ${context.name}` };
     }
-    if (path) select(path);
+    if (made && record(made.label, [], makeFileEdits(dialogFiles, made.path, made.text)) !== null) select(made.path);
   };
   const copyId = (key: string) => {
     const set = sets.find((s) => keyOfSet(s) === key);
@@ -315,8 +339,18 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
       () => setMessage(`Couldn't copy ${text}.`),
     );
   };
-  const remove = async (key: string) => {
-    if (await deleteAssets([key])) select(DEFAULT_CONTEXT_PATH);
+  /** Delete a set or context file (and a set's `input.actionSets` entry) as one step, undoable from the toast it shows. */
+  const remove = (key: string) => {
+    const why = whyNotDeletableAsset(project, key, openScenePaths());
+    if (why) return setMessage(`Can't delete ${key}: ${why}.`);
+    const set = sets.find((s) => s.path === key);
+    const context = contexts.find((c) => c.path === key);
+    const users = context ? contextUsers(context, sceneFiles(project)) : [];
+    const seq = record(`Delete ${set?.id ?? context?.name ?? key}`, [], deleteFileEdits(dialogFiles, key));
+    if (seq === null) return;
+    if (shownKey === key) select(DEFAULT_CONTEXT_PATH);
+    const still = users.length ? ` ${users.length === 1 ? "A node's InputContext still names it" : `${users.length} nodes' InputContext still name it`}.` : "";
+    undoToast(`Deleted ${key}.${still}`, seq);
   };
   const canRename = (key: string) => !readOnly && (sets.some((s) => s.path === key) || contexts.some((c) => c.path === key && !c.isDefault));
   const menuEntries = (key: string): MenuEntry[] => {
@@ -324,9 +358,9 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
     const why = readOnly ? "this project is read-only" : sets.some((s) => keyOfSet(s) === key) ? "it's defined in a script" : "every project has the default context";
     return [
       { id: "rename", label: "Rename", hint: "F2", disabled: fixed, title: fixed ? why : undefined, run: () => setEditing(key) },
-      { id: "duplicate", label: "Duplicate", disabled: readOnly, run: () => void duplicate(key) },
+      { id: "duplicate", label: "Duplicate", disabled: readOnly, run: () => duplicate(key) },
       { id: "copy", label: sets.some((s) => keyOfSet(s) === key) ? "Copy id" : "Copy path", run: () => copyId(key) },
-      { id: "delete", label: "Delete", danger: true, disabled: fixed, title: fixed ? why : undefined, run: () => void remove(key) },
+      { id: "delete", label: "Delete", danger: true, disabled: fixed, title: fixed ? why : undefined, run: () => remove(key) },
     ];
   };
 
@@ -356,16 +390,24 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
         entry={shown}
         sets={infos}
         pickerSets={pickerSets}
+        project={project.root ?? `bundled:${project.name}`}
         scripts={shown.isDefault ? scripts : []}
         users={users}
         projectReadOnly={readOnly}
         focus={focusMapping}
+        folded={folds.get(shown.path) ?? NO_FOLDS}
+        onFold={(i, f) => {
+          const next = new Set(folds.get(shown.path));
+          if (f) next.add(i);
+          else next.delete(i);
+          setFolds(new Map(folds).set(shown.path, next));
+        }}
         onFocused={() => setFocusMapping(null)}
         onEdit={(next, label) => editContext(shown.path, next, label)}
         onRename={(name) => rename(shown.path, name)}
         onRemoveMapping={(i) => undoToast(`Removed mapping ${i + 1}`, editContext(shown.path, { ...shown.spec, mappings: shown.spec.mappings.filter((_, j) => j !== i) }, "Remove Mapping"))}
         onCreateAction={(set, name, i) => createActionFor(shown, set, name, i)}
-        onNewSet={(name, i) => void newSetFor(shown, name, i)}
+        onNewSet={(name, i) => newSetFor(shown, name, i)}
       />
     );
   } else if (shown) {
@@ -437,7 +479,7 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
           <nav class="input-dialog-list" aria-label="Action sets and contexts">
             <div class="input-list-head">
               <h3>Action sets</h3>
-              <button aria-label="New action set" title="New action set" disabled={readOnly} onClick={() => void addSet()}>
+              <button aria-label="New action set" title="New action set" disabled={readOnly} onClick={addSet}>
                 +
               </button>
             </div>
@@ -446,7 +488,7 @@ function InputDialogBody(props: { project: EditorProject; request: string }) {
             </ul>
             <div class="input-list-head">
               <h3>Contexts</h3>
-              <button aria-label="New context" title="New context" disabled={readOnly} onClick={() => void addContext()}>
+              <button aria-label="New context" title="New context" disabled={readOnly} onClick={addContext}>
                 +
               </button>
             </div>
