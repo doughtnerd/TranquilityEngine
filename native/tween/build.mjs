@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
+import { configRustflags, wasmBuildEnv } from "../rustflags.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const animRoot = fileURLToPath(new URL("../anim/", import.meta.url));
@@ -28,12 +29,17 @@ const OUT_NAME = "myco_tween";
  */
 const SIZE_LIMIT = 53 * 1024;
 
-/** Runs `cmd args` in `cwd` with inherited stdio. RUSTFLAGS are dropped so .cargo/config.toml's +simd128 applies. */
-function run(cmd, args, cwd = root) {
+/** The environment of host tools (gen_wire, wasm-bindgen): RUSTFLAGS are dropped, so nothing but the configs applies. */
+function hostEnv() {
   const env = { ...process.env };
   delete env.RUSTFLAGS;
   delete env.CARGO_ENCODED_RUSTFLAGS;
   delete env.CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS;
+  return env;
+}
+
+/** Runs `cmd args` in `cwd` with inherited stdio, in `env` (the host tools' by default). */
+function run(cmd, args, cwd = root, env = hostEnv()) {
   try {
     execFileSync(cmd, args, { cwd, stdio: "inherit", env });
   } catch {
@@ -77,7 +83,8 @@ function checkToolchain() {
 async function main() {
   checkToolchain();
   run("cargo", ["run", "-p", "anim-wire", "--bin", "gen_wire"], animRoot);
-  run("cargo", ["build", "--target", TARGET, "--release"]);
+  // .cargo/config.toml's +simd128, and the paths remapped so any checkout builds the same bytes (ADR 0428).
+  run("cargo", ["build", "--target", TARGET, "--release"], root, wasmBuildEnv(configRustflags(root)));
   mkdirSync(out, { recursive: true });
   // As build:anim: the name and producers sections are dropped (nothing at run time).
   run("wasm-bindgen", [

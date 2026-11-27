@@ -10,6 +10,7 @@ import { copyFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readModule } from "../../src/engine/wasm/meter.js";
+import { wasmBuildEnv } from "../rustflags.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
@@ -30,11 +31,12 @@ const PLUGINS = [
 for (const p of PLUGINS) {
   const target = join(dirname(p.manifest), "target");
   // A small stack (64 KiB) so the initial memory fits the plugin's budget; the maximum is the manifest's memoryMB.
-  const flags = `-C link-arg=-zstack-size=65536 -C link-arg=--max-memory=${p.memoryMB * 1048576}`;
+  const flags = ["-C", "link-arg=-zstack-size=65536", "-C", `link-arg=--max-memory=${p.memoryMB * 1048576}`];
   execFileSync(
     "cargo",
     ["+1.99.1", "build", "--release", "--target", "wasm32-unknown-unknown", "--manifest-path", p.manifest, "-p", p.pkg, "--target-dir", target],
-    { stdio: "inherit", env: { ...process.env, RUSTFLAGS: flags } },
+    // Paths remapped, so any checkout builds the same bytes (ADR 0428).
+    { stdio: "inherit", env: wasmBuildEnv(flags) },
   );
   const built = join(target, "wasm32-unknown-unknown", "release", p.wasm);
   const info = readModule(readFileSync(built));
