@@ -1,18 +1,18 @@
 // A mapping's action picker (ADR 0417): a button naming the action and its set, opening a searchable list grouped by
 // set (`actionPickerModel.ts` has the rules). Typing filters every set; ↑ ↓ move one highlight across the sections and
-// the Create rows, Enter picks, Esc closes and keeps the old choice. A set's header folds it; folds are remembered for
-// the rest of the session, and the engine's sets start folded.
+// the Create rows, Enter picks, Esc closes and keeps the old choice. A set's header folds it; folds are remembered per
+// project across editor restarts (`pickerFolds.ts`), and the engine's sets start folded.
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { initialHighlight, moveHighlight, pickerModel, type PickerRow, type PickerSet } from "./actionPickerModel";
-
-/** Folds the user chose, by set id (true folded): remembered while the editor runs. */
-const folds = new Map<string, boolean>();
+import { pickerFolds, setPickerFold } from "./pickerFolds";
 
 let pickers = 0;
 
 export interface ActionPickerProps {
   readonly sets: readonly PickerSet[];
+  /** Whose folds the picker shows and remembers: the project (its folder's path, or a sample's name). */
+  readonly project: string;
   /** The action the mapping names now, resolved; null when it names none that exists. */
   readonly current: { readonly set: string; readonly name: string } | null;
   /** What the mapping names, as written (shown when it names no action). */
@@ -33,7 +33,8 @@ export function ActionPicker(props: ActionPickerProps) {
   const root = useRef<HTMLSpanElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const id = useMemo(() => `input-action-picker-${++pickers}`, []);
-  const model = useMemo(() => pickerModel(props.sets, query, folds), [props.sets, query, foldVersion]);
+  const folds = useMemo(() => pickerFolds(props.project), [props.project, foldVersion]);
+  const model = useMemo(() => pickerModel(props.sets, query, folds), [props.sets, query, folds]);
   useEffect(() => {
     if (open) input.current?.focus();
   }, [open]);
@@ -60,7 +61,7 @@ export function ActionPicker(props: ActionPickerProps) {
     else props.onNewSet(row.name);
   };
   const toggleFold = (set: string, folded: boolean) => {
-    folds.set(set, !folded);
+    setPickerFold(props.project, set, !folded);
     setFoldVersion((v) => v + 1);
   };
   const onKeyDown = (e: KeyboardEvent) => {
