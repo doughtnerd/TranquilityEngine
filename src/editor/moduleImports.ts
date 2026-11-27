@@ -18,12 +18,26 @@ export interface ImportSite {
 
 /** Imports, export-froms and dynamic imports with a literal specifier in JavaScript `code`, with their positions. */
 export function importSites(ts: TS, code: string): ImportSite[] {
-  const info = ts.preProcessFile(code, true, true);
-  // Positions start at the literal's quote; find the specifier's own text from there.
-  return info.importedFiles.map((f) => {
-    const start = code.indexOf(f.fileName, f.pos);
-    return { specifier: f.fileName, start, end: start + f.fileName.length };
-  });
+  // A full parse, not `ts.preProcessFile`: that scanner loses its place in minified code (a bundle's chunks) and
+  // finds none of the imports after it, which were then left unrewritten.
+  const file = ts.createSourceFile("module.js", code, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
+  const sites: ImportSite[] = [];
+  const add = (literal: import("typescript").Node | undefined): void => {
+    if (!literal || !ts.isStringLiteralLike(literal)) return;
+    // The specifier's text sits between the literal's quotes.
+    sites.push({ specifier: literal.text, start: literal.getStart(file) + 1, end: literal.end - 1 });
+  };
+  const visit = (node: import("typescript").Node): void => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) add(node.moduleSpecifier);
+    else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) add(node.moduleReference.expression);
+    else if (ts.isCallExpression(node) && node.arguments.length >= 1) {
+      const callee = node.expression;
+      if (callee.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(callee) && callee.text === "require" && node.arguments.length === 1)) add(node.arguments[0]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return sites;
 }
 
 /** `code` with each import specifier replaced by what `urlFor` gives it (positions from `importSites`). */
