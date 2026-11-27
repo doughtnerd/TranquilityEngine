@@ -7,7 +7,7 @@
 import svelteTypes from "../../../node_modules/svelte/types/index.d.ts?raw"; // not in the package's exports, so by path
 import svelteElements from "../../../node_modules/svelte/elements.d.ts?raw";
 import svelteShims from "../../../node_modules/svelte2tsx/svelte-shims-v4.d.ts?raw";
-import { decodeMappings, originalPosition, type DecodedMappings } from "./sourceMaps";
+import { decodeMappings, generatedPosition, originalPosition, type DecodedMappings } from "./sourceMaps";
 
 /**
  * What the HTML elements of generated components accept: Svelte's HTML typings (`svelte/elements`), as
@@ -82,6 +82,11 @@ export interface ComponentTypeScript {
   readonly error: (ComponentRange & { readonly message: string }) | null;
   /** The component's span a span of the TypeScript (offset and length) came from, or null for code svelte2tsx added. */
   sourceRange(start: number, length: number): ComponentRange | null;
+  /**
+   * The offset in the TypeScript of the component's 1-based `line` and `column` (where the Code panel's caret is, for
+   * hover and completion), or null where the component has no code there (markup, styles, a line svelte2tsx dropped).
+   */
+  generatedOffset(line: number, column: number): number | null;
 }
 
 /**
@@ -176,7 +181,7 @@ export async function componentTypeScript(path: string, source: string, generate
     try {
       out = run(true);
     } catch {
-      return { path, generated, code: ANY_COMPONENT, checked, error, sourceRange: () => null };
+      return { path, generated, code: ANY_COMPONENT, checked, error, sourceRange: () => null, generatedOffset: () => null };
     }
   }
   const code = out.code;
@@ -202,5 +207,28 @@ export async function componentTypeScript(path: string, source: string, generate
       const to = last && (last.line > from.line || (last.line === from.line && last.column >= from.column)) ? { line: last.line, column: last.column + 1 } : { line: from.line, column: from.column + Math.max(length, 1) };
       return { line: from.line + 1, column: from.column + 1, endLine: to.line + 1, endColumn: to.column + 1 };
     },
+    generatedOffset(line, column) {
+      const at = generatedPosition(mappings, line - 1, column - 1);
+      if (!at || at.line >= generatedStarts.length) return null;
+      const offset = generatedStarts[at.line] + at.column;
+      const lineEnd = at.line + 1 < generatedStarts.length ? generatedStarts[at.line + 1] - 1 : code.length;
+      return offset <= lineEnd ? offset : null;
+    },
   };
+}
+
+/**
+ * Whether `offset` in component `source` is in its code, where the Code panel offers TypeScript completion: inside a
+ * `<script>`'s text, or inside a template expression (`{…}`, also as an attribute's value), not in markup text, tags'
+ * names or `<style>`.
+ */
+export function inComponentCode(source: string, offset: number): boolean {
+  for (const m of source.matchAll(/<(script|style)\b[^>]*>([\s\S]*?)(<\/\1\s*>|$)/g)) {
+    const start = m.index + m[0].length - m[2].length - m[3].length;
+    const end = start + m[2].length;
+    if (offset >= start && offset <= end) return m[1] === "script";
+    if (offset < m.index) break;
+  }
+  const before = source.slice(0, offset);
+  return before.lastIndexOf("{") > before.lastIndexOf("}");
 }

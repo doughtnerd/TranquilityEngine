@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import type { Plugin, Rollup, UserConfig } from "vite";
@@ -113,11 +113,14 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
       const file = id.split("?")[0];
       const isComponent = file.endsWith(".svelte");
       const isModule = file.endsWith(".svelte.ts") || file.endsWith(".svelte.js");
+      if (!isComponent && !isModule) return null;
       // Only the repository's sources: a game build's compiled `code/ui/Hud.svelte.js` is already JavaScript.
-      if ((!isComponent && !isModule) || !file.startsWith(root)) return null;
+      // Through `relative`, not a prefix test: on Windows `root` has backslashes and Vite's ids forward slashes.
+      const inRepo = relative(root, file);
+      if (inRepo.startsWith("..") || isAbsolute(inRepo)) return null;
       const { compileSvelteUI, compileSvelteUIModule } = await import("./src/plugins/ui/svelte/compile.mjs");
 
-      const filename = relative(root, file).split(sep).join("/");
+      const filename = inRepo.split(sep).join("/");
       if (isComponent) {
         const r = compileSvelteUI(code, { filename, dev: options.dev, styles });
         for (const w of r.warnings) this.warn(`${w.code}: ${w.message}`);

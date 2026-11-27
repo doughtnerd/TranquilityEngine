@@ -8,6 +8,7 @@ import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import JsonWorker from "monaco-editor/languages/features/json/json.worker.js?worker";
 import CssWorker from "monaco-editor/languages/features/css/css.worker.js?worker";
+import HtmlWorker from "monaco-editor/languages/features/html/html.worker.js?worker";
 import TsWorker from "monaco-editor/languages/features/typescript/ts.worker.js?worker";
 import engineTypes from "virtual:myco-types";
 import { codeLanguageOf, isScriptPath } from "../projectPaths";
@@ -15,13 +16,14 @@ import { codeFilePath, codeFileUri } from "./codeBuffers";
 import { codeAppearance, monacoColors } from "../theme";
 import { compilerOptions, SCRIPT_CHECK } from "../../scriptCompiler.mjs";
 import { isRuneModulePath, isSvelteComponentPath } from "../../projectCode/uiModules";
-import { componentTypeScript, generatedPathOf, SVELTE_CHECK_TYPES, type ComponentRange, type ComponentTypeScript } from "./svelteCheck";
+import { componentTypeScript, generatedPathOf, inComponentCode, SVELTE_CHECK_TYPES, type ComponentRange, type ComponentTypeScript } from "./svelteCheck";
 
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
   // Each language service runs in its own worker; everything else in the editor's.
+  // CSS for UI stylesheets (ADR 0077), HTML for Svelte components (which edit as HTML, projectPaths.ts); XML needs no worker.
   getWorker: (_id, label) =>
-    label === "typescript" || label === "javascript" ? new TsWorker() : label === "json" ? new JsonWorker() : label === "css" ? new CssWorker() : new EditorWorker(), // UI stylesheets (ADR 0077); XML needs no worker
+    label === "typescript" || label === "javascript" ? new TsWorker() : label === "json" ? new JsonWorker() : label === "css" ? new CssWorker() : label === "html" ? new HtmlWorker() : new EditorWorker(),
 };
 
 const ts = monaco.typescript;
@@ -308,6 +310,148 @@ monaco.editor.onDidCreateModel((model) => {
     scheduleComponentMarkers();
   });
   scheduleComponentMarkers();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Hover, completion, signature help and go to definition in Svelte components (ADR 0432)
+//
+// Components edit as HTML, which Monaco's TypeScript features don't serve: these ask the TypeScript service about the
+// component's TypeScript at the caret's place in it (`generatedOffset`), and map what comes back to the component.
+
+/** Where the caret in a component's model is in its TypeScript: the service's file and offset, with the component's TypeScript. */
+async function componentPlace(model: monaco.editor.ITextModel, position: monaco.IPosition): Promise<{ check: ComponentTypeScript; uri: string; offset: number } | null> {
+  const path = codeFilePath(model.uri);
+  if (path === null || !isSvelteComponentPath(path)) return null;
+  await syncComponents();
+  const check = componentLibs.get(path)?.check;
+  if (!check) return null;
+  const offset = check.generatedOffset(position.lineNumber, position.column);
+  return offset === null ? null : { check, uri: codeFileUri(check.generated), offset };
+}
+
+async function tsClient() {
+  return (await ts.getTypeScriptWorker())();
+}
+
+type DisplayPart = { text: string };
+const partsText = (parts: readonly DisplayPart[] | undefined): string => (parts ?? []).map((p) => p.text).join("");
+
+/** A span of a component's TypeScript as a range of the component, or undefined where it maps to none. */
+function componentRange(check: ComponentTypeScript, span: { start: number; length: number } | undefined): monaco.IRange | undefined {
+  const r = span && check.sourceRange(span.start, span.length);
+  return r ? { startLineNumber: r.line, startColumn: r.column, endLineNumber: r.endLine, endColumn: r.endColumn } : undefined;
+}
+
+/** svelte2tsx's own declarations, which completion leaves out. */
+const isGeneratedName = (name: string) => name.startsWith("__sveltets") || name.startsWith("$$") || name === "svelteHTML" || name.endsWith("__SvelteComponent_");
+
+const Kind = monaco.languages.CompletionItemKind;
+/** TypeScript's element kinds as Monaco's completion kinds (as Monaco's own TypeScript completion maps them). */
+const COMPLETION_KINDS: Readonly<Record<string, monaco.languages.CompletionItemKind>> = {
+  keyword: Kind.Keyword, "primitive type": Kind.Keyword, module: Kind.Module, "external module name": Kind.Module, class: Kind.Class,
+  "local class": Kind.Class, interface: Kind.Interface, type: Kind.Class, enum: Kind.Enum, "enum member": Kind.EnumMember,
+  var: Kind.Variable, "local var": Kind.Variable, let: Kind.Variable, const: Kind.Constant, parameter: Kind.Variable,
+  property: Kind.Field, getter: Kind.Field, setter: Kind.Field, accessor: Kind.Field, method: Kind.Method, constructor: Kind.Constructor,
+  function: Kind.Function, "local function": Kind.Function, alias: Kind.Reference, string: Kind.Value, directory: Kind.Folder, script: Kind.File,
+  "type parameter": Kind.TypeParameter,
+};
+
+monaco.languages.registerHoverProvider("html", {
+  async provideHover(model, position) {
+    const at = await componentPlace(model, position);
+    if (!at) return null;
+    const info = await (await tsClient()).getQuickInfoAtPosition(at.uri, at.offset);
+    if (!info) return null;
+    const signature = partsText(info.displayParts);
+    const docs = partsText(info.documentation);
+    if (!signature && !docs) return null;
+    const contents: monaco.IMarkdownString[] = [];
+    if (signature) contents.push({ value: "```typescript\n" + signature + "\n```" });
+    if (docs) contents.push({ value: docs });
+    return { range: componentRange(at.check, info.textSpan), contents };
+  },
+});
+
+/** What a component's completion item needs to fetch its details. */
+interface ComponentCompletion extends monaco.languages.CompletionItem {
+  readonly place: { uri: string; offset: number };
+}
+
+monaco.languages.registerCompletionItemProvider("html", {
+  triggerCharacters: [".", '"', "'", "/"],
+  async provideCompletionItems(model, position) {
+    if (!inComponentCode(model.getValue(), model.getOffsetAt(position))) return null;
+    const at = await componentPlace(model, position);
+    if (!at) return null;
+    const info = await (await tsClient()).getCompletionsAtPosition(at.uri, at.offset);
+    if (!info) return null;
+    const word = model.getWordUntilPosition(position);
+    const range = { startLineNumber: position.lineNumber, startColumn: word.startColumn, endLineNumber: position.lineNumber, endColumn: word.endColumn };
+    const suggestions: ComponentCompletion[] = [];
+    for (const entry of info.entries as { name: string; kind: string; sortText: string; insertText?: string }[]) {
+      if (isGeneratedName(entry.name)) continue;
+      suggestions.push({
+        label: entry.name,
+        kind: COMPLETION_KINDS[entry.kind] ?? Kind.Property,
+        sortText: entry.sortText,
+        insertText: entry.insertText ?? entry.name,
+        range,
+        place: { uri: at.uri, offset: at.offset },
+      });
+    }
+    return { suggestions };
+  },
+  async resolveCompletionItem(item) {
+    const { place } = item as ComponentCompletion;
+    const details = await (await tsClient()).getCompletionEntryDetails(place.uri, place.offset, String(item.label));
+    if (!details) return item;
+    return { ...item, detail: partsText(details.displayParts), documentation: partsText(details.documentation) || undefined };
+  },
+});
+
+monaco.languages.registerSignatureHelpProvider("html", {
+  signatureHelpTriggerCharacters: ["(", ","],
+  async provideSignatureHelp(model, position) {
+    if (!inComponentCode(model.getValue(), model.getOffsetAt(position))) return null;
+    const at = await componentPlace(model, position);
+    if (!at) return null;
+    const help = await (await tsClient()).getSignatureHelpItems(at.uri, at.offset, {});
+    if (!help) return null;
+    type Item = { prefixDisplayParts: DisplayPart[]; suffixDisplayParts: DisplayPart[]; separatorDisplayParts: DisplayPart[]; documentation: DisplayPart[]; parameters: { displayParts: DisplayPart[]; documentation: DisplayPart[] }[] };
+    const signatures = (help.items as Item[]).map((item) => {
+      const params = item.parameters.map((p) => ({ label: partsText(p.displayParts), documentation: partsText(p.documentation) || undefined }));
+      return {
+        label: partsText(item.prefixDisplayParts) + params.map((p) => p.label).join(partsText(item.separatorDisplayParts)) + partsText(item.suffixDisplayParts),
+        documentation: partsText(item.documentation) || undefined,
+        parameters: params,
+      };
+    });
+    return { value: { signatures, activeSignature: help.selectedItemIndex, activeParameter: help.argumentIndex }, dispose() {} };
+  },
+});
+
+monaco.languages.registerDefinitionProvider("html", {
+  async provideDefinition(model, position) {
+    const at = await componentPlace(model, position);
+    if (!at) return null;
+    const found = (await (await tsClient()).getDefinitionAtPosition(at.uri, at.offset)) as { fileName: string; textSpan: { start: number; length: number } }[] | undefined;
+    const out: monaco.languages.Location[] = [];
+    for (const d of found ?? []) {
+      // In a component (its own TypeScript or another's): back to the component; in a project file: its model.
+      const component = [...componentLibs.values()].find((e) => codeFileUri(e.check.generated) === d.fileName);
+      if (component) {
+        const range = componentRange(component.check, d.textSpan);
+        if (range) out.push({ uri: uriOf(component.check.path), range });
+        continue;
+      }
+      const target = monaco.editor.getModel(monaco.Uri.parse(d.fileName));
+      if (!target || codeFilePath(target.uri) === null) continue; // the engine's or a package's declarations: no model to open
+      const start = target.getPositionAt(d.textSpan.start);
+      const end = target.getPositionAt(d.textSpan.start + d.textSpan.length);
+      out.push({ uri: target.uri, range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column } });
+    }
+    return out;
+  },
 });
 
 /**
