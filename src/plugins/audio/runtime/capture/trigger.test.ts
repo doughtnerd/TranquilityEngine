@@ -464,7 +464,7 @@ describe("nothing is installed without the option", () => {
 
   it("the player imports the trigger only under the manifest's flag, and the trigger reaches the chunk only by import()", () => {
     const player = readFileSync(join(__dirname, "../../../../player/main.ts"), "utf8");
-    expect(player).toMatch(/if \(manifest\.audioCapture\) \(await import\("\.\.\/plugins\/audio\/runtime\/capture\/trigger"\)\)\.installCaptureTrigger\(\)/);
+    expect(player).toMatch(/if \(launch\.audioCapture\) \(await import\("\.\.\/plugins\/audio\/runtime\/capture\/trigger"\)\)\.installCaptureTrigger\(\)/);
     expect(player).not.toMatch(/^import[^;]*capture\/trigger/m);
     const trigger = readFileSync(join(__dirname, "trigger.ts"), "utf8");
     const staticValueImports = trigger.split("\n").filter((l) => /^\s*(import|export)\b(?!\s+type\b)/.test(l) && /from\s+["']\.\/(recorder|events|save|ring|format|reader|worker)["']/.test(l));
