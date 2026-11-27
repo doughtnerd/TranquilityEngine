@@ -12,11 +12,14 @@ import { Animator, Assets, Engine, GameObject, Skeleton2D, SpriteRenderer } from
 import { isFieldAnimatable } from "../../../../engine/core/registry";
 import { skeleton2D, sliceFrame } from "../../../../engine/animation/sprites/skeleton2d";
 import type { QuadBatch, QuadBatchHost } from "../../../../engine/render/quadBatches";
+import { drawPlace, ySortFraction } from "../../../../engine/render/sortOrder";
 import { instanceForSkeleton } from "../skeletonInstances";
 import { claimsSkinnedSprite, SkinnedSprites } from "./sprites2d/skinnedSprites";
 import { writeRawClip } from "./timeline/rawClip";
 
 let engine: Engine;
+/** The project's sorting layers: `Units` is y-sorted (ADR 0438), `Default` isn't. */
+const RENDER = { sortingLayers: ["Default", "Units"], ySortedLayers: ["Units"] };
 const made: GameObject[] = [];
 
 const SHEET = {
@@ -76,7 +79,7 @@ beforeAll(async () => {
       "rig/bend.anim": bendClip(),
     }),
   );
-  engine = await Engine.create({ headless: true });
+  engine = await Engine.create({ headless: true, project: { render: RENDER } });
 });
 
 afterEach(() => {
@@ -136,6 +139,8 @@ describe("flipbooks (ADR 0371)", () => {
 // --- skinned sprites --------------------------------------------------------------------------------------------------
 
 interface FakeBatch extends QuadBatch {
+  /** The sorting layer, order in layer and `within` (ADR 0438) it was last given. */
+  order: [string, number, number | undefined];
   positions: number[];
   texture: string;
   matrix: number[];
@@ -148,13 +153,13 @@ function fakeHost() {
   const host: QuadBatchHost = {
     createBatch() {
       const b: FakeBatch = {
-        positions: [], texture: "", matrix: [], visible: false, disposed: false,
+        order: ["", 0, undefined], positions: [], texture: "", matrix: [], visible: false, disposed: false,
         setMaterial() {},
         setBlend() {},
         setQuads() {},
         setTriangles(texture, positions) { b.texture = texture; b.positions = Array.from(positions); },
         setMatrix(m, offset = 0) { b.matrix = Array.from(m).slice(offset, offset + 16); },
-        setOrder() {},
+        setOrder(layer, inLayer, within) { b.order = [layer, inLayer, within]; },
         setTint() {},
         setMask() {},
         setVisible(v) { b.visible = v; },
@@ -262,6 +267,40 @@ describe("Skeleton2D and skinned sprites (ADR 0370, 0371)", () => {
     made.push(r.arm.node);
     sprites.sync(engine.world);
     expect(arm.disposed).toBe(true);
+    sprites.dispose();
+  });
+
+  it("places skinned sprites of a y-sorted layer by their nodes' heights within their order in layer, lower on top (ADR 0438)", () => {
+    const r = rig(false);
+    for (const s of [r.body, r.arm]) Object.assign(s, { sortingLayer: "Units", orderInLayer: 4 });
+    r.body.node.transform!.position.y = 1;
+    r.arm.node.transform!.position.y = -2; // below the body: drawn over it
+    const { host, batches } = fakeHost();
+    const sprites = new SkinnedSprites(host);
+    sprites.sync(engine.world);
+    const [body, arm] = batches as [FakeBatch, FakeBatch];
+    expect(body.order).toEqual(["Units", 4, ySortFraction(1)]);
+    expect(arm.order).toEqual(["Units", 4, ySortFraction(-2)]);
+    const order = () => new Map([...sprites.drawn()].map((d) => [d.renderer, d.order]));
+    let drawn = order();
+    expect(drawn.get(r.body)).toBe(drawPlace(RENDER, "Units", 4, 1));
+    expect(drawn.get(r.arm)).toBe(drawPlace(RENDER, "Units", 4, -2));
+    for (const o of drawn.values()) expect(o >= 10004 && o < 10005).toBe(true);
+    expect(drawn.get(r.arm)!).toBeGreaterThan(drawn.get(r.body)!);
+
+    // The sort point is the sprite's node (not the skeleton's): moving the arm above the body puts it under.
+    r.arm.node.transform!.position.y = 3;
+    sprites.sync(engine.world);
+    expect(arm.order).toEqual(["Units", 4, ySortFraction(3)]);
+    drawn = order();
+    expect(drawn.get(r.arm)).toBe(drawPlace(RENDER, "Units", 4, 3));
+    expect(drawn.get(r.arm)!).toBeLessThan(drawn.get(r.body)!);
+
+    // A layer that isn't y-sorted: the order alone, whatever the height.
+    for (const s of [r.body, r.arm]) s.sortingLayer = "Default";
+    sprites.sync(engine.world);
+    expect([body.order, arm.order]).toEqual([["Default", 4, 0], ["Default", 4, 0]]);
+    expect([...order().values()]).toEqual([4, 4]);
     sprites.dispose();
   });
 });
