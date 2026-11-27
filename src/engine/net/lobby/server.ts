@@ -10,8 +10,9 @@
  * Rooms: members ready up; when every member is ready (and there are at least `minPlayers`), the
  * room counts down `startCountdown` seconds and starts, unless someone unreadies, leaves or joins
  * meanwhile. The host can start at once once `minPlayers` is met. Quick-match rooms also start their
- * first match on their own `quickMatchWait` seconds after they were made; once it ends they're
- * ordinary rooms, so players coming back from a match stay in the room until they start again.
+ * first match on their own `quickMatchWait` seconds after they were made, unless a member readies
+ * up or the host changes a setting first; once either happens, or their first match ends, they're
+ * ordinary rooms that wait for everyone to be ready (or the host) before they start.
  *
  * Starting: a World from `matchTemplate`, named `Match <id>`, made a match World (`match.ts`) and
  * told to listen over the lobby's own transport at `/match/<id>` (on the lobby's port, ADR 0067);
@@ -292,6 +293,9 @@ export class LobbyServer {
     if (!m) return this.refuse(client, "You aren't in a room.");
     if (m.member.ready === ready) return;
     m.member.ready = ready;
+    // Someone readied up: the room now waits for every member to be ready (or the host), not
+    // for its quick-match timer, which would start the match before the others are ready.
+    if (ready) m.room.quick = false;
     this.dirty = true;
   }
 
@@ -317,6 +321,9 @@ export class LobbyServer {
     } catch (err) {
       return this.refuse(client, (err as Error).message);
     }
+    // The host is choosing settings: the quick-match timer would start the match mid-choice, so
+    // from here on the room starts like any other (ready-up, or the host).
+    room.quick = false;
     this.dirty = true;
   }
 

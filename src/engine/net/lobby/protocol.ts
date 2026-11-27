@@ -89,7 +89,7 @@ export interface LobbyRoom {
   readonly code: string;
   readonly name: string;
   readonly public: boolean;
-  /** Made by quick match: it starts on its own after `quickMatchWait`. */
+  /** Made by quick match: it starts on its own after `quickMatchWait`, until a member readies up or the host changes a setting. */
   readonly quick: boolean;
   /** The host's slot. */
   readonly hostSlot: number;
