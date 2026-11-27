@@ -110,6 +110,19 @@ describe("::before and ::after (ADR 0428)", () => {
     expect(textRunOf(p)!.text).toBe("» Hello!");
   });
 
+  it("collapses its white space with the text's, sits inside its element's inline box, and is an atom when inline-block", () => {
+    const ui = buildUI(`<Canvas><p id="p"><span id="s">  Hello   world</span> <em id="e">x</em></p></Canvas>`, {
+      css: `#s::before { content: "»   " } #s { padding: 0 4px; border: 1px solid #0000ff } #e::after { content: "!"; display: inline-block; padding: 2px }`,
+    });
+    const p = byId(ui, "p", UIText);
+    const run = textRunOf(p)!;
+    expect(run.runs!.map((r) => r.text)).toEqual(["» ", "Hello world", " ", "x", "￼"]);
+    const s = byId(ui, "s", UIText);
+    // The span's box spans its generated run and its own text.
+    expect(run.boxes!.map((b) => [b.owner, b.first, b.last])).toEqual([[s, 0, 1]]);
+    expect(run.runs![4].atom).toBeTruthy();
+  });
+
   it("restyles when attributes, classes and rules change, and goes with content: none", () => {
     const ui = buildUI(`<Canvas><div id="d" data-n="1"/></Canvas>`, {
       css: `#d::before { content: "n" attr(data-n) } #d.off::before { content: none } #d.big::before { width: 50px }`,
