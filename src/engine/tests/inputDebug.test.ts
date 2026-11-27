@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, InputContext, InputPlayers, button, defineActions, defineInputContext, dpad, vec2 } from "../index";
-import { canonicalControlPath, inputActionSets, inputContextNames, inputContextProblems, inputState, watchInput, watchRawPresses, unregisterScripts, withScriptRegistrations, type RawPress } from "../editor";
+import { canonicalControlPath, inputActionSets, inputContextNames, inputContextProblems, inputControlInfo, inputState, watchInput, watchRawPresses, unregisterScripts, withScriptRegistrations, type RawPress } from "../editor";
 
 // The editor's view of the input system (ADR 0336, 0337): what the Input debugger panel and the context asset editor
 // read through the editor SDK, driven through Input.inject as real adapters drive it.
@@ -119,11 +119,18 @@ describe("for the context asset editor", () => {
   });
 
   it("lists action sets and registered contexts, canonicalizes control paths, and reports the evaluator's problems", () => {
-    expect(inputActionSets().find((s) => s.id === "test.inputDebug.Player")?.actions).toEqual([
-      { name: "move", kind: "vec2" },
-      { name: "fire", kind: "button" },
-      { name: "honk", kind: "button" },
+    const player = inputActionSets().find((s) => s.id === "test.inputDebug.Player")!;
+    expect(player.source).toBe("code");
+    // Each action with its inline defaults as mappings naming it (ADR 0417: the default context's "from a script" rows).
+    expect(player.actions).toEqual([
+      { name: "move", kind: "vec2", defaults: [{ action: "test.inputDebug.Player:move", composite: "dpad", up: "<Keyboard>/w", down: "<Keyboard>/s", left: "<Keyboard>/a", right: "<Keyboard>/d" }] },
+      { name: "fire", kind: "button", defaults: [{ action: "test.inputDebug.Player:fire", control: "<Keyboard>/space" }] },
+      { name: "honk", kind: "button", defaults: [] },
     ]);
+    expect(inputControlInfo("<Gamepad>/leftStickX")).toEqual({ dimensions: 1, axis: true });
+    expect(inputControlInfo("<Keyboard>/k")).toEqual({ dimensions: 1, axis: false });
+    expect(inputControlInfo("<Gamepad>/rightStick")).toEqual({ dimensions: 2, axis: false });
+    expect(inputControlInfo("<Gamepad>/nope")).toBeNull();
     expect(inputContextNames()).toEqual(expect.arrayContaining(["default", "test.inputDebug.vehicle"]));
     expect(canonicalControlPath("<keyboard>/Space")).toBe("<Keyboard>/space");
     expect(canonicalControlPath("<Gamepad>/nope")).toBeNull();
