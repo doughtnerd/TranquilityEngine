@@ -2279,7 +2279,29 @@ function sameElements(a: readonly UILaidOutElement[], b: readonly UILaidOutEleme
   if (a.length !== b.length) return false;
   return a.every((x, i) => {
     const y = b[i];
-    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip) && sameAffine(x.transform, y.transform) && sameRect(x.bounds, y.bounds) && sameRect(x.reach, y.reach) && sameScroll(x.scroll, y.scroll) && x.parts === y.parts && x.paint === y.paint && (x.inline ?? null) === (y.inline ?? null) && (x.editing ?? null) === (y.editing ?? null);
+    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip) && sameAffine(x.transform, y.transform) && sameRect(x.bounds, y.bounds) && sameRect(x.reach, y.reach) && sameScroll(x.scroll, y.scroll) && x.parts === y.parts && x.paint === y.paint && sameFilter(x.filter, y.filter) && sameFilter(x.backdrop, y.backdrop) && (x.inline ?? null) === (y.inline ?? null) && (x.editing ?? null) === (y.editing ?? null);
+  });
+}
+
+/** ADR 0430, 0432: true when two filter step lists (a filter or a backdrop) draw the same. Each sync builds new lists. */
+function sameFilter(a: readonly UIFilterStep[] | null | undefined, b: readonly UIFilterStep[] | null | undefined): boolean {
+  if (!a || !b) return (a ?? null) === (b ?? null);
+  if (a.length !== b.length) return false;
+  return a.every((p, i) => {
+    const q = b[i];
+    if (p.kind !== q.kind) return false;
+    switch (p.kind) {
+      case "blur":
+        return p.radius === (q as typeof p).radius;
+      case "hue-rotate":
+        return p.degrees === (q as typeof p).degrees;
+      case "drop-shadow": {
+        const d = q as typeof p;
+        return p.x === d.x && p.y === d.y && p.blur === d.blur && p.color.r === d.color.r && p.color.g === d.color.g && p.color.b === d.color.b && p.color.a === d.color.a;
+      }
+      default:
+        return p.amount === (q as typeof p).amount;
+    }
   });
 }
 

@@ -83,6 +83,29 @@ describe("filters in the cascade and the UI core (ADR 0430)", () => {
     }
   });
 
+  it("publishes a change to only an element's filter or backdrop (nothing else about it moved)", async () => {
+    const doc = buildUI(`<Canvas><div id="p" position="absolute" width="10" height="10" filter="blur(2px)"/></Canvas>`);
+    const p = byId(doc, "p", UIPanel);
+    const core = new UICore({ interactive: false });
+    await core.ready;
+    try {
+      core.sync(World.require(), 1280, 720, DT);
+      const version = core.layoutVersion;
+      core.sync(World.require(), 1280, 720, DT);
+      expect(core.layoutVersion).toBe(version); // an unchanged filter publishes nothing
+      const of = () => core.elements().find((e) => e.comp === p)!;
+      p.filterBlur = 5;
+      core.sync(World.require(), 1280, 720, DT);
+      expect(filterText(of().filter!)).toBe("blur(5px)");
+      expect(core.layoutVersion).toBeGreaterThan(version);
+      p.backdropBlur = 3;
+      core.sync(World.require(), 1280, 720, DT);
+      expect(filterText(of().backdrop!)).toBe("blur(3px)");
+    } finally {
+      core.dispose();
+    }
+  });
+
   it("transitions each filter function as a number", async () => {
     await uiAnimationReady(World.require());
     const doc = buildUI(`<Canvas><div id="p" class="a"/></Canvas>`, { css: `.a { transition: filter 1s linear } .a.on { filter: blur(8px) grayscale(1) }` });
