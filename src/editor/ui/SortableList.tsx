@@ -4,7 +4,7 @@
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 import { dropSlot, dropTarget, liftKey, moveItem, type LiftState } from "./sortableListLogic";
-import "./sortableList.css";
+import "./sortable-list.css";
 
 export interface SortableListProps<T> {
   items: readonly T[];
