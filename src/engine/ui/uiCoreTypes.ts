@@ -285,6 +285,10 @@ export interface UIPart {
   readonly color: readonly [number, number, number, number];
   readonly radius: number;
   readonly rotate: number;
+  /** ADR 0428 (part pseudo-elements): a border inside its edge, `width` UI pixels; absent: none. */
+  readonly border?: { readonly width: number; readonly color: readonly [number, number, number, number] };
+  /** ADR 0428: a box shadow (offset and blur in UI pixels); absent: none. */
+  readonly shadow?: { readonly color: readonly [number, number, number, number]; readonly x: number; readonly y: number; readonly blur: number };
 }
 
 /** A ray in world space, for picking world canvases. */

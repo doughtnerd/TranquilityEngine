@@ -4,3 +4,4 @@
 export * from "../document/cascade";
 export { parseSelectorQuery } from "../document/selectorQuery";
 export { hasViewportUnits } from "../document/cssMath";
+export { contentText } from "../document/contentValue";

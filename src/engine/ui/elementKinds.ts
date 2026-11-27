@@ -341,10 +341,15 @@ function pushRuns(c: UIText, outer: InlineContext, out: UIInlineRun[], root: boo
         family: c.font ? fontFamilyOf(c.font) : outer.family,
         hidden: outer.hidden || !c.visible,
       };
-  // A text piece's events go to the element it's in.
-  const owner = c._textPiece ? ownerAbove(c) : c;
+  // A text piece's events go to the element it's in, as a generated `::before`/`::after`'s do (ADR 0428).
+  const owner = c._textPiece || c._pseudo ? ownerAbove(c) : c;
+  const children = inlineChildren(c);
+  // ADR 0428: a `::before` run comes before the element's own text.
+  const first = children[0] instanceof UIText && children[0]._pseudo === "before" ? children[0] : null;
+  if (first) pushRuns(first, ctx, out, false);
   if (c.text !== "") out.push(textRun(c, c.text, ctx, owner));
-  for (const k of inlineChildren(c)) {
+  for (const k of children) {
+    if (k === first) continue;
     if (k instanceof UIText) {
       // A `<br>`: a line break in the run's style.
       pushRuns(k, ctx, out, false);

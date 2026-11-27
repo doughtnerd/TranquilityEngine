@@ -42,10 +42,12 @@ import type {
   UIMediaEnvironment,
   UINthSelector,
   UIPseudo,
+  UIPseudoElement,
   UIStylesheet,
   ValueSource,
 } from "./types";
 import { matchMediaQueries } from "./mediaQuery";
+import { parseContent } from "./contentValue";
 import { hasViewportUnits, linearLength, resolveMath, resolveRelativeUnits, type UIRelativeUnits } from "./cssMath";
 
 
@@ -141,10 +143,34 @@ function langMatches(language: string | undefined, range: string): boolean {
   return l === r || l.startsWith(`${r}-`);
 }
 
-/** True when a selector matches an element (`:root` matches the tree's root: the element without a parent). */
+/**
+ * ADR 0428: the pseudo-elements UI selectors style (`UIPseudoElement`). `before` and `after` are also read with one colon,
+ * as CSS 2 wrote them.
+ */
+export const PSEUDO_ELEMENTS: ReadonlySet<string> = new Set<UIPseudoElement>([
+  "before", "after", "placeholder", "selection",
+  "-webkit-slider-thumb", "-webkit-slider-runnable-track", "-webkit-progress-bar", "-webkit-progress-value",
+  "-webkit-meter-optimum-value", "-webkit-meter-suboptimum-value", "-webkit-meter-even-less-good-value",
+  "checkmark", "picker-icon",
+]);
+
+/**
+ * True when a selector matches an element (`:root` matches the tree's root: the element without a parent). ADR 0428: a
+ * selector with a pseudo-element matches only that pseudo-element's target, its parts matched against the originating
+ * element (the target's parent).
+ */
 export function matchSelector(selector: Selector, target: StyleTarget): boolean {
+  if (selector.pseudoElement !== target.pseudoElement) return false;
+  if (target.pseudoElement) return target.parent !== null && matchFrom(selector, selector.parts.length - 1, target.parent);
   if (selector.root && target.parent) return false; // rule data from before wave 5 marks `:root` only here
   return matchFrom(selector, selector.parts.length - 1, target);
+}
+
+/** ADR 0428: the pseudo-elements the rules of these sheets style (empty: none). */
+export function pseudoElementsUsed(sheets: readonly { rules: readonly StyleRule[] }[]): ReadonlySet<UIPseudoElement> {
+  const out = new Set<UIPseudoElement>();
+  for (const s of sheets) for (const r of s.rules) for (const sel of r.selectors) if (sel.pseudoElement) out.add(sel.pseudoElement);
+  return out;
 }
 
 /**
@@ -290,13 +316,14 @@ function matchAttribute(a: UIAttributeSelector, t: StyleTarget): boolean {
 }
 
 /**
- * A selector's specificity from its parts: ids; classes, pseudo-classes and attribute selectors; tags. `:is()`,
- * `:not()` and `:nth-child(… of S)` add their most specific argument's, `:where()` nothing.
+ * A selector's specificity from its parts: ids; classes, pseudo-classes and attribute selectors; tags (and a
+ * pseudo-element, ADR 0428). `:is()`, `:not()` and `:nth-child(… of S)` add their most specific argument's, `:where()`
+ * nothing.
  */
-export function selectorSpecificity(parts: Selector["parts"]): [number, number, number] {
+export function selectorSpecificity(parts: Selector["parts"], pseudoElement?: UIPseudoElement | null): [number, number, number] {
   let ids = 0;
   let classes = 0;
-  let tags = 0;
+  let tags = pseudoElement ? 1 : 0; // ADR 0428: a pseudo-element counts as a type selector
   const addMost = (list: readonly Selector[]) => {
     const [a, b, c] = groupSpecificity({ selectors: list, zero: false });
     ids += a;
@@ -1008,6 +1035,12 @@ export function withElementUnits(value: string, field: string, units: UIElementU
   return resolveRelativeUnits(value, field === "fontSize" ? { em: units.parentEm, rem: units.rem, viewport: units.viewport } : units);
 }
 
+/**
+ * ADR 0428: the resolved-map key holding a pseudo-element's `content` (`UIContentPiece[]`, or null for `none`/`normal`);
+ * never a field, never inherited. Only pseudo-element targets get it: `content` on an element does nothing, as in CSS.
+ */
+export const CONTENT_KEY = "@content";
+
 /** A variable's key in a resolved map: `--name` (variables inherit, like the text properties). */
 const isVariable = (key: string) => key.startsWith("--");
 
@@ -1164,6 +1197,19 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   for (const m of matched) {
     const prop = m.declaration.property;
     if (isVariable(prop)) continue;
+    if (prop === "content") {
+      if (!target.pseudoElement) continue;
+      const where = `${m.file} "${m.rule.selectorText}" content`;
+      const value = substituteVars(m.declaration.value, vars);
+      if (value === undefined) {
+        warnOnce(`${where}: "${m.declaration.value}" uses a variable that isn't defined.`);
+        continue;
+      }
+      const parsed = parseContent(value);
+      if (!parsed.ok) warnOnce(`${where}: "${value}" ${parsed.problem}`);
+      else out.set(CONTENT_KEY, { field: CONTENT_KEY, value: parsed.value, source: { kind: "rule", rule: m.rule, declaration: m.declaration, file: m.file } });
+      continue;
+    }
     if (isAnimationProperty(prop)) {
       const where = `${m.file} "${m.rule.selectorText}" ${prop}`;
       const value = prepare(m.declaration.value, where);

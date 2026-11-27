@@ -7,11 +7,11 @@
  */
 import parse from "css-tree/parser";
 import type { CssNode, Declaration as CssDeclaration, Rule as CssRule, Selector as CssSelector } from "css-tree";
-import { isKnownTag, PSEUDO, selectorSpecificity, UI_TAGS, type SelectorGroup } from "./cascade";
+import { isKnownTag, PSEUDO, PSEUDO_ELEMENTS, selectorSpecificity, UI_TAGS, type SelectorGroup } from "./cascade";
 import { parseMediaQueryList } from "./mediaQuery";
 import { parseCompoundText } from "./selectorQuery";
 import { problemAt } from "./sourceText";
-import type { Combinator, Declaration, ParseStylesheet, Selector, SimpleSelector, SourceProblem, StyleRule, UIAttributeSelector, UIKeyframe, UIKeyframes, UIMediaQuery, UINthSelector, UIPseudo } from "./types";
+import type { Combinator, Declaration, ParseStylesheet, Selector, SimpleSelector, SourceProblem, StyleRule, UIAttributeSelector, UIKeyframe, UIKeyframes, UIMediaQuery, UINthSelector, UIPseudo, UIPseudoElement } from "./types";
 
 export * from "./cascade";
 
@@ -188,11 +188,26 @@ const READ_AS_TEXT: ReadonlySet<string> = new Set([
 
 const SUPPORTED = ":hover, :pressed, :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), the -of-type forms, :empty, :root and :has()";
 
-function parseSelector(sel: CssSelector, source: string, report: Report): Selector | null {
+/** ADR 0428: `nested` (inside `:is()`/`:where()`), where pseudo-elements can't be. */
+function parseSelector(sel: CssSelector, source: string, report: Report, nested = false): Selector | null {
   const parts: { selector: SimpleSelector; combinator: Combinator | null }[] = [];
   let current: MutableCompound | null = null;
   let pendingCombinator: Combinator | null = null;
   let ok = true;
+  /** ADR 0428: the pseudo-element the selector ends with. */
+  let pseudoElement: UIPseudoElement | null = null;
+  const takePseudoElement = (name: string, s: number, e: number) => {
+    if (!PSEUDO_ELEMENTS.has(name)) {
+      report(s, e, `::${name} isn't supported; UI pseudo-elements are ${[...PSEUDO_ELEMENTS].map((n) => `::${n}`).join(", ")}.`);
+      ok = false;
+    } else if (nested) {
+      report(s, e, `A pseudo-element (::${name}) can't be inside a pseudo-class's argument.`);
+      ok = false;
+    } else {
+      compound();
+      pseudoElement = name as UIPseudoElement;
+    }
+  };
   const flush = () => {
     if (!current) return;
     parts.push({ selector: current, combinator: parts.length === 0 ? null : (pendingCombinator ?? " ") });
@@ -221,6 +236,11 @@ function parseSelector(sel: CssSelector, source: string, report: Report): Select
   for (const n of sel.children.toArray()) {
     const s = n.loc?.start.offset ?? 0;
     const e = n.loc?.end.offset ?? 0;
+    if (pseudoElement) {
+      report(s, e, `A pseudo-element (::${pseudoElement}) ends its selector; "${source.slice(s, e)}" can't follow it.`);
+      ok = false;
+      break;
+    }
     switch (n.type) {
       case "TypeSelector":
         if (n.name === "*") compound();
@@ -242,6 +262,7 @@ function parseSelector(sel: CssSelector, source: string, report: Report): Select
       case "PseudoClassSelector": {
         const name = n.name.toLowerCase();
         if (PSEUDO.has(name)) compound().pseudo.push(name as UIPseudo);
+        else if (name === "before" || name === "after") takePseudoElement(name, s, e); // CSS 2's one-colon form
         else if (READ_AS_TEXT.has(name)) readText(s, e);
         else if (name === "is" || name === "where") {
           const group = parseSelectorGroup(n, source, report);
@@ -269,16 +290,20 @@ function parseSelector(sel: CssSelector, source: string, report: Report): Select
           ok = false;
         }
         break;
+      case "PseudoElementSelector":
+        takePseudoElement(n.name.toLowerCase(), s, e);
+        break;
       default:
-        report(s, e, `${n.type === "PseudoElementSelector" ? "Pseudo-elements" : n.type} aren't supported in UI stylesheets.`);
+        report(s, e, `${n.type} isn't supported in UI stylesheets.`);
         ok = false;
     }
   }
   flush();
   if (!ok || parts.length === 0) return null;
-  const only = parts.length === 1 ? parts[0].selector : null;
+  const only = parts.length === 1 && !pseudoElement ? parts[0].selector : null;
   const root = !!only?.root && !only.tag && !only.id && !only.classes.length && !only.pseudo.length && !only.lang.length && !only.is && !only.not && !only.nth && !only.attributes && !only.empty && !only.has;
-  return { parts, specificity: selectorSpecificity(parts), root };
+  const specificity = selectorSpecificity(parts, pseudoElement);
+  return pseudoElement ? { parts, specificity, root, pseudoElement } : { parts, specificity, root };
 }
 
 function parseSelectorGroup(n: CssNode, source: string, report: Report): SelectorGroup | null {
@@ -291,7 +316,7 @@ function parseSelectorGroup(n: CssNode, source: string, report: Report): Selecto
   const selectors: Selector[] = [];
   for (const sel of list.children.toArray()) {
     if (sel.type !== "Selector") continue;
-    const parsed = parseSelector(sel, source, report);
+    const parsed = parseSelector(sel, source, report, true);
     if (!parsed) return null;
     selectors.push(parsed);
   }

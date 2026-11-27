@@ -45,7 +45,7 @@ describe("parseSelectorQuery", () => {
   });
 
   it.each([
-    ["p::before", /pseudo-elements/],
+    ["p::first-line", /::first-line isn.t supported/],
     ["a:visited", /:visited isn't supported/],
     ["p:nth-child(x)", /takes an\+b/],
     ["p:nth-of-type(2 of .a)", /takes no "of"/],
