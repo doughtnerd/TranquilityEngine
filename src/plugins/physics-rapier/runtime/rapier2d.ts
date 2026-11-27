@@ -23,6 +23,8 @@ import type {
   QueryShape2D,
   ShapeDesc2D,
   Vec2,
+  VoxelChange2D,
+  VoxelLink2D,
 } from "../../physics/runtime";
 
 type P2 = Pose<Dim2>;
@@ -525,6 +527,8 @@ export class RapierWorld2D implements PhysicsWorld2DBackend {
         const positions = s.parts.map((p) => v2(p.offset)), rotations = s.parts.map(() => 0);
         return s.fixInternalEdges ? RAPIER.ColliderDesc.compound(shapes, positions, rotations, RAPIER.CompoundFlags.FIX_INTERNAL_EDGES) : RAPIER.ColliderDesc.compound(shapes, positions, rotations);
       }
+      case "voxels":
+        return RAPIER.ColliderDesc.voxels(s.cells, v2(s.size));
     }
   }
 
@@ -567,6 +571,19 @@ export class RapierWorld2D implements PhysicsWorld2DBackend {
     this.oneWay.byHandle.delete(h);
     const live = this.rapier.getCollider(h);
     if (live) this.rapier.removeCollider(live, true);
+  }
+
+  setVoxels(c: BackendCollider<Dim2>, changes: readonly VoxelChange2D[], neighbours: readonly VoxelLink2D[]): void {
+    const col = (c as Collider).c;
+    for (const { x, y, filled } of changes) col.setVoxel(x, y, filled);
+    for (const n of neighbours) {
+      const other = (n.collider as Collider).c;
+      for (const { x, y } of changes) col.propagateVoxelChange(other, x, y, n.shift.x, n.shift.y);
+    }
+  }
+
+  linkVoxels(a: BackendCollider<Dim2>, b: BackendCollider<Dim2>, shift: Vec2): void {
+    (a as Collider).c.combineVoxelStates((b as Collider).c, shift.x, shift.y);
   }
 
   createJoint(d: JointDesc<Dim2>): BackendJoint {
@@ -686,6 +703,6 @@ export class RapierWorld2D implements PhysicsWorld2DBackend {
 
 /** The Rapier 2D backend (ADR 0137). */
 export const rapier2DBackend: PhysicsBackend2D = {
-  capabilities: { characterController: true, jointMotors: true, continuousCollision: true, oneWayPlatforms: true, meshColliders: false },
+  capabilities: { characterController: true, jointMotors: true, continuousCollision: true, oneWayPlatforms: true, meshColliders: false, voxelColliders: true },
   createWorld: (options) => new RapierWorld2D(options),
 };

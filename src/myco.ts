@@ -384,4 +384,6 @@ export type {
   PhysicsWorld3DBackend,
   PhysicsDimension,
   PhysicsBackendRegistration,
+  VoxelChange2D,
+  VoxelLink2D,
 } from "./plugins/physics/runtime";

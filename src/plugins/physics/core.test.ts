@@ -1,9 +1,9 @@
 // The shared physics sync core (ADR 0137) against a fake backend: no Rapier. Each test's World chooses
 // the fake through `physics.backend2d`, beside the Rapier backend the test setup registers.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, BoxCollider2D, CharacterController2D, Engine, GameBehavior, GameObject, HingeJoint2D, RigidBody2D, type Collision2D, type Joint2D } from "../../myco";
+import { Assets, BoxCollider2D, CharacterController2D, Engine, GameBehavior, GameObject, HingeJoint2D, RigidBody2D, ShapeCollider2D, Tilemap, type Collision2D, type Joint2D } from "../../myco";
 import { applyTestPlugins } from "../testPlugins";
-import type { BackendBody, BackendCollider, BodySettings, ColliderDesc, Dim2, JointDesc, PhysicsBackend2D, PhysicsWorld2DBackend, Pose } from "./runtime";
+import type { BackendBody, BackendCollider, BodySettings, ColliderDesc, Dim2, JointDesc, PhysicsBackend2D, PhysicsWorld2DBackend, Pose, ShapeDesc2D, VoxelChange2D, VoxelLink2D } from "./runtime";
 import { registerPhysicsBackend } from "./runtime";
 import { RAD2DEG } from "../../engine/core/math";
 import { wrapAngle } from "./runtime/core";
@@ -430,5 +430,144 @@ describe("one-way colliders and drop-through in the core (ADR 0437)", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+/** A fake world with voxel colliders (ADR 0442): records what the core asks of them. */
+class FakeVoxelWorld extends FakeWorld {
+  readonly log: string[] = [];
+  /** Live voxel colliders by id: their filled cells as "x,y". */
+  readonly voxels = new Map<number, Set<string>>();
+  override createCollider(desc: ColliderDesc<Dim2>): BackendCollider<Dim2> {
+    const c = super.createCollider(desc);
+    if (desc.shape.kind === "voxels") {
+      const cells = new Set<string>();
+      for (let i = 0; i < desc.shape.cells.length; i += 2) cells.add(`${desc.shape.cells[i]},${desc.shape.cells[i + 1]}`);
+      this.voxels.set(c.id, cells);
+    }
+    this.log.push(`create ${c.id} ${desc.shape.kind}`);
+    return c;
+  }
+  override removeCollider(c: BackendCollider<Dim2>): void {
+    super.removeCollider(c);
+    this.voxels.delete(c.id);
+    this.log.push(`remove ${c.id}`);
+  }
+  setVoxels(c: BackendCollider<Dim2>, changes: readonly VoxelChange2D[], neighbours: readonly VoxelLink2D[]): void {
+    const cells = this.voxels.get(c.id)!;
+    for (const ch of changes) {
+      if (ch.filled) cells.add(`${ch.x},${ch.y}`);
+      else cells.delete(`${ch.x},${ch.y}`);
+    }
+    this.log.push(`set ${c.id} ${changes.map((ch) => `${ch.x},${ch.y}${ch.filled ? "+" : "-"}`).join(" ")} → ${neighbours.map((n) => n.collider.id).sort((a, b) => a - b).join(",")}`);
+  }
+  linkVoxels(a: BackendCollider<Dim2>, b: BackendCollider<Dim2>, shift: { x: number; y: number }): void {
+    this.log.push(`link ${a.id} ${b.id} ${shift.x},${shift.y}`);
+  }
+  /** Every filled cell of every voxel collider, in the colliders' frames. */
+  cells(): string[] {
+    return [...this.voxels.values()].flatMap((s) => [...s]).sort();
+  }
+}
+
+describe("ShapeCollider2D as voxel colliders in the core (ADR 0442)", () => {
+  const TILES = { format: "myco.tileset@1", tileSize: [16, 16], tiles: [{ id: 1, sprite: "", collision: "full" }, { id: 2, sprite: "", collision: "oneWay" }, { id: 3, sprite: "", collision: { polygon: [[0, 0], [1, 0], [1, 1]] } }] };
+  let voxelWorld: FakeVoxelWorld | null = null;
+  /** A World on a fake backend with or without voxel colliders, and a tile map with a ShapeCollider2D. */
+  async function voxelSetup(voxelColliders: boolean, mode: "rectangles" | "outline" = "rectangles") {
+    const id = voxelColliders ? "fake-voxels" : "fake-plain";
+    const createWorld = () => (fake = voxelColliders ? (voxelWorld = new FakeVoxelWorld()) : new FakeWorld());
+    const backend: PhysicsBackend2D = { capabilities: { ...fakeBackend.capabilities, voxelColliders }, createWorld };
+    unregister.push(registerPhysicsBackend({ id, dimension: "2d", load: async () => backend }));
+    Assets.clearSources();
+    Assets.addSource(Assets.fromObject({ "tiles.tileset.json": TILES }));
+    const engine = await Engine.create({ headless: true, project: { physics: { gravity: [0, 0], layers: ["Default"], backend2d: id } } });
+    const node = GameObject.create("map");
+    const tiles = node.addBehavior(Tilemap, { tileset: "tiles.tileset.json" });
+    tiles.fillRect(-20, -8, 40, 1, 1); // cells x −20..19 on row −8, away from the chunks' top and bottom edges: chunks (−2, −1) to (1, −1)
+    tiles.setTile(30, 5, 3); // a polygon tile
+    node.addBehavior(ShapeCollider2D, { mode });
+    await vi.waitFor(() => expect(physics2DOf(engine.world)).not.toBeNull());
+    step(engine);
+    return { engine, node, tiles };
+  }
+  const kinds = () => [...fake!.colliders.values()].map((d) => d.shape.kind).sort();
+
+  it("without the capability, the map stays one compound of boxes and polygon parts", async () => {
+    const { engine, tiles } = await voxelSetup(false);
+    expect(kinds()).toEqual(["compound"]);
+    const compound = [...fake!.colliders.values()][0].shape as Extract<ShapeDesc2D, { kind: "compound" }>;
+    expect(compound.parts.map((p) => p.shape.kind).sort()).toEqual(["box", "box", "box", "box", "convexHull"]); // a box per chunk's run
+    tiles.clearTile(5, -8);
+    step(engine);
+    expect(kinds()).toEqual(["compound"]);
+    engine.dispose();
+  });
+
+  it("in outline mode, even with the capability, the map is built from its shapes", async () => {
+    const { engine } = await voxelSetup(true, "outline");
+    expect(kinds()).toEqual(["compound", "polyline"]);
+    engine.dispose();
+  });
+
+  it("builds a voxel collider per chunk, linked with its neighbours, beside one compound for the polygon tiles", async () => {
+    const { engine } = await voxelSetup(true);
+    const w = voxelWorld as FakeVoxelWorld;
+    expect(kinds()).toEqual(["compound", "voxels", "voxels", "voxels", "voxels"]);
+    const compound = [...w.colliders.values()].find((d) => d.shape.kind === "compound")!.shape as Extract<ShapeDesc2D, { kind: "compound" }>;
+    expect(compound.parts.map((p) => p.shape.kind)).toEqual(["convexHull"]); // the whole cells aren't in it
+    expect(w.log.filter((l) => l.startsWith("link"))).toHaveLength(3); // each chunk with the one before it
+    expect(w.log.filter((l) => l.startsWith("link")).every((l) => l.endsWith(" 0,0"))).toBe(true); // one origin per group
+    const expected: string[] = [];
+    for (let x = -20; x < 20; x++) expected.push(`${x},-8`);
+    expect(w.cells()).toEqual(expected.sort());
+    for (const d of w.colliders.values()) if (d.shape.kind === "voxels") expect(d.shape.size).toEqual({ x: 1, y: 1 });
+    engine.dispose();
+  });
+
+  it("edits cells in place, passes border edits to the neighbours, removes emptied chunks, adds new ones, and rebuilds the compound only for polygon edits", async () => {
+    const { engine, tiles } = await voxelSetup(true);
+    const w = voxelWorld as FakeVoxelWorld;
+    const idOf = (x: number) => [...w.voxels].find(([, cells]) => cells.has(`${x},-8`))![0];
+    const [a, b, c, d] = [-20, -10, 5, 18].map(idOf); // chunks −2, −1, 0, 1
+    w.log.length = 0;
+    tiles.clearTile(5, -8); // inside chunk 0
+    step(engine);
+    expect(w.log).toEqual([`set ${c} 5,-8- → `]);
+    w.log.length = 0;
+    tiles.clearTile(-1, -8); // chunk −1's last column, beside chunk 0
+    tiles.setTile(-10, 0, 1); // and a new cell inside chunk (−1, 0)
+    step(engine);
+    expect(w.log).toEqual([`set ${b} -1,-8- → ${[a, c].sort((p, q) => p - q).join(",")}`, expect.stringMatching(/^create \d+ voxels$/), ...[a, b, c].map((n) => expect.stringMatching(new RegExp(`^link \\d+ ${n} 0,0$`)))]);
+    w.log.length = 0;
+    tiles.fillRect(16, -8, 4, 1, 0); // all of chunk 1
+    step(engine);
+    expect(w.log).toEqual([`set ${d} 16,-8- 17,-8- 18,-8- 19,-8- → ${c}`, `remove ${d}`]);
+    w.log.length = 0;
+    tiles.setTile(30, 6, 3); // a polygon tile: the compound is rebuilt, the voxels left alone
+    step(engine);
+    expect(w.log).toEqual([expect.stringMatching(/^remove \d+$/), expect.stringMatching(/^create \d+ compound$/)]);
+    w.log.length = 0;
+    tiles.setTile(31, 6, 2); // a one-way tile: built beside the polygons
+    step(engine);
+    expect(w.log).toEqual([expect.stringMatching(/^remove \d+$/), expect.stringMatching(/^create \d+ compound$/), expect.stringMatching(/^create \d+ compound$/)]);
+    engine.dispose();
+  });
+
+  it("maps a mirrored map's cells instead of scaling the voxels, and rebuilds when the collider's settings change", async () => {
+    const { engine, node } = await voxelSetup(true);
+    const w = voxelWorld as FakeVoxelWorld;
+    node.transform!.scale = [-2, 1, 1];
+    step(engine);
+    const expected: string[] = [];
+    for (let x = -20; x < 20; x++) expected.push(`${-x - 1},-8`);
+    expect(w.cells()).toEqual(expected.sort());
+    for (const d of w.colliders.values()) if (d.shape.kind === "voxels") expect(d.shape.size).toEqual({ x: 2, y: 1 });
+    w.log.length = 0;
+    node.getComponent(ShapeCollider2D)!.isTrigger = true;
+    step(engine);
+    expect(w.log.filter((l) => l.startsWith("remove"))).toHaveLength(5);
+    expect([...w.colliders.values()].every((d) => d.sensor)).toBe(true);
+    engine.dispose();
   });
 });

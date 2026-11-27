@@ -65,6 +65,7 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
       backend: this.backend,
       world,
       oneWay: this.capabilities.oneWayPlatforms,
+      voxels: !!this.capabilities.voxelColliders && typeof this.backend.setVoxels === "function" && typeof this.backend.linkVoxels === "function",
       groupsFor: (layer) => this.groupsFor(layer),
       register: (id, c) => this.colliderById.set(id, c),
       unregister: (id) => void this.colliderById.delete(id),
