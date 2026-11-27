@@ -38,6 +38,10 @@
           "data": {}
         },
         {
+          "type": "engine.CameraShake",
+          "data": {}
+        },
+        {
           "type": "engine.PostProcessing",
           "data": {
             "bloom": true,

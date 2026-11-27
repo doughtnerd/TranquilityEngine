@@ -3,6 +3,7 @@
 // `runtime.ts` maps each entry to its runtime half and `editor.ts` to its editor half, so adding a
 // plugin is one entry here. Manifests only, no plugin code: the exporter and the server plan with it.
 import { animationManifest } from "./animation/manifest";
+import { cameraShakeManifest } from "./camera-shake/manifest";
 import { audioManifest } from "./audio/manifest";
 import { decalsManifest } from "./decals/manifest";
 import { environmentManifest } from "./environment/manifest";
@@ -47,6 +48,8 @@ export const FIRST_PARTY = {
   environment: environmentManifest,
   lights2d: lights2dManifest,
   "post-processing": postProcessingManifest,
+  // After physics, its optional dependency (ADR 0436).
+  "camera-shake": cameraShakeManifest,
   audio: audioManifest,
   // After audio and UI, which it needs (ADR 0357 §5).
   subtitles: subtitlesManifest,

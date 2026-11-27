@@ -42,6 +42,7 @@ export type { MaterialSettings, MaterialShader } from "./scene/material";
 // SpriteRenderer, MeshRenderer, Environment, PostProcessing, WaterSurface and the UI Components
 // are the Sprites, Meshes, Environment, Post-processing, UI and Water plugins' (ADR 0140).
 export { Camera, Fog, Light, ReflectionProbe, type FogMode, type LightType, type MaterialPropertyValue, type ProbeRefresh, type Projection } from "./render/components";
+export { CameraViewOffset } from "./render/cameraViewOffset";
 export { Material, type MaterialValue } from "./render/Material";
 export type { WaterWave } from "./render/water/gerstner";
 export { CUBEMAP_FORMAT, parseCubemap, formatCubemap, type CubemapFaces, type CubeFace } from "./sky/cubemapFormat";
