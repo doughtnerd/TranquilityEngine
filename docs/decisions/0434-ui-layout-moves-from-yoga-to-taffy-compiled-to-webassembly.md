@@ -201,15 +201,19 @@ net found the canvas root's four setters called on every sync; `applyCanvas` now
 **2026-11-27, `calc()` in the layout engine.** layout-core no longer uses `TaffyTree`: `tree.rs` is our own node store
 (a vector by handle, parent links for dirty propagation) implementing Taffy's low-level traits, mirroring `TaffyView`
 (dispatch by display, hidden subtrees, out-of-flow boxes, block formatting contexts), with Taffy's `calc` feature on.
-`set_calc(handle, prop, px, percent)` stores a mixed length as an 8-aligned boxed `(px, fraction)` the node owns, and
-the style holds a `CalcHandle` pointing at it; `resolve_calc_value` returns `px + fraction * basis`, so a percentage
+`set_calc(handle, prop, px, percent)` stores a mixed length as a `(px, fraction)` in the store's index table, which
+the node frees when the property changes or the node goes; the style holds a `CalcHandle` made from the index with
+`CalcHandle::from_bits` (no pointers, no `unsafe`, the scheme proposed for `TaffyTree` upstream); `resolve_calc_value`
+returns `px + fraction * basis`, so a percentage
 resolves against the property's CSS basis in the same layout. The adapter takes `{ px, percent }` lengths; the UI core
 passes `calc()` lengths straight through (`uiLength` returns them) and its stale-size second pass and `calcBasis` are
 gone. Style edits now happen in place (no style clone per setter). The wasm shrank to 353,546 bytes (118.7 KB gzip)
 without `TaffyTree` and its slotmap; first layouts are a little faster (1.23 ms at 350 nodes, 9.9 ms at 3,501). Five
 `calc()` cases joined the conformance set (sizes, padding and margins, absolute insets, nested percentages,
 `flex-basis` and min/max; 58 in all, all match Chromium); `cargo test` and `uiLayoutWave1.test.ts` check nested
-`calc()` in one layout. When upgrading Taffy, re-read `TaffyView` in `taffy_tree.rs` against `tree.rs`.
+`calc()` in one layout. When upgrading Taffy, re-read `TaffyView` in `taffy_tree.rs` against `tree.rs`. (Calc values
+were first boxed and referenced by pointer; the index table replaced that the same day. Its lookup is kept out of line:
+inlined into each of Taffy's resolution sites it added 20 KB of wasm.)
 
 ## References
 

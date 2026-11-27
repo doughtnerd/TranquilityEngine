@@ -13,7 +13,7 @@ pub use taffy::style::AvailableSpace;
 use taffy::style::{AlignContent, AlignItems, BoxSizing, Direction, Overflow};
 
 mod tree;
-use tree::{CalcValue, Node, Nodes, CALC_SLOTS};
+use tree::{Node, Nodes, CALC_SLOTS};
 
 /// Enum properties (`set_enum`).
 pub mod prop_enum {
@@ -319,6 +319,9 @@ impl UiLayout {
     /// Removes a node (detaching it from its parent and its children from it); its handle may be reused.
     pub fn remove(&mut self, h: u32) {
         let Some(node) = self.nodes.slots.get_mut(h as usize).and_then(|n| n.take()) else { return };
+        for i in node.calcs.iter().flatten() {
+            self.nodes.calcs.remove(*i);
+        }
         if let Some(p) = node.parent {
             if let Some(parent) = self.nodes.get_mut(p) {
                 parent.children.retain(|c| usize::from(*c) != h as usize);
@@ -379,10 +382,12 @@ impl UiLayout {
     fn put_length(&mut self, h: u32, prop: u8, value: Length) -> bool {
         let Some(node) = self.nodes.get_mut(h) else { return false };
         if (prop as usize) < CALC_SLOTS {
-            // The style's old handle (if any) is replaced in this same call, before the box it points at goes.
+            // The style's old handle (if any) is replaced before its value is freed.
             let old = node.calcs[prop as usize].take();
             apply_length(&mut node.style, prop, value);
-            drop(old);
+            if let Some(i) = old {
+                self.nodes.calcs.remove(i);
+            }
         }
         self.nodes.mark_dirty(h);
         true
@@ -446,11 +451,16 @@ impl UiLayout {
         if (prop as usize) >= CALC_SLOTS || !px.is_finite() || !percent.is_finite() {
             return self.put_length(h, prop, Length::Plain(kind::AUTO, 0.0));
         }
-        let Some(node) = self.nodes.get_mut(h) else { return false };
-        let (value, handle) = CalcValue::boxed(px, percent / 100.0);
-        let old = node.calcs[prop as usize].replace(value);
+        if self.nodes.get(h).is_none() {
+            return false;
+        }
+        let (index, handle) = self.nodes.calcs.insert(px, percent / 100.0);
+        let node = self.nodes.get_mut(h).expect("checked above");
+        let old = node.calcs[prop as usize].replace(index);
         apply_length(&mut node.style, prop, Length::Calc(handle));
-        drop(old);
+        if let Some(i) = old {
+            self.nodes.calcs.remove(i);
+        }
         self.nodes.mark_dirty(h);
         true
     }

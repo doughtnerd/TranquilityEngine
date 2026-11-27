@@ -1,8 +1,9 @@
 //! The node store Taffy lays out (ADR 0434 follow-up): a vector of nodes indexed by handle, with parent links for dirty
 //! propagation, implementing Taffy's low-level tree traits. It mirrors `TaffyTree`'s own view (`taffy_tree.rs`: dispatch
 //! by display, hidden subtrees, out-of-flow boxes, block formatting contexts) and adds what `TaffyTree` can't: `calc()`
-//! lengths. Each mixed length (`calc(50% + -12px)`) is a `CalcValue` the node owns, boxed so its address is stable; the
-//! style holds a `CalcHandle` pointing at it, and `resolve_calc_value` returns `px + fraction * basis`.
+//! lengths. Each mixed length (`calc(50% + -12px)`) is a `CalcValue` in the store's table, which the node it belongs to
+//! frees; the style holds a `CalcHandle` whose bits are its index (`CalcHandle::from_bits`, no pointers), and
+//! `resolve_calc_value` returns `px + fraction * basis`.
 //! Checked against Taffy 0.16.0; re-read `taffy_tree.rs`'s `TaffyView` when upgrading Taffy.
 
 use taffy::prelude::*;
@@ -16,29 +17,55 @@ use taffy::{
 
 use crate::{MeasureInput, Measured};
 
-/// A linear `calc()` length: pixels plus a fraction (0–1) of the percentage basis. 8-aligned, as a `CalcHandle`'s
-/// pointer must be (its low three bits carry a tag).
-#[repr(C, align(8))]
-pub(crate) struct CalcValue {
+/// A linear `calc()` length: pixels plus a fraction (0–1) of the percentage basis.
+#[derive(Clone, Copy)]
+struct CalcValue {
     px: f32,
     fraction: f32,
 }
 
-impl CalcValue {
-    /// A boxed value and the handle that points at it (valid while the box lives).
-    pub(crate) fn boxed(px: f32, fraction: f32) -> (Box<CalcValue>, CalcHandle) {
-        let b = Box::new(CalcValue { px, fraction });
-        let handle = CalcHandle::from_ptr(&*b as *const CalcValue as *const ());
-        (b, handle)
-    }
+/// The `calc()` values styles refer to, by index. A handle's bits are its index plus one (Taffy rejects a zero handle)
+/// shifted past the three low bits Taffy keeps for its tag; a freed index is reused.
+#[derive(Default)]
+pub(crate) struct Calcs {
+    values: Vec<CalcValue>,
+    free: Vec<u32>,
 }
 
-/// Resolves a handle made by `CalcValue::boxed`. Every handle in a node's style points at a box that node owns (a
-/// property's box is replaced in the same call as its style value, and both go when the node does).
-fn resolve_calc(handle: CalcHandle, basis: f32) -> f32 {
-    // SAFETY: as above: handles only come from `CalcValue::boxed`, and the box outlives every style value holding it.
-    let v = unsafe { &*(handle.ptr() as *const CalcValue) };
-    v.px + v.fraction * basis
+impl Calcs {
+    /// Stores a value; returns its index (to free it with) and the handle a style holds.
+    pub(crate) fn insert(&mut self, px: f32, fraction: f32) -> (u32, CalcHandle) {
+        let v = CalcValue { px, fraction };
+        let i = match self.free.pop() {
+            Some(i) => {
+                self.values[i as usize] = v;
+                i
+            }
+            None => {
+                self.values.push(v);
+                (self.values.len() - 1) as u32
+            }
+        };
+        (i, CalcHandle::from_bits((u64::from(i) + 1) << 3))
+    }
+
+    /// Frees an index from `insert` once no style holds its handle.
+    pub(crate) fn remove(&mut self, i: u32) {
+        self.free.push(i);
+    }
+
+    /// The resolver Taffy's leaf layout takes: one type for every call site, so its generic code is compiled once.
+    fn resolver(&self) -> impl Fn(CalcHandle, f32) -> f32 + Copy + '_ {
+        move |c, basis| self.resolve(c, basis)
+    }
+
+    /// A handle's value at `basis` (0 for a handle this table didn't make, which can't happen through `UiLayout`). Kept out
+    /// of line: Taffy's algorithms resolve lengths in hundreds of places, and inlining the lookup into each added 20 KB of
+    /// wasm; a `calc()` length is rare enough that the call costs nothing measurable.
+    #[inline(never)]
+    fn resolve(&self, handle: CalcHandle, basis: f32) -> f32 {
+        ((handle.to_bits() >> 3) as usize).checked_sub(1).and_then(|i| self.values.get(i)).map_or(0.0, |v| v.px + v.fraction * basis)
+    }
 }
 
 /// How many length properties may hold a `calc()` (`prop_length` codes are 0..CALC_SLOTS).
@@ -52,8 +79,8 @@ pub(crate) struct Node {
     pub(crate) cache: Cache,
     pub(crate) layout: Layout,
     pub(crate) hoisted: Vec<NodeId>,
-    /// The `calc()` values its style's handles point at, by length property.
-    pub(crate) calcs: [Option<Box<CalcValue>>; CALC_SLOTS],
+    /// The indices (in `Nodes::calcs`) of the `calc()` values its style's handles name, by length property.
+    pub(crate) calcs: [Option<u32>; CALC_SLOTS],
 }
 
 impl Node {
@@ -66,6 +93,7 @@ impl Node {
 #[derive(Default)]
 pub(crate) struct Nodes {
     pub(crate) slots: Vec<Option<Node>>,
+    pub(crate) calcs: Calcs,
 }
 
 impl Nodes {
@@ -124,6 +152,7 @@ impl View<'_> {
         let h = key(id) as u32;
         let View { nodes, measure } = self;
         let style = &nodes.slots[key(id)].as_ref().expect("layout reached a freed node").style;
+        let resolve_calc = nodes.calcs.resolver();
         let mut baseline: Option<Option<f32>> = None;
         let mut output = compute_leaf_layout(inputs, style, resolve_calc, |known, avail| {
             let m = measure(h, MeasureInput { known_width: known.width, known_height: known.height, available_width: avail.width, available_height: avail.height });
@@ -162,7 +191,11 @@ impl View<'_> {
                 (Display::Flex, true) => compute_flexbox_layout(tree, id, inputs),
                 (Display::Grid, true) => compute_grid_layout(tree, id, inputs),
                 (_, false) if measured => tree.measure_leaf(id, inputs),
-                (_, false) => compute_leaf_layout(inputs, &tree.node(id).style, resolve_calc, |_, _| Size::ZERO),
+                (_, false) => {
+                    let nodes = &*tree.nodes;
+                    let style = &nodes.slots[key(id)].as_ref().expect("layout reached a freed node").style;
+                    compute_leaf_layout(inputs, style, nodes.calcs.resolver(), |_, _| Size::ZERO)
+                }
             };
             if inputs.run_mode == RunMode::PerformLayout {
                 compute_oof_layout(tree, id, &mut output);
@@ -219,7 +252,7 @@ impl LayoutPartialTree for View<'_> {
     }
 
     fn resolve_calc_value(&self, val: CalcHandle, basis: f32) -> f32 {
-        resolve_calc(val, basis)
+        self.nodes.calcs.resolve(val, basis)
     }
 
     fn set_unrounded_layout(&mut self, id: NodeId, layout: &Layout) {
