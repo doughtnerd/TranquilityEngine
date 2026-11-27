@@ -212,7 +212,9 @@ interface MutableTarget extends StyleTarget {
 
 /**
  * One element's style state, kept by the styled tree. The host reads its target (id, classes, pseudo-state), the
- * resolved style (the editor's field sources) and its generated elements; everything else is the styled tree's.
+ * resolved style and its generated elements, and offers the target and the resolved style to callers outside the UI
+ * module (`UIHostElement.styleTarget` and `resolvedStyle`: a renderer's selector matching, the editor's field sources);
+ * everything else is the styled tree's.
  */
 export class UIElementStyle<E extends UIStyledNode<E>> {
   /** What selectors match: its attributes, child elements and text are read when a selector asks (ADR 0422 wave 5). */
@@ -364,14 +366,17 @@ function animatedFieldsOf(type: ComponentClass, fields: ReadonlyMap<string, Fiel
 const NO_STATES: readonly UIPaintState[] = [];
 const PAINT_STATES: ReadonlySet<string> = new Set<UIPaintState>(["hover", "pressed", "focus"]);
 
-/** ADR 0437: the paint states its rule for `field` names on it (in the subject of a selector of it that matches it now); null when neither does. */
+/**
+ * ADR 0437: the paint states its rule for `field` states the look for (named by a selector of it that matches it now,
+ * `statesNamed`); null when neither rule names any.
+ */
 function styledStatesOf(target: StyleTarget, resolved: ReadonlyMap<string, ResolvedValue>): UIStyledStates | null {
   const named = (field: string): readonly UIPaintState[] => {
     const source = resolved.get(field)?.source;
     if (source?.kind !== "rule") return NO_STATES;
     const out = new Set<UIPaintState>();
     for (const s of source.rule.selectors) {
-      const states = s.pseudoElement ? NO_STATES : subjectStates(s);
+      const states = s.pseudoElement ? NO_STATES : paintStatesOf(s);
       if (states.length && matchSelector(s, target)) for (const n of states) out.add(n);
     }
     return out.size ? [...out] : NO_STATES;
@@ -380,13 +385,33 @@ function styledStatesOf(target: StyleTarget, resolved: ReadonlyMap<string, Resol
   return background.length || border.length ? { background, border } : null;
 }
 
-/** The paint states a selector's subject compound names, `:is()`/`:where()` options' included. */
-function subjectStates(s: Selector): UIPaintState[] {
-  const subject = s.parts[s.parts.length - 1]?.selector;
-  if (!subject) return [];
-  const out = subject.pseudo.filter((p): p is UIPaintState => PAINT_STATES.has(p));
-  for (const is of subject.is ?? []) for (const inner of is.selectors) out.push(...subjectStates(inner));
-  return out;
+const selectorStates = new WeakMap<Selector, readonly UIPaintState[]>();
+/** The paint states `s` names as holding (`statesNamed`), worked out once per selector (rule data doesn't change). */
+function paintStatesOf(s: Selector): readonly UIPaintState[] {
+  let states = selectorStates.get(s);
+  if (!states) {
+    const out = new Set<UIPaintState>();
+    statesNamed(s, true, out);
+    selectorStates.set(s, (states = out.size ? [...out] : NO_STATES));
+  }
+  return states;
+}
+
+/**
+ * The paint states a selector names as states that hold (`positive`), in any of its compounds: its subject's
+ * (`button:hover`), an ancestor's or sibling's (`.row:hover button`), inside `:is()`, `:where()`, `:has()` and
+ * `:nth-child(... of S)`. Under `:not()` a state is named as not holding (`button:not(:hover)` is the look while not
+ * hovered), so it counts only under an even number of them. A rule that matches while its state holds states the look
+ * for that state; the Unity-style colour would hide it (ADR 0437 follow-up).
+ */
+function statesNamed(s: Selector, positive: boolean, out: Set<UIPaintState>): void {
+  for (const { selector: c } of s.parts) {
+    if (positive) for (const p of c.pseudo) if (PAINT_STATES.has(p)) out.add(p as UIPaintState);
+    for (const is of c.is ?? []) for (const inner of is.selectors) statesNamed(inner, positive, out);
+    for (const list of c.has ?? []) for (const inner of list) statesNamed(inner, positive, out);
+    for (const nth of c.nth ?? []) for (const inner of nth.of ?? []) statesNamed(inner, positive, out);
+    for (const list of c.not ?? []) for (const inner of list) statesNamed(inner, !positive, out);
+  }
 }
 
 /** ADR 0432: a canvas's reference resolution, what viewport lengths resolve against before its first layout. */
