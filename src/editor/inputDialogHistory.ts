@@ -3,27 +3,40 @@
 // then editing starts a branch and keeps the old one. Each state holds a text patch per file the step changed (the
 // `FilePatch` an asset document's history keeps for its one file), applied to the files as they are when moving, so a
 // file changed elsewhere since refuses the move instead of being overwritten. Writes go through the store in order;
-// `saving` counts the ones in flight for the dialog's footer. Not persisted: the history lives as long as the dialog's
-// project is open.
+// `saving` counts the ones in flight for the dialog's footer. Making and deleting a file are steps too (a patch marked
+// `created` or `removed`, as the scene's history keeps them): undoing a made file deletes it, undoing a deletion writes
+// the file back. Not persisted: the history lives as long as the dialog's project is open.
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
 import { HISTORY_LIMIT, HistoryTree, type HistoryMove, type HistoryState, type StepAdapter } from "./document/HistoryTree";
 import { applyFilePatch, diffText, type FilePatch } from "./document/textPatch";
 
-/** Where the history reads and writes files (the project; a map in tests). */
+/** Where the history reads, writes and deletes files (the project; a map in tests). `read` gives undefined for no file. */
 export interface HistoryFileStore {
   read(path: string): string | undefined;
   write(path: string, text: string): Promise<void>;
+  remove(path: string): Promise<void>;
 }
 
-/** One file's change in a step: its text before and after. */
+/** One file's change in a step: its text before and after; null is no file (`before` null: made; `after` null: deleted). */
 export interface FileEdit {
   readonly path: string;
-  readonly before: string;
-  readonly after: string;
+  readonly before: string | null;
+  readonly after: string | null;
 }
 
-/** Texts by path, as a move carries them along the path between two states. */
-type Texts = ReadonlyMap<string, string>;
+/** Texts by path (null: no file), as a move carries them along the path between two states. */
+type Texts = ReadonlyMap<string, string | null>;
+
+/** One patch applied to a file's text (null: no file), or undefined when it doesn't fit (the file changed elsewhere). */
+function applyPatch(text: string | null, patch: FilePatch, direction: "undo" | "redo"): string | null | undefined {
+  const [from, to] = direction === "undo" ? [patch.after, patch.before] : [patch.before, patch.after];
+  const deletes = direction === "undo" ? patch.created : patch.removed;
+  const creates = direction === "undo" ? patch.removed : patch.created;
+  if (creates) return text === null ? to : undefined;
+  if (deletes) return text === from ? null : undefined;
+  if (text === null) return undefined;
+  return applyFilePatch(text, patch, direction) ?? undefined;
+}
 
 /** Each state's patches, forward in order, backward in reverse; a patch that doesn't fit the file refuses the move. */
 const steps: StepAdapter<Texts> = {
@@ -31,15 +44,20 @@ const steps: StepAdapter<Texts> = {
     const files = state.files ?? [];
     const out = new Map(texts);
     for (const patch of direction === "redo" ? files : [...files].reverse()) {
-      const text = out.get(patch.path);
-      if (text === undefined) return null;
-      const next = applyFilePatch(text, patch, direction);
-      if (next === null) return null;
+      const next = applyPatch(out.get(patch.path) ?? null, patch, direction);
+      if (next === undefined) return null;
       out.set(patch.path, next);
     }
     return out;
   },
 };
+
+/** A step's patch for one file edit. */
+function patchOf(e: FileEdit): FilePatch {
+  if (e.before === null) return { path: e.path, start: 0, before: "", after: e.after ?? "", created: true };
+  if (e.after === null) return { path: e.path, start: 0, before: e.before, after: "", removed: true };
+  return { path: e.path, ...diffText(e.before, e.after) };
+}
 
 /** The paths a move touches: every file a state on the way changed. */
 function pathsOn(tree: HistoryTree, target: number): string[] {
@@ -54,8 +72,8 @@ export class InputDialogHistory {
   private readonly changed = signal(0);
   private readonly inFlight = signal(0);
   private tail: Promise<void> = Promise.resolve();
-  /** Texts written but not yet on disk, newest per path: what the files hold once the queue is done. */
-  private readonly pending = new Map<string, { text: string; writes: number }>();
+  /** Texts written but not yet on disk (null: a deletion), newest per path: what the files hold once the queue is done. */
+  private readonly pending = new Map<string, { text: string | null; writes: number }>();
   /** Bumped on every change to the tree (a step, a move). */
   readonly version: ReadonlySignal<number> = this.changed;
   /** True while writes are in flight. */
@@ -65,19 +83,28 @@ export class InputDialogHistory {
 
   constructor(private readonly store: HistoryFileStore) {}
 
-  /** A file's text as the dialog's edits leave it: a queued write's text, else the store's. Bumps with `version`. */
+  /** A file's text as the dialog's edits leave it: a queued write's text, else the store's; undefined for no file. Bumps with `version`. */
   text(path: string): string | undefined {
-    return this.pending.get(path)?.text ?? this.store.read(path);
+    const pending = this.pending.get(path);
+    if (pending) return pending.text ?? undefined;
+    return this.store.read(path);
   }
 
-  /** Record a step changing files (each `before` is its text now) and write them. False when nothing changed. */
+  /** `files` (the store's list) as the dialog's edits leave it: with the files being made, without those being deleted. */
+  files(files: readonly string[]): string[] {
+    const out = files.filter((f) => this.pending.get(f)?.text !== null);
+    for (const [path, p] of this.pending) if (p.text !== null && !files.includes(path)) out.push(path);
+    return out;
+  }
+
+  /** Record a step changing, making or deleting files (each `before` is its text now, null when there's none) and write them. False when nothing changed. */
   record(label: string, edits: readonly FileEdit[]): boolean {
-    const files: FilePatch[] = edits.filter((e) => e.before !== e.after).map((e) => ({ path: e.path, ...diffText(e.before, e.after) }));
-    if (files.length === 0) return false;
-    this.tree.add({ label, hash: "", files });
+    const changed = edits.filter((e) => e.before !== e.after);
+    if (changed.length === 0) return false;
+    this.tree.add({ label, hash: "", files: changed.map(patchOf) });
     this.tree.markSaved();
     this.changed.value++;
-    for (const e of edits) if (e.before !== e.after) this.write(e.path, e.after);
+    for (const e of changed) this.write(e.path, e.after);
     return true;
   }
 
@@ -118,18 +145,15 @@ export class InputDialogHistory {
     const target = this.tree.targetOf(move);
     if (target === null) return null;
     const paths = pathsOn(this.tree, target);
-    const texts = new Map<string, string>();
-    for (const p of paths) {
-      const t = this.text(p);
-      if (t !== undefined) texts.set(p, t);
-    }
+    const texts = new Map<string, string | null>();
+    for (const p of paths) texts.set(p, this.text(p) ?? null);
     const moved = this.tree.go(move, texts as Texts, steps);
     if (!moved) return null;
     this.tree.markSaved();
     this.changed.value++;
     for (const p of paths) {
-      const t = moved.value.get(p);
-      if (t !== undefined && t !== texts.get(p)) this.write(p, t);
+      const t = moved.value.get(p) ?? null;
+      if (t !== texts.get(p)) this.write(p, t);
     }
     return { label: moved.label, paths };
   }
@@ -147,7 +171,8 @@ export class InputDialogHistory {
     return this.tail;
   }
 
-  private write(path: string, text: string): void {
+  /** Write a file, or delete it (`text` null), after the writes before it. */
+  private write(path: string, text: string | null): void {
     this.inFlight.value++;
     const entry = { text, writes: (this.pending.get(path)?.writes ?? 0) + 1 };
     this.pending.set(path, entry);
@@ -156,11 +181,11 @@ export class InputDialogHistory {
       if (now && --now.writes === 0) this.pending.delete(path);
     };
     this.tail = this.tail
-      .then(() => this.store.write(path, text))
+      .then(() => (text === null ? this.store.remove(path) : this.store.write(path, text)))
       .finally(settled)
       .then(
         () => void (this.failed.value = null),
-        (err) => void (this.failed.value = `Couldn't save ${path}: ${(err as Error)?.message ?? err}`),
+        (err) => void (this.failed.value = `Couldn't ${text === null ? "delete" : "save"} ${path}: ${(err as Error)?.message ?? err}`),
       )
       .finally(() => void this.inFlight.value--);
   }

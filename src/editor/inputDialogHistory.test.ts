@@ -14,6 +14,10 @@ function store(files: Record<string, string>) {
       writes.push(p);
       disk.set(p, t);
     },
+    remove: async (p: string) => {
+      writes.push(`-${p}`);
+      disk.delete(p);
+    },
   };
 }
 
@@ -79,5 +83,70 @@ describe("the Input dialog's history", () => {
     expect(h.saving.value).toBe(false);
     expect(h.failed.value).toMatch(/disk full/);
     expect(h.text("a.json")).toBe("1"); // the pending text went with the failed write
+  });
+
+  it("makes a file as a step: undo deletes it, redo writes it again, and the list shows it before the write lands", async () => {
+    const s = store({ "project.json": '{"input":{"actionSets":[]}}' });
+    const h = new InputDialogHistory(s);
+    h.record("New action set", [
+      { path: "input/new.actions.json", before: null, after: "SET" },
+      { path: "project.json", before: '{"input":{"actionSets":[]}}', after: '{"input":{"actionSets":["input/new.actions.json"]}}' },
+    ]);
+    expect(h.files(["project.json"])).toEqual(["project.json", "input/new.actions.json"]);
+    expect(h.text("input/new.actions.json")).toBe("SET");
+    await h.flush();
+    expect(s.disk.get("input/new.actions.json")).toBe("SET");
+    expect(h.undo()?.label).toBe("New action set");
+    expect(h.text("input/new.actions.json")).toBeUndefined();
+    expect(h.files(["project.json", "input/new.actions.json"])).toEqual(["project.json"]);
+    await h.flush();
+    expect(s.disk.has("input/new.actions.json")).toBe(false);
+    expect(s.disk.get("project.json")).toBe('{"input":{"actionSets":[]}}');
+    h.redo();
+    await h.flush();
+    expect(s.disk.get("input/new.actions.json")).toBe("SET");
+    expect(s.disk.get("project.json")).toContain("new.actions.json");
+  });
+
+  it("deletes a file as a step: undo writes it back with its list entry", async () => {
+    const s = store({ "a.input.json": "CTX", "b.input.json": "B" });
+    const h = new InputDialogHistory(s);
+    h.record("Delete a", [{ path: "a.input.json", before: "CTX", after: null }]);
+    expect(h.files(["a.input.json", "b.input.json"])).toEqual(["b.input.json"]);
+    await h.flush();
+    expect(s.writes).toEqual(["-a.input.json"]);
+    h.undo();
+    await h.flush();
+    expect(s.disk.get("a.input.json")).toBe("CTX");
+  });
+
+  it("refuses to undo making a file that changed since, and to undo a deletion when the file is back", async () => {
+    const s = store({});
+    const h = new InputDialogHistory(s);
+    h.record("Make", [{ path: "n.json", before: null, after: "1" }]);
+    await h.flush();
+    s.disk.set("n.json", "edited");
+    expect(h.undo()).toBeNull();
+    expect(s.disk.get("n.json")).toBe("edited");
+    const t = new InputDialogHistory(s);
+    t.record("Delete", [{ path: "n.json", before: "edited", after: null }]);
+    await t.flush();
+    s.disk.set("n.json", "made again elsewhere");
+    expect(t.undo()).toBeNull();
+    expect(s.disk.get("n.json")).toBe("made again elsewhere");
+  });
+
+  it("moves a file (a new entry named) as one step that undoes to the old path", async () => {
+    const s = store({ "old.json": "X" });
+    const h = new InputDialogHistory(s);
+    h.record("Name it", [
+      { path: "old.json", before: "X", after: null },
+      { path: "new.json", before: null, after: "Y" },
+    ]);
+    await h.flush();
+    expect([...s.disk.keys()]).toEqual(["new.json"]);
+    h.undo();
+    await h.flush();
+    expect(Object.fromEntries(s.disk)).toEqual({ "old.json": "X" });
   });
 });
