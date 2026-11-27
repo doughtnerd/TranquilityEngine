@@ -203,6 +203,12 @@ function classifyMessage(err: unknown, stage: "compile" | "run"): { category: st
   return { category: "other runtime error", message };
 }
 
+/**
+ * Controls whose text content makes no UI element (the renderer's leaf kinds): a text area's text is its default value,
+ * and a progress bar's or meter's is fallback content a browser doesn't show either.
+ */
+const TEXTLESS_CONTROLS: ReadonlySet<string> = new Set(["Image", "InputField", "TextArea", "Toggle", "Radio", "Slider", "Progress", "Meter", "Svg", "Video", "Audio"]);
+
 /** The hosted UI elements must mirror the rendered tree: the same elements (and text labels) in the same order, Text elements holding the text (ADR 0425: in their own text and their inline runs'). */
 function checkHostTree(target: InstanceType<Renderer["UIRenderElement"]>, host: UIHostElement): void {
   const label = (h: UIHostElement) => h.tag;
@@ -221,7 +227,7 @@ function checkHostTree(target: InstanceType<Renderer["UIRenderElement"]>, host: 
         const shown = collapse(runsOf(el.element));
         if (shown !== text) throw new Error(`host tree: <${el.localName}> shows ${JSON.stringify(shown)}, not ${JSON.stringify(text)}`);
       }
-    } else if (c.nodeType === 3 && (c as { data: string }).data.trim()) expected.push("#text");
+    } else if (c.nodeType === 3 && (c as { data: string }).data.trim() && !TEXTLESS_CONTROLS.has(host.uiTag)) expected.push("#text");
   }
   // An `<input type="submit|reset|button">` shows its value as a label the engine makes (no rendered node is it).
   const actual = host.children.filter((h) => !(target.localName === "input" && h.synthetic)).map(label);
