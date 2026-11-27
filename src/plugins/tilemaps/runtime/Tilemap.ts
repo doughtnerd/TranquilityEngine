@@ -17,7 +17,7 @@ import { Component } from "../../../engine/core/Component";
 import { defineBuffer } from "../../../engine/core/data";
 import { Vector2, Vector3, type Vec2Like, type Vec3Like } from "../../../engine/core/math";
 import { AssetRef, PlainObject, component, field } from "../../../engine/core/registry";
-import type { CollisionShapes2D, CollisionShapeSource2D, ShapeMerge2D } from "../../../engine/physics/shapeSource2D";
+import type { CollisionCellChunk2D, CollisionCellGroup2D, CollisionCells2D, CollisionShapeOptions2D, CollisionShapes2D, CollisionShapeSource2D, ShapeMerge2D } from "../../../engine/physics/shapeSource2D";
 import type { ShadowShapes2D, ShadowShapeSource2D } from "../../../engine/render/shadowShapeSource2D";
 import { Assets } from "../../../engine/scene/Assets";
 import type { TileShapes } from "./collision";
@@ -176,6 +176,9 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
   private shapeCache = new TileShapeCache();
   /** The last shapes put together per merge mode (and "shadow"), with the key they were made for. */
   private shapeResults = new Map<string, { key: string; shapes: CollisionShapes2D | ShadowShapes2D }>();
+  /** ADR 0442: the last whole cells offered, with the key they were made for, and each group's chunks (kept between calls). */
+  private cellResult: { key: string; cells: CollisionCells2D } | null = null;
+  private cellChunks = new Map<string, Map<string, { chunk: CollisionCellChunk2D; solid: boolean }>>();
   /** @internal Goes up when anything about the cells or layers changes. */
   _version = 0;
 
@@ -340,16 +343,83 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
    * skipped), for whatever 2D collider sits on this node. Null while the tileset is missing. On a square grid they are
    * in cell units (`unit` is the cell size); on other grids in local units (`unit` 1 × 1, ADR 0435). A layer's
    * `offset` (ADR 0439) moves its shapes. Merged per chunk and cached (ADR 0437): an edit re-merges the chunks it touched.
+   * With `withoutCells` on a square grid, the whole-cell ("full") tiles `collisionCells` offers are left out (ADR 0442).
    */
-  collisionShapes(merge: ShapeMerge2D): CollisionShapes2D | null {
+  collisionShapes(merge: ShapeMerge2D, options?: CollisionShapeOptions2D): CollisionShapes2D | null {
     const ts = this.tilesetAsset;
     if (!ts) return null;
+    const withoutCells = !!options?.withoutCells && this._grid().shape === "square";
     const key = `${this.collisionSignature()}|${tilesetToken(ts)}`;
-    const cached = this.shapeResults.get(merge);
+    const slot = withoutCells ? `${merge}|withoutCells` : merge;
+    const cached = this.shapeResults.get(slot);
     if (cached?.key === key) return cached.shapes as CollisionShapes2D;
-    const shapes = this.mergedShapes("collision", merge, (l) => l.meta.collision, (id) => ts.tile(id)?.collision, ts);
-    this.shapeResults.set(merge, { key, shapes });
+    const shapes = this.mergedShapes("collision", merge, (l) => l.meta.collision, (id) => ts.tile(id)?.collision, ts, withoutCells);
+    this.shapeResults.set(slot, { key, shapes });
     return shapes;
+  }
+
+  /**
+   * @internal ADR 0442: on a square grid, the colliding layers' whole-cell ("full") tiles per chunk, layers with the
+   * same offset together (a cell solid in several counts once), for colliders that keep cells as voxels. A chunk's
+   * version changes only when its cells there or the tileset change. Null on other grids or while the tileset is missing.
+   */
+  collisionCells(): CollisionCells2D | null {
+    const ts = this.tilesetAsset;
+    if (!ts || this._grid().shape !== "square") return null;
+    const token = tilesetToken(ts);
+    const key = `${this.collisionSignature()}|${token}`;
+    if (this.cellResult?.key === key) return this.cellResult.cells;
+    const unit = { x: this.cellSize.x, y: this.cellSize.y };
+    const layerGroups = new Map<string, { offset: [number, number]; layers: [number, RuntimeLayer][] }>();
+    this._layers().forEach((l, i) => {
+      if (!l.meta.collision) return;
+      const ok = offsetKey(l);
+      let g = layerGroups.get(ok);
+      if (!g) layerGroups.set(ok, (g = { offset: layerOffsetOf(l), layers: [] }));
+      g.layers.push([i, l]);
+    });
+    const kept = new Map<string, Map<string, { chunk: CollisionCellChunk2D; solid: boolean }>>();
+    const groups: CollisionCellGroup2D[] = [];
+    for (const [ok, g] of layerGroups) {
+      const prev = this.cellChunks.get(ok);
+      const next = new Map<string, { chunk: CollisionCellChunk2D; solid: boolean }>();
+      const chunks: CollisionCellChunk2D[] = [];
+      for (const [, l] of g.layers) {
+        for (const [k, c] of l.chunks) {
+          if (next.has(k)) continue;
+          let version = `${token}`;
+          for (const [i, o] of g.layers) {
+            const oc = o.chunks.get(k);
+            if (oc) version += `|${i}:${oc.version}`;
+          }
+          let entry = prev?.get(k);
+          if (entry?.chunk.version !== version) {
+            const solid = new Uint8Array(CHUNK_CELLS);
+            let any = false;
+            for (const [, o] of g.layers) {
+              const cells = o.chunks.get(k)?.cells;
+              if (!cells) continue;
+              for (let i = 0; i < CHUNK_CELLS; i++) {
+                const raw = cells[i];
+                if (!raw || solid[i]) continue;
+                const id = this.resolve(o, tileIdOf(raw));
+                if (id && ts.tile(id)?.collision === "full") solid[i] = 1, any = true;
+              }
+            }
+            entry = { chunk: { cx: c.cx, cy: c.cy, version, solid }, solid: any };
+          }
+          next.set(k, entry);
+          if (entry.solid) chunks.push(entry.chunk);
+        }
+      }
+      kept.set(ok, next);
+      // Offsets are in local units; cells are in cell units.
+      groups.push({ key: ok, offset: { x: unit.x ? g.offset[0] / unit.x : 0, y: unit.y ? g.offset[1] / unit.y : 0 }, chunks });
+    }
+    this.cellChunks = kept;
+    const cells: CollisionCells2D = { unit, chunkSize: CHUNK_SIZE, groups };
+    this.cellResult = { key, cells };
+    return cells;
   }
 
   /**
@@ -382,7 +452,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
   }
 
   /** Every `include`d layer's tiles merged (layers with the same offset together, through the per-chunk cache), each offset group moved by its offset. */
-  private mergedShapes(purpose: string, mode: ShapeMerge2D, include: (l: RuntimeLayer) => boolean, collisionOf: (id: number) => TileCollision | undefined, ts: Tileset): CollisionShapes2D {
+  private mergedShapes(purpose: string, mode: ShapeMerge2D, include: (l: RuntimeLayer) => boolean, collisionOf: (id: number) => TileCollision | undefined, ts: Tileset, withoutWholeCells = false): CollisionShapes2D {
     const grid = this._grid();
     const square = grid.shape === "square";
     const unit = square ? { x: this.cellSize.x, y: this.cellSize.y } : { x: 1, y: 1 };
@@ -401,7 +471,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
     for (const [ok, g] of groups) {
       const slot = prefix + ok;
       used.add(slot);
-      const s = this.shapeCache.shapes(slot, g.layers, collisionOf, mode, grid, context);
+      const s = this.shapeCache.shapes(slot, g.layers, collisionOf, mode, grid, context, withoutWholeCells);
       // Offsets are in local units; square-grid shapes are in cell units.
       const dx = unit.x ? g.offset[0] / unit.x : 0, dy = unit.y ? g.offset[1] / unit.y : 0;
       appendShapes(out, dx || dy ? movedShapes(s, dx, dy) : s);

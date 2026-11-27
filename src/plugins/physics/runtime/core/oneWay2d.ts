@@ -55,5 +55,14 @@ function shapeTop(shape: ShapeDesc2D, ox: number, oy: number, rotation: number, 
       }
       return top;
     }
+    case "voxels": {
+      const { x: w, y: h } = shape.size, cells = shape.cells;
+      let top = -Infinity;
+      for (let i = 0; i + 1 < cells.length; i += 2) {
+        const x = cells[i] * w, y = cells[i + 1] * h;
+        top = Math.max(top, highest([[x, y], [x + w, y], [x + w, y + h], [x, y + h]]));
+      }
+      return top;
+    }
   }
 }

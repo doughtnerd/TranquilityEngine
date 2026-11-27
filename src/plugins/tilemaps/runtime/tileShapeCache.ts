@@ -87,9 +87,11 @@ export class TileShapeCache {
    * The tiles of `layers` merged together in `mode`, the same shapes `buildTileShapes` gives for all their cells
    * (rectangles may split differently at chunk borders; each solid cell counts once however many layers have it).
    * `slot` names this set of layers and mode; `context` must change whenever `collisionOf` or `grid` would answer
-   * differently (the tileset, the grid's key).
+   * differently (the tileset, the grid's key). `withoutWholeCells` (square grids, ADR 0442) leaves the whole cells'
+   * rectangles and outlines out of the result (they are still merged and cached, so the slot serves both).
    */
-  shapes(slot: string, layers: readonly ShapeLayer[], collisionOf: (id: number) => TileCollision | undefined, mode: TileCollisionMode, grid: TileGrid, context: string): TileShapes {
+  shapes(slot: string, layers: readonly ShapeLayer[], collisionOf: (id: number) => TileCollision | undefined, mode: TileCollisionMode, grid: TileGrid, context: string, withoutWholeCells = false): TileShapes {
+    const whole = !(withoutWholeCells && grid.shape === "square");
     const space = mergeSpace(grid.shape === "square" ? null : grid);
     const placed = grid.shape === "square" ? null : grid;
     let st = this.slots.get(slot);
@@ -111,17 +113,17 @@ export class TileShapeCache {
       let m = old.get(k);
       if (m?.key !== key) added.push((m = mergeChunk(key, cx, cy, k, layers, collisionOf, mode, space, placed)));
       merges.set(k, m);
-      for (const b of m.boxes) out.boxes.push(b);
+      if (whole) for (const b of m.boxes) out.boxes.push(b);
       for (const p of m.polygons) out.polygons.push(p);
       for (const p of m.oneWayPolygons) out.oneWayPolygons.push(p);
-      for (const p of m.loops) out.loops.push(p);
+      if (whole) for (const p of m.loops) out.loops.push(p);
       for (const r of m.runs) runs.push(r);
     }
     const removed: ChunkMerge[] = [];
     for (const [k, m] of old) if (merges.get(k) !== m) removed.push(m);
     st.merges = merges;
     regroupBorders(st, removed, added, space);
-    for (const g of st.groups) for (const o of g.outlines) out.loops.push(o);
+    if (whole) for (const g of st.groups) for (const o of g.outlines) out.loops.push(o);
     const joined = joinRuns(runs);
     if (space.toShape) for (const r of joined) out.oneWayPolygons.push(mergeQuad(space, r));
     else out.oneWay = joined;
