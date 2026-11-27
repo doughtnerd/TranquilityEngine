@@ -1,10 +1,10 @@
-# 0439. Tilemap layers get an offset, a parallax factor and a lock; the editor can dim inactive layers
+# 0441. Tilemap layers get an offset, a parallax factor and a lock; the editor can dim inactive layers
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0103)
-- **Related:** 0014, 0103, 0136, 0138, 0392, 0413, 0435, 0436
+- **Related:** 0014, 0103, 0136, 0138, 0392, 0413, 0437, 0438
 
 ## Context
 
@@ -12,7 +12,7 @@ A Tilemap layer (0103, 0392) has a name, sorting layer and order, visibility, a 
 Tiled layers also have an offset (in pixels), a parallax factor and a lock; LDtk has per-layer offsets; LDtk and
 Tiled both dim or isolate the layer being edited. Without offsets, a layer half a cell up (a raised walkway, a
 shadow layer) needs its own Tilemap node; without parallax, a background layer of the same map can't scroll slower;
-without a lock, painting a busy map hits the wrong layer. The importer (0436) has to drop these today.
+without a lock, painting a busy map hits the wrong layer. The importer (0438) has to drop these today.
 
 ## Decision
 
@@ -41,7 +41,7 @@ them reads as today, and an older engine ignores them (an offset or parallax lay
 - **Scripting.** `Tilemap.layerOffset(layer)`, `setLayerOffset(layer, x, y)`, `layerParallax(layer)` and
   `setLayerParallax(layer, x, y)` change the runtime layer only, like other script edits (0103: saving is
   `toLayerData()`).
-- **Import.** 0436 maps Tiled's layer `offsetx`/`offsety`, `parallaxx`/`parallaxy` and `locked`, and LDtk's layer
+- **Import.** 0438 maps Tiled's layer `offsetx`/`offsety`, `parallaxx`/`parallaxy` and `locked`, and LDtk's layer
   offsets, instead of warning.
 
 ### Path to a high-end pipeline

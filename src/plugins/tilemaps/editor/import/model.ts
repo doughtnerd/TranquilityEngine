@@ -1,8 +1,8 @@
 /**
- * The neutral model the Tiled and LDtk parsers produce (ADR 0436), read by the native writer that turns it into Myco
- * tilesets, sidecar slices and prefabs. It is shaped like Myco's own data where the two agree (grid fields of ADR 0435,
- * collision polygons of ADR 0437, animations of ADR 0435, terrains and patterns of ADR 0103, layer offset, parallax
- * and lock of ADR 0439), and keeps the source's own spaces where they differ:
+ * The neutral model the Tiled and LDtk parsers produce (ADR 0438), read by the native writer that turns it into Myco
+ * tilesets, sidecar slices and prefabs. It is shaped like Myco's own data where the two agree (grid fields of ADR 0437,
+ * collision polygons of ADR 0439, animations of ADR 0437, terrains and patterns of ADR 0103, layer offset, parallax
+ * and lock of ADR 0441), and keeps the source's own spaces where they differ:
  *
  * - **Cell coordinates** are the source's: column `x` to the right, row `y` *down*, as Tiled and LDtk store them (on
  *   isometric, staggered and hexagonal maps, Tiled's own cell addressing). The writer converts them to Myco's y-up
@@ -94,7 +94,7 @@ export type ImportProperties = Record<string, ImportValue>;
 // ---------------------------------------------------------------------------------------------------------------
 // Grid
 
-/** A map's (or LDtk level's) cell layout, in ADR 0435's terms. */
+/** A map's (or LDtk level's) cell layout, in ADR 0437's terms. */
 export interface ImportGrid {
   /** Tiled `orthogonal` → `"square"`; `isometric`, `staggered` and `hexagonal` as named. LDtk is always `"square"`. */
   shape: TileGridShape;
@@ -130,7 +130,7 @@ export interface ImportRect {
   h: number;
 }
 
-/** One frame of a tile animation (ADR 0435). */
+/** One frame of a tile animation (ADR 0437). */
 export interface ImportAnimationFrame {
   /** The frame's tile, an index into the same tileset's tiles (`ImportTile.index`). */
   tileIndex: number;
@@ -141,7 +141,7 @@ export interface ImportAnimationFrame {
 export interface ImportTile {
   /**
    * The source's tile index: Tiled's local tile id, LDtk's tile id. A grid-image tile's index is its position in the
-   * image, row by row from the top-left. Myco's tile id is this + 1 (ADR 0436).
+   * image, row by row from the top-left. Myco's tile id is this + 1 (ADR 0438).
    */
   index: number;
   /** A collection-of-images tile's own image; absent for grid-image tiles (they use the tileset's `image`). */
@@ -155,14 +155,14 @@ export interface ImportTile {
    */
   data?: Record<string, unknown>;
   /**
-   * Collision polygons (ADR 0437), counter-clockwise, in box units where the box is the tile's `rect`: `[0, 0]` its
+   * Collision polygons (ADR 0439), counter-clockwise, in box units where the box is the tile's `rect`: `[0, 0]` its
    * bottom-left, `[1, 1]` its top-right. Rectangles have four points, ellipses sixteen, rotations are applied, and a
    * shape whose object had the boolean property `oneWay` set is one-way. Empty when the tile doesn't collide.
    */
   shapes: TilePolygon[];
   /** Frame animation (Tiled `<animation>`), absent when the tile isn't animated. */
   animation?: ImportAnimationFrame[];
-  /** The Myco terrain the tile belongs to, from a Wang set (ADR 0436's rules). */
+  /** The Myco terrain the tile belongs to, from a Wang set (ADR 0438's rules). */
   terrain?: string;
   /** The tile's 8-character neighbour pattern (N NE E SE S SW W NW; `1`, `0` or `*`) in `terrain`. */
   pattern?: string;
@@ -197,7 +197,7 @@ export interface ImportTileset {
   tileCount: number;
   /** Tiled `tileoffset` in pixels (x right, y down); `[0, 0]` when absent. */
   offset: [number, number];
-  /** Tiled `<grid orientation>`: which cell outline the tileset editor should draw (ADR 0437 `previewGrid`). */
+  /** Tiled `<grid orientation>`: which cell outline the tileset editor should draw (ADR 0439 `previewGrid`). */
   previewGrid?: "square" | "isometric";
   /**
    * Every tile: for a grid image all `tileCount` of them in index order, each with its rectangle; for a collection
@@ -214,7 +214,7 @@ export interface ImportTileset {
 // Layers
 
 /**
- * What every layer has. Tiled group layers are flattened (ADR 0436): names joined with `/`, opacity and visibility
+ * What every layer has. Tiled group layers are flattened (ADR 0438): names joined with `/`, opacity and visibility
  * multiplied, offsets added, parallax multiplied, `locked` if any group is, tints multiplied.
  */
 export interface ImportLayerBase {
@@ -228,7 +228,7 @@ export interface ImportLayerBase {
   tint?: string;
   /** Pixels, x right and y down (Tiled `offsetx`/`offsety`, LDtk `__pxTotalOffsetX/Y`). */
   offset: [number, number];
-  /** Tiled parallax factor (ADR 0439); `[1, 1]` when absent. */
+  /** Tiled parallax factor (ADR 0441); `[1, 1]` when absent. */
   parallax: [number, number];
   locked: boolean;
   /** Tiled layer `class`. */

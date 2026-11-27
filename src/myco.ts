@@ -42,7 +42,7 @@ export {
   type SkyPresetId,
 } from "./plugins/sky/runtime";
 
-// The Tilemaps plugin (ADR 0103, 0135, 0136; MapObject, ADR 0436).
+// The Tilemaps plugin (ADR 0103, 0135, 0136; MapObject, ADR 0438).
 export {
   Tilemap,
   MapObject,
@@ -219,11 +219,11 @@ export {
   type PhysicsEvent,
   type BuoyancyMode,
 } from "./plugins/physics/runtime";
-// ADR 0437 renamed TilemapCollider2D; scripts naming the old class keep working.
+// ADR 0439 renamed TilemapCollider2D; scripts naming the old class keep working.
 import { ShapeCollider2D as _ShapeCollider2D } from "./plugins/physics/runtime";
-/** @deprecated Renamed `ShapeCollider2D` (ADR 0437): the same class, so `getComponent(TilemapCollider2D)` still finds it. */
+/** @deprecated Renamed `ShapeCollider2D` (ADR 0439): the same class, so `getComponent(TilemapCollider2D)` still finds it. */
 export const TilemapCollider2D = _ShapeCollider2D;
-/** @deprecated Renamed `ShapeCollider2D` (ADR 0437). */
+/** @deprecated Renamed `ShapeCollider2D` (ADR 0439). */
 export type TilemapCollider2D = _ShapeCollider2D;
 
 // The Audio plugin (ADR 0157). Its settings types (`AudioSettings`…) stay in the core.

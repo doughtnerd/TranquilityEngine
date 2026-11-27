@@ -70,7 +70,7 @@ describe("runtime settings sections", () => {
   });
 });
 
-describe("y-sorted sorting layers (ADR 0438)", () => {
+describe("y-sorted sorting layers (ADR 0440)", () => {
   it("default to none, and keep listed sorting layers", () => {
     expect(defaultSettings.render.ySortedLayers).toEqual([]);
     const { value, problems } = RUNTIME_SETTINGS.render.parse({ sortingLayers: ["Default", "World"], ySortedLayers: ["World"] });

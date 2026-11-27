@@ -10,7 +10,7 @@ import { DecalRenderer } from "./decalRenderer";
 import { Decals } from "./Decals";
 
 type FakeDecalBatch = DecalBatch & { look: DecalLook; count: number; matrices: Float32Array; colors: Float32Array; uvs: Float32Array; angles: Float32Array; order: number; disposed: boolean };
-/** `order` is the sorting layer and order in layer it was given; `within` how far into that order (ADR 0438), undefined when not passed. */
+/** `order` is the sorting layer and order in layer it was given; `within` how far into that order (ADR 0440), undefined when not passed. */
 type FakeQuads = QuadBatch & { texture: string; positions: Float32Array; colors: Float32Array | null; mask: QuadMask | null; order: [string, number]; within: number | undefined; material: string | null; disposed: boolean };
 
 /** Fake hosts; `view` is the view camera distance fades are measured from (none by default). */
@@ -61,7 +61,7 @@ afterEach(() => {
   Assets.clearSources();
 });
 
-/** A headless engine on the sorting layers Back and Default; `ySortedLayers` are y-sorted (ADR 0438, none by default). */
+/** A headless engine on the sorting layers Back and Default; `ySortedLayers` are y-sorted (ADR 0440, none by default). */
 async function headless(maxDecals = 1000, ySortedLayers: string[] = []): Promise<Engine> {
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "splat.png": "data:image/png;base64,", "crate.png": "data:image/png;base64," }));
@@ -137,7 +137,7 @@ describe("decal drawing (ADR 0395)", () => {
   });
 });
 
-describe("2D decals in a y-sorted sorting layer (ADR 0438)", () => {
+describe("2D decals in a y-sorted sorting layer (ADR 0440)", () => {
   const RENDER = { sortingLayers: ["Back", "Default"], ySortedLayers: ["Default"] };
   /** A placed Decal2D on `layer` at order 2, at height `y`. */
   const stamp = (name: string, layer: string, y: number): Decal2D => {

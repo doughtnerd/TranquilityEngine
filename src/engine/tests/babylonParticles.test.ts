@@ -461,9 +461,9 @@ function colorGraph(): CompiledShaderGraph {
   } as unknown as CompiledShaderGraph;
 }
 
-// ADR 0438: the Particles plugin's feature on a renderer (the real feature host, its `drawPlace` over the project's
+// ADR 0440: the Particles plugin's feature on a renderer (the real feature host, its `drawPlace` over the project's
 // render settings), so a 2D system's place takes its node's height in a y-sorted sorting layer.
-describe("2D particle systems in a y-sorted sorting layer (ADR 0438)", () => {
+describe("2D particle systems in a y-sorted sorting layer (ADR 0440)", () => {
   const RENDER = { sortingLayers: ["Back", "Units"], ySortedLayers: ["Units"] };
   let babylon: NullEngine;
   let game: MycoEngine;

@@ -5,7 +5,7 @@ import { planPrefabStroke, type PlacedInstance } from "./prefabBrushLogic";
 const CHEST = "props/chest.prefab.json", BARREL = "props/barrel.prefab.json", CRATE = "props/crate.prefab.json";
 const at = (key: string, prefab: string, cell: Cell): PlacedInstance => ({ key, prefab, cell });
 
-describe("the prefab brush's strokes (ADR 0440)", () => {
+describe("the prefab brush's strokes (ADR 0442)", () => {
   it("places one instance per cell, replacing another prefab and keeping the same one", () => {
     const existing = [at("a", BARREL, [1, 0]), at("b", CHEST, [2, 0])];
     const plan = planPrefabStroke("paint", [[0, 0], [1, 0], [2, 0], [0, 0]], existing, [CHEST], 7);

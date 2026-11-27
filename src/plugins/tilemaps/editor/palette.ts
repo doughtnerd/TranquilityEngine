@@ -1,5 +1,5 @@
 // What the Tile Palette does besides drawing (ADR 0103): the stamp a block of tiles makes, and layer edits written
-// to the scene as one undoable write of `layers` (`editor.scene.writeField`), and Replace with… (ADR 0440).
+// to the scene as one undoable write of `layers` (`editor.scene.writeField`), and Replace with… (ADR 0442).
 import { Tilemap } from "../runtime";
 import type { Stamp } from "../runtime/brushes";
 import type { TilemapLayerData } from "../runtime/format";
@@ -34,7 +34,7 @@ export function commitLayers(scene: OpenScene, path: readonly string[], layers: 
   editor.scene.edit(label, () => void editor.scene.writeField({ scene, path, type: "engine.Tilemap" }, "layers", layers), scene);
 }
 
-/** Where Replace with… replaces a tile (ADR 0440): the active layer, every layer of the map, or every Tilemap of the open scene with the same tileset. */
+/** Where Replace with… replaces a tile (ADR 0442): the active layer, every layer of the map, or every Tilemap of the open scene with the same tileset. */
 export type ReplaceScope = "layer" | "layers" | "scene";
 
 /**

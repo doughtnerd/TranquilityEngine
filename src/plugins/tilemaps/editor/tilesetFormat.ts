@@ -8,7 +8,7 @@ import { newTileset, parseTileset, type TilesetData } from "../runtime/tileset";
 export const tilesetFormat: AssetFormat<TilesetData> = {
   parse(raw, path) {
     const { tileset, problems } = parseTileset(raw, path);
-    // Terrain tiles whose pattern doesn't fit the tileset's grid (ADR 0435) show as problems naming them.
+    // Terrain tiles whose pattern doesn't fit the tileset's grid (ADR 0437) show as problems naming them.
     return { value: tileset, problems: [...problems, ...patternProblems(tileset)].map((message) => ({ message })) };
   },
   format: (data) => `${JSON.stringify(data, null, 2)}\n`,

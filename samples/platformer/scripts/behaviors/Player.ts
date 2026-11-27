@@ -2,7 +2,7 @@ import { GameBehavior, Input, Mathf, Physics2D, RigidBody2D, Tilemap, Time, Vect
 
 /**
  * The player: runs with A/D or the arrow keys and jumps with Space, W or Up when standing on
- * something; Down (or S) + Jump drops through the one-way plank underfoot (ADR 0437). Coins, spikes
+ * something; Down (or S) + Jump drops through the one-way plank underfoot (ADR 0439). Coins, spikes
  * and the flag are tiles; the player reads their tile data (ADR 0103).
  */
 @behavior("game.Player")

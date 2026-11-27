@@ -1,10 +1,10 @@
-# 0437. Tile collision and shadow shapes are edited visually with several shapes per tile; any 2D collider can be one-way, bodies and character controllers can drop through, tile shapes are cached per chunk, and TilemapCollider2D becomes ShapeCollider2D
+# 0439. Tile collision and shadow shapes are edited visually with several shapes per tile; any 2D collider can be one-way, bodies and character controllers can drop through, tile shapes are cached per chunk, and TilemapCollider2D becomes ShapeCollider2D
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0103 and 0105)
-- **Related:** 0005, 0039, 0103, 0105, 0136, 0137, 0392, 0413, 0414, 0435, 0436, 0439
+- **Related:** 0005, 0039, 0103, 0105, 0136, 0137, 0392, 0413, 0414, 0437, 0438, 0441
 
 ## Context
 
@@ -38,12 +38,12 @@ What 0103 and 0105 left open, and what reading the code turned up:
 
 - **Format** (`*.tileset.json`, still `myco.tileset@1`; additive): `TileCollision` gains
   `{ "shapes": [{ "polygon": [[x, y], …], "oneWay"?: true }, …] }`. The single-polygon form stays readable and is
-  what a tile with one polygon writes, so existing files don't change. Polygons are in the tile's box units (0435:
+  what a tile with one polygon writes, so existing files don't change. Polygons are in the tile's box units (0437:
   `[0, 0]` bottom-left, `[1, 1]` top-right of the box its sprite is drawn in). Each shape is split into convex parts
   at build time as now (0039's decomposition), so concave shapes are fine.
 - **The editor.** The tileset inspector's collision section becomes a canvas showing the tile's sprite (nearest
   filtering, zoomable), the cell's box and, for a tileset with a `previewGrid` hint, the cell's outline (diamond or
-  hexagon, 0435), with the tile's shapes drawn over it in the theme's accent and one-way shapes dashed with an
+  hexagon, 0437), with the tile's shapes drawn over it in the theme's accent and one-way shapes dashed with an
   arrow up. Tools:
   - presets: None, Full cell, One-way cell (the existing kinds);
   - Add rectangle, Add polygon (click points, Enter or click the first point to close), Delete shape;
@@ -59,7 +59,7 @@ What 0103 and 0105 left open, and what reading the code turned up:
   `src/editor/polygonEdit.ts`, exported through the editor SDK, so the Outline tool and the tile collision editor
   use one implementation; plugins still don't import each other's editor halves.
 - **`previewGrid`** is an optional tileset field (`"square"`, `"isometric"`, `"hexagonal"`) that only tells the editor
-  which cell outline to draw. The importer (0436) writes it; the inspector sets it. It changes nothing at runtime:
+  which cell outline to draw. The importer (0438) writes it; the inspector sets it. It changes nothing at runtime:
   `"full"` always means the outline of whatever grid the map uses.
 
 ### Shadow shapes per tile
@@ -76,8 +76,8 @@ light (glass, water edges).
 - **Core:** a new renderer-neutral interface beside the 2D shape source, `ShadowShapeSource2D`
   (`src/engine/render/shadowShapeSource2D.ts`: `shadowSignature()`, `shadowShapes()` → closed outlines and convex
   polygons in local units), with `findShadowShapeSource2D(node)`. `Tilemap` implements it from each tile's occluder,
-  merged into outlines per chunk like collision (cached the same way, below), on every grid (0435) and with layer
-  offsets (0439). `ShadowCaster2D` in `"auto"` and `"collider"` modes prefers a shadow shape source on the node over
+  merged into outlines per chunk like collision (cached the same way, below), on every grid (0437) and with layer
+  offsets (0441). `ShadowCaster2D` in `"auto"` and `"collider"` modes prefers a shadow shape source on the node over
   its collision shapes; other casters are unchanged. A layer's collision flag doesn't gate its shadows; a layer field
   isn't added (a layer of `"none"` occluders casts nothing).
 
@@ -119,11 +119,11 @@ stand on them, as a rigid body can.
 ### Tile shapes cached per chunk, one compound
 
 - `Tilemap.collisionShapes` keeps one merge result per (layer, chunk, mode), keyed by the chunk's version, the
-  tileset and the grid (0435). An edit re-merges only the touched chunks; the map's shapes are the cached chunk
+  tileset and the grid (0437). An edit re-merges only the touched chunks; the map's shapes are the cached chunk
   results put together.
   - `"rectangles"`: greedy rectangles per chunk (rectangles stop at chunk borders); polygon parts per chunk.
   - `"outline"`: each chunk caches its boundary edges; putting them together cancels edges shared across chunk
-    borders and chains the rest into loops (the edge-cancelling tracer of 0435), so outlines are the same as a
+    borders and chains the rest into loops (the edge-cancelling tracer of 0437), so outlines are the same as a
     whole-map trace.
   - One-way runs are cached per chunk and joined across chunk borders when put together, so a plank crossing a
     border is one run.
@@ -144,7 +144,7 @@ It builds from any `CollisionShapeSource2D` (0136), so it is named for that: cla
   name the old id keep applying. The Physics plugin registers the alias.
 - **Scripts:** `myco` exports `ShapeCollider2D`, and `TilemapCollider2D` as a deprecated alias of the same class
   (marked `@deprecated`), so `getComponent(TilemapCollider2D)` keeps working.
-- Create > Tilemap, the importers (0436), the platformer sample, the guides and docs use the new name.
+- Create > Tilemap, the importers (0438), the platformer sample, the guides and docs use the new name.
 
 ### As built (2026-11-26)
 

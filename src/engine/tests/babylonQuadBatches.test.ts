@@ -101,7 +101,7 @@ describe("Babylon quad batches drawing triangles (ADR 0370, 0371: skinned sprite
   });
 });
 
-describe("Babylon quad batches updated in place (ADR 0435: animated tiles)", () => {
+describe("Babylon quad batches updated in place (ADR 0437: animated tiles)", () => {
   it("takes setQuads with the same texture, vertex count and indices array as a vertex update, not a new mesh", () => {
     const scene = new Scene(new NullEngine());
     const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false } as unknown as Texture;
@@ -133,7 +133,7 @@ describe("Babylon quad batches updated in place (ADR 0435: animated tiles)", () 
   });
 });
 
-describe("Babylon quad batches per camera (ADR 0442: tile parallax follows each camera)", () => {
+describe("Babylon quad batches per camera (ADR 0444: tile parallax follows each camera)", () => {
   it("calls camera listeners before each camera draws, with its world position, and holds their matrices for that camera only", () => {
     const scene = new Scene(new NullEngine());
     // Never ready: the mesh is skipped at draw time (NullEngine draws nothing anyway); its matrix is what's checked.

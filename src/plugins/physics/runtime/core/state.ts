@@ -62,7 +62,7 @@ export interface ShapeColliderState<D extends DimensionTypes, RB> {
   syncedVersion: number;
   body: RB | null;
   active: boolean;
-  /** ADR 0442: the voxel colliders built from the source's cells, or null when everything is built from its shapes. */
+  /** ADR 0444: the voxel colliders built from the source's cells, or null when everything is built from its shapes. */
   voxels?: ShapeVoxelState<D> | null;
 }
 
@@ -75,7 +75,7 @@ export interface VoxelChunkState<D extends DimensionTypes> {
   collider: BackendCollider<D>;
 }
 
-/** @internal A ShapeCollider2D's voxel colliders (ADR 0442) and the shapes built beside them. */
+/** @internal A ShapeCollider2D's voxel colliders (ADR 0444) and the shapes built beside them. */
 export interface ShapeVoxelState<D extends DimensionTypes> {
   /** The collider's settings (everything in `signature` but the source's): a change rebuilds everything. */
   settings: string;

@@ -1,5 +1,5 @@
-// A block of cells under flip flags (ADR 0289, 0435): the one rule the brush's stamps and the selection's in-place
-// flips (ADR 0440) both lay cells out by. Cells map through `tileFlips.flipPoint`, so the block and its tiles follow
+// A block of cells under flip flags (ADR 0289, 0437): the one rule the brush's stamps and the selection's in-place
+// flips (ADR 0442) both lay cells out by. Cells map through `tileFlips.flipPoint`, so the block and its tiles follow
 // tileFlips.ts's one convention. Pure.
 import type { Stamp } from "../runtime/brushes";
 import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, cellValue, flagsOf, tileIdOf } from "../runtime/format";
@@ -23,7 +23,7 @@ export function orientCell(c: number, r: number, width: number, height: number, 
 
 /**
  * The stamp laid out under the flips `flags`: the block transformed as one tile is (mirrored, and turned with width
- * and height swapped), each tile's own flips composed with `flags`. Without `layout` (hexagonal maps, ADR 0435) only
+ * and height swapped), each tile's own flips composed with `flags`. Without `layout` (hexagonal maps, ADR 0437) only
  * the tiles' images flip: the layout stays and turns are dropped.
  */
 export function orientedStamp(stamp: Stamp, flags: number, layout = true): Stamp {

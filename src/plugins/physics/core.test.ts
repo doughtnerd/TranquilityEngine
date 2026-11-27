@@ -342,7 +342,7 @@ describe("with no physics backend enabled (ADR 0137)", () => {
   });
 });
 
-describe("one-way colliders and drop-through in the core (ADR 0437)", () => {
+describe("one-way colliders and drop-through in the core (ADR 0439)", () => {
   /** A World on a fake backend with or without one-way platforms. */
   async function oneWaySetup(oneWayPlatforms: boolean) {
     const id = oneWayPlatforms ? "fake-oneway" : "fake";
@@ -433,7 +433,7 @@ describe("one-way colliders and drop-through in the core (ADR 0437)", () => {
   });
 });
 
-/** A fake world with voxel colliders (ADR 0442): records what the core asks of them. */
+/** A fake world with voxel colliders (ADR 0444): records what the core asks of them. */
 class FakeVoxelWorld extends FakeWorld {
   readonly log: string[] = [];
   /** Live voxel colliders by id: their filled cells as "x,y". */
@@ -470,7 +470,7 @@ class FakeVoxelWorld extends FakeWorld {
   }
 }
 
-describe("ShapeCollider2D as voxel colliders in the core (ADR 0442)", () => {
+describe("ShapeCollider2D as voxel colliders in the core (ADR 0444)", () => {
   const TILES = { format: "myco.tileset@1", tileSize: [16, 16], tiles: [{ id: 1, sprite: "", collision: "full" }, { id: 2, sprite: "", collision: "oneWay" }, { id: 3, sprite: "", collision: { polygon: [[0, 0], [1, 0], [1, 1]] } }] };
   let voxelWorld: FakeVoxelWorld | null = null;
   /** A World on a fake backend with or without voxel colliders, and a tile map with a ShapeCollider2D. */

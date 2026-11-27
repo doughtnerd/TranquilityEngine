@@ -1,5 +1,5 @@
 /**
- * LDtk importer, parsing half (ADR 0436): an `.ldtk` project (with its `.ldtkl` external levels) into the neutral model
+ * LDtk importer, parsing half (ADR 0438): an `.ldtk` project (with its `.ldtkl` external levels) into the neutral model
  * of `model.ts`. Pure over text: external level files come through `read`.
  */
 

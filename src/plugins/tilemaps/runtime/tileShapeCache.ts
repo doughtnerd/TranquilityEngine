@@ -1,5 +1,5 @@
 /**
- * Tile shapes merged per chunk and cached (ADR 0437). A Tilemap's collision (and shadow) shapes are the merge of its
+ * Tile shapes merged per chunk and cached (ADR 0439). A Tilemap's collision (and shadow) shapes are the merge of its
  * tiles; merging a big map whole on every edit is what made editing it slow. This cache keeps one merge result per
  * chunk position and slot (a slot is one set of layers merged together in one mode, such as the colliding layers
  * that share an offset, in outline mode), keyed by the versions of the slot's layers' chunks there and a context key
@@ -87,7 +87,7 @@ export class TileShapeCache {
    * The tiles of `layers` merged together in `mode`, the same shapes `buildTileShapes` gives for all their cells
    * (rectangles may split differently at chunk borders; each solid cell counts once however many layers have it).
    * `slot` names this set of layers and mode; `context` must change whenever `collisionOf` or `grid` would answer
-   * differently (the tileset, the grid's key). `withoutWholeCells` (square grids, ADR 0442) leaves the whole cells'
+   * differently (the tileset, the grid's key). `withoutWholeCells` (square grids, ADR 0444) leaves the whole cells'
    * rectangles and outlines out of the result (they are still merged and cached, so the slot serves both).
    */
   shapes(slot: string, layers: readonly ShapeLayer[], collisionOf: (id: number) => TileCollision | undefined, mode: TileCollisionMode, grid: TileGrid, context: string, withoutWholeCells = false): TileShapes {

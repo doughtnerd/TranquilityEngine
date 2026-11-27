@@ -26,7 +26,7 @@ export abstract class Collider2D extends Component {
   @field(PlainObject) material: PhysicsMaterial = { friction: 0.5, bounciness: 0 };
   /**
    * Collide only with bodies coming down onto it from above, along the node's +Y (turned and mirrored with the node):
-   * bodies and character controllers pass up through it and land on top (ADR 0437). Triggers ignore it. On a
+   * bodies and character controllers pass up through it and land on top (ADR 0439). Triggers ignore it. On a
    * ShapeCollider2D every shape it builds is one-way. A backend without one-way platforms keeps it solid.
    */
   @field(Boolean, { description: "Let bodies pass up through it (along the node's +Y) and land on top: a one-way platform." }) oneWay = false;

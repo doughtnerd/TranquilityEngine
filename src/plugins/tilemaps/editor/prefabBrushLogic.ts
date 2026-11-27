@@ -1,4 +1,4 @@
-// What a stroke of the prefab brush (ADR 0440) does to the prefab instances under a Tilemap: one instance per cell,
+// What a stroke of the prefab brush (ADR 0442) does to the prefab instances under a Tilemap: one instance per cell,
 // painting an occupied cell replaces what's there, the eraser removes the instances standing in its cells, and random
 // mode picks among the chosen prefabs by the cell's hash (`cellRandom` on the random-brush stream, ADR 0400), so the
 // same strokes place the same prefabs. Pure: the editor glue (prefabBrush.ts) reads the instances and applies the plan.

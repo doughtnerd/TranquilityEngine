@@ -1,4 +1,4 @@
-// The tile editor's next tier in the editor (ADR 0439, 0440): locked layers, stamps of several layers, the editor
+// The tile editor's next tier in the editor (ADR 0441, 0442): locked layers, stamps of several layers, the editor
 // clipboard across tilesets, the selection tool's operations as undo steps, Replace with… and the prefab brush.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine, type AssetSource } from "../../../engine";
@@ -25,7 +25,7 @@ const TILESET = { format: "myco.tileset@1", tileSize: [16, 16], tiles: tiles(["u
 const OTHER = { format: "myco.tileset@1", tileSize: [16, 16], tiles: [{ id: 9, uuid: "u2", sprite: "" }, { id: 8, uuid: "u1", sprite: "" }] };
 const PIPE = "prefabs/pipe-pair.prefab.json"; // the sample's
 
-describe("tile editing in the editor (ADR 0439, 0440)", () => {
+describe("tile editing in the editor (ADR 0441, 0442)", () => {
   useEditorPlugins([tilemapsEditorPlugin]);
   let engine: Engine;
   let source: AssetSource;
@@ -260,7 +260,7 @@ describe("tile editing in the editor (ADR 0439, 0440)", () => {
   const GRIDS = (["staggered", "hexagonal"] as const).flatMap((shape) => (["y", "x"] as const).flatMap((axis) => (["odd", "even"] as const).map((index) => ({ shape, axis, index }))));
 
   for (const { shape, axis, index } of GRIDS) {
-    it(`keeps the shape of a copied stamp, and of a saved one read back, on a ${shape} map (axis ${axis}, ${index}) (ADR 0442)`, () => {
+    it(`keeps the shape of a copied stamp, and of a saved one read back, on a ${shape} map (axis ${axis}, ${index}) (ADR 0444)`, () => {
       const { scene, id, live } = newMap();
       setGrid(scene, id, shape, axis, index);
       expect(live().gridShape).toBe(shape);
@@ -286,7 +286,7 @@ describe("tile editing in the editor (ADR 0439, 0440)", () => {
         expect(shapeOf(live())).toEqual(copied);
       }
 
-      // A stamp saved before ADR 0442 (no frame) still lands cell for cell, as it did.
+      // A stamp saved before ADR 0444 (no frame) still lands cell for cell, as it did.
       const { stagger: _, ...old } = read;
       chooseBlock(decodeStamp(old, live().tilesetAsset!).block, live().tilesetAsset);
       live().clearAll();
@@ -295,7 +295,7 @@ describe("tile editing in the editor (ADR 0439, 0440)", () => {
     });
   }
 
-  it("moves the selection an odd number of rows on a staggered map keeping its shape, as one undo step (ADR 0442)", () => {
+  it("moves the selection an odd number of rows on a staggered map keeping its shape, as one undo step (ADR 0444)", () => {
     const { scene, id, live } = newMap();
     setGrid(scene, id, "staggered", "y", "odd");
     live().setTile(0, 0, 1);

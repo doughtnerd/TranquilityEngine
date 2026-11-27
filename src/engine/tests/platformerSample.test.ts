@@ -82,7 +82,7 @@ describe("platformer sample", () => {
     expect(player.transform.position.y).toBeCloseTo(5.43, 1); // on the plank's top (y = 5)
   });
 
-  it("Down + Jump drops the player through the plank onto the ground below (ADR 0437)", async () => {
+  it("Down + Jump drops the player through the plank onto the ground below (ADR 0439)", async () => {
     const { engine, player } = await start();
     run(engine, 0.5);
     player.transform.position = [14, 5.6, 0]; // just above the plank at y = 4..5, x 13..15

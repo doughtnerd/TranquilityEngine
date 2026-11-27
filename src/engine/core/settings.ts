@@ -56,7 +56,7 @@ export interface ProjectSettings {
     /** Sorting layers from back to front (ADR 0014). */
     sortingLayers: string[];
     /**
-     * The sorting layers that are y-sorted (ADR 0438): draws with the same order in layer sort by their sort point's world
+     * The sorting layers that are y-sorted (ADR 0440): draws with the same order in layer sort by their sort point's world
      * height, higher first. Names from `sortingLayers`. Optional in `project.json`: none.
      */
     ySortedLayers: string[];
@@ -300,7 +300,7 @@ function parseRender(written: unknown): Parsed<"render"> {
     nameListProblems(layers, "render.sortingLayers", "Sorting layers", problems);
     value.sortingLayers = nameListValue(layers, DEFAULT_RENDER.sortingLayers);
   }
-  // Y-sorted layers (ADR 0438): listed sorting layers; an unknown or repeated name is reported and dropped.
+  // Y-sorted layers (ADR 0440): listed sorting layers; an unknown or repeated name is reported and dropped.
   const ySorted = isRecord(written) ? written.ySortedLayers : undefined;
   value.ySortedLayers = [];
   if (ySorted !== undefined) {

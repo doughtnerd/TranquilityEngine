@@ -97,7 +97,7 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     expect(queries.pick(400, 300)).toEqual([back, front, near, far]);
   });
 
-  it("picks the sprite drawn on top in a y-sorted layer: the lower one (ADR 0438), from the sprite feature's places", () => {
+  it("picks the sprite drawn on top in a y-sorted layer: the lower one (ADR 0440), from the sprite feature's places", () => {
     camera();
     const pickSprites = (ySortedLayers: string[]) => {
       const sprites = new BabylonSprites({

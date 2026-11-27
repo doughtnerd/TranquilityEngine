@@ -1,4 +1,4 @@
-// The selection tool's state and operations (ADR 0440): the selected cells of the selected Tilemap, the "All layers"
+// The selection tool's state and operations (ADR 0442): the selected cells of the selected Tilemap, the "All layers"
 // toggle, and copy, cut, delete, move, flip and turn, each one undo step (one write of `layers`, as a stroke is). Copy
 // takes the cells into the brush as its stamp (named layers with "All layers"), so the pencil pastes them, in this
 // Tilemap or another (`brush.ts` matches another tileset's tiles by uuid). The cell rules are `selectionLogic.ts`'s;
@@ -16,7 +16,7 @@ const NOTHING: CellSelection = new Set();
 
 /** The selected cells and the Tilemap they're of (an empty selection: no map). */
 export const tileSelection = signal<{ map: Tilemap | null; cells: CellSelection }>({ map: null, cells: NOTHING });
-/** Select, copy, cut and delete act on every unlocked layer instead of the active one (ADR 0440, 0439). */
+/** Select, copy, cut and delete act on every unlocked layer instead of the active one (ADR 0442, 0441). */
 export const selectAllLayers = signal(false);
 
 /** The selection's cells when it's of `map`, else none. */
@@ -98,7 +98,7 @@ export function deleteTiles(): boolean {
 
 /**
  * Flip (X, Y) or turn (Z) the selected cells in place, as one undo step. On hexagonal maps the tiles' images flip
- * where they are and Rotate does nothing (ADR 0435).
+ * where they are and Rotate does nothing (ADR 0437).
  */
 export function transformTiles(axis: "x" | "y" | "rotate"): boolean {
   const t = target();
@@ -117,7 +117,7 @@ export function transformTiles(axis: "x" | "y" | "rotate"): boolean {
 
 /**
  * Move the selected cells so that cell `from` (default: the selection's bottom-left corner; a drag's grabbed cell)
- * moves by `(dx, dy)` (with `copy`, copy them), the selection following and keeping its shape (ADR 0442), written as
+ * moves by `(dx, dy)` (with `copy`, copy them), the selection following and keeping its shape (ADR 0444), written as
  * `label` (inside the scene view's gesture, its undo step).
  */
 export function moveTiles(dx: number, dy: number, copy: boolean, from?: Cell): boolean {

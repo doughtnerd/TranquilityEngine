@@ -52,7 +52,7 @@ export type ShapeDesc2D =
   /** Several shapes as one collider; `fixInternalEdges` keeps bodies sliding over the seams from catching. */
   | { readonly kind: "compound"; readonly parts: readonly { readonly shape: ShapeDesc2D; readonly offset: Vec2 }[]; readonly fixInternalEdges?: boolean }
   /**
-   * Capability `voxelColliders` (ADR 0442): grid cells, each `size` (positive) on a side. `cells` holds the filled
+   * Capability `voxelColliders` (ADR 0444): grid cells, each `size` (positive) on a side. `cells` holds the filled
    * cells' integer coordinates as (x, y) pairs; cell (x, y) covers x·size.x .. (x+1)·size.x (and the same in y) in the
    * collider's frame. Edited in place with `setVoxels`; never a compound's part.
    */
@@ -183,7 +183,7 @@ export interface ColliderDesc<D extends DimensionTypes> {
   /** Collision groups: layer membership in the high 16 bits, the layers it meets in the low 16 (`physics/layers.ts`). */
   readonly groups: number;
   /**
-   * 2D, capability `oneWayPlatforms` (ADR 0105, 0437): collide only with bodies coming down onto it from above `top` along
+   * 2D, capability `oneWayPlatforms` (ADR 0105, 0439): collide only with bodies coming down onto it from above `top` along
    * `up` (`base`: its own height along `up` when made). Rigid bodies (through contacts) and character controllers
    * (through their moves, ground snap and casts) both honour it, and `dropThrough` lets a body through.
    */
@@ -272,12 +272,12 @@ export interface PhysicsCapabilities {
   readonly characterController: boolean;
   readonly jointMotors: boolean;
   readonly continuousCollision: boolean;
-  /** 2D one-way colliders (one-way tiles, any 2D collider's `oneWay`) and `dropThrough` (ADR 0105, 0437). */
+  /** 2D one-way colliders (one-way tiles, any 2D collider's `oneWay`) and `dropThrough` (ADR 0105, 0439). */
   readonly oneWayPlatforms: boolean;
   /** 3D triangle-mesh colliders. */
   readonly meshColliders: boolean;
   /**
-   * 2D voxel colliders (ADR 0442): the `voxels` shape, `setVoxels` and `linkVoxels`, so square tile maps are edited
+   * 2D voxel colliders (ADR 0444): the `voxels` shape, `setVoxels` and `linkVoxels`, so square tile maps are edited
    * cell by cell instead of rebuilt. Absent is false.
    */
   readonly voxelColliders?: boolean;
@@ -325,7 +325,7 @@ export interface PhysicsBackend<D extends DimensionTypes, W extends PhysicsWorld
 }
 export type PhysicsBackend2D = PhysicsBackend<Dim2, PhysicsWorld2DBackend>;
 export type PhysicsBackend3D = PhysicsBackend<Dim3, PhysicsWorld3DBackend>;
-/** One cell of a voxel collider to fill or empty (ADR 0442). */
+/** One cell of a voxel collider to fill or empty (ADR 0444). */
 export interface VoxelChange2D {
   readonly x: number;
   readonly y: number;
@@ -338,19 +338,19 @@ export interface VoxelLink2D {
 }
 export interface PhysicsWorld2DBackend extends PhysicsWorldBackend<Dim2> {
   /**
-   * Capability `voxelColliders` (ADR 0442): fill or empty cells of a `voxels` collider in place, then pass each change
+   * Capability `voxelColliders` (ADR 0444): fill or empty cells of a `voxels` collider in place, then pass each change
    * on to `neighbours` (voxel colliders whose cells meet or overlap its own), so bodies sliding from one onto another
    * don't catch on the faces between them.
    */
   setVoxels?(collider: BackendCollider<Dim2>, changes: readonly VoxelChange2D[], neighbours: readonly VoxelLink2D[]): void;
   /**
-   * Capability `voxelColliders` (ADR 0442): make two voxel colliders whose cells meet or overlap treat the faces between
+   * Capability `voxelColliders` (ADR 0444): make two voxel colliders whose cells meet or overlap treat the faces between
    * their cells as inside. Called once per pair, when the later of the two is made; `setVoxels` keeps it so. `shift` is
    * where `b`'s cell (0, 0) is from `a`'s, in cells.
    */
   linkVoxels?(a: BackendCollider<Dim2>, b: BackendCollider<Dim2>, shift: Vec2): void;
   /**
-   * Capability `oneWayPlatforms` (ADR 0437): let `body` (a rigid body, or a character controller's own body) pass down
+   * Capability `oneWayPlatforms` (ADR 0439): let `body` (a rigid body, or a character controller's own body) pass down
    * through every one-way collider it stands on or overlaps now. Each such pair stays dropping until the body's top is
    * below the collider's top, the two no longer touch, or 0.5 s have passed; one-way colliders it reaches later, and
    * solid ones, still hold it. A backend without the capability does nothing.

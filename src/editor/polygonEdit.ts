@@ -1,4 +1,4 @@
-// Point editing for polygons drawn over an image or in a view (ADR 0437, moved from the Lights 2D plugin's gizmo model,
+// Point editing for polygons drawn over an image or in a view (ADR 0439, moved from the Lights 2D plugin's gizmo model,
 // ADR 0414): the handles an editable outline has (one per point and one mid-way along each edge), which handle a
 // pointer is over, and what a press on one does (drag a point, insert one mid-edge and drag it, or remove one with
 // Ctrl/⌘). Pure and unit-free: callers work in whatever space they draw in. Shared through the editor SDK by the

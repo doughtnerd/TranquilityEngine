@@ -183,7 +183,7 @@ class Character implements BackendCharacter<Dim2> {
     // dependent, and only while moving); the core carries characters on platforms instead. Pushing
     // bodies scales its impulses by that timestep, so it runs as a second pass at the real one.
     const filter = RAPIER.QueryFilterFlags.EXCLUDE_SENSORS;
-    // One-way colliders it is below, moving up through or dropping through don't block it (ADR 0437). The predicate
+    // One-way colliders it is below, moving up through or dropping through don't block it (ADR 0439). The predicate
     // covers the whole computation: the sweep, the slide, the step-up and the ground snap.
     const passes = this.oneWay.moverFilter(col, motion.x, motion.y);
     if (this.push) kcc.computeColliderMovement(col, v2(motion), filter, groups, passes); // applies the impulses; its movement isn't used
@@ -224,7 +224,7 @@ interface Moving {
   shape: RAPIER.Shape;
 }
 
-/** How long a body dropping through a one-way collider may take before the collider holds it again (ADR 0437). */
+/** How long a body dropping through a one-way collider may take before the collider holds it again (ADR 0439). */
 const DROP_SECONDS = 0.5;
 /** How near a body counts as standing on a one-way collider, for `dropThrough` and for keeping a pair dropping. */
 const DROP_TOUCH = 0.1;
@@ -276,7 +276,7 @@ function spanAlong(shape: RAPIER.Shape, x: number, y: number, rotation: number, 
 }
 
 /**
- * One-way colliders (ADR 0105, 0437). A contact-pair hook lets rigid bodies through from below; character controllers
+ * One-way colliders (ADR 0105, 0439). A contact-pair hook lets rigid bodies through from below; character controllers
  * and collider casts get the same rule as a query predicate (`moverFilter`). Both read the record per collider here,
  * and both let a body through while the pair is marked dropping (`dropThrough`).
  *
@@ -402,7 +402,7 @@ class OneWayPlatforms {
     };
   }
 
-  /** Mark every one-way collider `rb` stands on or overlaps now as dropping for it (ADR 0437). */
+  /** Mark every one-way collider `rb` stands on or overlaps now as dropping for it (ADR 0439). */
   dropThrough(rb: RAPIER.RigidBody): void {
     if (!this.byHandle.size) return;
     let pairs = this.dropping.get(rb.handle);
@@ -680,7 +680,7 @@ export class RapierWorld2D implements PhysicsWorld2DBackend {
 
   castCollider(c: BackendCollider<Dim2>, direction: Vec2, maxDistance: number, groups: number, exclude: BackendBody<Dim2> | null) {
     const col = (c as Collider).c;
-    // One-way colliders the sweep would pass through don't count (ADR 0437): a controller under or dropping through a plank isn't standing on it.
+    // One-way colliders the sweep would pass through don't count (ADR 0439): a controller under or dropping through a plank isn't standing on it.
     const passes = this.oneWay.moverFilter(col, direction.x * maxDistance, direction.y * maxDistance);
     const hit = this.rapier.castShape(col.translation(), col.rotation(), v2(direction), col.shape, 0, maxDistance, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, groups, col, (exclude as Body | null)?.rb, passes);
     if (!hit) return null;

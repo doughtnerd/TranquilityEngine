@@ -6,29 +6,29 @@
  * Tilemaps plugin's render feature (ADR 0130, 0418), built by the factory below from the renderer's quad batches.
  * No Babylon here (ADR 0075): it's unit-tested against a fake host.
  *
- * - **Painter's order** (ADR 0435). On non-square grids a layer's batches carry a place among themselves
+ * - **Painter's order** (ADR 0437). On non-square grids a layer's batches carry a place among themselves
  *   (`QuadBatch.setOrder`'s `within`): back chunks (higher on screen) first, and a chunk's batches of several
  *   textures in consecutive sub-steps after one another. Inside one chunk, then, the textures don't interleave
  *   row by row: a tall tile of a later texture draws over the tiles of an earlier texture in front of it. That is
  *   approximate, and exact for the usual one texture per layer; a y-sorted layer (below) splits by row and is exact.
- * - **Animated tiles** (ADR 0435). A tile's frames are resolved like its sprite and must come from the same image
+ * - **Animated tiles** (ADR 0437). A tile's frames are resolved like its sprite and must come from the same image
  *   (another image's frame draws the tile's own sprite, with a warning). Each chunk keeps its animated quads and the
  *   animation time of its next frame change; when a frame changes, those quads are rewritten in the same arrays and the
  *   batch is called again, which the backend takes as an in-place vertex update. On square grids a chunk's animated
  *   tiles have their own batch per texture, so static tiles are never uploaded again; on other grids they stay in the
- *   chunk's batch, where painter's order spans both. Each map keeps its own animation clock (ADR 0442): every sync
+ *   chunk's batch, where painter's order spans both. Each map keeps its own animation clock (ADR 0444): every sync
  *   advances it by the World's scaled frame time × `Tilemap.animationSpeed`, so a speed change changes the rate from
  *   the frame shown now instead of jumping. The editor's edit World (`World.kind` "editor") shows every tile's first frame.
- * - **Offset and parallax** (ADR 0439, 0442) are in each layer's batch matrix: the node's world matrix, shifted by the
+ * - **Offset and parallax** (ADR 0441, 0444) are in each layer's batch matrix: the node's world matrix, shifted by the
  *   layer's offset (in local units), plus `(1 − parallax) × (camera − node)` in world units, so neither rebuilds a
  *   chunk. Sync sets it for the view camera (`BabylonFeatureHost.viewCamera`, read through `ViewPosition`), which is
  *   what picking and the editor's tools read between frames; then, before each camera draws
  *   (`QuadBatchHost.onCameraRender`), a parallax layer's batches get the matrix for that camera, for its draw only. A
  *   World with no view camera (a thumbnail's) draws parallax layers with the node, for every camera.
- * - **Y-sorted layers** (ADR 0438). On a y-sorted sorting layer each chunk draws one batch per row and texture (split
+ * - **Y-sorted layers** (ADR 0440). On a y-sorted sorting layer each chunk draws one batch per row and texture (split
  *   further by the tiles' `sortOffset`), each at its sort point's world height (`ySortWithin`): the bottom of the row's
  *   cell boxes on square grids, the row's bottom corner on the others, raised by `sortOffset` cells.
- * - **Dim inactive layers** (ADR 0439): a layer's opacity is multiplied by the Tilemap's view-only factor
+ * - **Dim inactive layers** (ADR 0441): a layer's opacity is multiplied by the Tilemap's view-only factor
  *   (`Tilemap._setViewOpacity`, the editor's).
  */
 import type { Component } from "../../../engine/core/Component";
@@ -45,10 +45,10 @@ import { buildChunkMeshes, writeTileQuad, type ChunkMesh, type TileFrame } from 
 import { Tilemap } from "./Tilemap";
 import { tileAnchor, type TileDef, type Tileset } from "./tileset";
 
-/** @internal The world position (x, y) of the camera that draws the view, or null when there is none (ADR 0439 parallax). */
+/** @internal The world position (x, y) of the camera that draws the view, or null when there is none (ADR 0441 parallax). */
 export type ViewPosition = (world: World) => readonly [number, number] | null;
 
-/** A tile's resolved frames (ADR 0435). */
+/** A tile's resolved frames (ADR 0437). */
 interface TileAnim {
   frames: TileFrame[];
   /** Each frame's end time within one loop (seconds, increasing); the last is `total`. */
@@ -89,7 +89,7 @@ interface ChunkEntry {
   framesVersion: number;
   /** The grid its vertices were laid out on (`Tilemap._gridKey()`: cell size and shape). */
   grid: string;
-  /** Whether it was built split by rows (a y-sorted layer, ADR 0438). */
+  /** Whether it was built split by rows (a y-sorted layer, ADR 0440). */
   ySorted: boolean;
   /** The `variantSeed` its random animation offsets came from, when it has any. */
   seed: number | null;
@@ -107,7 +107,7 @@ interface LayerEntry {
   /** The batches' matrix when last applied: the node's, with the layer's offset and the view camera's parallax. */
   matrix: Float32Array | null;
   /**
-   * ADR 0442: a parallax layer drawn with a view camera, as of the last sync: its matrix without parallax (the node's
+   * ADR 0444: a parallax layer drawn with a view camera, as of the last sync: its matrix without parallax (the node's
    * with the layer's offset), the node's world origin and the factor, from which each camera's matrix is made.
    * Null: every camera draws `matrix`.
    */
@@ -123,7 +123,7 @@ interface MapEntry {
   sidecars: Map<string, object | undefined>;
   looks: Map<number, TileLook | null>;
   /**
-   * Its animation clock (ADR 0442): seconds of animation, advanced each sync by the World's scaled time since the last
+   * Its animation clock (ADR 0444): seconds of animation, advanced each sync by the World's scaled time since the last
    * one × speed. It starts at World time × speed, so maps of the same speed keep in step.
    */
   clock: number;
@@ -143,7 +143,7 @@ export class TilemapRenderer implements BabylonFeature {
   private readonly maps = new Map<Tilemap, MapEntry>();
   private readonly stopCameras: () => void;
 
-  /** `viewPosition`: where the view camera is, for parallax layers (ADR 0439); without it they draw as if parallax were 1. */
+  /** `viewPosition`: where the view camera is, for parallax layers (ADR 0441); without it they draw as if parallax were 1. */
   constructor(
     private readonly host: QuadBatchHost,
     private readonly viewPosition: ViewPosition = () => null,
@@ -151,7 +151,7 @@ export class TilemapRenderer implements BabylonFeature {
     this.stopCameras = host.onCameraRender((camera) => this.beforeCamera(camera));
   }
 
-  /** ADR 0442: each parallax layer's batches get the matrix for the camera about to draw. */
+  /** ADR 0444: each parallax layer's batches get the matrix for the camera about to draw. */
   private beforeCamera(camera: readonly [number, number, number]): void {
     for (const entry of this.maps.values()) {
       for (const le of entry.layers) {
@@ -199,7 +199,7 @@ export class TilemapRenderer implements BabylonFeature {
     const grid = map._grid();
     const gridKey = map._gridKey();
     const render = world.settings.render;
-    // ADR 0435, 0442: the map's animation clock, advanced by this frame's scaled time × speed; the edit World shows first frames (null).
+    // ADR 0437, 0444: the map's animation clock, advanced by this frame's scaled time × speed; the edit World shows first frames (null).
     entry.clock += (world.time.time - entry.clockAt) * mapSpeed(map);
     entry.clockAt = world.time.time;
     const time = world.kind === "editor" ? null : entry.clock;
@@ -301,7 +301,7 @@ export class TilemapRenderer implements BabylonFeature {
           const so = sortOffsetOf(id);
           if (so) group += `s${so}`;
         }
-        if (square && this.look(entry, map, id)?.anim) group += "a"; // ADR 0435: static tiles are never uploaded again
+        if (square && this.look(entry, map, id)?.anim) group += "a"; // ADR 0437: static tiles are never uploaded again
         return group;
       },
     );
@@ -463,7 +463,7 @@ function nextChange(ce: ChunkEntry, time: number): number {
 }
 
 /**
- * A y-sorted row's sort point in local units (ADR 0438): the bottom of cell (x, y)'s box on a square grid, the bottom
+ * A y-sorted row's sort point in local units (ADR 0440): the bottom of cell (x, y)'s box on a square grid, the bottom
  * corner of its outline on the others, raised by `sortOffset` cells.
  */
 function rowSortPoint(grid: TileGrid, x: number, y: number, sortOffset: number): [number, number] {
@@ -482,7 +482,7 @@ function worldY(m: ArrayLike<number>, p: readonly [number, number]): number {
 }
 
 /**
- * A layer's batch matrix (ADR 0439): the node's world matrix `wm`, its origin moved by the layer's `offset` (local
+ * A layer's batch matrix (ADR 0441): the node's world matrix `wm`, its origin moved by the layer's `offset` (local
  * units), then by `(1 − parallax) × (view − node)` in world x and y when the layer has a parallax factor and a view.
  * Written into `m`.
  */
@@ -509,7 +509,7 @@ function sameMatrix(a: ArrayLike<number>, b: ArrayLike<number>): boolean {
 }
 
 /**
- * A non-square layer's chunks in painter's order (ADR 0435): each chunk's place in [0, 1) and the step to the next
+ * A non-square layer's chunks in painter's order (ADR 0437): each chunk's place in [0, 1) and the step to the next
  * chunk's, back chunks (the higher `drawKey` of their first cell is lower: higher on screen) first; a chunk's batches
  * take consecutive sub-steps of its step. Ties keep a fixed order by chunk position.
  */
@@ -534,7 +534,7 @@ function disposeLayer(le: LayerEntry): void {
 
 /**
  * @internal Builds the feature from the renderer's shared services: the quad batches, and the view camera's world
- * position for parallax layers (ADR 0439), read from the World so no renderer type reaches this plugin.
+ * position for parallax layers (ADR 0441), read from the World so no renderer type reaches this plugin.
  */
 export const createTilemapsFeature: BabylonFeatureFactory = (host) =>
   new TilemapRenderer(host.quads, (world) => {

@@ -27,7 +27,7 @@ const keys = (...cells: Cell[]) => new Set(cells.map(([x, y]) => cellKey(x, y)))
 const block = (map: Tilemap, x0: number, y0: number, w: number, h: number, layer = 0) =>
   Array.from({ length: h }, (_, r) => Array.from({ length: w }, (_, c) => map.getCell(x0 + c, y0 + h - 1 - r, layer)));
 
-describe("the tile selection (ADR 0440)", () => {
+describe("the tile selection (ADR 0442)", () => {
   it("adds and takes rectangles, and selects every used cell", () => {
     let sel = selectRect(new Set(), [0, 0], [2, 1], "replace");
     expect(sel.size).toBe(6);
@@ -148,7 +148,7 @@ describe("the tile selection (ADR 0440)", () => {
   for (const shape of ["staggered", "hexagonal"] as const) {
     for (const axis of ["y", "x"] as const) {
       for (const index of ["odd", "even"] as const) {
-        it(`moves the selection an odd number of rows or columns keeping its shape on a ${shape} map (axis ${axis}, ${index}) (ADR 0442)`, () => {
+        it(`moves the selection an odd number of rows or columns keeping its shape on a ${shape} map (axis ${axis}, ${index}) (ADR 0444)`, () => {
           const map = newMap(shape, axis, index);
           map.setTile(0, 0, 1);
           map.setTile(1, 0, 2);
@@ -174,7 +174,7 @@ describe("the tile selection (ADR 0440)", () => {
     }
   }
 
-  it("moves square and isometric selections cell for cell (ADR 0442)", () => {
+  it("moves square and isometric selections cell for cell (ADR 0444)", () => {
     for (const shape of ["square", "isometric"] as const) {
       const map = newMap(shape);
       map.setTile(0, 0, 1);

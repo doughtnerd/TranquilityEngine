@@ -9,14 +9,14 @@
  * - One-way tiles merge into horizontal runs, one per row, kept apart so each can decide on its
  *   own whether a body passes.
  *
- * On other grids (ADR 0435, given a `TileGrid`) the shapes are in local units instead:
+ * On other grids (ADR 0437, given a `TileGrid`) the shapes are in local units instead:
  * - Isometric and staggered: whole-cell and one-way tiles merge in diamond space as above, then go through the grid's
  *   affine map (a rectangle becomes a parallelogram in `polygons` or `oneWayPolygons`, an outline stays an outline).
  * - Hexagonal: one hexagon per solid cell ("rectangles") or the traced union of their outlines ("outline"); one-way
  *   cells are one-way hexagons.
  * - Polygon tiles are in their cell box's units on every grid, so a polygon drawn over the sprite fits it.
  *
- * The Tilemap merges per chunk and caches the results (`tileShapeCache.ts`, ADR 0437); the parts both share are here:
+ * The Tilemap merges per chunk and caches the results (`tileShapeCache.ts`, ADR 0439); the parts both share are here:
  * sorting a chunk's tiles by how they collide (`sortTiles`) and the space whole cells merge in (`mergeSpace`).
  */
 import { convexParts } from "../../../engine/physics/polygon";
@@ -74,7 +74,7 @@ export function sortTiles(cells: Iterable<TileCell>, collisionOf: (id: number) =
 }
 
 /**
- * Where whole cells merge (ADR 0435): square cells in cell units; isometric and staggered cells in diamond space, each
+ * Where whole cells merge (ADR 0437): square cells in cell units; isometric and staggered cells in diamond space, each
  * one diamond-space unit square, mapped to local units afterwards; hexagons as they are, in local units.
  */
 export interface MergeSpace {
@@ -140,7 +140,7 @@ export function buildTileShapes(cells: Iterable<TileCell>, collisionOf: (id: num
   return shapes;
 }
 
-/** Whole-cell and one-way tiles on a non-square grid, in local units (ADR 0435). */
+/** Whole-cell and one-way tiles on a non-square grid, in local units (ADR 0437). */
 function placeWholeCells(shapes: TileShapes, grid: TileGrid, full: [number, number][], oneWay: [number, number][], mode: TileCollisionMode): void {
   const space = mergeSpace(grid);
   if (space.rectangular) {

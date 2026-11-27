@@ -220,7 +220,7 @@ describe("parseTiledMap: infinite maps and other orientations", () => {
   });
 });
 
-describe("two-colour Wang sets (ADR 0442)", () => {
+describe("two-colour Wang sets (ADR 0444)", () => {
   /** A TSJ of 8 tiles whose Wang set `type` labels tile i with `wangids[i]` (colours 1 Grass, 2 Water). */
   const tsj = (type: string, wangids: number[][], colours = ["Grass", "Water"]) =>
     JSON.stringify({

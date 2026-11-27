@@ -270,7 +270,7 @@ describe("Wang patterns in the grid's neighbour order", () => {
   });
 });
 
-describe("two-colour corner sets painted as Tiled paints them (ADR 0442)", () => {
+describe("two-colour corner sets painted as Tiled paints them (ADR 0444)", () => {
   type Orientation = "orthogonal" | "isometric" | "staggered";
   interface Case {
     orientation: Orientation;
@@ -478,7 +478,7 @@ describe("writeLdtkProject", () => {
   });
 });
 
-describe("MapObject (ADR 0436)", () => {
+describe("MapObject (ADR 0438)", () => {
   it("is registered by the Tilemaps plugin and loads its type and properties", async () => {
     Assets.clearSources();
     Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@5", nodes: [{ id: "a", name: "spawn", components: [{ type: "engine.MapObject", data: { type: "Spawn", properties: { team: 2, path: [[1, 2]] } } }] }] } }));

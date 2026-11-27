@@ -130,7 +130,7 @@ export function migrateSceneFile(file: SceneFile, path = "<inline>"): SceneFile 
 }
 
 /**
- * The file with every component id that is an alias (ADR 0437, `registerComponentAlias`) replaced by the id it names,
+ * The file with every component id that is an alias (ADR 0439, `registerComponentAlias`) replaced by the id it names,
  * wherever the file names one (entries, overrides, added components and nodes). Applied whenever a file is read
  * (`migrateSceneFile`), so loading, prefab overrides and the editor's documents all see current ids, and a document
  * saves them.

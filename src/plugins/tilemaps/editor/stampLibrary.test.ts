@@ -22,7 +22,7 @@ const HOUSE: StampBlock = {
   ],
 };
 
-describe("saved stamps (ADR 0440)", () => {
+describe("saved stamps (ADR 0442)", () => {
   it("encode in the layer encoding, palette numbers naming uuids, and decode back", () => {
     const stamp = encodeStamp("House", HOUSE, A);
     expect(stamp.size).toEqual([4, 2]);
@@ -77,7 +77,7 @@ describe("saved stamps (ADR 0440)", () => {
     expect("stamps" in data).toBe(false);
   });
 
-  it("keep the frame of a block copied on a staggered or hexagonal map through the tileset file (ADR 0442)", () => {
+  it("keep the frame of a block copied on a staggered or hexagonal map through the tileset file (ADR 0444)", () => {
     const framed: StampBlock = { ...HOUSE, frame: { axis: "x", shifted: true } };
     const stamp = encodeStamp("House", framed, A);
     expect(stamp.stagger).toEqual({ axis: "x", shifted: true });
@@ -92,7 +92,7 @@ describe("saved stamps (ADR 0440)", () => {
     expect(blockOfStamp({ width: 1, height: 1, values: [1] }, "", { axis: "y", shifted: false }).frame).toEqual({ axis: "y", shifted: false });
   });
 
-  it("read a stamp saved without a frame (before ADR 0442, or from a square map) as a block laid out cell for cell", () => {
+  it("read a stamp saved without a frame (before ADR 0444, or from a square map) as a block laid out cell for cell", () => {
     const old = { name: "House", size: [4, 2], layers: encodeStamp("House", HOUSE, A).layers };
     const read = parseTileset({ format: "myco.tileset@1", tiles: [], stamps: [old, { ...old, name: "Bad", stagger: { axis: "z", shifted: 1 } }] });
     expect(read.problems).toEqual([]);
@@ -111,7 +111,7 @@ describe("saved stamps (ADR 0440)", () => {
   });
 });
 
-describe("stamp blocks between tilesets (ADR 0440)", () => {
+describe("stamp blocks between tilesets (ADR 0442)", () => {
   it("match tiles by uuid and skip the ones the other tileset lacks", () => {
     const B = tilesetOf([
       { id: 5, uuid: "u-wall" },

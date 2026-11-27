@@ -23,13 +23,13 @@
 .tile-terrains { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .tile-terrains button { display: inline-flex; align-items: center; gap: 6px; }
 .tile-terrain-swatch { width: 10px; height: 10px; border-radius: 2px; border: 1px solid var(--border-strong); }
-/* ADR 0439: layer locks and Dim inactive layers. */
+/* ADR 0441: layer locks and Dim inactive layers. */
 .tile-layer-lock { display: inline-flex; align-items: center; justify-content: center; padding: 2px; line-height: 0; }
 .tile-layer-lock svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .tile-layers li.locked .tile-layer-name { color: var(--muted); }
 .tile-layer-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tile-dim { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; }
-/* ADR 0440: the selection bar, tabs, Replace with…, stamps and prefabs. */
+/* ADR 0442: the selection bar, tabs, Replace with…, stamps and prefabs. */
 .tile-selectionbar { align-items: center; padding: 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); }
 .tile-selectionbar .hint { margin: 0; }
 .tile-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); }

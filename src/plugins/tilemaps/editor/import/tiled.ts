@@ -1,5 +1,5 @@
 /**
- * Tiled importer, parsing half (ADR 0436): TMX/TMJ maps and TSX/TSJ tilesets into the neutral model of `model.ts`.
+ * Tiled importer, parsing half (ADR 0438): TMX/TMJ maps and TSX/TSJ tilesets into the neutral model of `model.ts`.
  *
  * Both encodings go through one path: TMX (XML, read with `fast-xml-parser`, the only importer of it) is first turned
  * into the shapes TMJ uses, then a single converter builds the model. Pure over text: files the map names (external
@@ -408,7 +408,7 @@ function wangPattern(ids: readonly number[], colour: number, type: string): stri
 }
 
 /**
- * Wang sets → terrains and patterns (ADR 0436, 0442). A set of one colour (against empty) makes that colour's terrain.
+ * Wang sets → terrains and patterns (ADR 0438, 0444). A set of one colour (against empty) makes that colour's terrain.
  * A set of exactly two colours makes a terrain of the colour with fewer full tiles (the first colour on a tie), the
  * other treated as "not this terrain": every tile showing the terrain's colour gets it, tiles of only the other colour
  * none. In sets of three or more colours, tiles of one colour get its terrain and transitions between colours none,

@@ -1,7 +1,7 @@
 // Tileset assets in the Inspector (ADR 0103): a `*.tileset.json` selected in the Assets panel shows its tile size,
 // terrains and a grid of its tiles (Ctrl/⌘+click selects several); the selected tile's name, collision and shadow
-// shapes (drawn over the tile, `TileShapeEditor.tsx`, ADR 0437), terrain, neighbour pattern (a 3 × 3 grid of buttons), weight, anchor, sort
-// offset (ADR 0438), frame animation (`TileAnimationEditor.tsx`, ADR 0435) and custom data (JSON) are edited below. Every edit
+// shapes (drawn over the tile, `TileShapeEditor.tsx`, ADR 0439), terrain, neighbour pattern (a 3 × 3 grid of buttons), weight, anchor, sort
+// offset (ADR 0440), frame animation (`TileAnimationEditor.tsx`, ADR 0437) and custom data (JSON) are edited below. Every edit
 // writes the file through the tileset's asset document and can be undone (Ctrl+Z / Ctrl+Shift+Z over the inspector,
 // or the Undo / Redo buttons of the asset document frame, ADR 0265).
 import { useEffect, useState } from "preact/hooks";
@@ -27,7 +27,7 @@ export function TilesetInspector(props: { path: string }) {
   const { path } = props;
   const project = editor.project.current;
   const [selected, setSelected] = useState<number | null>(null);
-  // Other tiles selected with Ctrl/⌘+click, for Apply to selected tiles (ADR 0437).
+  // Other tiles selected with Ctrl/⌘+click, for Apply to selected tiles (ADR 0439).
   const [others, setOthers] = useState<ReadonlySet<number>>(new Set());
   useEffect(() => {
     setSelected(null);

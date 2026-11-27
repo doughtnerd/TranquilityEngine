@@ -1,10 +1,10 @@
-# 0440. The tile editor gets a selection tool, stamps saved in the tileset, a replace-tile command and a prefab brush
+# 0442. The tile editor gets a selection tool, stamps saved in the tileset, a replace-tile command and a prefab brush
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0026, 0027, 0086, 0103, 0138, 0289, 0392, 0400, 0435, 0439
+- **Related:** 0026, 0027, 0086, 0103, 0138, 0289, 0392, 0400, 0437, 0441
 
 ## Context
 
@@ -19,13 +19,13 @@ scene-collection tiles) for props with behaviour, doors, chests, spawners.
 ### Selection tool (S)
 
 - Drag a cell rectangle on the active layer (Shift adds, Alt subtracts, Ctrl/⌘+A selects every used cell). The
-  selection outlines its cells (cell outlines on the grids of 0435) and survives switching tools until Escape.
+  selection outlines its cells (cell outlines on the grids of 0437) and survives switching tools until Escape.
 - **Copy** (Ctrl/⌘+C) picks the selected cells up as the current stamp, the eyedropper's kind of stamp, so the
   pencil pastes it. **Cut** copies and clears; **Delete** clears. A "All layers" toggle makes selection, copy, cut and
-  delete act on every unlocked layer (0439), and a multi-layer stamp pastes into the same layers by name.
+  delete act on every unlocked layer (0441), and a multi-layer stamp pastes into the same layers by name.
 - **Move:** dragging inside the selection lifts its cells and drops them where released; Alt-drag copies.
 - **Flip X / Flip Y / Rotate** (X, Y, Z) act on the selection in place, through `tileFlips.ts` and the brush's
-  stamp layout (0289); on hexagonal maps only image flips apply (0435).
+  stamp layout (0289); on hexagonal maps only image flips apply (0437).
 - Each operation is one undo step (a `SetField` of `layers` with the touched chunks, as strokes are). The clipboard
   is the editor's, so a stamp copied in one Tilemap pastes into another with the same tileset; with another tileset,
   tiles are matched by uuid and missing ones are skipped with a message.

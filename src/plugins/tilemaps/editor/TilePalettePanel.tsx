@@ -1,8 +1,8 @@
 // The Tile Palette (ADR 0103): for the selected Tilemap, the brush tools, the layer list and the tileset's tiles and
 // terrains. Choosing a tile, a block of tiles, several tiles (random brush) or a terrain sets the brush the scene
 // view paints with through the brush (tilemap/brush.ts, ADR 0289; tilemap/paintTool.ts).
-// ADR 0439: each layer has a lock (the brushes skip a locked layer; choosing it says so), and Dim inactive layers is a
-// per-user view toggle. ADR 0440: the selection tool's actions and its All layers toggle; the tileset's saved stamps
+// ADR 0441: each layer has a lock (the brushes skip a locked layer; choosing it says so), and Dim inactive layers is a
+// per-user view toggle. ADR 0442: the selection tool's actions and its All layers toggle; the tileset's saved stamps
 // (save the brush's stamp by name, click to use, rename and delete from its menu, all tileset edits with the tileset's
 // undo); a tile's menu has Replace with…; the Prefabs tab lists the tileset's prefabs for the prefab brush (drop one from
 // the Assets panel to add it).
@@ -242,7 +242,7 @@ export function TilePalettePanel() {
   );
 }
 
-/** The tool buttons, random toggle and flip buttons. Rotate is off on hexagonal maps (ADR 0435). */
+/** The tool buttons, random toggle and flip buttons. Rotate is off on hexagonal maps (ADR 0437). */
 function BrushBar(props: { map: Tilemap }) {
   const tool = brushTool.value, flags = brushFlags.value;
   const canRotate = canRotateOn(props.map);
@@ -276,7 +276,7 @@ function BrushBar(props: { map: Tilemap }) {
   );
 }
 
-/** The selection tool's actions on the selection (ADR 0440), shown while selecting or while there's a selection. */
+/** The selection tool's actions on the selection (ADR 0442), shown while selecting or while there's a selection. */
 function SelectionBar(props: { map: Tilemap }) {
   void tileSelection.value;
   const selected = selectionOf(props.map).size;
@@ -316,7 +316,7 @@ function SelectionBar(props: { map: Tilemap }) {
 /**
  * The tiles in id order. Click picks one; dragging (or Shift-dragging) picks the block of tiles it covers as a
  * stamp; Ctrl/⌘-click adds or removes tiles from a set for the random brush. A tile's menu (right-click) has Replace
- * with…: the next tile clicked replaces it in the chosen scope (ADR 0440).
+ * with…: the next tile clicked replaces it in the chosen scope (ADR 0442).
  */
 function TileGridView(props: { tiles: readonly TileDef[]; tileset: Tileset; project: Project; readOnly: boolean; replace: (from: number, to: number, scope: ReplaceScope) => number }) {
   const [columns, setColumns] = useState(8);
@@ -434,7 +434,7 @@ function brushBlockOf(tileset: Tileset, layerName: string): StampBlock | null {
 }
 
 /**
- * The tileset's saved stamps (ADR 0440): Save stamp stores the brush's stamp under a name, a click makes a stamp the
+ * The tileset's saved stamps (ADR 0442): Save stamp stores the brush's stamp under a name, a click makes a stamp the
  * brush's, and its menu renames or deletes it. Each change is an edit of the tileset's document (its undo).
  */
 function StampsSection(props: { doc: AssetDocument<TilesetData>; tileset: Tileset; layerName: string }) {
@@ -532,7 +532,7 @@ function StampsSection(props: { doc: AssetDocument<TilesetData>; tileset: Tilese
 }
 
 /**
- * The tileset's prefabs for the prefab brush (ADR 0440): click one to paint with it, Ctrl/⌘-click to choose several
+ * The tileset's prefabs for the prefab brush (ADR 0442): click one to paint with it, Ctrl/⌘-click to choose several
  * (one at random per cell), ✕ to take it off the list; drop prefabs from the Assets panel to add them. The list is a
  * tileset edit with the tileset's undo.
  */

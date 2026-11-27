@@ -1,5 +1,5 @@
 /**
- * Tile collision shapes after single-cell edits on a big map (ADR 0437's benchmark, extended by ADR 0442).
+ * Tile collision shapes after single-cell edits on a big map (ADR 0439's benchmark, extended by ADR 0444).
  * Run: `npx vitest bench --run bench/tileShapes.bench.ts`.
  *
  * A 512 × 512 square map, 30 % of its cells solid at random (seeded). Each round flips one random cell and times:
@@ -7,8 +7,8 @@
  *   map's shapes together;
  * - `collisionCells()` with `collisionShapes("rectangles", { withoutCells: true })`: what voxel colliders read;
  * - one physics step with a ShapeCollider2D on the map (rectangles): what an edit costs the game in all, on Rapier with
- *   voxel colliders (the edited cells set in place, ADR 0442; target under 5 ms) and on the same backend with the
- *   capability hidden (the one compound rebuilt from the shapes, ADR 0437).
+ *   voxel colliders (the edited cells set in place, ADR 0444; target under 5 ms) and on the same backend with the
+ *   capability hidden (the one compound rebuilt from the shapes, ADR 0439).
  * The first call (every chunk merged, every collider built) is reported separately.
  */
 import { afterAll, test } from "vitest";
@@ -88,7 +88,7 @@ test("512 × 512 map, 30 % solid, single-cell edits", async () => {
     }
     report(`collisionShapes("${mode}")`, first, times);
   }
-  // What the voxel path reads after an edit (ADR 0442): the cells per chunk and the shapes beside them.
+  // What the voxel path reads after an edit (ADR 0444): the cells per chunk and the shapes beside them.
   const firstCells = timed(() => {
     map.collisionCells();
     map.collisionShapes("rectangles", { withoutCells: true });
@@ -103,11 +103,11 @@ test("512 × 512 map, 30 % solid, single-cell edits", async () => {
   }
   report(`collisionCells() + collisionShapes("rectangles", { withoutCells })`, firstCells, cellTimes);
 
-  // Rapier with voxel colliders (ADR 0442): the edited chunk's cells set in place.
-  physicsRounds(engine, map, edit, EDITS, "physics step after an edit (voxel colliders, ADR 0442)");
+  // Rapier with voxel colliders (ADR 0444): the edited chunk's cells set in place.
+  physicsRounds(engine, map, edit, EDITS, "physics step after an edit (voxel colliders, ADR 0444)");
   engine.dispose();
 
-  // The same backend without the capability: the one compound rebuilt (ADR 0437's path, kept for such backends).
+  // The same backend without the capability: the one compound rebuilt (ADR 0439's path, kept for such backends).
   const rapier = physicsBackends("2d").find((r) => r.id === "rapier");
   if (!rapier || rapier.dimension !== "2d") return;
   const stop = registerPhysicsBackend({

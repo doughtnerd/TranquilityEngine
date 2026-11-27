@@ -13,7 +13,7 @@
  *   on the dedicated server).
  *
  * TypeScript sources (`.ts`, `.tsx`) aren't project files: scripts are read and compiled apart (ADR 0030). A `.tsx`
- * whose text is XML is a Tiled tileset (ADR 0436), not TypeScript: `isTiledTilesetText` tells them apart, so a host
+ * whose text is XML is a Tiled tileset (ADR 0438), not TypeScript: `isTiledTilesetText` tells them apart, so a host
  * that reads a `.tsx` (`isTsxPath`) keeps it as a project file and never hands it to the script build.
  * Svelte UI sources (ADR 0423: `.svelte` components and `.svelte.ts` rune modules) are text files, which
  * the project code linker compiles; a host serves the compiled module as the asset value once it has.
@@ -66,7 +66,7 @@ export function isProjectFile(path: string): boolean {
 export const isTsxPath = (path: string): boolean => /\.tsx$/i.test(path);
 
 /**
- * True if a `.tsx` file's text is a Tiled tileset (ADR 0436): after any byte order mark and whitespace it starts with
+ * True if a `.tsx` file's text is a Tiled tileset (ADR 0438): after any byte order mark and whitespace it starts with
  * `<?xml` or `<tileset`, which no TypeScript file can. Such a file is a project file (it loads as a URL), not a script.
  */
 export function isTiledTilesetText(text: string): boolean {

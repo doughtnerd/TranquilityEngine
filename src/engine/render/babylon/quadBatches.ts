@@ -5,13 +5,13 @@
  * tint: shared by batches asking for the same, lit by the sorting layer's 2D lights or not, replaced in place when the
  * 2D lighting changes. Knows nothing of tiles or bones: the features (tiles, 2D lines and decals, skinned sprites with
  * `setTriangles`, updated in place each frame, light volumes) decide what the geometry is. Either call with the same
- * texture, vertex count and `indices` array as before moves the vertices in place (an animated tile's frame, ADR 0435).
+ * texture, vertex count and `indices` array as before moves the vertices in place (an animated tile's frame, ADR 0437).
  *
  * A deforming mesh (`setTriangles`) whose material has a normal map gets a 2D tangent per vertex, worked out here from
  * its positions and UVs (`tangents2D`) each time it moves, so the normals follow its bones or its line; quads
  * (`setQuads`) turn their normal map by the batch's matrix.
  *
- * Camera listeners (ADR 0442) run from the scene's before-camera-render observable, which the renderer's frame graph
+ * Camera listeners (ADR 0444) run from the scene's before-camera-render observable, which the renderer's frame graph
  * raises before each camera's render pass. A matrix set from a listener freezes the mesh's world matrix to a copy for that
  * camera; after the scene has drawn, those batches are frozen back to their own matrix.
  */
@@ -164,7 +164,7 @@ class BabylonQuadBatch implements QuadBatch {
   /** The per-vertex tangents the mesh has, reused while the vertex count holds; null: none (the matrix turns the normal map). */
   private tangents: Float32Array | null = null;
   private readonly matrix = Matrix.Identity();
-  /** The matrix for the camera drawing now (ADR 0442), set from a camera listener; the mesh holds it while `cameraHeld`. */
+  /** The matrix for the camera drawing now (ADR 0444), set from a camera listener; the mesh holds it while `cameraHeld`. */
   private readonly cameraMatrix = Matrix.Identity();
   private cameraHeld = false;
   private order = 0;
@@ -177,7 +177,7 @@ class BabylonQuadBatch implements QuadBatch {
   ) {}
 
   setQuads(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void {
-    // ADR 0435: the same texture, vertex count and `indices` array again (an animated tile's frame) moves the vertices in
+    // ADR 0437: the same texture, vertex count and `indices` array again (an animated tile's frame) moves the vertices in
     // place. A static mesh is rebuilt once with updatable buffers the first time, then updated in place.
     if (this.sameGeometry(texture, positions, indices) && this.updatable) this.update(positions, uvs, colors ?? null, false);
     else this.build(texture, positions, uvs, indices, colors ?? null, this.sameGeometry(texture, positions, indices), false);
@@ -197,7 +197,7 @@ class BabylonQuadBatch implements QuadBatch {
   private update(positions: Float32Array, uvs: Float32Array, colors: Float32Array | null, deforming: boolean): void {
     const mesh = this.mesh!;
     mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
-    mesh.updateVerticesData(VertexBuffer.UVKind, uvs); // a 2D ribbon's texture moves along it (ADR 0396); a tile's frame changes (ADR 0435)
+    mesh.updateVerticesData(VertexBuffer.UVKind, uvs); // a 2D ribbon's texture moves along it (ADR 0396); a tile's frame changes (ADR 0437)
     this.positions = positions;
     this.uvs = uvs;
     this.deforming = deforming;
@@ -276,7 +276,7 @@ class BabylonQuadBatch implements QuadBatch {
   setMatrix(m: ArrayLike<number>, offset = 0): void {
     Matrix.FromArrayToRef(m as unknown as number[], offset, tmp);
     if (this.owner.settingCameraMatrix) {
-      // ADR 0442: for the camera about to draw only (the mesh shares the matrix it's frozen to, so this is a copy).
+      // ADR 0444: for the camera about to draw only (the mesh shares the matrix it's frozen to, so this is a copy).
       if (this.cameraHeld && tmp.equals(this.cameraMatrix)) return;
       if (!this.cameraHeld && tmp.equals(this.matrix)) return;
       this.cameraMatrix.copyFrom(tmp);
@@ -291,7 +291,7 @@ class BabylonQuadBatch implements QuadBatch {
     this.mesh?.freezeWorldMatrix(this.matrix);
   }
 
-  /** @internal After the frame: back to its own matrix (ADR 0442). */
+  /** @internal After the frame: back to its own matrix (ADR 0444). */
   restoreMatrix(): void {
     if (!this.cameraHeld) return;
     this.cameraHeld = false;

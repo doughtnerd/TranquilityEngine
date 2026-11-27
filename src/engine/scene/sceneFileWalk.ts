@@ -35,7 +35,7 @@ const isRename = (v: unknown): v is FieldRename => typeof v === "object" && v !=
 export type FieldRule = (component: string, field: string, value: unknown) => unknown;
 
 export interface SceneFileRule {
-  /** Every component id the file names, wherever it sits: the same id to keep it, or another (ADR 0437's aliases). Runs before `field`. */
+  /** Every component id the file names, wherever it sits: the same id to keep it, or another (ADR 0439's aliases). Runs before `field`. */
   readonly type?: (id: string) => string;
   /** Every component field value in the file, wherever it sits. */
   readonly field?: FieldRule;

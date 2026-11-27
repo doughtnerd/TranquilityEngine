@@ -1,4 +1,4 @@
-// The tile collision and shadow shape editor (ADR 0437): a canvas in the tileset inspector showing the tile's sprite
+// The tile collision and shadow shape editor (ADR 0439): a canvas in the tileset inspector showing the tile's sprite
 // (nearest filtering, zoomable), its cell box and, for a tileset with a preview grid, the cell's diamond or hexagon,
 // with the tile's shapes over it: collision in the theme's accent (one-way shapes dashed with an arrow up), shadow
 // shapes in its second accent. Tools: presets, Add rectangle (drag), Add polygon (click points; Enter or a click on

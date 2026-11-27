@@ -2,11 +2,11 @@
 // and the Tile Palette has a brush, the tool is active in that brush's mode (ADR 0231) and left presses in
 // the scene view paint instead of selecting. Each stroke is one undo step (Escape mid-stroke puts it back).
 // Draws the map's grid around the pointer and the brush's footprint (the brush's, ADR 0289) as an overlay: on
-// isometric, staggered and hexagonal maps (ADR 0435) the cells' own outlines, and the footprint as the outline of its cells.
-// ADR 0440: the selection tool (S) drags cell rectangles (Shift adds, Alt subtracts), moves the selection by dragging
+// isometric, staggered and hexagonal maps (ADR 0437) the cells' own outlines, and the footprint as the outline of its cells.
+// ADR 0442: the selection tool (S) drags cell rectangles (Shift adds, Alt subtracts), moves the selection by dragging
 // inside it (Alt-drag copies), and acts on it with Ctrl/⌘+C, Ctrl/⌘+X, Delete, X, Y and Z (Ctrl/⌘+A selects every used
 // cell, Escape selects nothing); the selection is outlined cell by cell. With prefabs chosen, the pencil, rectangle and
-// eraser place and remove prefab instances (`prefabBrush.ts`). ADR 0439: while painting with Dim inactive layers on,
+// eraser place and remove prefab instances (`prefabBrush.ts`). ADR 0441: while painting with Dim inactive layers on,
 // the map's other layers draw at 35 % in the edit view.
 import { effect } from "@preact/signals";
 import type { Tilemap } from "../runtime";
@@ -68,9 +68,9 @@ interface PaintState {
   hover: Cell | null;
   /** The brush's stroke while the press goes on. */
   stroke: BrushStroke | null;
-  /** A prefab brush stroke while the press goes on (ADR 0440). */
+  /** A prefab brush stroke while the press goes on (ADR 0442). */
   prefabStroke: PrefabStroke | null;
-  /** The selection being moved: where the drag started and the cell it's on now (ADR 0440). */
+  /** The selection being moved: where the drag started and the cell it's on now (ADR 0442). */
   moving: { from: Cell; to: Cell; copy: boolean } | null;
 }
 
@@ -82,7 +82,7 @@ function ownKeys(target: EventTarget | null): boolean {
   return !!(target as Element | null)?.closest?.("input, textarea, select, [contenteditable=''], [contenteditable='true'], .monaco-editor, .asset-browser, .dialog");
 }
 
-/** The Tilemap the dim view opacity was set on and how many layers it had then (ADR 0439). */
+/** The Tilemap the dim view opacity was set on and how many layers it had then (ADR 0441). */
 let dimmed: { map: Tilemap; layers: number } | null = null;
 
 /** Dim the painted map's inactive layers in the edit view, or undim the map dimmed before. */
@@ -118,7 +118,7 @@ export const paintTool: ViewportToolContribution<BrushTool> = {
       if (tileSelection.peek().map !== paintTarget()) clearTileSelection();
     });
 
-    // ADR 0439: Dim inactive layers, while the paint tool is active on a map.
+    // ADR 0441: Dim inactive layers, while the paint tool is active on a map.
     const stopDim = effect(() => {
       const on = dimInactiveLayers.value && brushTool.value !== null;
       void editor.scene.selection.active;
@@ -144,7 +144,7 @@ export const paintTool: ViewportToolContribution<BrushTool> = {
         return true;
       }
       if (brushTool.peek() && (key === "x" || key === "y" || key === "z")) {
-        // Z (turn) is off on hexagonal maps (ADR 0435): the key isn't the paint tool's there.
+        // Z (turn) is off on hexagonal maps (ADR 0437): the key isn't the paint tool's there.
         if (key === "z" && !canRotateOn(map)) return false;
         const axis = key === "x" ? "x" : key === "y" ? "y" : "rotate";
         if (selecting) transformTiles(axis);
@@ -231,7 +231,7 @@ export const paintTool: ViewportToolContribution<BrushTool> = {
 
       const strokeTool: BrushTool = p.alt ? "pick" : current;
 
-      // ADR 0440: the prefab brush. Released, the stroke's node removes and adds are the gesture's one undo step.
+      // ADR 0442: the prefab brush. Released, the stroke's node removes and adds are the gesture's one undo step.
       if (strokeTool !== "pick" && paintsPrefabs(strokeTool)) {
         const prefabTool = strokeTool as "pencil" | "rect" | "erase";
         const label = prefabTool === "erase" ? "Erase prefabs" : "Paint prefabs";
@@ -338,7 +338,7 @@ function paintOverlay(state: PaintState): EditorOverlay {
 const TRACE_LIMIT = 16_384;
 
 /**
- * The selection's outline (ADR 0440), where it would land while it is being moved (ADR 0442: keeping its shape): its
+ * The selection's outline (ADR 0442), where it would land while it is being moved (ADR 0444: keeping its shape): its
  * cells' outlines traced as shapes on the map's grid (squares, diamonds, hexagons). A large selection is traced by its
  * edge cells only.
  */
@@ -351,7 +351,7 @@ function selectionOverlay(overlay: EditorOverlay, map: Tilemap, selected: CellSe
 }
 
 /**
- * The overlay on a non-square grid (ADR 0435): each cell's outline around the pointer, and the footprint's cells
+ * The overlay on a non-square grid (ADR 0437): each cell's outline around the pointer, and the footprint's cells
  * outlined as one shape.
  */
 function gridOverlay(overlay: EditorOverlay, map: Tilemap, [hx, hy]: Cell, footprint: Footprint, color: number): EditorOverlay {
@@ -365,7 +365,7 @@ function gridOverlay(overlay: EditorOverlay, map: Tilemap, [hx, hy]: Cell, footp
     }
   }
   overlay.segments = [{ positions: new Float32Array(segs), color: GRID }];
-  // A stamp that keeps its shape (ADR 0442) lists the cells it lands on; otherwise the footprint is its rectangle.
+  // A stamp that keeps its shape (ADR 0444) lists the cells it lands on; otherwise the footprint is its rectangle.
   const all = footprint.cells ? footprint.cells.length <= TRACE_LIMIT : (x1 - x0) * (y1 - y0) <= TRACE_LIMIT;
   let cells: Cell[] = [];
   if (footprint.cells) cells = all ? footprint.cells : edgeCells(footprint.cells);

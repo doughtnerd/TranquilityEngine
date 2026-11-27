@@ -260,7 +260,7 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     expect([map.getTile(0, 5), map.getTile(1, 5), map.getTile(2, 5)]).toEqual([11, 12, 13]);
   });
 
-  it("on a hexagonal map, flips tiles but not a stamp's layout, doesn't turn, and fills across every side (ADR 0435)", () => {
+  it("on a hexagonal map, flips tiles but not a stamp's layout, doesn't turn, and fills across every side (ADR 0437)", () => {
     const { map } = newMap();
     map.gridShape = "hexagonal";
     brushStamp.value = { width: 2, height: 1, values: [1, 2] };
@@ -303,7 +303,7 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     (["y", "x"] as const).flatMap((axis) => (["odd", "even"] as const).map((index) => ({ shape, axis, index }))),
   );
   for (const { shape, axis, index } of LATTICE_GRIDS) {
-    it(`keeps a picked stamp's shape painted an odd number of rows or columns away on a ${shape} map (axis ${axis}, ${index}) (ADR 0442)`, () => {
+    it(`keeps a picked stamp's shape painted an odd number of rows or columns away on a ${shape} map (axis ${axis}, ${index}) (ADR 0444)`, () => {
       const { map } = newMap();
       map.gridShape = shape;
       map.staggerAxis = axis;
@@ -333,7 +333,7 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     });
   }
 
-  it("tiles a picked stamp over a rectangle on a staggered map, every placement keeping its shape (ADR 0442)", () => {
+  it("tiles a picked stamp over a rectangle on a staggered map, every placement keeping its shape (ADR 0444)", () => {
     const { map } = newMap();
     map.gridShape = "staggered";
     // A 1 × 2 column, 1 below 2, picked from an unshifted row.
@@ -354,7 +354,7 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     }
   });
 
-  it("paints square and isometric stamps cell for cell, with a rectangle footprint (ADR 0442)", () => {
+  it("paints square and isometric stamps cell for cell, with a rectangle footprint (ADR 0444)", () => {
     for (const shape of ["square", "isometric"] as const) {
       const { map } = newMap();
       map.gridShape = shape;

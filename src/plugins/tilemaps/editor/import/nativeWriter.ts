@@ -1,5 +1,5 @@
 /**
- * The native writer (ADR 0436): turns a parsed Tiled map, Tiled tileset or LDtk project (`model.ts`) into Myco files.
+ * The native writer (ADR 0438): turns a parsed Tiled map, Tiled tileset or LDtk project (`model.ts`) into Myco files.
  * Pure: it takes the parsed model, the import options and a reader for the project files it would merge with (image
  * sidecars, the tilesets a previous import wrote), and returns the files to write and every warning. The editor's
  * import job (`importJob.ts`) reads the sources and writes the result.
@@ -47,7 +47,7 @@ import { baseName } from "./shared";
 // ---------------------------------------------------------------------------------------------------------------
 // Options and results
 
-/** How an IntGrid value collides (ADR 0436: chosen in the import dialog, default none). */
+/** How an IntGrid value collides (ADR 0438: chosen in the import dialog, default none). */
 export type IntGridCollision = "none" | "full" | "oneWay";
 
 export interface NativeImportOptions {
@@ -162,7 +162,7 @@ function ellipsePoints(cx: number, cy: number, rx: number, ry: number, n = 16): 
  *   above on flat-top ones); Myco's 6 neighbours are clockwise from the first side at or after north. The other two
  *   corner indices name cells two rows (columns) away, which aren't neighbours, so corner sets lose those corners.
  *
- * Checked against maps painted by Tiled (ADR 0442): its isometric and staggered grass-and-water examples and its
+ * Checked against maps painted by Tiled (ADR 0444): its isometric and staggered grass-and-water examples and its
  * orthogonal desert, where every tile shares its corners with its neighbours in this order and no other. No Tiled map
  * with a hexagonal Wang set was at hand; that order follows Tiled's `WangFiller`.
  */
@@ -365,7 +365,7 @@ class Writer {
 /** Tileset text as the tileset format writes it (pretty JSON). */
 const tilesetText = (data: TilesetData) => `${JSON.stringify(data, null, 2)}\n`;
 
-/** A tile's collision from its polygons (ADR 0437): none, one polygon, or several. */
+/** A tile's collision from its polygons (ADR 0439): none, one polygon, or several. */
 function collisionOf(shapes: readonly TilePolygon[]): TileCollision {
   if (!shapes.length) return "none";
   const copy = shapes.map((s) => (s.oneWay ? { polygon: s.polygon.map(([x, y]) => [r(x), r(y)] as [number, number]), oneWay: true } : { polygon: s.polygon.map(([x, y]) => [r(x), r(y)] as [number, number]) }));
@@ -453,7 +453,7 @@ function tilemapComponent(tileset: string, grid: GridParams, layers: TilemapLaye
   return { type: "engine.Tilemap", data };
 }
 
-/** ADR 0437: the tile collider every Tilemap whose tiles collide gets. */
+/** ADR 0439: the tile collider every Tilemap whose tiles collide gets. */
 const SHAPE_COLLIDER: ComponentEntry = { type: "engine.ShapeCollider2D", data: {} };
 
 const mapObject = (type: string, properties: Record<string, unknown>): ComponentEntry => ({ type: "engine.MapObject", data: { type, properties } });

@@ -1,8 +1,8 @@
-// Stamps with named layers (ADR 0440): what the selection tool copies, the editor's tile clipboard and the stamps saved
+// Stamps with named layers (ADR 0442): what the selection tool copies, the editor's tile clipboard and the stamps saved
 // in a tileset. A `StampBlock` holds tileset ids (with flip flags) of one tileset; saved stamps (`TileStamp`) name
 // tiles by uuid through a palette per layer, in the layer encoding of `format.ts` (run-length cells, row by row from
 // the bottom-left), so they travel with the tileset. Moving a block to another tileset matches tiles by uuid. A block
-// copied on a staggered or hexagonal map keeps its frame (ADR 0442), saved as the stamp's `stagger`, so it keeps its
+// copied on a staggered or hexagonal map keeps its frame (ADR 0444), saved as the stamp's `stagger`, so it keeps its
 // shape wherever it's placed. Pure.
 import type { Stamp } from "../runtime/brushes";
 import { cellValue, decodeRuns, encodeChunk, flagsOf, tileIdOf } from "../runtime/format";
@@ -21,7 +21,7 @@ export interface StampBlock {
   height: number;
   layers: StampBlockLayer[];
   /**
-   * ADR 0442: where the block was laid out on a staggered or hexagonal map, so it keeps its shape wherever it's placed
+   * ADR 0444: where the block was laid out on a staggered or hexagonal map, so it keeps its shape wherever it's placed
    * (`stampLattice.ts`). Absent: its cells land cell for cell.
    */
   frame?: StampFrame;

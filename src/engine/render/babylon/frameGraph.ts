@@ -644,7 +644,7 @@ export class BabylonFrame {
     render.objectRenderer.onBeforeRenderObservable.add(() => {
       this.beforeView?.(v.camera);
       // The frame graph doesn't raise the scene's before-camera-render observable, which scene.render() without one
-      // does for each camera: raise it here, before this camera draws (ADR 0442: quad batches' per-camera matrices).
+      // does for each camera: raise it here, before this camera draws (ADR 0444: quad batches' per-camera matrices).
       this.scene.onBeforeCameraRenderObservable.notifyObservers(v.camera);
     });
     render.targetTexture = clear.outputTexture;

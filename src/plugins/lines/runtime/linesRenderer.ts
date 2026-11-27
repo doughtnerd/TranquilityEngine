@@ -167,7 +167,7 @@ export class LinesRenderer implements BabylonFeature {
     if (twoD) {
       e.mesh?.dispose();
       e.mesh = null;
-      // In a y-sorted layer its sort point is its node's world position (ADR 0438).
+      // In a y-sorted layer its sort point is its node's world position (ADR 0440).
       const y = node[at + 13]!;
       order = drawPlace(world.settings.render, c.sortingLayer, c.orderInLayer, y);
       this.draw2D(e, c, mesh, matrix, ySortWithin(world.settings.render, c.sortingLayer, y));

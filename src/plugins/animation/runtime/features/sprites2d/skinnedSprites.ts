@@ -164,7 +164,7 @@ export class SkinnedSprites {
       e.key = key;
       this.build(e, r, skeleton, skin, skelSkin, size);
     }
-    // In a y-sorted layer (ADR 0438) its sort point is the sprite node's world position, as a plain sprite's.
+    // In a y-sorted layer (ADR 0440) its sort point is the sprite node's world position, as a plain sprite's.
     const render = world.settings.render, y = world.worldMatrix(r.node.entity)[r.node.entity * 16 + 13]!;
     e.order = drawPlace(render, r.sortingLayer, r.orderInLayer, y); // for picking; the batch warns about an unknown layer
     e.batch.setOrder(r.sortingLayer, r.orderInLayer, ySortWithin(render, r.sortingLayer, y));

@@ -16,7 +16,7 @@ export interface QuadBatchHost {
    */
   textureSize(path: string, onLoad: () => void): readonly [number, number] | null;
   /**
-   * Run `listener` just before each camera draws (ADR 0442: a tile layer's parallax follows each camera), with that
+   * Run `listener` just before each camera draws (ADR 0444: a tile layer's parallax follows each camera), with that
    * camera's world position. A `QuadBatch.setMatrix` called from the listener applies to that camera's draw only: once
    * the frame is drawn, the batch is back at the matrix last set outside a listener (what picking and the editor's
    * tools read). Returns a function that removes the listener.
@@ -31,7 +31,7 @@ export interface QuadBatch {
    * v up) and 6 `indices`, and optionally a colour per vertex (`colors`: RGBA, 0..1 sRGB and alpha, multiplying the tint).
    * Shown once it has quads and is visible. A call with the same texture, vertex count and `indices` array as the last
    * one only updates the vertices (positions, UVs and colours) in place, as `setTriangles` does: an animated tile layer
-   * rewrites its quads' UVs in the same arrays and calls again (ADR 0435), with no rebuild.
+   * rewrites its quads' UVs in the same arrays and calls again (ADR 0437), with no rebuild.
    */
   setQuads(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void;
   /**
@@ -48,7 +48,7 @@ export interface QuadBatch {
   setMatrix(m: ArrayLike<number>, offset?: number): void;
   /**
    * Its place among layered 2D content (ADR 0014): a sorting layer and an order in it, as sprites have. Lit batches read
-   * that layer's 2D light. `within` (ADR 0435, 0438; [0, 1), default 0) orders draws of the same order among themselves,
+   * that layer's 2D light. `within` (ADR 0437, 0440; [0, 1), default 0) orders draws of the same order among themselves,
    * larger drawing later: an isometric layer's chunks in painter's order, heights in a y-sorted layer.
    */
   setOrder(sortingLayer: string, orderInLayer: number, within?: number): void;

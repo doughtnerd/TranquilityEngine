@@ -1,18 +1,18 @@
-# 0441. Inspector fields can be shown only when other fields of the component have certain values
+# 0443. Inspector fields can be shown only when other fields of the component have certain values
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0042, 0435
+- **Related:** 0042, 0437
 
 ## Context
 
-ADR 0435 gives `Tilemap` grid fields that mean something only for some grid shapes: `staggerAxis` and `staggerIndex`
+ADR 0437 gives `Tilemap` grid fields that mean something only for some grid shapes: `staggerAxis` and `staggerIndex`
 for staggered and hexagonal grids, `hexSide` for hexagonal ones. `FieldOptions` (`core/registry.ts`, exported from
 `myco`) could only hide a field always (`hidden`); the Inspector had no per-field condition, so every grid field showed
 on every Tilemap. The same need comes up for scripts' own fields (a "radius" that only matters in one mode).
-Accepted with 0435's build (the owner's acceptance of 0435 covers the Inspector behaviour it describes: "The Inspector
+Accepted with 0437's build (the owner's acceptance of 0437 covers the Inspector behaviour it describes: "The Inspector
 shows the stagger fields only for the shapes that use them").
 
 ## Decision

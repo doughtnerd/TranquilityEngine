@@ -1,4 +1,4 @@
-// The editor side of importing Tiled and LDtk files (ADR 0436): reading a source and the files it names from the open
+// The editor side of importing Tiled and LDtk files (ADR 0438): reading a source and the files it names from the open
 // project, planning what the native writer would write (and what that overwrites), and writing it in one batch. The
 // Import dialog drives it; it loads with the dialog, so the parsers and `fast-xml-parser` stay out of the editor's
 // first bundle.

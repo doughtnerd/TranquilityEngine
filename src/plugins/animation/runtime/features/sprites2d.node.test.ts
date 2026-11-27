@@ -18,7 +18,7 @@ import { claimsSkinnedSprite, SkinnedSprites } from "./sprites2d/skinnedSprites"
 import { writeRawClip } from "./timeline/rawClip";
 
 let engine: Engine;
-/** The project's sorting layers: `Units` is y-sorted (ADR 0438), `Default` isn't. */
+/** The project's sorting layers: `Units` is y-sorted (ADR 0440), `Default` isn't. */
 const RENDER = { sortingLayers: ["Default", "Units"], ySortedLayers: ["Units"] };
 const made: GameObject[] = [];
 
@@ -139,7 +139,7 @@ describe("flipbooks (ADR 0371)", () => {
 // --- skinned sprites --------------------------------------------------------------------------------------------------
 
 interface FakeBatch extends QuadBatch {
-  /** The sorting layer, order in layer and `within` (ADR 0438) it was last given. */
+  /** The sorting layer, order in layer and `within` (ADR 0440) it was last given. */
   order: [string, number, number | undefined];
   positions: number[];
   texture: string;
@@ -271,7 +271,7 @@ describe("Skeleton2D and skinned sprites (ADR 0370, 0371)", () => {
     sprites.dispose();
   });
 
-  it("places skinned sprites of a y-sorted layer by their nodes' heights within their order in layer, lower on top (ADR 0438)", () => {
+  it("places skinned sprites of a y-sorted layer by their nodes' heights within their order in layer, lower on top (ADR 0440)", () => {
     const r = rig(false);
     for (const s of [r.body, r.arm]) Object.assign(s, { sortingLayer: "Units", orderInLayer: 4 });
     r.body.node.transform!.position.y = 1;

@@ -1,4 +1,4 @@
-// Component id aliases (ADR 0437): `engine.TilemapCollider2D`, renamed `engine.ShapeCollider2D`, still loads from
+// Component id aliases (ADR 0439): `engine.TilemapCollider2D`, renamed `engine.ShapeCollider2D`, still loads from
 // scenes, prefabs and overrides, and documents save the new id.
 import { describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, SceneManager, ShapeCollider2D, TilemapCollider2D, getComponentClass, getComponentId, registerComponentAlias, resolveComponentId } from "../../myco";
@@ -41,7 +41,7 @@ function named(root: GameObject, name: string): GameObject | null {
   return null;
 }
 
-describe("component id aliases (ADR 0437)", () => {
+describe("component id aliases (ADR 0439)", () => {
   it("the old id and the deprecated class name resolve to ShapeCollider2D", () => {
     expect(TilemapCollider2D).toBe(ShapeCollider2D);
     expect(getComponentId(ShapeCollider2D)).toBe(NEW);

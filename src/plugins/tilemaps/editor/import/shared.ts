@@ -1,5 +1,5 @@
 /**
- * Small helpers the Tiled and LDtk parsers share (ADR 0436): resolving the paths a file names, colours in CSS order,
+ * Small helpers the Tiled and LDtk parsers share (ADR 0438): resolving the paths a file names, colours in CSS order,
  * and a grid image's tile rectangles.
  */
 

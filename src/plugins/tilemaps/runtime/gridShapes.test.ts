@@ -1,4 +1,4 @@
-// ADR 0435: isometric, staggered and hexagonal Tilemaps: coordinates, chunk meshes, collision and auto-tiling.
+// ADR 0437: isometric, staggered and hexagonal Tilemaps: coordinates, chunk meshes, collision and auto-tiling.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, SceneManager, Tilemap, Vector2 } from "../../../myco";
 import { patternProblems } from "./autotile";
@@ -49,7 +49,7 @@ function area(poly: readonly (readonly number[])[]): number {
   return a / 2;
 }
 
-describe("grid shapes on the Tilemap (ADR 0435)", () => {
+describe("grid shapes on the Tilemap (ADR 0437)", () => {
   it("places, finds and outlines cells through the grid, and names their neighbours", async () => {
     const map = await newMap({ gridShape: "isometric", cellSize: new Vector2(2, 1) });
     map.node.transform!.position.x = 10;
@@ -89,7 +89,7 @@ describe("grid shapes on the Tilemap (ADR 0435)", () => {
     expect(s.oneWayPolygons.map(round)).toEqual([[[0, -0.5], [1, 0], [0, 0.5], [-1, 0]]]);
     // Cell (5, 5)'s box is centred at (0, 5): the triangle [0,0] [1,0] [1,1] of the box.
     expect(s.polygons.map(round)).toEqual([[[-1, 4.5], [1, 4.5], [1, 5.5]]]);
-    // Staggered cells next to each other in diamond space merge the same way (within a chunk, ADR 0437).
+    // Staggered cells next to each other in diamond space merge the same way (within a chunk, ADR 0439).
     map.gridShape = "staggered";
     map.clearAll();
     const grid = tileGrid({ shape: "staggered", cellSize: { x: 2, y: 1 } });
@@ -162,7 +162,7 @@ describe("grid shapes on the Tilemap (ADR 0435)", () => {
   });
 });
 
-describe("chunk meshes on non-square grids (ADR 0435)", () => {
+describe("chunk meshes on non-square grids (ADR 0437)", () => {
   const frame: TileFrame = { texture: "t.png", uv: [0, 0, 1, 1], size: [1, 2] };
 
   it("places each sprite in its cell's box and draws higher cells first", () => {

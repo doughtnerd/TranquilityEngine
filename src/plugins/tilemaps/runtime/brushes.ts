@@ -30,7 +30,7 @@ export function lineCells(ax: number, ay: number, bx: number, by: number): Cell[
 
 /**
  * The 4-connected region of cells with the same value as the start cell (or connected through `neighbours`, the cells
- * sharing a side with a cell on the map's grid, ADR 0435). An empty region is bounded by `bounds` (the area searched),
+ * sharing a side with a cell on the map's grid, ADR 0437). An empty region is bounded by `bounds` (the area searched),
  * so filling empty space stops instead of running forever; at most `limit` cells are returned.
  */
 export function floodCells(

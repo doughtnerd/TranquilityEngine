@@ -179,7 +179,7 @@ describe("chunk meshes (ADR 0103)", () => {
     expect(sourceCorner(0, 0, FLIP_Y)).toEqual([0, 1]);
   });
 
-  it("splits a texture's tiles into groups, says each quad's cell, and rewrites a quad as a fresh build lays it out (ADR 0435, 0438)", () => {
+  it("splits a texture's tiles into groups, says each quad's cell, and rewrites a quad as a fresh build lays it out (ADR 0437, 0440)", () => {
     const cells = new Int32Array(CHUNK_CELLS);
     cells[0] = 1;
     cells[1] = cellValue(2, FLIP_X);
@@ -347,7 +347,7 @@ describe("ShapeCollider2D on Rapier (ADR 0105)", () => {
     expect(b.transform!.worldPosition.y).toBeCloseTo(3.4, 1); // landed on top
   });
 
-  it("a CharacterController2D jumps up through one-way tiles and stands on them (ADR 0437)", async () => {
+  it("a CharacterController2D jumps up through one-way tiles and stands on them (ADR 0439)", async () => {
     const engine = await setup();
     const map = level(engine); // floor top at y = 0
     map.fillRect(-3, 3, 6, 1, 2); // a one-way platform at y = 3..4
@@ -371,7 +371,7 @@ describe("ShapeCollider2D on Rapier (ADR 0105)", () => {
     expect(player.transform!.worldPosition.y).toBeCloseTo(5, 1); // feet on the tiles' top at 4
   });
 
-  it("oneWay on the collider makes every tile one-way (ADR 0437)", async () => {
+  it("oneWay on the collider makes every tile one-way (ADR 0439)", async () => {
     const engine = await setup();
     const node = GameObject.create("map");
     const map = node.addBehavior(Tilemap, { tileset: "tiles.tileset.json" });
@@ -416,7 +416,7 @@ describe("tile anchors (ADR 0119)", () => {
   });
 });
 
-describe("Tilemap.replaceTile (ADR 0440)", () => {
+describe("Tilemap.replaceTile (ADR 0442)", () => {
   it("replaces a tile by another, keeping flip flags, in one layer or every layer, and reports each cell", async () => {
     await setup();
     const node = GameObject.create("map");

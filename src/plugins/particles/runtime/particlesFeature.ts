@@ -37,7 +37,7 @@ function particleHost(host: BabylonFeatureHost): BabylonParticleHost {
     },
     texture: (path) => host.materials.loadTexture(path),
     tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
-    sortOrder: (layer, order, y) => drawPlace(host.settings.render, layer, order, y, (l) => host.warnOnce(`layer|${l}`, unknownLayerMessage(l))), // 2D systems (ADR 0415, 0438)
+    sortOrder: (layer, order, y) => drawPlace(host.settings.render, layer, order, y, (l) => host.warnOnce(`layer|${l}`, unknownLayerMessage(l))), // 2D systems (ADR 0415, 0440)
     materials2D: host.materials2D, // 2D systems' lighting (ADR 0415, 0418)
     warnOnce: (key, message) => host.warnOnce(key, message),
     material: (path) => host.materials.material(path), // shared with MeshRenderers; null while missing

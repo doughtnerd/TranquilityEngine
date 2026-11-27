@@ -1,36 +1,36 @@
-# 0442. Square tile maps collide as editable voxel colliders per chunk; tile parallax follows each camera; tile animation keeps a clock per map
+# 0444. Square tile maps collide as editable voxel colliders per chunk; tile parallax follows each camera; tile animation keeps a clock per map
 
 - **Status:** Accepted
 - **Date:** 2026-11-27
 - **Deciders:** Chris Carlson
-- **Supersedes:** — (amends 0435, 0436, 0437, 0439)
-- **Related:** 0105, 0136, 0137, 0435, 0436, 0437, 0439
+- **Supersedes:** — (amends 0437, 0438, 0439, 0441)
+- **Related:** 0105, 0136, 0137, 0437, 0438, 0439, 0441
 
 ## Context
 
-Follow-ups left open when 0435–0441 were built (the owner asked on 2026-11-27 to fix everything that can be fixed,
+Follow-ups left open when 0437–0443 were built (the owner asked on 2026-11-27 to fix everything that can be fixed,
 which is the acceptance of this record):
 
-- **Collision edits on big maps are slow.** 0437 caches tile shape merges per chunk, but physics still builds one
+- **Collision edits on big maps are slow.** 0439 caches tile shape merges per chunk, but physics still builds one
   compound collider for a whole map. Its benchmark (`bench/tileShapes.bench.ts`: 512 × 512 cells, 30 % solid at
   random, one-cell edits) measured 4.8 ms for the shapes and 330–475 ms for the physics step after each edit, almost
-  all of it rebuilding the Rapier compound. 0437 named this as the trigger for a new record. Separate compounds per
+  all of it rebuilding the Rapier compound. 0439 named this as the trigger for a new record. Separate compounds per
   region would bring back snags at their borders (0105's reason for one compound).
 - **Rapier 0.21 (already a dependency) has voxel colliders:** a `Voxels` shape of grid cells, `Collider.setVoxel(ix,
   iy, filled)` to change one cell in place, and `propagateVoxelChange` / `combineVoxelStates` so neighbouring voxel
   colliders treat their shared borders as internal and don't snag.
-- **Parallax follows one camera.** 0439 applies a layer's parallax against the view camera only, so split-screen
+- **Parallax follows one camera.** 0441 applies a layer's parallax against the view camera only, so split-screen
   cameras see the wrong offset.
-- **Animation speed jumps.** 0435 defines tile animation time as World time × `animationSpeed`, so changing the speed
+- **Animation speed jumps.** 0437 defines tile animation time as World time × `animationSpeed`, so changing the speed
   during play jumps to another frame.
-- **Tiled's common terrain sets** have two colours (grass against water), which 0436 imports only as warnings.
+- **Tiled's common terrain sets** have two colours (grass against water), which 0438 imports only as warnings.
 
 ## Decision
 
 **Voxel colliders for square maps.**
 - `CollisionShapeSource2D` (`physics/shapeSource2D.ts`) gains an optional `collisionCells(): CollisionCells2D | null`:
   for square grids, the whole-cell solid cells of the colliding layers per 16 × 16 chunk (with a version per chunk and
-  the layer group's offset, 0439), in cell units with the source's `unit`. `Tilemap` implements it from its chunk
+  the layer group's offset, 0441), in cell units with the source's `unit`. `Tilemap` implements it from its chunk
   cache. Polygon tiles and one-way tiles stay in `collisionShapes`, which then leaves those whole cells out.
 - Backends get a capability `voxelColliders`. With it, a `ShapeCollider2D` in `"rectangles"` mode on a source that
   offers cells builds one voxel collider per chunk (and offset group): on creation it combines voxel states with its
@@ -52,14 +52,14 @@ ignoring parallax.
 **A clock per map.** Each Tilemap's animation time advances by the World's scaled frame time × `animationSpeed`, so a
 speed change changes the rate without a jump. Random start offsets and the editor World's frame 0 are unchanged.
 
-**Two-colour Wang sets** (0436): a set of exactly two colours imports as a terrain for the colour with fewer full
+**Two-colour Wang sets** (0438): a set of exactly two colours imports as a terrain for the colour with fewer full
 tiles, the other colour treated as "not this terrain"; sets of three or more colours still warn. The conversion to each
 grid's neighbour order is checked against maps made by Tiled (its isometric and staggered examples), not only against
 fixtures written for the tests.
 
 **Stamps on staggered and hexagonal maps** keep their shape wherever they're placed: stamps store their cells in the
 grid's lattice coordinates (diamond coordinates for staggered maps, axial for hexagonal) relative to their origin, and
-convert back when painted. This fixes what 0435's "As built" listed as a limit.
+convert back when painted. This fixes what 0437's "As built" listed as a limit.
 
 ### Path to a high-end pipeline
 
@@ -78,7 +78,7 @@ parallax layer's motion vectors come from its per-camera matrix history).
 - **Stamps:** a stamp carries `StampFrame { axis, shifted }` (whether its bottom-left row or column is a shifted one);
   saved stamps store it as `stagger` in the tileset. Stamps saved before, and stamps picked from the Tile Palette's grid,
   have no frame and land cell for cell. Flips on staggered maps are approximate in some directions, as before.
-- **Wang sets:** see 0436's "As built".
+- **Wang sets:** see 0438's "As built".
 - **Voxels:** `collisionShapes(merge, { withoutCells: true })` leaves the offered cells out (callers that don't ask get
   boxes as before); `voxelColliders`, `setVoxels` and `linkVoxels` are optional on backends. Chunk colliders of a group
   share its origin, so links pass shift (0, 0); diagonal chunks are linked too. Benchmark: the physics step after a
@@ -106,7 +106,7 @@ parallax layer's motion vectors come from its per-camera matrix history).
 
 ## Deprecates
 
-0437's single compound for square maps on backends with voxel colliders; 0439's single-camera parallax; 0435's
+0439's single compound for square maps on backends with voxel colliders; 0441's single-camera parallax; 0437's
 time × speed definition.
 
 ## Open questions

@@ -112,7 +112,7 @@ describe("line and trail drawing (ADR 0396)", () => {
     expect(Array.from(ribbon([...lines.drawn()][0]!).points)).toEqual([0, 3, 0, 1, 3, 0]);
   });
 
-  it("sorts a 2D line by its node's height in a y-sorted layer (ADR 0438), and picks it at that place", async () => {
+  it("sorts a 2D line by its node's height in a y-sorted layer (ADR 0440), and picks it at that place", async () => {
     const engine = await headless(["Default"]);
     const { host, batches } = fakeHosts();
     const lines = new LinesRenderer(host);

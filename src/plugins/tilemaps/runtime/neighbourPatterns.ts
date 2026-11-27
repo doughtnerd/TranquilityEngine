@@ -4,7 +4,7 @@
  * (`1`), "not" (`0`) or "don't care" (`*`), and the best-fitting tile of a terrain is picked for a
  * mask. Pure; `autotile.ts` paints with it.
  *
- * Other grids (ADR 0435) name their own neighbours (`TileGrid.neighbours`): 8 on isometric and staggered grids, 6 on
+ * Other grids (ADR 0437) name their own neighbours (`TileGrid.neighbours`): 8 on isometric and staggered grids, 6 on
  * hexagonal ones, whose patterns are 6 characters. A tile whose pattern is another length doesn't fit the grid and is
  * never picked.
  */

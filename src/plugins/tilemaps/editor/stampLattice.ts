@@ -1,11 +1,11 @@
-// Stamps that keep their shape on staggered and hexagonal maps (ADR 0442). A block of cells is a rectangle in the map's
+// Stamps that keep their shape on staggered and hexagonal maps (ADR 0444). A block of cells is a rectangle in the map's
 // offset coordinates, but rows (stagger axis y) or columns (axis x) alternate between shifted and unshifted, so the same
 // rectangle has another shape on screen when its bottom-left cell is in a row of the other kind. A block therefore
 // remembers its `StampFrame` (the stagger axis and whether its bottom-left row or column is a shifted one), which fixes
 // each cell's position relative to the block's origin in the grid's lattice coordinates (diamond coordinates on
 // staggered maps, axial ones on hexagonal maps). Placed elsewhere, cells move by a lattice translation and convert back
 // to offset coordinates (`moveCell`). Square and isometric cells are their own lattice: blocks land cell for cell.
-// A block without a frame (a palette block, a stamp saved before ADR 0442) lands cell for cell on every grid. Pure.
+// A block without a frame (a palette block, a stamp saved before ADR 0444) lands cell for cell on every grid. Pure.
 import type { Cell } from "../runtime/brushes";
 import { axialToOffset, offsetToAxial, type StaggerAxis, type TileGrid } from "../runtime/grids";
 import { orientCell } from "./stampLayout";

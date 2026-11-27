@@ -1,10 +1,10 @@
-# 0435. Tilemaps get isometric, staggered and hexagonal grids through one grid module, and tiles get frame animations
+# 0437. Tilemaps get isometric, staggered and hexagonal grids through one grid module, and tiles get frame animations
 
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0103)
-- **Related:** 0014, 0103, 0438, 0105, 0119, 0136, 0289, 0392, 0399, 0400, 0413, 0418
+- **Related:** 0014, 0103, 0440, 0105, 0119, 0136, 0289, 0392, 0399, 0400, 0413, 0418
 
 ## Context
 
@@ -15,7 +15,7 @@ units (the core `CollisionShapes2D` scales them by `unit`), `neighbourPatterns.t
 brush (0289) lays stamps out in cell space, and the editor overlay draws a square grid. 2D shadow casters (0413) read
 the Tilemap's `collisionShapes`, so whatever collision a grid makes is also what casts shadows.
 
-The tools we import from (0436) agree on the grid shapes worth having. Tiled has orthogonal, isometric (diamond),
+The tools we import from (0438) agree on the grid shapes worth having. Tiled has orthogonal, isometric (diamond),
 staggered isometric and hexagonal maps, the last two with a stagger axis (x or y) and index (odd or even), and hex
 maps with a side length. Godot 4 has square, isometric, half-offset square and hexagon with similar layouts. Unity
 has rectangle, isometric and hexagon. Tile animation is a list of frames with durations per tile in Tiled and Godot,
@@ -68,7 +68,7 @@ the scene format nor the layer format (version 2, 0392) changes.
   - Hexagonal: `"rectangles"` mode gives one convex hexagon per solid cell in the compound (its internal edges are
     fixed like any other); `"outline"` mode traces the union of the solid cells' outlines (shared edges cancel, the
     rest chain into loops with the solid on the left). The edge-cancelling tracer in `cellRegions.ts` is written
-    against `cellOutline`, so it also serves square maps' per-chunk caching (0437).
+    against `cellOutline`, so it also serves square maps' per-chunk caching (0439).
   - A tile's polygon stays in its **cell box's** units (`[0, 0]` bottom-left, `[1, 1]` top-right of the box, the
     space the tile's image is drawn in), so a polygon drawn over the sprite fits it on every grid. `"full"` and
     `"oneWay"` mean the cell's own outline (a diamond, a hexagon).
@@ -118,7 +118,7 @@ A tile in a tileset may carry an animation:
   a chunk's animated tiles go in their own batch per texture, so static tiles are never re-uploaded; on other grids
   they stay in the chunk's batch, because painter's order spans both. The cost is one UV rewrite per chunk with a
   changing frame, at most once per frame. This answers 0136's open question: no UV-only host call is needed.
-- **Import.** Tiled tile animations map one to one (milliseconds become seconds), 0436.
+- **Import.** Tiled tile animations map one to one (milliseconds become seconds), 0438.
 
 ### Path to a high-end pipeline
 
@@ -144,10 +144,10 @@ This is a constraint on this design, not a plan.
 - Tiled y-down cells map to Myco cells by `tiledCellToCell` in `grids.ts` (isometric swaps and negates the axes; stagger
   axis y keeps every row's parity).
 - The editor's edit World keeps stepping, so "edit mode shows frame 0" is decided by the World's kind (`"editor"`), not
-  by time. Changing `animationSpeed` during play first jumped to the frame for the new speed; 0442 gives each map its
+  by time. Changing `animationSpeed` during play first jumped to the frame for the new speed; 0444 gives each map its
   own clock.
 - Staggered and hexagonal multi-cell stamps first kept their offset-coordinate layout, changing shape when placed an
-  odd number of rows away; 0442 fixed it (stamps carry a stagger frame, `editor/stampLattice.ts`).
+  odd number of rows away; 0444 fixed it (stamps carry a stagger frame, `editor/stampLattice.ts`).
 
 ## Alternatives considered
 
@@ -169,7 +169,7 @@ This is a constraint on this design, not a plan.
 
 **Positive**
 - Isometric, staggered and hexagonal maps paint, draw, collide, cast shadows and auto-tile, and Tiled's maps of all
-  three import (0436).
+  three import (0438).
 - Water, lava, torches and conveyors animate without scripts, deterministically offset per cell.
 - Square maps keep their numbers, files and draw order.
 
@@ -178,7 +178,7 @@ This is a constraint on this design, not a plan.
   fractional draw orders: two non-square layers on the same sorting layer and order interleave by chunk, not by
   layer (give them different orders).
 - Tiles still sort by layer against sprites, so a character can't walk behind a tall isometric wall tile and in
-  front of the next one; per-row y-sorting is 0438.
+  front of the next one; per-row y-sorting is 0440.
 - Hexagonal stamps don't mirror or turn their layout.
 - `QuadBatch.setOrder` and `setQuads` change (an internal interface; the decals, lines and skinned sprite callers
   are unaffected because the new argument is optional and the in-place rule only applies to identical arrays).

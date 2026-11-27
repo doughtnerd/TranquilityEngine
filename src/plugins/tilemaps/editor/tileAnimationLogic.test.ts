@@ -1,4 +1,4 @@
-// The tile animation editor's model (ADR 0435): frames from the tile's image only, durations above 0, the field left
+// The tile animation editor's model (ADR 0437): frames from the tile's image only, durations above 0, the field left
 // out when the last frame goes, and the preview's frame at a time.
 import { describe, expect, it } from "vitest";
 import type { TileAnimation } from "../runtime/tileset";

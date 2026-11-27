@@ -1,4 +1,4 @@
-// The selected tile's Animation section in the Tileset inspector (ADR 0435 "Animated tiles"): its frames (each a
+// The selected tile's Animation section in the Tileset inspector (ADR 0437 "Animated tiles"): its frames (each a
 // slice of the tile sprite's image, with a duration in seconds), how the cells start (together or at random offsets),
 // and a live preview. The edits are `tileAnimationLogic.ts`; each is one tileset edit, and a refused one (a frame of
 // another image, a duration of 0) is shown as a problem and changes nothing.

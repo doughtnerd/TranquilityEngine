@@ -36,7 +36,7 @@ export interface CollisionShapes2D {
 }
 
 /**
- * One chunk of whole solid cells (ADR 0442): a square block of `CollisionCells2D.chunkSize` cells on a side. Flag `i`
+ * One chunk of whole solid cells (ADR 0444): a square block of `CollisionCells2D.chunkSize` cells on a side. Flag `i`
  * of `solid` is cell (cx·size + i % size, cy·size + ⌊i / size⌋) of its group, row by row from the chunk's bottom-left.
  */
 export interface CollisionCellChunk2D {
@@ -49,7 +49,7 @@ export interface CollisionCellChunk2D {
   readonly solid: Uint8Array;
 }
 
-/** Cells that share one lattice (ADR 0442): a tilemap's colliding layers with the same offset. */
+/** Cells that share one lattice (ADR 0444): a tilemap's colliding layers with the same offset. */
 export interface CollisionCellGroup2D {
   /** Tells the group apart from one call to the next. */
   readonly key: string;
@@ -60,7 +60,7 @@ export interface CollisionCellGroup2D {
 }
 
 /**
- * Whole solid cells of a square grid, per chunk (ADR 0442), for colliders that keep cells as cells (voxels) and edit
+ * Whole solid cells of a square grid, per chunk (ADR 0444), for colliders that keep cells as cells (voxels) and edit
  * them in place. Cell (x, y) of a group covers its offset + (x..x+1, y..y+1) shape units.
  */
 export interface CollisionCells2D {
@@ -74,7 +74,7 @@ export interface CollisionCells2D {
 /** What `collisionShapes` leaves out. */
 export interface CollisionShapeOptions2D {
   /**
-   * ADR 0442: leave out the whole cells `collisionCells()` offers (their rectangles, or their outlines in `"outline"`
+   * ADR 0444: leave out the whole cells `collisionCells()` offers (their rectangles, or their outlines in `"outline"`
    * mode), for a collider that builds those from the cells. Nothing is left out when the source offers no cells.
    */
   readonly withoutCells?: boolean;
@@ -87,7 +87,7 @@ export interface CollisionShapeSource2D {
   /** The shapes now, or null while they can't be known yet (an asset still loading). */
   collisionShapes(merge: ShapeMerge2D, options?: CollisionShapeOptions2D): CollisionShapes2D | null;
   /**
-   * ADR 0442, optional: the whole solid cells of a square grid per chunk, or null when the source has none to offer
+   * ADR 0444, optional: the whole solid cells of a square grid per chunk, or null when the source has none to offer
    * that way (another grid, an asset still loading). A source that offers them takes `withoutCells` too.
    */
   collisionCells?(): CollisionCells2D | null;

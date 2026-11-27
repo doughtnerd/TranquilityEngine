@@ -1,4 +1,4 @@
-// Square tile maps on Rapier's voxel colliders (ADR 0442): one voxel collider per chunk, edited in place when scripts
+// Square tile maps on Rapier's voxel colliders (ADR 0444): one voxel collider per chunk, edited in place when scripts
 // change tiles. Driven through the public API only: Tilemap edits, ShapeCollider2D, bodies, Physics2D's queries and
 // the World step. (That the core takes the voxel path at all is `physics/core.test.ts`'s, against a fake backend.)
 import { afterEach, describe, expect, it } from "vitest";
@@ -54,7 +54,7 @@ function groundAt(x: number): number | null {
   return hit?.collider instanceof ShapeCollider2D ? hit.point.y : null;
 }
 
-describe("voxel tile colliders on Rapier (ADR 0442)", () => {
+describe("voxel tile colliders on Rapier (ADR 0444)", () => {
   it("a body lands and slides across chunk borders, corners where four chunks meet included, without catching", async () => {
     const engine = await setup();
     const { tiles } = map();
@@ -198,7 +198,7 @@ describe("voxel tile colliders on Rapier (ADR 0442)", () => {
   }
 });
 
-describe("a Tilemap's whole cells as a shape source offers them (ADR 0442)", () => {
+describe("a Tilemap's whole cells as a shape source offers them (ADR 0444)", () => {
   /** The solid cells of a group, as "x,y". */
   const solidCells = (group: { chunks: readonly { cx: number; cy: number; solid: Uint8Array }[] }, size: number) =>
     group.chunks.flatMap((c) => [...c.solid].flatMap((v, i) => (v ? [`${c.cx * size + (i % size)},${c.cy * size + Math.floor(i / size)}`] : []))).sort();

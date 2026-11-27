@@ -41,7 +41,7 @@ describe("project files", () => {
     expect(skipsFolder("scenes")).toBe(false);
   });
 
-  it("tells a Tiled XML tileset saved as .tsx from TypeScript by its text (ADR 0436)", () => {
+  it("tells a Tiled XML tileset saved as .tsx from TypeScript by its text (ADR 0438)", () => {
     expect(isTiledTilesetText('<?xml version="1.0"?>\n<tileset name="t"/>')).toBe(true);
     expect(isTiledTilesetText('\uFEFF  \n<tileset name="t"/>')).toBe(true);
     expect(isTiledTilesetText('import { h } from "preact";\nexport const x = <tileset />;')).toBe(false);

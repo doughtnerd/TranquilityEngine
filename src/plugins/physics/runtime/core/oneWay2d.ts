@@ -1,5 +1,5 @@
 /**
- * How the 2D core describes a one-way collider to the backend (ADR 0105, 0437): `{ up, top, base }`, where `up`
+ * How the 2D core describes a one-way collider to the backend (ADR 0105, 0439): `{ up, top, base }`, where `up`
  * is the node's +Y in the world (turned and mirrored with its 2D frame, ADR 0301), `top` the shape's highest extent
  * along `up` and `base` the collider's own position along `up`, both when it is built (a collider on a moving body
  * moves its top with it). Shared by every one-way collider: the shape collider's tiles and runs, and any 2D
