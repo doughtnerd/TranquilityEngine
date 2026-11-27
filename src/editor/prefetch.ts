@@ -18,7 +18,7 @@ export function prefetchEngine(): Promise<void> {
     import("../engine/render/babylon/BabylonRenderer"),
     import("../engine/render/babylon/editorViewport"),
     import("../engine/render/babylon/particles"),
-    import("../engine/ui/host/hostSupport"),
+    import("../engine/ui/document/styledTree"),
   ]).then(() => {});
   return engine;
 }
