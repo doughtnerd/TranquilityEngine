@@ -19,6 +19,10 @@ interface FakeBatch extends QuadBatch {
   tint: [string, number];
   visible: boolean;
   matrix: number[];
+  /** ADR 0442: the matrix each camera of the last `render` drew it with (its own `matrix` unless a listener set one). */
+  drawnWith: number[][];
+  /** A matrix set from a camera listener, for the camera drawing now. */
+  cameraMatrix: number[] | null;
   disposed: boolean;
   /** The arrays of the last `setQuads`, and how many times it was called. */
   positions: Float32Array;
@@ -31,10 +35,12 @@ function fakeHost() {
   const batches: FakeBatch[] = [];
   let loaded = false;
   const pending: (() => void)[] = [];
+  const listeners = new Set<(camera: readonly [number, number, number]) => void>();
+  let inCamera = false;
   const host: QuadBatchHost = {
     createBatch(name) {
       const b: FakeBatch = {
-        name, texture: "", quads: 0, extent: [0, 0], order: ["", 0], within: undefined, material: null, tint: ["", 0], visible: false, matrix: [], disposed: false,
+        name, texture: "", quads: 0, extent: [0, 0], order: ["", 0], within: undefined, material: null, tint: ["", 0], visible: false, matrix: [], drawnWith: [], cameraMatrix: null, disposed: false,
         positions: new Float32Array(0), uvs: new Float32Array(0), indices: new Uint32Array(0), sets: 0,
         setMaterial(m) { b.material = m; },
         setBlend() {},
@@ -49,7 +55,11 @@ function fakeHost() {
           for (let i = 0; i < positions.length; i += 3) b.extent = [Math.max(b.extent[0], positions[i]), Math.max(b.extent[1], positions[i + 1])];
         },
         setTriangles() {},
-        setMatrix(m, offset = 0) { b.matrix = Array.from(m).slice(offset, offset + 16); },
+        setMatrix(m, offset = 0) {
+          const matrix = Array.from(m).slice(offset, offset + 16);
+          if (inCamera) b.cameraMatrix = matrix;
+          else b.matrix = matrix;
+        },
         setOrder(layer, inLayer, within) { b.order = [layer, inLayer]; b.within = within; },
         setTint(c, a) { b.tint = [c, a]; },
         setMask() {},
@@ -60,8 +70,23 @@ function fakeHost() {
       return b;
     },
     textureSize: (_path, onLoad) => (loaded ? [64, 32] : (pending.push(onLoad), null)),
+    onCameraRender(listener) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
   };
-  return { host, batches, load: () => ((loaded = true), pending.splice(0).forEach((f) => f())) };
+  /** Draw a frame with these cameras (world positions), as the backend does: listeners before each, then back to each batch's own matrix. */
+  const render = (cameras: [number, number, number][]) => {
+    for (const b of batches) b.drawnWith = [];
+    for (const camera of cameras) {
+      inCamera = true;
+      for (const listener of listeners) listener(camera);
+      inCamera = false;
+      for (const b of batches) b.drawnWith.push(b.cameraMatrix ?? b.matrix);
+    }
+    for (const b of batches) b.cameraMatrix = null;
+  };
+  return { host, batches, render, listeners, load: () => ((loaded = true), pending.splice(0).forEach((f) => f())) };
 }
 
 const engines: Engine[] = [];
@@ -270,13 +295,48 @@ describe("the tile renderer's animated tiles (ADR 0435)", () => {
     tiles.sync(engine.world);
     expect(batch.sets).toBe(1); // stopped
     expect(batch.uvs[0]).toBeCloseTo(sliceU(0), 3);
-    map.animationSpeed = 0.25; // 0.5 s of World time is 0.125 s of animation: frame 1
+    map.animationSpeed = 0.25; // ADR 0442: the clock goes on from where it stopped; 0.5 s of World time is 0.125 s of animation: frame 1
+    tiles.sync(engine.world);
+    expect(batch.uvs[0]).toBeCloseTo(sliceU(0), 3);
+    advance(engine, 0.5);
     tiles.sync(engine.world);
     expect(batch.uvs[0]).toBeCloseTo(sliceU(1), 3);
     expect(batch.texture).toBe("t.png");
     expect(batch.uvs[8]).toBeCloseTo(sliceU(0), 3); // tile 3's frame 1 is from u.png: drawn as its own sprite
     expect(warn.mock.calls.some(([m]) => String(m).includes("u.png"))).toBe(true);
     warn.mockRestore();
+  });
+
+  it("keeps a clock per map: a speed change mid-play keeps the frame shown and changes the rate (ADR 0442)", async () => {
+    const { engine, host, live } = await setup(files());
+    const tiles = new TilemapRenderer(host);
+    const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default")] });
+    const other = GameObject.create("other").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default")] });
+    map.setTile(0, 0, 1);
+    other.setTile(0, 0, 1);
+    tiles.sync(engine.world);
+    const [batch, otherBatch] = live();
+    advance(engine, 0.15); // frames last 0.1, 0.2 and 0.1 s: frame 1 runs from 0.1 to 0.3 s
+    tiles.sync(engine.world);
+    expect(batch.uvs[0]).toBeCloseTo(sliceU(1), 3);
+    // Twice as fast: still frame 1 now (time × speed would jump to frame 2 at 0.3 s)...
+    map.animationSpeed = 2;
+    tiles.sync(engine.world);
+    expect(batch.uvs[0]).toBeCloseTo(sliceU(1), 3);
+    // ...and 0.1 s of World time later its clock is at 0.35 s: frame 2, while the other map (0.25 s) is still on frame 1.
+    advance(engine, 0.1);
+    tiles.sync(engine.world);
+    expect(batch.uvs[0]).toBeCloseTo(sliceU(2), 3);
+    expect(otherBatch.uvs[0]).toBeCloseTo(sliceU(1), 3);
+    // Stopped, it holds its frame; started again, it goes on from there.
+    map.animationSpeed = 0;
+    advance(engine, 1);
+    tiles.sync(engine.world);
+    expect(batch.uvs[0]).toBeCloseTo(sliceU(2), 3);
+    map.animationSpeed = 1;
+    advance(engine, 0.1); // 0.45 s: past the loop's end (0.4 s), frame 0
+    tiles.sync(engine.world);
+    expect(batch.uvs[0]).toBeCloseTo(sliceU(0), 3);
   });
 
   it("starts random tiles at offsets from the cell and the seed, the same every time", async () => {
@@ -369,6 +429,47 @@ describe("the tile renderer's layer offset, parallax and view opacity (ADR 0439)
     map.setLayerParallax(0, 1, 1);
     tiles.sync(engine.world);
     expect([b.matrix[12], b.matrix[13]]).toEqual([2, 0]);
+  });
+
+  it("gives each camera its own parallax matrix before it draws, and leaves the view camera's in place (ADR 0442)", async () => {
+    const { engine, host, live, render, listeners } = await setup(files);
+    const tiles = new TilemapRenderer(host, () => [10, 4]);
+    const node = GameObject.create("map");
+    node.transform!.position.x = 2;
+    const map = node.addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default"), newLayer("P", "Default"), newLayer("Q", "Default")] });
+    for (let l = 0; l < 3; l++) map.setTile(0, 0, 1, l);
+    map.setLayerOffset("P", 1, 0);
+    map.setLayerParallax("P", 0.5, 0);
+    map.setLayerParallax("Q", 0, 0.25);
+    tiles.sync(engine.world);
+    const [g, p, q] = live();
+    // Split screen: the view camera at (10, 4), another at (-6, 20).
+    render([[10, 4, -10], [-6, 20, -10]]);
+    const at = (m: number[]) => [m[12], m[13]];
+    expect(g.drawnWith.map(at)).toEqual([[2, 0], [2, 0]]);
+    expect(p.drawnWith.map(at)).toEqual([[3 + 0.5 * (10 - 2), 4], [3 + 0.5 * (-6 - 2), 20]]);
+    expect(q.drawnWith.map(at)).toEqual([[10, 0.75 * 4], [-6, 0.75 * 20]]);
+    // Between frames (picking, the editor's tools) the batches hold the view camera's matrix.
+    expect(at(p.matrix)).toEqual([3 + 0.5 * (10 - 2), 4]);
+    expect(at(q.matrix)).toEqual([10, 3]);
+    // Without parallax every camera draws the layer with the node; disposing stops listening.
+    map.setLayerParallax("P", 1, 1);
+    tiles.sync(engine.world);
+    render([[10, 4, -10], [-6, 20, -10]]);
+    expect(p.drawnWith.map(at)).toEqual([[3, 0], [3, 0]]);
+    tiles.dispose();
+    expect(listeners.size).toBe(0);
+  });
+
+  it("draws parallax layers with the node for every camera when the World has no view camera (a thumbnail)", async () => {
+    const { engine, host, live, render } = await setup(files);
+    const tiles = new TilemapRenderer(host);
+    const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default")] });
+    map.setTile(0, 0, 1);
+    map.setLayerParallax(0, 0.5, 0.5);
+    tiles.sync(engine.world);
+    render([[8, 8, -10]]);
+    expect(live()[0].drawnWith.map((m) => [m[12], m[13]])).toEqual([[0, 0]]);
   });
 
   it("multiplies a layer's opacity by the view-only factor, leaving the layer data alone", async () => {

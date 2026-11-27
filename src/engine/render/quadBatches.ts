@@ -15,6 +15,13 @@ export interface QuadBatchHost {
    * loads; `onLoad` runs once it has (and not at all if it fails).
    */
   textureSize(path: string, onLoad: () => void): readonly [number, number] | null;
+  /**
+   * Run `listener` just before each camera draws (ADR 0442: a tile layer's parallax follows each camera), with that
+   * camera's world position. A `QuadBatch.setMatrix` called from the listener applies to that camera's draw only: once
+   * the frame is drawn, the batch is back at the matrix last set outside a listener (what picking and the editor's
+   * tools read). Returns a function that removes the listener.
+   */
+  onCameraRender(listener: (cameraWorldPosition: readonly [number, number, number]) => void): () => void;
 }
 
 /** @internal One batch of textured quads: one draw call. */
@@ -34,7 +41,10 @@ export interface QuadBatch {
    * deforming mesh can be updated every frame; a normal map then follows it (ADR 0399).
    */
   setTriangles(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void;
-  /** The column-major 4×4 node-to-world matrix at `offset` (the layout `World.worldMatrix` gives). */
+  /**
+   * The column-major 4×4 node-to-world matrix at `offset` (the layout `World.worldMatrix` gives). From a
+   * `QuadBatchHost.onCameraRender` listener, for the camera about to draw only.
+   */
   setMatrix(m: ArrayLike<number>, offset?: number): void;
   /**
    * Its place among layered 2D content (ADR 0014): a sorting layer and an order in it, as sprites have. Lit batches read

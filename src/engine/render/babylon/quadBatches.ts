@@ -10,12 +10,18 @@
  * A deforming mesh (`setTriangles`) whose material has a normal map gets a 2D tangent per vertex, worked out here from
  * its positions and UVs (`tangents2D`) each time it moves, so the normals follow its bones or its line; quads
  * (`setQuads`) turn their normal map by the batch's matrix.
+ *
+ * Camera listeners (ADR 0442) run from the scene's before-camera-render observable, which the renderer's frame graph
+ * raises before each camera's render pass. A matrix set from a listener freezes the mesh's world matrix to a copy for that
+ * camera; after the scene has drawn, those batches are frozen back to their own matrix.
  */
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
+import type { Observer } from "@babylonjs/core/Misc/observable.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../scene/Assets";
 import { authoredSize } from "../../scene/importSettings";
@@ -41,8 +47,50 @@ const HEX = /^#[0-9a-f]{6}$/i;
 /** @internal */
 export class BabylonQuadBatches implements QuadBatchHost {
   private readonly batches = new Set<BabylonQuadBatch>();
+  private readonly cameraListeners = new Set<(cameraWorldPosition: readonly [number, number, number]) => void>();
+  /** While a camera listener runs: matrices set now are for that camera only. */
+  private inCamera = false;
+  /** Batches holding a camera's matrix, frozen back to their own after the scene draws. */
+  private readonly perCamera = new Set<BabylonQuadBatch>();
+  private beforeCamera: Observer<Camera> | null = null;
+  private afterRender: Observer<Scene> | null = null;
 
   constructor(private readonly deps: BabylonQuadBatchDeps) {}
+
+  onCameraRender(listener: (cameraWorldPosition: readonly [number, number, number]) => void): () => void {
+    const scene = this.deps.scene;
+    this.cameraListeners.add(listener);
+    this.beforeCamera ??= scene.onBeforeCameraRenderObservable.add((camera) => this.notifyCamera(camera));
+    this.afterRender ??= scene.onAfterRenderObservable.add(() => this.restoreMatrices());
+    return () => void this.cameraListeners.delete(listener);
+  }
+
+  private notifyCamera(camera: Camera): void {
+    if (!this.cameraListeners.size) return;
+    const p = camera.globalPosition;
+    const position: readonly [number, number, number] = [p.x, p.y, p.z];
+    this.inCamera = true;
+    try {
+      for (const listener of this.cameraListeners) listener(position);
+    } finally {
+      this.inCamera = false;
+    }
+  }
+
+  private restoreMatrices(): void {
+    for (const b of this.perCamera) b.restoreMatrix();
+    this.perCamera.clear();
+  }
+
+  /** @internal Whether a camera listener is running (a matrix set now is for that camera only). */
+  get settingCameraMatrix(): boolean {
+    return this.inCamera;
+  }
+
+  /** @internal A batch now holds a camera's matrix. */
+  holdsCameraMatrix(b: BabylonQuadBatch): void {
+    this.perCamera.add(b);
+  }
 
   createBatch(name: string): QuadBatch {
     const b = new BabylonQuadBatch(this, name);
@@ -80,10 +128,15 @@ export class BabylonQuadBatches implements QuadBatchHost {
   /** @internal */
   forget(b: BabylonQuadBatch): void {
     this.batches.delete(b);
+    this.perCamera.delete(b);
   }
 
   dispose(): void {
     for (const b of [...this.batches]) b.dispose();
+    this.cameraListeners.clear();
+    this.beforeCamera?.remove();
+    this.afterRender?.remove();
+    this.beforeCamera = this.afterRender = null;
   }
 }
 
@@ -111,6 +164,9 @@ class BabylonQuadBatch implements QuadBatch {
   /** The per-vertex tangents the mesh has, reused while the vertex count holds; null: none (the matrix turns the normal map). */
   private tangents: Float32Array | null = null;
   private readonly matrix = Matrix.Identity();
+  /** The matrix for the camera drawing now (ADR 0442), set from a camera listener; the mesh holds it while `cameraHeld`. */
+  private readonly cameraMatrix = Matrix.Identity();
+  private cameraHeld = false;
   private order = 0;
   private visible = false;
   private disposed = false;
@@ -173,7 +229,7 @@ class BabylonQuadBatch implements QuadBatch {
       this.applyColors(mesh, colors);
       mesh.alwaysSelectAsActiveMesh = true;
       placeInLayer(mesh, this.order);
-      mesh.freezeWorldMatrix(this.matrix);
+      mesh.freezeWorldMatrix(this.cameraHeld ? this.cameraMatrix : this.matrix);
       mesh.setEnabled(this.visible);
       this.mesh = mesh;
     }
@@ -219,8 +275,26 @@ class BabylonQuadBatch implements QuadBatch {
 
   setMatrix(m: ArrayLike<number>, offset = 0): void {
     Matrix.FromArrayToRef(m as unknown as number[], offset, tmp);
-    if (tmp.equals(this.matrix)) return;
+    if (this.owner.settingCameraMatrix) {
+      // ADR 0442: for the camera about to draw only (the mesh shares the matrix it's frozen to, so this is a copy).
+      if (this.cameraHeld && tmp.equals(this.cameraMatrix)) return;
+      if (!this.cameraHeld && tmp.equals(this.matrix)) return;
+      this.cameraMatrix.copyFrom(tmp);
+      this.cameraHeld = true;
+      this.owner.holdsCameraMatrix(this);
+      this.mesh?.freezeWorldMatrix(this.cameraMatrix);
+      return;
+    }
+    if (tmp.equals(this.matrix) && !this.cameraHeld) return;
     this.matrix.copyFrom(tmp);
+    this.cameraHeld = false;
+    this.mesh?.freezeWorldMatrix(this.matrix);
+  }
+
+  /** @internal After the frame: back to its own matrix (ADR 0442). */
+  restoreMatrix(): void {
+    if (!this.cameraHeld) return;
+    this.cameraHeld = false;
     this.mesh?.freezeWorldMatrix(this.matrix);
   }
 

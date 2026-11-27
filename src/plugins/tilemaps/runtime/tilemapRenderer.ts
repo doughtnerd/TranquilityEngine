@@ -16,11 +16,15 @@
  *   animation time of its next frame change; when a frame changes, those quads are rewritten in the same arrays and the
  *   batch is called again, which the backend takes as an in-place vertex update. On square grids a chunk's animated
  *   tiles have their own batch per texture, so static tiles are never uploaded again; on other grids they stay in the
- *   chunk's batch, where painter's order spans both. Time is the World's scaled time × `Tilemap.animationSpeed`; the
- *   editor's edit World (`World.kind` "editor") shows every tile's first frame.
- * - **Offset and parallax** (ADR 0439) are in each layer's batch matrix: the node's world matrix, shifted by the layer's
- *   offset (in local units), plus `(1 − parallax) × (view camera − node)` in world units, so neither rebuilds a chunk.
- *   The view camera is the one that draws the view (`BabylonFeatureHost.viewCamera`), read through `ViewPosition`.
+ *   chunk's batch, where painter's order spans both. Each map keeps its own animation clock (ADR 0442): every sync
+ *   advances it by the World's scaled frame time × `Tilemap.animationSpeed`, so a speed change changes the rate from
+ *   the frame shown now instead of jumping. The editor's edit World (`World.kind` "editor") shows every tile's first frame.
+ * - **Offset and parallax** (ADR 0439, 0442) are in each layer's batch matrix: the node's world matrix, shifted by the
+ *   layer's offset (in local units), plus `(1 − parallax) × (camera − node)` in world units, so neither rebuilds a
+ *   chunk. Sync sets it for the view camera (`BabylonFeatureHost.viewCamera`, read through `ViewPosition`), which is
+ *   what picking and the editor's tools read between frames; then, before each camera draws
+ *   (`QuadBatchHost.onCameraRender`), a parallax layer's batches get the matrix for that camera, for its draw only. A
+ *   World with no view camera (a thumbnail's) draws parallax layers with the node, for every camera.
  * - **Y-sorted layers** (ADR 0438). On a y-sorted sorting layer each chunk draws one batch per row and texture (split
  *   further by the tiles' `sortOffset`), each at its sort point's world height (`ySortWithin`): the bottom of the row's
  *   cell boxes on square grids, the row's bottom corner on the others, raised by `sortOffset` cells.
@@ -100,8 +104,14 @@ interface LayerEntry {
   /** Whether the last sync drew it, and in what draw order. */
   visible: boolean;
   order: number;
-  /** The batches' matrix when last applied: the node's, with the layer's offset and parallax. */
+  /** The batches' matrix when last applied: the node's, with the layer's offset and the view camera's parallax. */
   matrix: Float32Array | null;
+  /**
+   * ADR 0442: a parallax layer drawn with a view camera, as of the last sync: its matrix without parallax (the node's
+   * with the layer's offset), the node's world origin and the factor, from which each camera's matrix is made.
+   * Null: every camera draws `matrix`.
+   */
+  perCamera: { base: Float32Array; origin: [number, number]; parallax: readonly [number, number] } | null;
 }
 
 interface MapEntry {
@@ -112,6 +122,13 @@ interface MapEntry {
   /** Each image's sidecar when frames were last resolved. */
   sidecars: Map<string, object | undefined>;
   looks: Map<number, TileLook | null>;
+  /**
+   * Its animation clock (ADR 0442): seconds of animation, advanced each sync by the World's scaled time since the last
+   * one × speed. It starts at World time × speed, so maps of the same speed keep in step.
+   */
+  clock: number;
+  /** The World's scaled time the clock was last brought up to. */
+  clockAt: number;
 }
 
 const warned = new Set<string>();
@@ -124,12 +141,30 @@ function warnOnce(key: string, message: string): void {
 /** @internal Tilemaps: the Tilemaps plugin's render feature. Syncs after sprites and before meshes (`after` constraints, ADR 0135). */
 export class TilemapRenderer implements BabylonFeature {
   private readonly maps = new Map<Tilemap, MapEntry>();
+  private readonly stopCameras: () => void;
 
   /** `viewPosition`: where the view camera is, for parallax layers (ADR 0439); without it they draw as if parallax were 1. */
   constructor(
     private readonly host: QuadBatchHost,
     private readonly viewPosition: ViewPosition = () => null,
-  ) {}
+  ) {
+    this.stopCameras = host.onCameraRender((camera) => this.beforeCamera(camera));
+  }
+
+  /** ADR 0442: each parallax layer's batches get the matrix for the camera about to draw. */
+  private beforeCamera(camera: readonly [number, number, number]): void {
+    for (const entry of this.maps.values()) {
+      for (const le of entry.layers) {
+        const pc = le.perCamera;
+        if (!pc || !le.visible) continue;
+        const m = scratchMatrix;
+        m.set(pc.base);
+        m[12] += (1 - pc.parallax[0]) * (camera[0] - pc.origin[0]);
+        m[13] += (1 - pc.parallax[1]) * (camera[1] - pc.origin[1]);
+        for (const ce of le.chunks.values()) for (const be of ce.batches) be.batch.setMatrix(m);
+      }
+    }
+  }
 
   sync(world: World): void {
     let view: readonly [number, number] | null | undefined;
@@ -140,7 +175,7 @@ export class TilemapRenderer implements BabylonFeature {
   private syncMap(world: World, map: Tilemap, viewOf: () => readonly [number, number] | null): void {
     let entry = this.maps.get(map);
     if (!entry) {
-      entry = { layers: [], tileset: null, framesVersion: 1, sidecars: new Map(), looks: new Map() };
+      entry = { layers: [], tileset: null, framesVersion: 1, sidecars: new Map(), looks: new Map(), clock: world.time.time * mapSpeed(map), clockAt: world.time.time };
       this.maps.set(map, entry);
     }
     const layers = map._layers();
@@ -164,20 +199,29 @@ export class TilemapRenderer implements BabylonFeature {
     const grid = map._grid();
     const gridKey = map._gridKey();
     const render = world.settings.render;
-    // ADR 0435: animation time; the edit World shows first frames (null).
-    const speed = Number.isFinite(map.animationSpeed) ? map.animationSpeed : 0;
-    const time = world.kind === "editor" ? null : world.time.time * speed;
+    // ADR 0435, 0442: the map's animation clock, advanced by this frame's scaled time × speed; the edit World shows first frames (null).
+    entry.clock += (world.time.time - entry.clockAt) * mapSpeed(map);
+    entry.clockAt = world.time.time;
+    const time = world.kind === "editor" ? null : entry.clock;
     const seed = map.variantSeed;
     layers.forEach((layer, li) => {
       let le = entry!.layers[li];
       const visible = active && layer.meta.visible && !!tileset;
       const { sortingLayer, orderInLayer } = layer.meta;
       const order = sortingOrder(render.sortingLayers, sortingLayer, orderInLayer); // the batches warn about an unknown layer
-      if (!le) entry!.layers[li] = le = { chunks: new Map(), visible, order, matrix: null };
+      if (!le) entry!.layers[li] = le = { chunks: new Map(), visible, order, matrix: null, perCamera: null };
       le.visible = visible;
       le.order = order;
       const ySorted = isYSorted(render, sortingLayer);
-      const matrix = layerMatrix(wm, layer.meta.offset, layer.meta.parallax, layer.meta.parallax ? viewOf() : null, scratchMatrix);
+      const parallax = layer.meta.parallax;
+      const view = parallax ? viewOf() : null;
+      if (parallax && view) {
+        const pc = (le.perCamera ??= { base: new Float32Array(16), origin: [0, 0], parallax });
+        layerMatrix(wm, layer.meta.offset, undefined, null, pc.base);
+        pc.origin = [wm[12], wm[13]];
+        pc.parallax = parallax;
+      } else le.perCamera = null;
+      const matrix = layerMatrix(wm, layer.meta.offset, parallax, view, scratchMatrix);
       const moved = !le.matrix || !sameMatrix(le.matrix, matrix);
       if (moved) (le.matrix ??= new Float32Array(16)).set(matrix);
       const opacity = layer.meta.opacity * map._viewOpacity(li);
@@ -386,8 +430,14 @@ export class TilemapRenderer implements BabylonFeature {
   }
 
   dispose(): void {
+    this.stopCameras();
     for (const map of [...this.maps.keys()]) this.release(map);
   }
+}
+
+/** A map's `animationSpeed`, 0 when it isn't a finite number. */
+function mapSpeed(map: Tilemap): number {
+  return Number.isFinite(map.animationSpeed) ? map.animationSpeed : 0;
 }
 
 /** The frame an animation shows at loop time `t` (any real number; it loops). */
