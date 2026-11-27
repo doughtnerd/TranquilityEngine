@@ -1247,7 +1247,7 @@ function selectorTargets(): (el: UIRenderElement) => StyleTarget {
       tag: el.localName,
       id: el.getAttribute("id"),
       classes: (el.getAttribute("class") ?? "").split(/\s+/).filter(Boolean),
-      state: hosted?._target.state ?? { hover: false, pressed: false, focus: false, disabled: fields.disabled === true, checked: fields.checked === true },
+      state: hosted?._style.target.state ?? { hover: false, pressed: false, focus: false, disabled: fields.disabled === true, checked: fields.checked === true },
       get parent() {
         return (parent ??= parentNode ? targetOf(parentNode) : null);
       },

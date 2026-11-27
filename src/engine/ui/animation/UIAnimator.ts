@@ -3,7 +3,7 @@
  * elements and on the UI host's elements (Svelte views), on the tween backend (ADR 0424: the animation core's tween
  * table when the animation plugin is on, else the standalone tween module), on the World's unscaled clock.
  *
- * - **Starting.** After restyling an element, its owner (a `UIHostTree`) hands over what changed
+ * - **Starting.** After restyling an element, its owner (a hosted tree's styled tree, ADR 0438) hands over what changed
  *   (`styled`): each field written, with the value it showed before. A changed field its `transition-property` covers
  *   starts a transition from the value shown (mid-transition values included) to the new one. A name new to
  *   `animation-name`, or an element appearing with one, starts that animation; a name gone stops it.
