@@ -7,7 +7,7 @@
  */
 import { Color, Vector2 } from "../../core/math";
 import { AssetRef, getFields, type FieldInfo } from "../../core/registry";
-import { UI_TYPES } from "../components";
+import { UI_TYPES, UIText } from "../components";
 import { isGenericFontFamily } from "../fonts";
 import { UI_TAGS as UI_KIND_TAGS } from "../elementKinds";
 import { HTML_TAGS } from "../host/htmlTags";
@@ -29,6 +29,7 @@ import {
   type UITransitionLonghands,
 } from "./animationValues";
 import type {
+  Combinator,
   Declaration,
   MarkupAttribute,
   ResolvedValue,
@@ -45,7 +46,7 @@ import type {
   ValueSource,
 } from "./types";
 import { matchMediaQueries } from "./mediaQuery";
-import { linearLength, resolveMath } from "./cssMath";
+import { hasViewportUnits, linearLength, resolveMath, resolveRelativeUnits, type UIRelativeUnits } from "./cssMath";
 
 
 export const UI_TAGS: ReadonlySet<string> = UI_KIND_TAGS;
@@ -128,6 +129,7 @@ function matchesSimple(s: SimpleSelector, t: StyleTarget): boolean {
   if (s.nth) for (const n of s.nth) if (!matchNth(n, t)) return false;
   if (s.is) for (const g of s.is) if (!matchesGroup(g, t)) return false;
   if (s.not) for (const list of s.not) if (list.some((sel) => matchFrom(sel, sel.parts.length - 1, t))) return false;
+  if (s.has) for (const list of s.has) if (!list.some((rel) => matchHas(rel, t))) return false;
   return true;
 }
 
@@ -145,25 +147,77 @@ export function matchSelector(selector: Selector, target: StyleTarget): boolean 
   return matchFrom(selector, selector.parts.length - 1, target);
 }
 
-function matchFrom(selector: Selector, index: number, target: StyleTarget): boolean {
+/**
+ * True when parts `0…index` of a selector match with part `index` on `target`. `anchor` (ADR 0428): the selector is
+ * relative, inside `:has()`, and its first part must stand to the anchor as its leading combinator says.
+ */
+function matchFrom(selector: Selector, index: number, target: StyleTarget, anchor?: StyleTarget): boolean {
   const part = selector.parts[index];
   if (!matchesSimple(part.selector, target)) return false;
-  if (index === 0) return true;
+  if (index === 0) return !anchor || relatedTo(target, part.combinator ?? " ", anchor);
   // The combinator before this part joins it to the part on its left.
   switch (part.combinator) {
     case ">":
-      return target.parent !== null && matchFrom(selector, index - 1, target.parent);
+      return target.parent !== null && matchFrom(selector, index - 1, target.parent, anchor);
     case "+":
     case "~": {
       const siblings = siblingsOf(target);
       const at = siblings ? siblings.indexOf(target) : -1;
       if (at <= 0) return false;
-      if (part.combinator === "+") return matchFrom(selector, index - 1, siblings![at - 1]);
-      for (let i = at - 1; i >= 0; i--) if (matchFrom(selector, index - 1, siblings![i])) return true;
+      if (part.combinator === "+") return matchFrom(selector, index - 1, siblings![at - 1], anchor);
+      for (let i = at - 1; i >= 0; i--) if (matchFrom(selector, index - 1, siblings![i], anchor)) return true;
       return false;
     }
   }
-  for (let p = target.parent; p; p = p.parent) if (matchFrom(selector, index - 1, p)) return true;
+  for (let p = target.parent; p; p = p.parent) {
+    if (p === anchor) return false; // a relative selector's parts all stand after its anchor
+    if (matchFrom(selector, index - 1, p, anchor)) return true;
+  }
+  return false;
+}
+
+// --- :has() (ADR 0428) -------------------------------------------------------------------------------
+// A relative selector matches an element when some element after it (a descendant for `" "` and `>`, a later sibling
+// or a later sibling's descendant for `+` and `~`) matches the selector, with its first part standing to the anchor as
+// its leading combinator says. Targets that don't list their children can't say, so `:has()` doesn't match them.
+
+/** True when `t` stands to `anchor` as `combinator` says: its descendant, child, next sibling or later sibling. */
+function relatedTo(t: StyleTarget, combinator: Combinator, anchor: StyleTarget): boolean {
+  switch (combinator) {
+    case ">":
+      return t.parent === anchor;
+    case "+":
+    case "~": {
+      const siblings = siblingsOf(t);
+      const at = siblings ? siblings.indexOf(t) : -1;
+      if (at <= 0) return false;
+      return combinator === "+" ? siblings![at - 1] === anchor : siblings!.indexOf(anchor) >= 0 && siblings!.indexOf(anchor) < at;
+    }
+  }
+  for (let p = t.parent; p; p = p.parent) if (p === anchor) return true;
+  return false;
+}
+
+/** True when the relative selector `rel` matches some element relative to `anchor`. */
+function matchHas(rel: Selector, anchor: StyleTarget): boolean {
+  const last = rel.parts.length - 1;
+  const leading = rel.parts[0].combinator ?? " ";
+  // With one compound, only the elements the combinator itself reaches can match; with more, their descendants too.
+  const deep = last > 0;
+  const visit = (t: StyleTarget, descend: boolean): boolean => {
+    if (matchFrom(rel, last, t, anchor)) return true;
+    if (descend) for (const c of t.children ?? []) if (visit(c, true)) return true;
+    return false;
+  };
+  if (leading === " " || leading === ">") {
+    for (const c of anchor.children ?? []) if (visit(c, deep || leading === " ")) return true;
+    return false;
+  }
+  const siblings = siblingsOf(anchor);
+  if (!siblings) return false;
+  const at = siblings.indexOf(anchor);
+  const until = leading === "+" && !deep ? at + 2 : siblings.length;
+  for (let i = at + 1; i < Math.min(until, siblings.length); i++) if (visit(siblings[i], deep)) return true;
   return false;
 }
 
@@ -261,6 +315,7 @@ export function selectorSpecificity(parts: Selector["parts"]): [number, number, 
       tags += c;
     }
     for (const list of s.not ?? []) addMost(list);
+    for (const list of s.has ?? []) addMost(list);
     for (const n of s.nth ?? []) if (n.of) addMost(n.of);
   }
   return [ids, classes, tags];
@@ -283,6 +338,13 @@ function mediaOf(t: StyleTarget): UIMediaEnvironment | null {
   return root.media ?? null;
 }
 
+/** ADR 0428: the canvas a target's viewport lengths resolve against: its root's (`viewport`, else `media`). */
+function viewportOf(t: StyleTarget): UIMediaEnvironment | null {
+  let root = t;
+  while (root.parent) root = root.parent;
+  return root.viewport ?? root.media ?? null;
+}
+
 /** True when every `@media` block a rule is in matches the canvas. */
 function ruleInMedia(rule: StyleRule, env: UIMediaEnvironment | null): boolean {
   if (!rule.media) return true;
@@ -292,6 +354,54 @@ function ruleInMedia(rule: StyleRule, env: UIMediaEnvironment | null): boolean {
 /** True when any rule of these sheets uses a pseudo-class (so elements restyle when their state changes). */
 export function usesPseudo(sheets: readonly { rules: readonly StyleRule[] }[]): boolean {
   return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => selectorUses(sel, (p) => p.pseudo.length > 0))));
+}
+
+/**
+ * ADR 0428: how changes inside the tree restyle the elements whose `:has()` may match differently, for sheets using it
+ * (null when none does). `anchors`: the compounds holding a `:has()` (tag, id and classes; `any` when one has none),
+ * so only ancestors that could be one restyle. `deep`: a `:has()` compound isn't the subject of its selector (`.card:has(.x)
+ * .title`), so an anchor restyles with its parent's subtree. `siblings`: a relative selector starts with `+` or `~`, so
+ * earlier siblings can be anchors too.
+ */
+export interface UIHasUse {
+  readonly anchors: readonly { readonly tag: string | null; readonly id: string | null; readonly classes: readonly string[] }[];
+  readonly any: boolean;
+  readonly deep: boolean;
+  readonly siblings: boolean;
+}
+
+export function hasUse(sheets: readonly { rules: readonly StyleRule[] }[]): UIHasUse | null {
+  const anchors: { tag: string | null; id: string | null; classes: readonly string[] }[] = [];
+  let any = false, deep = false, siblings = false, found = false;
+  const visit = (sel: Selector, subject: boolean) => {
+    sel.parts.forEach((p, i) => {
+      const s = p.selector;
+      const isSubject = subject && i === sel.parts.length - 1;
+      if (s.has?.length) {
+        found = true;
+        if (!isSubject) deep = true;
+        if (!s.tag && !s.id && !s.classes.length) any = true;
+        else anchors.push({ tag: s.tag, id: s.id, classes: s.classes });
+        for (const list of s.has) for (const rel of list) if (rel.parts[0].combinator === "+" || rel.parts[0].combinator === "~") siblings = true;
+      }
+      for (const g of s.is ?? []) for (const x of g.selectors) visit(x, isSubject);
+      for (const list of s.not ?? []) for (const x of list) visit(x, isSubject);
+      for (const n of s.nth ?? []) for (const x of n.of ?? []) visit(x, false);
+    });
+  };
+  for (const sheet of sheets) for (const r of sheet.rules) for (const sel of r.selectors) visit(sel, true);
+  return found ? { anchors, any, deep, siblings } : null;
+}
+
+/** ADR 0428: true when an element with this tag, id and classes could be the anchor of one of the sheets' `:has()`. */
+export function couldAnchorHas(use: UIHasUse, tag: string, id: string | null, classes: readonly string[]): boolean {
+  if (use.any) return true;
+  return use.anchors.some((a) => (!a.tag || sameTag(a.tag, tag)) && (!a.id || a.id === id) && a.classes.every((c) => classes.includes(c)));
+}
+
+/** ADR 0428: true when any declaration of these sheets (keyframes included) has a viewport length, so a canvas resize restyles. */
+export function usesViewportUnits(sheets: readonly UIStylesheet[]): boolean {
+  return sheets.some((s) => s.rules.some((r) => r.declarations.some((d) => hasViewportUnits(d.value))) || (s.keyframes ?? []).some((k) => k.frames.some((f) => f.declarations.some((d) => hasViewportUnits(d.value)))));
 }
 
 /** True when any rule of these sheets uses `:lang()` (so elements restyle when the language changes, ADR 0356 §4). */
@@ -340,7 +450,7 @@ function selectorUses(sel: Selector, test: (s: SimpleSelector) => boolean): bool
   const inner = (list: readonly Selector[]) => list.some((s) => selectorUses(s, test));
   return sel.parts.some((p) => {
     const s = p.selector;
-    return test(s) || (s.is ?? []).some((g) => inner(g.selectors)) || (s.not ?? []).some(inner) || (s.nth ?? []).some((n) => !!n.of && inner(n.of));
+    return test(s) || (s.is ?? []).some((g) => inner(g.selectors)) || (s.not ?? []).some(inner) || (s.has ?? []).some(inner) || (s.nth ?? []).some((n) => !!n.of && inner(n.of));
   });
 }
 
@@ -823,6 +933,28 @@ export function fieldsOf(component: abstract new (...args: never[]) => object): 
   return map;
 }
 
+const passedOn = new WeakMap<ReadonlyMap<string, FieldInfo>, ReadonlyMap<string, FieldInfo>>();
+
+/**
+ * ADR 0428: the inherited fields a component doesn't have, which it only passes on to its children (a panel's `color`),
+ * with a text element's field info for their types: what the UI animator animates for its children.
+ */
+export function passedOnFields(fields: ReadonlyMap<string, FieldInfo>): ReadonlyMap<string, FieldInfo> {
+  let out = passedOn.get(fields);
+  if (!out) {
+    const text = fieldsOf(UIText);
+    const map = new Map<string, FieldInfo>();
+    for (const f of INHERITED_FIELDS) if (!fields.has(f) && text.has(f)) map.set(f, text.get(f)!);
+    passedOn.set(fields, (out = map));
+  }
+  return out;
+}
+
+/** ADR 0428: an inherited value an element passes on (the text it was declared as, or a typed value) as `info`'s type, or undefined. */
+export function passedOnValue(value: unknown, info: FieldInfo, file: string): unknown {
+  return typeof value === "string" && info.type !== String ? convertValue(value, info, file) : value;
+}
+
 let knownFields: Set<string> | null = null;
 /** Every UI component's field names and the shorthands (`border`, `flex`): properties outside these are unknown. */
 function isKnownField(name: string): boolean {
@@ -844,6 +976,36 @@ export function attributeField(attribute: MarkupAttribute): string | null {
 export function referenceField(attribute: MarkupAttribute): string | null {
   const field = propertyField(attribute.name);
   return REFERENCE_FIELDS.has(field) ? field : null;
+}
+
+/**
+ * ADR 0428: the resolved-map key holding what an element's relative lengths resolved against (`UIRelativeUnits`: its
+ * font size for `em`, the root's for `rem`, the canvas for viewport units); never a field. Children read the root's
+ * font size from their parent's, and keyframes convert with the element's.
+ */
+export const UNITS_KEY = "@units";
+
+/** A font size as a resolved map holds it (a number, or the text an element without the field passes on), or undefined. */
+function fontSizeOf(v: ResolvedValue | undefined): number | undefined {
+  const value = v?.value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  return typeof value === "string" ? parseNumber(value) : undefined;
+}
+
+/** What an element's relative lengths resolved against (`UNITS_KEY`): `em` its font size, `parentEm` its parent's (`em` inside `font-size`). */
+export interface UIElementUnits extends UIRelativeUnits {
+  readonly parentEm: number;
+}
+
+/** The units an element's relative lengths resolve against (`UNITS_KEY`), or null when it has none. */
+export function unitsOf(resolved: ReadonlyMap<string, ResolvedValue> | null | undefined): UIElementUnits | null {
+  return (resolved?.get(UNITS_KEY)?.value as UIElementUnits | undefined) ?? null;
+}
+
+/** ADR 0428: a value with an element's relative lengths in px (`em` inside `font-size` is its parent's), or undefined when a viewport length can't resolve. */
+export function withElementUnits(value: string, field: string, units: UIElementUnits | null): string | undefined {
+  if (!units) return resolveRelativeUnits(value, { em: 16, rem: 16, viewport: null });
+  return resolveRelativeUnits(value, field === "fontSize" ? { em: units.parentEm, rem: units.rem, viewport: units.viewport } : units);
 }
 
 /** A variable's key in a resolved map: `--name` (variables inherit, like the text properties). */
@@ -903,13 +1065,28 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   const vars = new Map<string, string>();
   for (const [k, v] of out) vars.set(k, String(v.value));
 
-  /** A declared value with variables substituted and math functions worked out (ADR 0418 wave 5); undefined, warned once, when it can't be. */
-  const prepare = (raw: string, where: string): string | undefined => {
-    const substituted = substituteVars(raw, vars);
+  // ADR 0428: relative lengths. `em` is the element's font size (its parent's inside `font-size`), `rem` the root's (the
+  // initial 16px inside the root's own `font-size`), viewport units the canvas in UI pixels.
+  const parentFont = fontSizeOf(parent?.get("fontSize")) ?? 16;
+  const viewport = viewportOf(target);
+  const parentUnits = unitsOf(parent);
+  const rem = parent ? (parentUnits?.rem ?? 16) : 16;
+  const fontUnits: UIRelativeUnits = { em: parentFont, rem, viewport };
+  let units: UIRelativeUnits = fontUnits;
+
+  /** A declared value with variables substituted, relative lengths in px and math functions worked out (ADR 0418 wave 5, 0428); undefined, warned once, when it can't be. */
+  const prepare = (raw: string, where: string, field?: string): string | undefined => {
+    let substituted = substituteVars(raw, vars);
     if (substituted === undefined) {
       warnOnce(`${where}: "${raw}" uses a variable that isn't defined.`);
       return undefined;
     }
+    const resolvedUnits = resolveRelativeUnits(substituted, field === "fontSize" ? fontUnits : units);
+    if (resolvedUnits === undefined) {
+      warnOnce(`${where}: "${substituted}" uses a viewport length before the canvas size is known.`);
+      return undefined;
+    }
+    substituted = resolvedUnits;
     const math = resolveMath(substituted);
     if (!math.ok) {
       warnOnce(`${where}: "${substituted}" ${math.problem}`);
@@ -922,7 +1099,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     const shorthand = SHORTHANDS.get(field);
     const info = fields.get(field);
     if (!info && !shorthand) return false;
-    const substituted = prepare(raw, where);
+    const substituted = prepare(raw, where, field);
     if (substituted === undefined) return false;
     if (shorthand) {
       // ADR 0418: every longhand this element has, or none when one of them isn't valid.
@@ -963,6 +1140,23 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     }
   };
 
+  // ADR 0428: the element's own font size first (what `em` means in its other declarations): the winning `font-size`
+  // (attributes after rules), else HTML's default for its tag, else inherited, else the initial 16px.
+  {
+    let own: { raw: string; where: string } | null = null;
+    for (const m of matched) if (propertyField(m.declaration.property) === "fontSize") own = { raw: m.declaration.value, where: `${m.file} "${m.rule.selectorText}" ${m.declaration.property}` };
+    for (const a of element.attributes) if (!isVariable(a.name) && attributeField(a) === "fontSize") own = { raw: a.value, where: `${element.file} <${element.tag} ${a.name}>` };
+    let size: number | undefined;
+    if (own) {
+      const value = prepare(own.raw, own.where, "fontSize");
+      size = value === undefined ? undefined : parseNumber(value);
+    }
+    size ??= (tagDefaults(target.tag, parent).find(([f]) => f === "fontSize")?.[1] as number | undefined) ?? parentFont;
+    units = { em: size, rem: parent ? rem : size, viewport };
+    const stored: UIElementUnits = { ...units, parentEm: parentFont };
+    out.set(UNITS_KEY, { field: UNITS_KEY, value: stored, source: { kind: "default" } });
+  }
+
   // Transitions and animations (ADR 0418 wave 4) are cascade data, ordered like the fields.
   const animation = new AnimationCascade();
 
@@ -989,7 +1183,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
       set(field, m.declaration.value, source, where);
     } else if (INHERITED_FIELDS.has(field)) {
       // Not this element's field, but its children inherit it (a Panel's color reaches its Text).
-      const substituted = prepare(m.declaration.value, where);
+      const substituted = prepare(m.declaration.value, where, field);
       if (substituted !== undefined) out.set(field, { field, value: substituted, source });
     }
   }
@@ -1185,12 +1379,15 @@ export function keyframeTracks(
   resolved: ReadonlyMap<string, ResolvedValue>,
   file: string,
   warn: (message: string) => void,
+  /** ADR 0428: fields the component only passes on (`passedOnFields`), animated for its children. */
+  passed?: ReadonlyMap<string, FieldInfo>,
 ): Map<string, UIKeyframeStop[]> | null {
   const found = findKeyframes(sheets, name);
   if (!found) return null;
-  const fields = fieldsOf(component);
+  const fields = passed?.size ? new Map([...fieldsOf(component), ...passed]) : fieldsOf(component);
   const vars = new Map<string, string>();
   for (const [k, v] of resolved) if (isVariable(k)) vars.set(k, String(v.value));
+  const units = unitsOf(resolved);
   const tracks = new Map<string, Map<number, UIKeyframeStop>>();
   const put = (field: string, offset: number, value: unknown, timing: UITimingFunction | null) => {
     let track = tracks.get(field);
@@ -1208,9 +1405,15 @@ export function keyframeTracks(
     for (const d of frame.declarations) {
       if (isVariable(d.property) || isAnimationProperty(d.property)) continue;
       const where = `${found.file} @keyframes ${name} ${d.property}`;
-      const substituted = substituteVars(d.value, vars);
-      if (substituted === undefined) {
+      const field = propertyField(d.property);
+      const varsDone = substituteVars(d.value, vars);
+      if (varsDone === undefined) {
         warn(`${where}: "${d.value}" uses a variable that isn't defined.`);
+        continue;
+      }
+      const substituted = withElementUnits(varsDone, field, units);
+      if (substituted === undefined) {
+        warn(`${where}: "${varsDone}" uses a viewport length before the canvas size is known.`);
         continue;
       }
       const math = resolveMath(substituted);
@@ -1219,7 +1422,7 @@ export function keyframeTracks(
         continue;
       }
       const raw = math.value;
-      const values = keyframeValues(propertyField(d.property), raw, fields, file);
+      const values = keyframeValues(field, raw, fields, file);
       if (typeof values === "string") {
         warn(`${where}: "${raw}" ${values}`);
         continue;

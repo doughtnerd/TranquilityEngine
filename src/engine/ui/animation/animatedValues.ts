@@ -11,7 +11,8 @@
  * - ADR 0426: the transform matrix (`transformMatrix`) interpolates as CSS interpolates matrices: decomposed into
  *   translation, rotation, shear and scales, each mixed, and recomposed (`transform2d.ts`). It tweens one float, the
  *   progress, and the mix is worked out as it's read back. "" (none) is the identity.
- * - Anything else (choices, booleans, strings, assets) is discrete: it jumps at the midpoint of the eased progress.
+ * - Anything else (choices, booleans, strings, assets) is discrete: it jumps at the midpoint of the eased progress,
+ *   except `display` to or from `none` (ADR 0428, as CSS animates it): the value that isn't `none` shows throughout.
  */
 import { Color } from "../../core/math";
 import { interpolateAffine, matrixText, parseMatrixText } from "../transform2d";
@@ -71,7 +72,10 @@ function matrixOf(v: unknown): ReturnType<typeof parseMatrixText> | undefined {
   return n.length === 6 && n.every(Number.isFinite) ? parseMatrixText(s) : undefined;
 }
 
-function discrete(a: unknown, b: unknown): AnimatedPair {
+function discrete(a: unknown, b: unknown, field = ""): AnimatedPair {
+  // `display: none` ↔ another value: the other one shows for the whole of it (CSS Display 4), so a fade-out's element
+  // stays drawn until its end and a fade-in's from its start.
+  if (field === "display" && a !== b && (a === "none" || b === "none")) return { width: 1, from: [0], to: [1], discrete: true, decode: (f, at) => (a === "none" ? b : f[at] >= 1 ? b : a) };
   return { width: 1, from: [0], to: [1], discrete: true, decode: (f, at) => (f[at] >= 0.5 ? b : a) };
 }
 
@@ -122,6 +126,6 @@ export function animatedPair(field: string, kind: AnimatedKind, a: unknown, b: u
       return { width: 1, from: [0], to: [1], discrete: false, decode: (f, at) => (f[at] === 0 ? a : f[at] === 1 ? b : matrixText(interpolateAffine(ma, mb, f[at]))) };
     }
     default:
-      return discrete(a, b);
+      return discrete(a, b, field);
   }
 }

@@ -43,6 +43,87 @@ export function resolveMath(value: string): { readonly ok: true; readonly value:
   return { ok: true, value: out + value.slice(i) };
 }
 
+// --- Relative lengths (ADR 0428) ------------------------------------------------------------------
+
+/**
+ * What relative lengths resolve against (ADR 0428): `em` the element's font size (its parent's, in `font-size` itself),
+ * `rem` the root canvas element's, and the canvas in UI pixels for `vw`/`vh`/`vmin`/`vmax` (null: not known, so a
+ * viewport length can't resolve).
+ */
+export interface UIRelativeUnits {
+  readonly em: number;
+  readonly rem: number;
+  readonly viewport: { readonly width: number; readonly height: number } | null;
+}
+
+const RELATIVE = /(?<![\w.#-])([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)(rem|em|vw|vh|vmin|vmax)(?![\w-])/gi;
+const VIEWPORT = /(?<![\w.#-])[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?(?:vw|vh|vmin|vmax)(?![\w-])/i;
+
+/** The parts of a value outside quoted strings and `url()`, where lengths can be: `[text, isValuePart]` in order. */
+function valueSegments(value: string): [string, boolean][] {
+  const out: [string, boolean][] = [];
+  let i = 0;
+  let start = 0;
+  while (i < value.length) {
+    const ch = value[i];
+    let end = -1;
+    if (ch === '"' || ch === "'") {
+      end = value.indexOf(ch, i + 1);
+      end = end < 0 ? value.length : end + 1;
+    } else if ((ch === "u" || ch === "U") && /^url\(/i.test(value.slice(i, i + 4)) && !/[\w-]/.test(value[i - 1] ?? "")) {
+      end = value.indexOf(")", i);
+      end = end < 0 ? value.length : end + 1;
+    }
+    if (end < 0) {
+      i++;
+      continue;
+    }
+    if (i > start) out.push([value.slice(start, i), true]);
+    out.push([value.slice(i, end), false]);
+    i = start = end;
+  }
+  if (start < value.length) out.push([value.slice(start), true]);
+  return out;
+}
+
+/** True when a value has a viewport length (`50vw`), outside strings and `url()`: it changes with the canvas size. */
+export function hasViewportUnits(value: string): boolean {
+  return VIEWPORT.test(value) && valueSegments(value).some(([text, part]) => part && VIEWPORT.test(text));
+}
+
+/**
+ * The value with every `em`, `rem`, `vw`, `vh`, `vmin` and `vmax` length written in px (`2em` at a 16px font is
+ * `32px`), outside strings and `url()`, so every length and `calc()` takes them. Undefined when a viewport length
+ * can't resolve (no canvas size).
+ */
+export function resolveRelativeUnits(value: string, units: UIRelativeUnits): string | undefined {
+  if (!/\d(?:r?em|vw|vh|vmin|vmax)/i.test(value)) return value;
+  let failed = false;
+  const out = valueSegments(value)
+    .map(([text, part]) =>
+      !part
+        ? text
+        : text.replace(RELATIVE, (_, n: string, unit: string) => {
+            const v = parseFloat(n);
+            const u = unit.toLowerCase();
+            let px: number;
+            if (u === "em") px = v * units.em;
+            else if (u === "rem") px = v * units.rem;
+            else if (!units.viewport) {
+              failed = true;
+              return _;
+            } else {
+              const { width, height } = units.viewport;
+              const per = u === "vw" ? width : u === "vh" ? height : u === "vmin" ? Math.min(width, height) : Math.max(width, height);
+              px = (v * per) / 100;
+            }
+            return `${round(px)}px`;
+          }),
+    )
+    .join("");
+  return failed ? undefined : out;
+}
+
 const MIXED = /^calc\((-?\d+(?:\.\d+)?)% \+ (-?\d+(?:\.\d+)?)px\)$/;
 
 /** A length that mixes % and px, in the normal form `resolveMath` writes (`calc(50% + -12px)`): its parts, or null. */

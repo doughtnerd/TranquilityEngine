@@ -3,3 +3,4 @@
 // css-tree, and games without UI load neither.
 export * from "../document/cascade";
 export { parseSelectorQuery } from "../document/selectorQuery";
+export { hasViewportUnits } from "../document/cssMath";

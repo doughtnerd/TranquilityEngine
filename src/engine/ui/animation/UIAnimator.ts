@@ -19,6 +19,13 @@
  *   a resumed animation, the backend still loading, a last iteration cut short) is evaluated here from the same curve.
  * - **Time.** The animator keeps each run's time itself (seconds since it started, unscaled), so delays, iterations,
  *   fill modes, play state and ends are decided here, and the backend only eases values.
+ * - **Reversing** (ADR 0428, CSS's reversing shortening): a transition whose element changes back to the value it
+ *   started from, part-way, runs back over the share of its duration it had covered (its eased progress, carried
+ *   through repeated reversals), not the whole duration.
+ * - **Discrete values** (ADR 0428): with `transition-behavior: allow-discrete`, a field whose values don't interpolate
+ *   transitions too, flipping half way (`display` shows its value that isn't `none` throughout, as CSS's does).
+ * - **Inheritance** (ADR 0428): each value written to a field children inherit goes to the owner's `_animatedWrite`,
+ *   so the children that inherit it show it in the same frame.
  * - **Scripts win.** A field a script writes directly (its value isn't what the animator last wrote) stops that field's
  *   transition, or that field of an animation, as an inline style would.
  * - **Events** (`transitionend`, `animationstart`, `animationiteration`, `animationend`) are queued for their owner,
@@ -57,6 +64,11 @@ export interface UIAnimationEvent {
   readonly elapsedTime: number;
 }
 
+/** What an owner may also do: hear every value the animator writes (ADR 0428: so inherited values reach children per frame). */
+export interface UIAnimationOwner {
+  _animatedWrite?(element: object, field: string, value: unknown): void;
+}
+
 /** An element just restyled, as its owner describes it. */
 export interface UIStyledElement {
   /** The document or hosted tree: its events go back to it (`takeUIAnimationEvents`). */
@@ -67,6 +79,11 @@ export interface UIStyledElement {
   readonly fields: ReadonlyMap<string, FieldInfo>;
   /** False in a scene being edited: nothing animates there, values are set at once. */
   readonly animate: boolean;
+  /**
+   * ADR 0428: fields of `fields` the component doesn't have, which it only passes on to its children (a panel's
+   * `color`): their animated values go to the owner's `_animatedWrite`, never to the component.
+   */
+  readonly virtual?: ReadonlySet<string>;
 }
 
 /** One field the restyle wrote: the value shown before and the cascade's new value. */
@@ -143,6 +160,7 @@ export interface UIPlayback {
 }
 
 const LINEAR_TIMING: UITimingFunction = { kind: "linear" };
+const NO_FIELDS: ReadonlySet<string> = new Set();
 
 interface Run {
   readonly kind: "transition" | "animation";
@@ -169,6 +187,9 @@ interface Run {
   held: boolean;
   /** A played animation's hooks (`play`); null for the stylesheet's. */
   readonly played: UIPlayHooks | null;
+  /** A transition's reversing-adjusted start value and reversing shortening factor (ADR 0428, CSS Transitions 1 §3). */
+  reversingStart?: unknown;
+  shortening?: number;
 }
 
 interface ElementState {
@@ -184,6 +205,9 @@ interface ElementState {
   readonly base: Map<string, unknown>;
   /** What the animator last wrote to each field, to tell a script's write. */
   readonly written: Map<string, unknown>;
+  /** ADR 0428: fields it only passes on (`UIStyledElement.virtual`), and the values shown for them. */
+  virtual: ReadonlySet<string>;
+  readonly values: Map<string, unknown>;
 }
 
 interface QueuedEvent {
@@ -295,11 +319,22 @@ function valueAt(run: Run, track: Track, k: number, p: number, others: (field: s
   const u = Math.min(1, Math.max(0, (q - a.offset) / span));
   const curve = curveOf(a.timing, false);
   const e = curve ? evalCurve(curve, u) : u;
-  if (e === 0) return a.value;
-  if (e === 1) return b.value;
+  if (track.kind !== "discrete") {
+    if (e === 0) return a.value;
+    if (e === 1) return b.value;
+  }
   const pair = animatedPair(track.field, track.kind, a.value, b.value, others);
   const f = pair.from.map((x, j) => x * (1 - e) + pair.to[j] * e);
   return pair.decode(f, 0);
+}
+
+/** ADR 0428: a transition's eased progress now (its timing function's output; 0 in its delay), for reversing shortening. */
+function easedProgress(run: Run): number {
+  const local = run.time - run.delay;
+  if (local <= 0) return 0;
+  const p = run.duration > 0 ? Math.min(1, local / run.duration) : 1;
+  const curve = curveOf(run.timing, false);
+  return curve ? evalCurve(curve, p) : p;
 }
 
 /** The value a track shows at local time `t` of its active phase, evaluated here. */
@@ -435,13 +470,19 @@ export class UIAnimator {
     let s = this.elements.get(el.comp);
     if (!s) {
       if (!el.animate || (!transitions?.length && !animations?.length)) return;
-      s = { owner: el.owner, element: el.element, comp: el.comp, fields: el.fields, transitions: new Map(), animations: [], base: new Map(), written: new Map() };
+      s = { owner: el.owner, element: el.element, comp: el.comp, fields: el.fields, transitions: new Map(), animations: [], base: new Map(), written: new Map(), virtual: el.virtual ?? NO_FIELDS, values: new Map() };
       this.elements.set(el.comp, s);
     }
     this.owners.add(el.owner);
     s.owner = el.owner;
     s.element = el.element;
     s.fields = el.fields;
+    s.virtual = el.virtual ?? NO_FIELDS;
+    // A field it only passes on shows what the animator last gave it, not what the owner last resolved.
+    if (s.values.size) {
+      const values = s.values;
+      writes = writes.map((w) => (values.has(w.field) ? { ...w, before: values.get(w.field) } : w));
+    }
     if (!el.animate) {
       this.drop(el.comp, s); // the restyle already wrote the cascade's values
       return;
@@ -452,7 +493,7 @@ export class UIAnimator {
     for (const w of writes) {
       if (!this.animated(s, w.field)) continue;
       s.base.set(w.field, clone(w.after));
-      s.written.set(w.field, clone(w.after));
+      this.show(s, w.field, w.after);
       this.forTracks(s, w.field, (t) => (t.dirty = true));
     }
 
@@ -467,22 +508,34 @@ export class UIAnimator {
       for (const w of writes) {
         const spec = covered.get(w.field);
         const running = s.transitions.get(w.field);
+        // ADR 0428: CSS's reversing shortening: a change back to where a running transition started (its
+        // reversing-adjusted start value) runs back over the share of the duration it had covered.
+        let shortening = 1;
+        let reversingStart: unknown = w.before;
         if (running) {
           const to = running.tracks[0].stops[1].value;
           if (same(to, w.after)) {
             // Keeps running to the same end: the field shows the transition's value, not the end.
-            comp[w.field] = clone(w.before);
-            s.written.set(w.field, clone(w.before));
+            this.show(s, w.field, w.before);
             continue;
+          }
+          if (same(running.reversingStart ?? running.tracks[0].stops[0].value, w.after)) {
+            const old = running.shortening ?? 1;
+            shortening = Math.min(1, Math.abs(easedProgress(running) * old + 1 - old));
+            reversingStart = to;
           }
           this.stopTransition(s, w.field, running, false);
         }
-        if (!spec || Math.max(spec.duration, 0) + spec.delay <= 0) continue;
+        if (!spec) continue;
+        const duration = Math.max(spec.duration, 0) * shortening;
+        const delay = spec.delay < 0 ? spec.delay * shortening : spec.delay;
+        if (duration + delay <= 0) continue;
         const info = s.fields.get(w.field);
         if (!info || same(w.before, w.after)) continue;
         const kind = animatedKind(w.field, info.type);
         const pair = animatedPair(w.field, kind, w.before, w.after, (f) => comp[f]);
-        if (pair.discrete && kind !== "length") continue; // only a mixed pair of lengths jumps at the midpoint (0418)
+        // Only a mixed pair of lengths jumps at the midpoint (0418), or any discrete pair with `allow-discrete` (0428).
+        if (pair.discrete && kind !== "length" && !spec.allowDiscrete) continue;
         const track = newTrack(w.field, kind, [
           { offset: 0, value: clone(w.before), timing: spec.timing },
           { offset: 1, value: clone(w.after), timing: spec.timing },
@@ -492,8 +545,8 @@ export class UIAnimator {
           kind: "transition",
           name: kebab(w.field),
           tracks: [track],
-          duration: spec.duration,
-          delay: spec.delay,
+          duration,
+          delay,
           iterations: 1,
           direction: "normal",
           fill: "backwards",
@@ -506,10 +559,11 @@ export class UIAnimator {
           tweensPaused: false,
           held: false,
           played: null,
+          reversingStart,
+          shortening,
         });
         // Until the frame's update, the field shows where it was.
-        comp[w.field] = clone(w.before);
-        s.written.set(w.field, clone(w.before));
+        this.show(s, w.field, w.before);
       }
     }
 
@@ -546,7 +600,7 @@ export class UIAnimator {
       const info = s.fields.get(field);
       if (!info || stops.length === 0) continue;
       // A keyframe missing at 0% or 100% takes the element's own value (its base, while something animates it).
-      const base = this.animated(s, field) ? s.base.get(field) : comp[field];
+      const base = this.animated(s, field) ? s.base.get(field) : this.read(s, field);
       const list: Stop[] = stops.map((x) => ({ offset: x.offset, value: x.value, timing: x.timing ?? spec.timing }));
       if (list[0].offset > 0) list.unshift({ offset: 0, value: clone(base), timing: spec.timing });
       if (list[list.length - 1].offset < 1) list.push({ offset: 1, value: clone(base), timing: spec.timing });
@@ -583,7 +637,7 @@ export class UIAnimator {
     if (!el.animate || !el.comp.node.isValid || el.comp._destroyed) return endedPlayback(duration, hooks);
     let s = this.elements.get(el.comp);
     if (!s) {
-      s = { owner: el.owner, element: el.element, comp: el.comp, fields: el.fields, transitions: new Map(), animations: [], base: new Map(), written: new Map() };
+      s = { owner: el.owner, element: el.element, comp: el.comp, fields: el.fields, transitions: new Map(), animations: [], base: new Map(), written: new Map(), virtual: el.virtual ?? NO_FIELDS, values: new Map() };
       this.elements.set(el.comp, s);
     }
     this.owners.add(el.owner);
@@ -593,7 +647,7 @@ export class UIAnimator {
     for (const [field, declared] of tracks) {
       const info = s.fields.get(field);
       if (!info || declared.length === 0) continue;
-      const base = this.animated(s, field) ? s.base.get(field) : comp[field];
+      const base = this.animated(s, field) ? s.base.get(field) : this.read(s, field);
       const stops: Stop[] = [...declared].sort((a, b) => a.offset - b.offset).map((x) => ({ offset: x.offset, value: x.value, timing: x.timing ?? LINEAR_TIMING }));
       if (stops[0].offset > 0) stops.unshift({ offset: 0, value: clone(base), timing: LINEAR_TIMING });
       if (stops[stops.length - 1].offset < 1) stops.push({ offset: 1, value: clone(stops.length === 1 ? stops[0].value : base), timing: LINEAR_TIMING });
@@ -677,6 +731,7 @@ export class UIAnimator {
   private unwatch(s: ElementState, field: string): void {
     s.base.delete(field);
     s.written.delete(field);
+    s.values.delete(field);
   }
 
   private release(t: Track): void {
@@ -702,10 +757,29 @@ export class UIAnimator {
 
   /** Writes a field and remembers it; `fresh` for a value made for this write (an eased value), stored as it is. */
   private write(s: ElementState, field: string, value: unknown, fresh = false): void {
-    const comp = s.comp as unknown as Record<string, unknown>;
     const v = fresh ? value : clone(value);
-    if (!same(comp[field], v)) comp[field] = v;
-    s.written.set(field, comp[field] === v ? v : clone(v));
+    if (s.virtual.has(field)) s.values.set(field, v);
+    else {
+      const comp = s.comp as unknown as Record<string, unknown>;
+      if (!same(comp[field], v)) comp[field] = v;
+      s.written.set(field, comp[field] === v ? v : clone(v));
+    }
+    (s.owner as UIAnimationOwner)._animatedWrite?.(s.element, field, this.read(s, field));
+  }
+
+  /** Shows a value at once without telling the owner (a restyle's, before the frame's update writes the animated one). */
+  private show(s: ElementState, field: string, value: unknown): void {
+    if (s.virtual.has(field)) {
+      s.values.set(field, clone(value));
+      return;
+    }
+    (s.comp as unknown as Record<string, unknown>)[field] = clone(value);
+    s.written.set(field, clone(value));
+  }
+
+  /** A field's value as shown: the component's, or for one it only passes on, the animator's. */
+  private read(s: ElementState, field: string): unknown {
+    return s.virtual.has(field) ? s.values.get(field) : (s.comp as unknown as Record<string, unknown>)[field];
   }
 
   private queue(s: ElementState, event: UIAnimationEvent): void {

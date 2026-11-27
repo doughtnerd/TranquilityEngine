@@ -175,15 +175,18 @@ type MutableCompound = {
   attributes?: UIAttributeSelector[];
   empty?: boolean;
   root?: boolean;
+  has?: (readonly Selector[])[];
 };
 
 /** Pseudo-classes read by the query reader (ADR 0418 wave 5), so rule data and queries read them alike. */
 const READ_AS_TEXT: ReadonlySet<string> = new Set([
   "not", "first-child", "last-child", "only-child", "nth-child", "nth-last-child",
   "first-of-type", "last-of-type", "only-of-type", "nth-of-type", "nth-last-of-type", "empty", "root",
+  // ADR 0428: `:has()` and its relative selectors.
+  "has",
 ]);
 
-const SUPPORTED = ":hover, :pressed, :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), the -of-type forms, :empty and :root";
+const SUPPORTED = ":hover, :pressed, :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), the -of-type forms, :empty, :root and :has()";
 
 function parseSelector(sel: CssSelector, source: string, report: Report): Selector | null {
   const parts: { selector: SimpleSelector; combinator: Combinator | null }[] = [];
@@ -213,6 +216,7 @@ function parseSelector(sel: CssSelector, source: string, report: Report): Select
     if (read.not) (c.not ??= []).push(...read.not);
     if (read.empty) c.empty = true;
     if (read.root) c.root = true;
+    if (read.has) (c.has ??= []).push(...read.has);
   };
   for (const n of sel.children.toArray()) {
     const s = n.loc?.start.offset ?? 0;
@@ -273,7 +277,7 @@ function parseSelector(sel: CssSelector, source: string, report: Report): Select
   flush();
   if (!ok || parts.length === 0) return null;
   const only = parts.length === 1 ? parts[0].selector : null;
-  const root = !!only?.root && !only.tag && !only.id && !only.classes.length && !only.pseudo.length && !only.lang.length && !only.is && !only.not && !only.nth && !only.attributes && !only.empty;
+  const root = !!only?.root && !only.tag && !only.id && !only.classes.length && !only.pseudo.length && !only.lang.length && !only.is && !only.not && !only.nth && !only.attributes && !only.empty && !only.has;
   return { parts, specificity: selectorSpecificity(parts), root };
 }
 

@@ -71,6 +71,12 @@ export interface SimpleSelector {
   readonly empty?: boolean;
   /** `:root`: the tree's root (a hosted tree's canvas, a document's root element). */
   readonly root?: boolean;
+  /**
+   * ADR 0428: `:has()`: each a list of relative selectors, one of which must match an element relative to this one.
+   * A relative selector's first part carries its leading combinator (`>`, `+`, `~`, or `" "` for descendants); no
+   * `:has()` inside them.
+   */
+  readonly has?: readonly (readonly Selector[])[];
 }
 
 /**
@@ -202,6 +208,11 @@ export interface StyleTarget {
   readonly content?: boolean;
   /** On the root target: the canvas `@media` rules are matched against; null before its size is known. */
   readonly media?: UIMediaEnvironment | null;
+  /**
+   * ADR 0428: on the root target, the canvas `vw`/`vh`/`vmin`/`vmax` resolve against (UI pixels): its size, or before
+   * the first layout its reference resolution. Absent: `media`.
+   */
+  readonly viewport?: UIMediaEnvironment | null;
 }
 
 /** Where an element's field value comes from (the Inspector shows this in wave B). */
