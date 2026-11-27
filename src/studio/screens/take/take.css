@@ -168,6 +168,7 @@
 /* Mixer strip */
 .tk-mixer { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .tk-mixer-tools { display: flex; align-items: center; gap: 0 8px; padding: 6px 8px 0; flex: none; }
+.tk-mixer-at { color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* The fader takes what is left after the name and dB rows, so they always show; a panel too short for even the
    smallest fader scrolls instead of clipping them. */
 .tk-strips { display: flex; gap: 2px; padding: 6px 8px; overflow: auto; flex: 1 1 auto; min-height: 0; }

@@ -1,0 +1,8 @@
+/* The Camera Shake plugin's Inspector sections (ADR 0436). Theme tokens only (src/editor/theme.ts). */
+.camera-shake-section { margin: 6px 0 4px; }
+.camera-shake-envelope { margin: 0 0 4px; }
+.camera-shake-envelope figcaption, .camera-shake-note { margin: 0 0 2px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.camera-shake-envelope svg { display: block; max-width: 100%; height: auto; background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; }
+.camera-shake-axis { stroke: var(--border-strong); stroke-width: 1; }
+.camera-shake-curve { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
+.camera-shake-actions { display: flex; gap: 6px; margin: 4px 0; }

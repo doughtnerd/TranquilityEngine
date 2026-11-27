@@ -3,6 +3,7 @@
 import type { EditorPlugin } from "../editor/sdk/plugins";
 import { animationEditorPlugin } from "./animation/editor";
 import { audioEditorPlugin } from "./audio/editor";
+import { cameraShakeEditorPlugin } from "./camera-shake/editor";
 import type { FirstPartyPlugin } from "./catalogue";
 import { decalsEditorPlugin } from "./decals/editor";
 import { linesEditorPlugin } from "./lines/editor";
@@ -36,6 +37,7 @@ const EDITOR_HALVES: { readonly [K in FirstPartyPlugin]?: EditorPlugin } = {
   environment: environmentEditorPlugin,
   lights2d: lights2dEditorPlugin,
   "post-processing": postProcessingEditorPlugin,
+  "camera-shake": cameraShakeEditorPlugin,
   ui: uiEditorPlugin,
   lines: linesEditorPlugin,
   decals: decalsEditorPlugin,

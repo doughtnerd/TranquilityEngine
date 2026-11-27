@@ -108,7 +108,7 @@ describe("the system catalog (T2)", () => {
   it("orders each World's members with after/before, built-ins first by default", () => {
     defineSystem({ name: "test.cat.Before", phase: "update", worlds: ["ordered"], before: ["engine.UpdateScripts"], run() {} });
     defineSystem({ name: "test.cat.After", phase: "update", worlds: ["ordered"], after: ["test.cat.Missing"], run() {} });
-    expect(world("O", ["ordered"]).scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIEventDispatch", "engine.InputFrame", "engine.UIHostEvents", "engine.UIHostFrame", "engine.UIControlMapper", "test.cat.Before", "engine.UpdateScripts", "test.cat.After"]);
+    expect(world("O", ["ordered"]).scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.CameraViewOffsets", "engine.UIEventDispatch", "engine.InputFrame", "engine.UIHostEvents", "engine.UIHostFrame", "engine.UIControlMapper", "test.cat.Before", "engine.UpdateScripts", "test.cat.After"]);
   });
 
   it("the default World keeps today's system order", async () => {
@@ -126,9 +126,11 @@ describe("the system catalog (T2)", () => {
     // The input systems (ADR 0335–0337) do nothing in a World without input devices or action sets;
     // UI navigation (ADR 0340) does nothing without a focused element or laid-out UI.
     expect(engine.world.scheduler.order("input")).toEqual(["engine.InputDevices", "engine.InputPairing", "engine.InputRebind", "engine.InputEvaluate", "engine.UINavigation", "engine.InputEventScripts"]);
-    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIEventDispatch", "engine.InputFrame", "engine.UIHostEvents", "engine.UIHostFrame", "engine.UIControlMapper", "engine.UpdateScripts", "test.cat.Default"]);
-    // The Lines plugin samples trails and the Decals plugin ages spawned decals after late scripts (ADR 0395, 0396).
-    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["animation.Timeline", "animation.Gather", "animation.Evaluate", "animation.Apply", "engine.LateUpdateScripts", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.UIHostFlush", "engine.UIHostSync", "engine.UIMedia", "engine.UIAnimation", "lines.Trails", "decals.Pool", "engine.AudioZones", "engine.Audio"]);
+    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.CameraViewOffsets", "engine.UIEventDispatch", "engine.InputFrame", "engine.UIHostEvents", "engine.UIHostFrame", "engine.UIControlMapper", "engine.UpdateScripts", "test.cat.Default"]);
+    // Camera view offsets are zeroed before the update scripts (ADR 0436).
+    // The Lines plugin samples trails, the Decals plugin ages spawned decals and the Camera Shake plugin sends and
+    // sums impulses after late scripts (ADR 0395, 0396, 0436).
+    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["animation.Timeline", "animation.Gather", "animation.Evaluate", "animation.Apply", "engine.LateUpdateScripts", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.UIHostFlush", "engine.UIHostSync", "engine.UIMedia", "engine.UIAnimation", "lines.Trails", "decals.Pool", "cameraShake.Sources", "cameraShake.Listen", "engine.AudioZones", "engine.Audio"]);
     engine.dispose();
   });
 });

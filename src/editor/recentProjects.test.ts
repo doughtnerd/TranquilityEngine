@@ -107,6 +107,39 @@ describe("recent projects", () => {
     expect(await recent.check(again, null)).toBe("missing");
   });
 
+  it("puts a removed entry back where its last opening places it, with a browser folder's handle", async () => {
+    const s = stores();
+    const recent = new RecentProjects(s.list, s.handles);
+    const handle = new MemoryDirectoryHandle("web").put("project.json", "{}");
+    await recent.add({ name: "A", path: "/a" }, 1);
+    const web = await recent.add({ name: "Web", path: "web", handle }, 2);
+    await recent.add({ name: "C", path: "/c" }, 3);
+    const removed = await recent.remove(web.id);
+    expect(removed).toEqual({ entry: web, handle });
+    expect(s.map.size).toBe(0);
+    await recent.restore(removed!);
+    expect(recent.list().map((e) => e.name)).toEqual(["C", "Web", "A"]);
+    expect(await recent.handle(web.id)).toBe(handle);
+    expect(await recent.check(web, null)).toBe("ok");
+    expect(await recent.remove("not-there")).toBeNull();
+  });
+
+  it("doesn't restore a project that is on the list again, and keeps the limit when restoring", async () => {
+    const s = stores();
+    const recent = new RecentProjects(s.list, s.handles, 2);
+    const a = await recent.add({ name: "A", path: "/a" }, 1);
+    await recent.add({ name: "B", path: "/b" }, 2);
+    const removed = (await recent.remove(a.id))!;
+    await recent.add({ name: "A reopened", path: "/a/" }, 3); // reopened before Undo: a new entry for the same folder
+    await recent.restore(removed);
+    expect(recent.list().map((e) => e.name)).toEqual(["A reopened", "B"]);
+    const b = recent.list()[1]!;
+    const removedB = (await recent.remove(b.id))!;
+    await recent.add({ name: "D", path: "/d" }, 4);
+    await recent.restore(removedB); // the oldest of three falls off
+    expect(recent.list().map((e) => e.name)).toEqual(["D", "A reopened"]);
+  });
+
   it("drops the handles of entries that fall off the list", async () => {
     const s = stores();
     const recent = new RecentProjects(s.list, s.handles, 1);
