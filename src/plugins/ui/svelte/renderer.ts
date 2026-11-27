@@ -1505,32 +1505,26 @@ function bindMedia(node: UIRenderElement, name: string, get: () => unknown, set:
   };
 }
 
-/** ADR 0425: an inline run: a node whose parent is a text element or a run (below the mount). */
+/**
+ * ADR 0425: an inline run: a node whose parent is a text element or a text run (below the mount). ADR 0428: inside an
+ * atomic inline box (a button, a control, a panel in a text) a node is that box's content again, not a run.
+ */
 function isRun(node: UINode): boolean {
   const p = node._parent;
-  return p instanceof UIRenderElement && !p._tree && !OWN_KIND_IN_TEXT.has(p._uiTag) && (isTextKind(p) || isRun(p));
+  return isTextKind(p) && !p._tree;
+}
+
+/** ADR 0425: an element whose content is text and runs: a text element or a text run. */
+function holdsText(n: UINode | UIParent | null): n is UIRenderElement {
+  return isTextKind(n) && !n._tree;
 }
 
 /**
- * ADR 0425: elements that stay what they are inside a text element (not drawn there yet: an <svg>'s shapes are its
- * document). Form controls too: an `<input>` in a `<p>` keeps its value, checked state and focus as a control, which a
- * text run would drop.
+ * The UI element a node makes: its own kind, inside a text too (ADR 0425: a phrasing element is a run; ADR 0428: any
+ * other element there is an atomic inline box, laid out on the text's lines by the UI core, as `display: inline-block`).
  */
-const OWN_KIND_IN_TEXT: ReadonlySet<UITag> = new Set(["Svg", "Video", "Audio", "InputField", "TextArea", "Toggle", "Radio", "Slider", "Select", "Progress", "Meter"]);
-
-/** ADR 0425: an element whose content is text and runs: a text element, or a run that isn't an image. */
-function holdsText(n: UINode | UIParent | null): n is UIRenderElement {
-  return n instanceof UIRenderElement && !n._tree && (n._uiTag === "Text" || (isRun(n) && n._uiTag !== "Image" && !OWN_KIND_IN_TEXT.has(n._uiTag)));
-}
-
-/** ADR 0425: the UI element a node makes: a run is a Text (an image stays an Image), others their own. */
 function hostedTag(el: UIRenderElement): UITag {
-  if (!isRun(el)) return el._uiTag;
-  if (OWN_KIND_IN_TEXT.has(el._uiTag)) {
-    warnOnce(`<${el.localName}> inside a text element isn't drawn yet; put it beside the text.`);
-    return el._uiTag;
-  }
-  return el._uiTag === "Image" ? "Image" : "Text";
+  return el._uiTag;
 }
 
 /** ADR 0425: the text element a run belongs to (the outermost), or the element itself. */
@@ -1738,9 +1732,8 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
     warnOnce(`<${node.localName}> inside <${parent.localName}> isn't shown: a <${parent.localName}> has no children.`);
     return null;
   }
-  // ADR 0425: an element inside a text element is an inline run of it (a Text, or an inline image).
+  // ADR 0425: a phrasing element inside a text element is an inline run of it; ADR 0428: any other element, an atomic inline box.
   const uiTag = hostedTag(node);
-  if (uiTag !== node._uiTag) warnOnce(`<${node.localName}> inside a text element (<${rootText(node).localName}>) is drawn as inline text; only phrasing elements and images belong there.`);
   const made = tree.create(node.localName, uiTag, hp, hostedBefore(node), hostAttributes(node), { source: sourceOf(node), written: writtenAttributes(node) });
   node._hosted = made;
   node._dispatchers = new Map();
