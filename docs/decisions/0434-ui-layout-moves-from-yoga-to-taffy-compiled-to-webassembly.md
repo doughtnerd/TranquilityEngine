@@ -215,6 +215,12 @@ without `TaffyTree` and its slotmap; first layouts are a little faster (1.23 ms 
 were first boxed and referenced by pointer; the index table replaced that the same day. Its lookup is kept out of line:
 inlined into each of Taffy's resolution sites it added 20 KB of wasm.)
 
+**2026-11-27, upstream.** Taffy's issue #225 invites a `TaffyTree` (high-level API) implementation of `calc()`; a pull
+request doing that (expressions in a `CalcStore` per tree, the math functions, parsing, gentest fixtures) was prepared
+from this work for the owner to submit. If Taffy releases it, `layout-core` goes back to `TaffyTree`: `tree.rs` and its
+upgrade check go, `set_calc` keeps its signature (the per-node slot table holds `TaffyTree` handles), and the
+conformance set checks that no box changes.
+
 ## References
 
 - Taffy: https://github.com/DioxusLabs/taffy (0.16.0, MIT); its tests are generated from Chrome's layouts.
