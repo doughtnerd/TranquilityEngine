@@ -18,7 +18,7 @@
  */
 import { Locale } from "../localisation/Locale";
 import { UIAudio, UIButton, UICanvas, UIForm, UIImage, UIInputField, UILabel, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UISvg, UIText, UITextArea, UIToggle, UIVideo, isFocusableUI, type UIComponentType, type UIOverflow, type UITextAlign, type UIVerticalAlign, type UIWhiteSpaceCollapse, type UIWordBreak } from "./components";
-import { selectLabel } from "./formControls";
+import { selectLabel } from "./formModel";
 import { uiInteractions } from "./interactions";
 import type { UIPseudo, UIPseudoElement, UIPseudoState, UITag } from "./document/types";
 import { fontFamilyOf } from "./fonts";

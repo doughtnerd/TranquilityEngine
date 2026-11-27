@@ -36,7 +36,7 @@ import type { GameObject } from "../../scene/GameObject";
 import { Locale } from "../../localisation/Locale";
 import { uiPreferencesVersion } from "../preferences";
 import { UIButton, UICanvas, UIInputField, UIPanel, UIText, isFocusableUI, type UIComponentType } from "../components";
-import { clickUI, setUIValue, uiValueOf } from "../formControls";
+import { clickUI, controlValue, writeControlValue } from "../formModel";
 import { setUIPartStyles, type UIPartStyle } from "../formParts";
 import { generatesPseudoElements, samePseudoState, uiContentAttributes, uiPartElements, uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
@@ -395,11 +395,11 @@ export class UIHostElement {
 
   /** Input fields: their text (ADR 0428: any control's value as text, as the DOM's `value`); null for other elements. Setting it isn't a player change (no events). */
   get value(): string | null {
-    return uiValueOf(this._comp);
+    return controlValue(this._comp);
   }
 
   set value(value: string) {
-    setUIValue(this._comp, value);
+    writeControlValue(this._comp, value);
   }
 
   /**
@@ -1445,7 +1445,10 @@ export class UIHostTree {
     for (const name of uiContentAttributes(el.uiTag)) {
       const value = attributes.get(name);
       const before = el._content.get(name);
-      // Written when the attribute changes, so a player's typing stays until the component sets the attribute again.
+      // Written when the attribute changes, so a player's typing stays until the component sets the attribute again. Not a
+      // dirty flag: those are the form-control model's (ADR 0436), kept by the front end; this only skips attributes that
+      // didn't change. Written straight to the field (the element's other fields, a select's `multiple` or a radio's
+      // `name`, aren't styled onto it yet when it's made); the UI core settles a select's choice at its next sync.
       if (value !== undefined && value !== before) comp[name] = contentValue(comp[name], value);
       else if (value === undefined && before !== undefined) comp[name] = defaultOf(el._comp.constructor as ComponentClass, name);
       if (value === undefined) el._content.delete(name);

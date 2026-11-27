@@ -17,7 +17,7 @@ import { Color, Vector2 } from "../core/math";
 import { AssetRef, component, field } from "../core/registry";
 import { GameObject } from "../scene/GameObject";
 import { uiInteractions } from "./interactions";
-import { resetFormEvent, submitForm } from "./formControls";
+import { resetFormEvent, submitForm } from "./formModel";
 import { _addMediaPlayer, _removeMediaPlayer, AudioSourceMedia, makeVideoSource, UIMediaPlayer, type UIMediaEvent, type UIMediaEventType, type UIMediaFields, type UIMediaSource } from "./media";
 // Keyboard and gamepad navigation (ADR 0340) comes with the components: `engine.UIActions`, the `ui` context and `engine.UINavigation`.
 import "./navigation";

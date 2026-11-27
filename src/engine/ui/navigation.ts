@@ -26,7 +26,7 @@ import { addContextSource, defineInputContext } from "../input/contexts";
 import { takesLocalInput } from "../input/deviceEntities";
 import { playerNodes, InputPlayer } from "../input/players";
 import { UIButton, UICanvas, UIInputField, UIOption, UIPanel, UIRadio, UISelect, UISlider, isFocusableUI, isInertUI, type UIFocusableElement } from "./components";
-import { uiClickRecord, checkRadio, controlChanged, optionsOf, radioGroup, reconcileSelect, selectOf, setSelectOpen, sliderValue } from "./formControls";
+import { checkByPlayer, chosenOptions, optionsOf, radioGroup, selectOf, setSelectOpen, stepSlider, uiClickRecord } from "./formModel";
 import { uiInteractions, type UIInteractions, type UILayoutSource } from "./interactions";
 import type { UILaidOutElement } from "./uiCoreTypes";
 import type { UIRect } from "./layout";
@@ -324,7 +324,7 @@ function run(world: World): void {
       const click = uiClickRecord(world, target, {}, (prevented) => {
         // A select opened from the keyboard puts focus on its chosen option, for the arrows.
         if (!prevented && target instanceof UISelect && target.open) {
-          const first = reconcileSelect(target)[0] ?? optionsOf(target).find((o) => o.interactable);
+          const first = chosenOptions(target)[0] ?? optionsOf(target).find((o) => o.interactable);
           if (first) log.focus(first, "script");
         }
       });
@@ -359,13 +359,7 @@ function controlTakes(world: World, log: UIInteractions, dir: Direction): boolea
   if (dir !== "left" && dir !== "right") return false;
   const sign = dir === "right" ? 1 : -1;
   if (c instanceof UISlider) {
-    if (!c.interactable) return true;
-    const step = Number.isFinite(c.step) && c.step > 0 ? c.step : (c.max - c.min) / 100;
-    const v = sliderValue(c, c.value + sign * step);
-    if (v !== c.value) {
-      c.value = v;
-      controlChanged(world, c);
-    }
+    stepSlider(world, c, sign);
     return true;
   }
   if (c instanceof UIRadio && c.name) {
@@ -374,7 +368,7 @@ function controlTakes(world: World, log: UIInteractions, dir: Direction): boolea
     if (group.length < 2 || i < 0) return true;
     const next = group[(i + sign + group.length) % group.length];
     log.focus(next, "navigation");
-    if (checkRadio(next)) controlChanged(world, next);
+    checkByPlayer(world, next);
     return true;
   }
   return false;

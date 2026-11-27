@@ -1,21 +1,32 @@
 /**
- * Form controls' behaviour (ADR 0428): what HTML's form elements do, on the UI core's components. The UI core's routing
- * (clicks, slider drags, keys), navigation (submit, arrows) and both front ends' scripts (`requestSubmit`, `reset`, the
- * Svelte renderer's bindings) call these, so a checkbox toggles, a radio unchecks its group, a select chooses and a form
- * submits the same way whatever drove it. Renderer-neutral; nothing here is public API.
+ * The form-control model (ADR 0436, on 0428): what HTML's form elements are and do, on the UI core's components. It owns
+ * a control's state rules (value, checked, selected; defaults and HTML's dirty flags; a select's selectedness) and its
+ * behaviour (activation, stepping, submit and reset), so the UI core's routing and navigation only translate keys and
+ * presses into its inputs, and the Svelte renderer only maps `defaultValue` and `bind:` onto it. Renderer-neutral;
+ * nothing here is public API.
  *
- * - **Changes by the player** send `input` then `change` (bubbling, ADR 0426) on the control and make its polled
- *   `changed` true for the frame; a field's (a number field stepped by its arrow keys) is a field change as typing is.
- *   A script writing a field never counts.
+ * Its interface:
+ * - **Reads** are pure: `controlValue`, `selectLabel`, `selectLabels`, `chosenOptions`, the trees (`formOf`,
+ *   `optionsOf`, `selectOf`, `radioGroup`, `labelledControl`). Measuring or drawing a control never changes it.
+ * - **Writes**: a default written (`FormControlState.defaultWritten`: the current value follows only while nothing has
+ *   changed it), a script's write (`writeControl`, `writeControlValue`, with `FormControlState.wrote` for its dirty
+ *   flag; the UI core's sync settles fields a script wrote straight to a select, `settleSelect`), a player's change (`playerTyped`, `dragSlider`, and the semantic inputs
+ *   below, which send `input` then `change`) and a form's reset (`resetForm`).
+ * - **Semantic inputs**: `stepSlider` (n steps), `pageSlider` (n pages), `sliderToEnd`, `stepNumberField`,
+ *   `checkByPlayer`, `activateControl` (what a click, Space or Enter does) and the click record that carries it.
+ *
+ * - **Changes by the player** send `input` then `change` (bubbling, ADR 0426) on the control, make its polled `changed`
+ *   true for the frame and set its dirty flag; a field's (a number field stepped by its arrow keys) is a field change
+ *   as typing is. A script writing a field never counts as the player's.
  * - **Events these send** are dispatched at once while the frame's events are being dispatched (a default action's) or
  *   after they were (a script in `update`), else with the frame's events (navigation, in the input phase).
- * - **Selects** keep their `value` and their options' `selected` in step (`reconcileSelect`): a written `value` chooses
- *   the option with that value; options' `selected` written (markup, a script) set `value`; with nothing chosen the
- *   first enabled option is (HTML's selectedness).
+ * - **Selects** keep their `value` and their options' `selected` in step: a written `value` chooses the option with that
+ *   value; options' `selected` written (markup, a script) set `value`; with nothing chosen the first enabled option is,
+ *   with several the last chosen is (HTML's selectedness, `selectedness`, which the renderer's nodes use too).
  * - **Groups**: radios with one `name` in one form (or, outside forms, one canvas) are one group.
- * - **Reset** puts each control in the form back to its defaults: as the UI core first saw it (`rememberDefaults`),
- *   unless its front end says what they are (`setUIDefaults`: the Svelte renderer hands over HTML's `defaultValue`,
- *   `defaultChecked` and options' `selected` attributes).
+ * - **Reset** puts each control in the form back to its defaults (`FormControlState`) and clears its dirty flags: as the
+ *   UI core first saw it, unless its front end hands it a state of its own (`adoptControlState`: the Svelte renderer's
+ *   nodes keep HTML's `defaultValue`, `defaultChecked` and options' `selected` attributes in one before they're made).
  */
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
@@ -33,7 +44,6 @@ import {
   UISelect,
   UISlider,
   UIText,
-  UITextArea,
   UIToggle,
   isFocusableUI,
   type UIComponentType,
@@ -127,46 +137,64 @@ export function optionValue(o: UIOption): string {
   return o.value !== "" ? o.value : optionLabel(o);
 }
 
-/** Each select's value and options' choice as last put in step, to tell which side changed since. */
+/**
+ * HTML's selectedness setting algorithm for a single select (the one place it's written; the renderer's nodes run it
+ * too): of the options `chosen`, one stays (the last of `preferred` among them, else the last); none chosen chooses the
+ * first `enabled` option (none when no option is). Returns the options to be chosen.
+ */
+export function selectedness<T>(options: readonly T[], chosen: readonly T[], enabled: (o: T) => boolean, preferred: readonly T[] = []): T[] {
+  if (chosen.length > 1) {
+    const fresh = chosen.filter((o) => preferred.includes(o));
+    return [fresh.length ? fresh[fresh.length - 1] : chosen[chosen.length - 1]];
+  }
+  if (chosen.length === 1) return [chosen[0]];
+  const first = options.find(enabled);
+  return first === undefined ? [] : [first];
+}
+
+/** Each select's value and options' choice as last settled, to tell which side a script changed since. */
 const selectStates = new WeakMap<UISelect, { value: string; chosen: readonly UIOption[] }>();
 
-/** Put a select's `value` and its options' `selected` in step (see the head comment). Returns its chosen options. */
-export function reconcileSelect(select: UISelect): UIOption[] {
+/**
+ * What a select's choice is, read without changing anything: a `value` written since it was last settled (or given
+ * before the first look) chooses the option(s) with it (the first only, without `multiple`); else its options'
+ * `selected`. A single select then keeps one (markup's last wins; a script's new choice is the one not chosen before).
+ */
+function selectChoice(select: UISelect): { options: UIOption[]; chosen: UIOption[]; value: string } {
   const options = optionsOf(select);
   const last = selectStates.get(select);
+  let chosen: UIOption[];
   if (last ? select.value !== last.value : select.value !== "") {
-    // The value was written (or given before the first look): the option(s) with it are chosen (the first only, without `multiple`).
-    let found = false;
-    for (const o of options) {
-      const on: boolean = optionValue(o) === select.value && (select.multiple || !found);
-      if (o.selected !== on) o.selected = on;
-      found ||= on;
-    }
+    chosen = [];
+    for (const o of options) if (optionValue(o) === select.value && (select.multiple || !chosen.length)) chosen.push(o);
+  } else chosen = options.filter((o) => o.selected);
+  if (!select.multiple) chosen = selectedness(options, chosen, (o) => o.interactable, chosen.filter((o) => !last?.chosen.includes(o)));
+  return { options, chosen, value: chosen.length ? optionValue(chosen[0]) : "" };
+}
+
+/**
+ * Settle a select's `value` and its options' `selected` (see `selectChoice`): a script's write to either is put in step.
+ * The UI core calls it for every select each sync, before layout reads its label. Returns its chosen options.
+ */
+export function settleSelect(select: UISelect): UIOption[] {
+  const { options, chosen, value } = selectChoice(select);
+  for (const o of options) {
+    const on = chosen.includes(o);
+    if (o.selected !== on) o.selected = on;
   }
-  let chosen = options.filter((o) => o.selected);
-  if (!select.multiple && chosen.length > 1) {
-    // One choice: the one chosen last (markup's last wins; a script's new choice is the one not chosen before).
-    const fresh = chosen.filter((o) => !last?.chosen.includes(o));
-    const keep = fresh.length ? fresh[fresh.length - 1] : chosen[chosen.length - 1];
-    for (const o of chosen) if (o !== keep) o.selected = false;
-    chosen = [keep];
-  }
-  if (!select.multiple && !chosen.length) {
-    const first = options.find((o) => o.interactable);
-    if (first) {
-      first.selected = true;
-      chosen = [first];
-    }
-  }
-  const value = chosen.length ? optionValue(chosen[0]) : "";
   if (select.value !== value) select.value = value;
   selectStates.set(select, { value, chosen });
   return chosen;
 }
 
-/** The label a select shows: its chosen option's. */
+/** A select's chosen options, as settling would leave them (a pure read). */
+export function chosenOptions(select: UISelect): UIOption[] {
+  return selectChoice(select).chosen;
+}
+
+/** The label a select shows: its chosen option's (a pure read: measuring a select never changes it). */
 export function selectLabel(select: UISelect): string {
-  const chosen = reconcileSelect(select);
+  const chosen = chosenOptions(select);
   return chosen.length ? optionLabel(chosen[0]) : "";
 }
 
@@ -176,7 +204,7 @@ export function selectLabels(select: UISelect): string[] {
 }
 
 /** Choose `option` (with `multiple`, toggle it). Returns whether anything changed. */
-export function chooseOption(select: UISelect, option: UIOption): boolean {
+function chooseOption(select: UISelect, option: UIOption): boolean {
   const options = optionsOf(select);
   let changed = false;
   if (select.multiple) {
@@ -222,17 +250,22 @@ export function radioGroup(r: UIRadio): UIRadio[] {
 }
 
 /** Check `r`, unchecking the rest of its group. Returns whether it wasn't checked. */
-export function checkRadio(r: UIRadio): boolean {
+function checkRadio(r: UIRadio): boolean {
   for (const other of radioGroup(r)) if (other !== r && other.checked) other.checked = false;
   if (r.checked) return false;
   r.checked = true;
   return true;
 }
 
+/** The player checks `r` (navigation's arrows through its group): its group unchecks, and a change is sent when it wasn't checked. */
+export function checkByPlayer(world: World, r: UIRadio): void {
+  if (checkRadio(r)) playerChanged(world, r);
+}
+
 // --- Sliders and number fields ---------------------------------------------------------------------
 
 /** `v` on a slider's scale: snapped to its steps from `min`, within `min`..`max`. */
-export function sliderValue(s: UISlider, v: number): number {
+function sliderValue(s: UISlider, v: number): number {
   const min = Number.isFinite(s.min) ? s.min : 0;
   const max = Number.isFinite(s.max) && s.max >= min ? s.max : min;
   let x = Number.isFinite(v) ? Math.min(Math.max(v, min), max) : min;
@@ -250,8 +283,44 @@ export function sliderFraction(s: UISlider): number {
   return range > 0 ? Math.min(1, Math.max(0, (s.value - s.min) / range)) : 0;
 }
 
-/** Step a number field's value by `steps` of its `step`, within `min`/`max`. Returns whether it changed. */
-export function stepNumberField(field: UIInputField, steps: number): boolean {
+/** One step of a slider's: its `step`, else (`step="any"`) a hundredth of its range, as browsers' arrow keys. */
+function sliderStep(s: UISlider): number {
+  return Number.isFinite(s.step) && s.step > 0 ? s.step : (s.max - s.min) / 100;
+}
+
+/**
+ * The player moves a slider to `v` (snapped to its steps, within its range): its dirty flag is set. Returns whether the
+ * value changed. A drag's caller sends its `input` itself (`change` follows on release); the keys' inputs below send both.
+ */
+export function dragSlider(s: UISlider, v: number): boolean {
+  const next = sliderValue(s, v);
+  if (next === s.value) return false;
+  s.value = next;
+  controlState(s)?.wrote("value");
+  return true;
+}
+
+function keySlider(world: World, s: UISlider, to: (s: UISlider) => number): void {
+  if (s.interactable && dragSlider(s, to(s))) playerChanged(world, s);
+}
+
+/** The player steps a slider `n` steps (an arrow key: its `step`, browsers' rule, snapped). Nothing when it isn't interactable. */
+export function stepSlider(world: World, s: UISlider, n: number): void {
+  keySlider(world, s, (x) => x.value + n * sliderStep(x));
+}
+
+/** The player moves a slider `n` pages (Page Up/Down): a tenth of its range, at least one step (browsers'), snapped. */
+export function pageSlider(world: World, s: UISlider, n: number): void {
+  keySlider(world, s, (x) => x.value + n * Math.max((x.max - x.min) / 10, sliderStep(x)));
+}
+
+/** The player moves a slider to an end (Home: `min`, End: `max`). */
+export function sliderToEnd(world: World, s: UISlider, end: "min" | "max"): void {
+  keySlider(world, s, (x) => x[end]);
+}
+
+/** The player steps a number field's value by `steps` of its `step`, within `min`/`max` (its arrow keys); a change is a field change. */
+export function stepNumberField(world: World, field: UIInputField, steps: number): void {
   const step = Number.isFinite(field.step) && field.step > 0 ? field.step : 1;
   const now = Number(field.value);
   // An empty (or unreadable) value steps from `min`, else 0, as browsers do.
@@ -260,61 +329,132 @@ export function stepNumberField(field: UIInputField, steps: number): boolean {
   if (field.max !== null && Number.isFinite(field.max)) v = Math.min(v, field.max);
   if (field.min !== null && Number.isFinite(field.min)) v = Math.max(v, field.min);
   const text = String(Number(v.toFixed(10)));
-  if (text === field.value) return false;
+  if (text === field.value) return;
   field.value = text;
-  return true;
+  playerChanged(world, field);
 }
 
-// --- Defaults and reset ----------------------------------------------------------------------------
-
-const defaults = new WeakMap<UIComponentType, Readonly<Record<string, unknown>>>();
-
-/** Note a control's state as it was built, for its form's reset (the UI core does when it first sees an element). */
-export function rememberDefaults(c: UIComponentType): void {
-  if (defaults.has(c)) return;
-  if (c instanceof UIToggle) defaults.set(c, { checked: c.checked, indeterminate: c.indeterminate });
-  else if (c instanceof UIRadio) defaults.set(c, { checked: c.checked });
-  else if (c instanceof UISlider) defaults.set(c, { value: c.value });
-  else if (c instanceof UIInputField) defaults.set(c, { value: c.value });
-  else if (c instanceof UIOption) defaults.set(c, { selected: c.selected });
+/** The player typed into a field: its value, and its dirty flag (the `input` is the typing's own). */
+export function playerTyped(field: UIInputField, text: string): void {
+  field.value = text;
+  controlState(field)?.wrote("value");
 }
+
+// --- State: defaults and dirty flags ---------------------------------------------------------------
+
+/** A control's state that HTML keeps beside its value: what is dirty (changed by a script or the player). */
+export type FormField = "value" | "checked" | "selected";
 
 /**
- * Change what a control's form reset puts back (ADR 0428; HTML's `defaultValue`, `defaultChecked` and an option's
- * `selected` attribute, which can change after the control is built): only the fields the control has a default for.
+ * A control's defaults (what its form's reset puts back: HTML's default value, default checkedness and an option's
+ * `selected` attribute) and HTML's dirty flags. One per control: the UI core makes one as it first sees a control (its
+ * state as built), or a front end hands over its own (`adoptControlState`), which it keeps before the control is made.
  */
-export function setUIDefaults(c: UIComponentType, values: { value?: string; checked?: boolean; selected?: boolean }): void {
-  rememberDefaults(c);
-  const d = defaults.get(c);
-  if (!d) return;
-  const next: Record<string, unknown> = { ...d };
-  if (values.value !== undefined && "value" in d) next.value = c instanceof UISlider ? sliderValue(c, Number(values.value)) : values.value;
-  if (values.checked !== undefined && "checked" in d) next.checked = values.checked;
-  if (values.selected !== undefined && "selected" in d) next.selected = values.selected;
-  defaults.set(c, next);
+export class FormControlState {
+  /** The defaults; one not given resets to HTML's (an empty value, unchecked, not chosen; a slider to its value as built). */
+  readonly defaults: { value?: string | number; checked?: boolean; indeterminate?: boolean; selected?: boolean } = {};
+  /** HTML's dirty flags: the field was changed by a script, a binding or the player since the last reset. */
+  readonly dirty: Record<FormField, boolean> = { value: false, checked: false, selected: false };
+  /** @internal What the control was built with, for defaults its front end didn't give (a slider's value, a checkbox's indeterminate). */
+  built: { value?: number; indeterminate?: boolean } = {};
+
+  /**
+   * A new default for `field`. Returns whether the current value (`current`) follows it: only while nothing changed it
+   * (HTML's dirty flags; a value or checkedness that isn't its last default any more counts as changed). `keep` holds it
+   * anyway (Svelte's `set_default_value` keeps a value its template gave).
+   */
+  defaultWritten(field: FormField, value: string | boolean, current: unknown, keep = false): boolean {
+    const was = this.defaults[field];
+    const follows = !keep && !this.dirty[field] && (field === "selected" || was === undefined || current === was);
+    (this.defaults as Record<FormField, unknown>)[field] = value;
+    return follows;
+  }
+
+  /** A script, a binding or the player changed `field`: a new default leaves it until the form is reset. */
+  wrote(field: FormField): void {
+    this.dirty[field] = true;
+  }
 }
 
-/** Put every control in `form` back as it was built (HTML's reset algorithm), without events. */
+const states = new WeakMap<UIComponentType, FormControlState>();
+
+/** True for the controls a form's reset puts back. */
+function hasDefaults(c: UIComponentType): boolean {
+  return c instanceof UIToggle || c instanceof UIRadio || c instanceof UISlider || c instanceof UIInputField || c instanceof UIOption;
+}
+
+/** A control's state (made from the control as it is now when there's none yet: the UI core calls it as it first sees one); null for elements without defaults. */
+export function controlState(c: UIComponentType): FormControlState | null {
+  const had = states.get(c);
+  if (had || !hasDefaults(c)) return had ?? null;
+  const s = new FormControlState();
+  const d = s.defaults;
+  if (c instanceof UIToggle) Object.assign(d, { checked: c.checked, indeterminate: c.indeterminate });
+  else if (c instanceof UIRadio) d.checked = c.checked;
+  else if (c instanceof UISlider || c instanceof UIInputField) d.value = c.value;
+  else if (c instanceof UIOption) d.selected = c.selected;
+  states.set(c, s);
+  return s;
+}
+
+/** A front end's state for a control it made (its defaults, given before the control existed, are the ones its reset uses). */
+export function adoptControlState(c: UIComponentType, state: FormControlState): void {
+  if (!hasDefaults(c)) return;
+  state.built = { value: c instanceof UISlider ? c.value : undefined, indeterminate: c instanceof UIToggle ? c.indeterminate : undefined };
+  states.set(c, state);
+}
+
+/** Put a control back to its defaults (HTML's reset algorithm for it), clearing its dirty flags. */
+function resetControl(c: UIComponentType, s: FormControlState): void {
+  const d = s.defaults;
+  if (c instanceof UIToggle) {
+    c.checked = d.checked ?? false;
+    c.indeterminate = d.indeterminate ?? s.built.indeterminate ?? c.indeterminate;
+  } else if (c instanceof UIRadio) c.checked = d.checked ?? false;
+  else if (c instanceof UISlider) c.value = sliderValue(c, Number(d.value ?? s.built.value ?? c.value));
+  else if (c instanceof UIInputField) c.value = String(d.value ?? "");
+  else if (c instanceof UIOption) c.selected = d.selected ?? false;
+  s.dirty.value = s.dirty.checked = s.dirty.selected = false;
+}
+
+/** Put every control in `form` back to its defaults (HTML's reset algorithm), without events. */
 export function resetForm(form: UIForm): void {
   const selects = new Set<UISelect>();
   for (const n of descendants(form.owner)) {
     const c = controlOn(n);
-    const d = c ? defaults.get(c) : undefined;
-    if (!c || !d) continue;
-    Object.assign(c, d);
+    const s = c ? states.get(c) : undefined;
+    if (!c || !s) continue;
+    resetControl(c, s);
     if (c instanceof UIOption) {
-      const s = selectOf(c);
-      if (s) selects.add(s);
+      const select = selectOf(c);
+      if (select) selects.add(select);
     }
   }
-  for (const s of selects) {
-    const chosen = optionsOf(s).filter((o) => o.selected);
-    s.value = chosen.length ? optionValue(chosen[0]) : "";
+  for (const select of selects) {
+    const chosen = optionsOf(select).filter((o) => o.selected);
+    select.value = chosen.length ? optionValue(chosen[0]) : "";
     // The options' defaults are the choice now (not a written value, which would choose only the options with the
-    // first one's value: a `multiple` select's other defaults lost); reconciling still chooses a single select's first.
-    selectStates.set(s, { value: s.value, chosen });
-    reconcileSelect(s);
+    // first one's value: a `multiple` select's other defaults lost); settling still chooses a single select's first.
+    selectStates.set(select, { value: select.value, chosen });
+    settleSelect(select);
   }
+}
+
+// --- Writes by scripts -----------------------------------------------------------------------------
+
+/**
+ * A script (or a front end) writes a control's field, as the DOM's property does: a radio checked unchecks its group, an
+ * option chosen in a single select unchooses the others, a select's `value` chooses its option at once. Dirty flags are
+ * the caller's (a front end's default reaching a control isn't a change); any other field is written as it is.
+ */
+export function writeControl(c: UIComponentType, field: string, value: unknown): void {
+  if (c instanceof UIRadio && field === "checked" && value === true) return void checkRadio(c);
+  if (c instanceof UIOption && field === "selected" && value === true) {
+    const select = selectOf(c);
+    if (select && !select.multiple) return void chooseOption(select, c);
+  }
+  (c as unknown as Record<string, unknown>)[field] = value;
+  if (c instanceof UISelect && field === "value") settleSelect(c);
 }
 
 // --- Labels ----------------------------------------------------------------------------------------
@@ -338,8 +478,9 @@ export function labelledControl(label: UILabel): UIFocusableElement | null {
 
 // --- Activation: what a click, submit or a label does ---------------------------------------------
 
-/** The player changed `c`: `input` then `change`, and its polled `changed` this frame. */
-export function controlChanged(world: World, c: UIFocusableElement): void {
+/** The player changed `c`: its dirty flag, `input` then `change`, and its polled `changed` this frame. */
+export function playerChanged(world: World, c: UIFocusableElement): void {
+  markChanged(c);
   uiInteractions(world).publishPolled("change", c);
   if (c instanceof UIInputField) {
     // A field's change is its typing's (the front ends make it `input`, and `change` once committed).
@@ -348,6 +489,12 @@ export function controlChanged(world: World, c: UIFocusableElement): void {
     fireUIEvent(world, uiEventRecord("input", c));
     fireUIEvent(world, uiEventRecord("change", c));
   }
+}
+
+/** A player's change's dirty flag: a field's or slider's value, a checkbox's or radio's checkedness, a select's chosen options. */
+function markChanged(c: UIFocusableElement): void {
+  if (c instanceof UISelect) for (const o of optionsOf(c)) if (o.selected) controlState(o)?.wrote("selected");
+  controlState(c)?.wrote(c instanceof UIToggle || c instanceof UIRadio ? "checked" : "value");
 }
 
 /** Send a form's `submit` (Enter in one of its fields, a submit button, `requestSubmit`). */
@@ -376,9 +523,9 @@ export function activateControl(world: World, c: UIComponentType): void {
   if (c instanceof UIToggle) {
     c.checked = !c.checked;
     c.indeterminate = false;
-    controlChanged(world, c);
+    playerChanged(world, c);
   } else if (c instanceof UIRadio) {
-    if (checkRadio(c)) controlChanged(world, c);
+    if (checkRadio(c)) playerChanged(world, c);
   } else if (c instanceof UISelect) {
     setSelectOpen(c, !c.open);
   } else if (c instanceof UIOption) {
@@ -386,7 +533,7 @@ export function activateControl(world: World, c: UIComponentType): void {
     if (!select || !select.interactable) return;
     const changed = chooseOption(select, c);
     if (!select.multiple) setSelectOpen(select, false);
-    if (changed) controlChanged(world, select);
+    if (changed) playerChanged(world, select);
   } else if (c instanceof UIButton) {
     const form = formOf(c);
     if (!form) return;
@@ -417,7 +564,7 @@ export function uiClickRecord(world: World, target: UIComponentType, data: UIEve
     data,
     (prevented) => {
       if (prevented) undo?.();
-      else if (undo && c.node.isValid) controlChanged(world, c);
+      else if (undo && c.node.isValid) playerChanged(world, c);
       after?.(prevented);
     },
     () => {
@@ -501,7 +648,7 @@ function labelActivate(world: World, label: UILabel, data: UIEventData): void {
  * A control's value as text, as the DOM's `value` reads it: a field's text, a select's chosen value, a slider's,
  * progress bar's or meter's number, a checkbox's, radio's or option's `value`; null for other elements.
  */
-export function uiValueOf(c: UIComponentType): string | null {
+export function controlValue(c: UIComponentType): string | null {
   if (c instanceof UIInputField || c instanceof UISelect || c instanceof UIToggle || c instanceof UIRadio) return c.value;
   if (c instanceof UISlider) return String(c.value);
   if (c instanceof UIOption) return optionValue(c);
@@ -510,17 +657,14 @@ export function uiValueOf(c: UIComponentType): string | null {
   return null;
 }
 
-/** Write a control's value from text (a slider, bar or meter reads it as a number; a select chooses the option with it). Not a player change. */
-export function setUIValue(c: UIComponentType, value: string): void {
-  if (c instanceof UIInputField || c instanceof UISelect || c instanceof UIToggle || c instanceof UIRadio || c instanceof UIOption) c.value = value;
-  else if (c instanceof UISlider) c.value = sliderValue(c, Number(value));
+/**
+ * A script writes a control's value from text, as the DOM's `value` does (a slider, bar or meter reads it as a number;
+ * a select chooses the option with it), through `writeControl`. Not a player change; dirty flags are the caller's.
+ */
+export function writeControlValue(c: UIComponentType, value: string): void {
+  if (c instanceof UISlider) writeControl(c, "value", sliderValue(c, Number(value)));
   else if (c instanceof UIProgress || c instanceof UIMeter) {
     const n = Number(value);
     c.value = value.trim() !== "" && Number.isFinite(n) ? n : c instanceof UIMeter ? 0 : null;
-  }
-}
-
-/** True for a text area (Enter starts a line there instead of submitting). */
-export function isTextArea(c: unknown): c is UITextArea {
-  return c instanceof UITextArea;
+  } else if (c instanceof UIInputField || c instanceof UISelect || c instanceof UIToggle || c instanceof UIRadio || c instanceof UIOption) writeControl(c, "value", value);
 }
