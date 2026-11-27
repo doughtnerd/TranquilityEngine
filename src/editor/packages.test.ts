@@ -75,6 +75,20 @@ describe("resolving from node_modules (ADR 0125)", () => {
     expect(await resolver().resolve("fs", "node_modules/@scope/thing/index.js")).toEqual({ empty: true });
   });
 
+  it("resolves a package's own subpath imports (#…) and the export conditions it is given", async () => {
+    const files = filesOf({
+      "node_modules/inner/package.json": pkg({ name: "inner", exports: { ".": { production: "./prod.js", default: "./dev.js" } }, imports: { "#util": "./src/util.js", "#ext": "esm-pkg" } }),
+      "node_modules/inner/prod.js": "", "node_modules/inner/dev.js": "", "node_modules/inner/src/util.js": "",
+      ...NODE_MODULES,
+    });
+    expect(await new PackageResolver(files).resolve("#util", "node_modules/inner/prod.js")).toEqual({ file: "node_modules/inner/src/util.js" });
+    expect(await new PackageResolver(files).resolve("#ext", "node_modules/inner/prod.js")).toEqual({ file: "node_modules/esm-pkg/dist/index.mjs" });
+    expect(await new PackageResolver(files).resolve("#nope", "node_modules/inner/prod.js")).toEqual({ error: expect.stringMatching(/Missing "#nope"/) });
+    expect(await new PackageResolver(files).resolve("#util", "")).toHaveProperty("error");
+    expect(await new PackageResolver(files).resolve("inner", "")).toEqual({ file: "node_modules/inner/dev.js" });
+    expect(await new PackageResolver(files, ["production"]).resolve("inner", "")).toEqual({ file: "node_modules/inner/prod.js" });
+  });
+
   it("explains missing packages, unexported paths and Node built-ins", async () => {
     expect(await resolver().resolve("left-pad", "")).toEqual({ error: expect.stringMatching(/isn't installed: run npm install/) });
     expect(await resolver().resolve("mapped/secret", "")).toHaveProperty("error");

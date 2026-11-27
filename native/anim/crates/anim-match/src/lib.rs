@@ -24,7 +24,7 @@
 //!
 //! The runtime follows `anim-math`'s rules: correctly rounded f32 operations in a fixed order, no
 //! fused multiply-add, no relaxed SIMD, no libm (`e^-x` and trigonometry come from
-//! `anim_math::ease::exp2` and `anim_math::trig`). The bake accumulates its statistics in f64 in a
+//! `anim_math::trig::exp2` and `anim_math::trig`). The bake accumulates its statistics in f64 in a
 //! fixed order.
 
 // `!(x > 0.0)` is deliberate: it is true for NaN as well, which `x <= 0.0` is not.

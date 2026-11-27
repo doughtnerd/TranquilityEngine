@@ -55,11 +55,11 @@ describe("King of Pirates: the sound playlists", () => {
 
   it("the scenes' looping sounds are playlists on the ambience buses", () => {
     const clips: { clip: string; output: string }[] = [];
-    for (const file of ["scenes/menu.scene.json", "scenes/menu-document.scene.json", "scenes/island-bay.scene.json", "scenes/open-ocean.scene.json", "scenes/rocky-maze.scene.json", "prefabs/camera.prefab.json"]) {
+    for (const file of ["scenes/menu.scene.json", "scenes/island-bay.scene.json", "scenes/open-ocean.scene.json", "scenes/rocky-maze.scene.json", "prefabs/camera.prefab.json"]) {
       const scene = json(file) as { nodes: { components?: { type: string; data: { clip?: string; output?: string } }[] }[] };
       for (const n of scene.nodes) for (const c of n.components ?? []) if (c.type === "engine.AudioSource") clips.push({ clip: c.data.clip ?? "", output: c.data.output ?? "" });
     }
-    expect(clips.length).toBe(6);
+    expect(clips.length).toBe(5); // the ocean in the menu and the camera, and each arena's rain
     for (const { clip, output } of clips) {
       expect(clip).toMatch(/^asset:sounds\/.+\.playlist\.json$/);
       expect(PLAYLISTS).toContain(clip.slice("asset:".length));

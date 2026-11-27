@@ -101,6 +101,11 @@ from the start screen rather than after booting the read-only sample.
   play Engine (the default World for `null`, another by name, once it has stepped a frame), found
   the way a script finds it (a system's `ctx.world`), and walks nodes through `root`, `children`
   and `getComponents`. View and input state come from the game view's tiles and Worlds strip.
+- **Baseline captures:** `ui-css.spec.ts` is the one spec that compares captures with committed images (Playwright's
+  `toHaveScreenshot`, in `ui-css.spec.ts-snapshots/`, named per project and platform: the committed ones are Linux with
+  software GL). After an intended change to UI drawing, look at the new images and update them with
+  `npx playwright test --project=chromium ui-css --update-snapshots`; a new platform or the GPU writes its own on its
+  first run. Its frame-time tests (`@slow`) read play mode's Stats overlay and hold the UI under the tripwires in the spec.
 - Never read the renderer (`world.render`, its diagnostics or editor viewport) from a page: it is
   internal (CLAUDE.md). Check what it draws from captures (`./viewCapture`: `captureView`,
   `captureArea`, `steadyView`, `pixelsChanged`, `pixelsNear`), the editor's UI (the particle preview's

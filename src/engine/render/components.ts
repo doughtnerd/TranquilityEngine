@@ -334,35 +334,6 @@ function rotate(q: Quaternion, x: number, y: number, z: number): Vector3 {
   return new Vector3(x + q.w * tx + (q.y * tz - q.z * ty), y + q.w * ty + (q.z * tx - q.x * tz), z + q.w * tz + (q.x * ty - q.y * tx));
 }
 
-export type Anchor = "top-left" | "top" | "top-right" | "left" | "center" | "right" | "bottom-left" | "bottom" | "bottom-right";
-
-/**
- * Screen-space text, rendered inside the canvas (ADR 0020). Positioned by `anchor` and an
- * `offset` in reference-resolution pixels (+x right, +y down).
- *
- * Interim implementation: drawn to a canvas texture. ADR 0020 calls for pmndrs uikit; this
- * component keeps the same engine-facing shape so it can be re-backed without game changes.
- */
-@component("engine.Text")
-export class Text extends Component {
-  @field(String) text = "";
-  /** Font size in reference-resolution pixels. */
-  @field(Number) fontSize = 32;
-  @field(String) fontFamily = "system-ui, sans-serif";
-  @field(String) fontWeight = "700";
-  @field(Color) color = Color.white;
-  @field(Color) outlineColor: Color | null = null;
-  @field(Number) outlineWidth = 0;
-  @field(String, { choices: ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"] }) anchor: Anchor = "center";
-  @field(Vector2) offset = new Vector2(0, 0);
-  @field(String, { choices: ["left", "center", "right"] }) align: "left" | "center" | "right" = "center";
-  @field(Number) lineHeight = 1.2;
-
-  override _onDetach(): void {
-    this._world.render?.release(this);
-  }
-}
-
 /**
  * Draws a mesh with a material (ADR 0043, 0044). `mesh` is a model asset (`asset:models/robot.fbx`
  * draws all its meshes, `asset:models/robot.fbx#Body` one of them) or a built-in mesh

@@ -11,6 +11,7 @@ import { Tour } from "../../../samples/navigation/scripts/behaviors/Tour";
 import { Hud, spawners } from "../../../samples/navigation/scripts/behaviors/Hud";
 import "../../../samples/navigation/scripts/behaviors/CameraRig";
 import "../../../samples/navigation/scripts/behaviors/Gate";
+import { serveSampleUI } from "./sampleUI";
 
 // ADR 0065, W7: the navigation sample (samples/navigation, a port of Foxfire's Streaming Demo) played headless: the
 // project read from disk as the dedicated server reads it, its main scene run for 75 s of fixed steps. Every kind
@@ -55,6 +56,7 @@ describe("the navigation sample (ADR 0065)", () => {
     const project = await readProject(SAMPLE);
     Assets.clearSources();
     Assets.addSource(project.assets);
+    serveSampleUI(import.meta.glob("../../../samples/navigation/ui/*.svelte", { eager: true }));
     const engine = await Engine.create({ headless: true, project: project.settings });
     engines.push(engine);
     await SceneManager.load("scenes/main.scene.json");

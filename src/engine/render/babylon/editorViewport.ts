@@ -28,12 +28,12 @@ import { shapeWorldBox, type DrawnShape } from "./feature";
 import { BabylonEditorGuides } from "./editorGuides";
 import { BabylonEditorIcons } from "./editorIcons";
 
-/** Icons (camera, light and particle system) draw above every sprite (and below screen Text, `PICK_ORDER.screen`). */
+/** Icons (camera, light and particle system) draw above every sprite. */
 const ICON_ORDER = 1e9;
 
 const visible = (m: AbstractMesh): boolean => m.isEnabled() && m.isVisible;
 
-/** The meshes of a drawing in the world (a quad's or meshes), visible ones only; none for a canvas rectangle. */
+/** The meshes of a drawing in the world (a quad's or meshes), visible ones only. */
 function worldMeshes(d: EditorDrawn): AbstractMesh[] {
   const shape = d.shape;
   if (shape?.kind === "quad") return visible(shape.mesh) ? [shape.mesh] : [];
@@ -143,7 +143,7 @@ export class BabylonEditorViewport implements ViewportAdapter {
 
   /**
    * Nodes drawn under a canvas point (CSS pixels, origin top-left), topmost first: by each drawing's pick
-   * order (ADR 0276: screen Text, then icons, then layered 2D content such as sprites and tile layers by draw
+   * order (ADR 0276: icons, then layered 2D content such as sprites and tile layers by draw
    * order, then depth-tested meshes), nearest first within an order. Uses the camera that draws the view
    * (the first in depth order). What the UI core picks (canvases and elements, ADR 0117) isn't here.
    */
@@ -158,10 +158,7 @@ export class BabylonEditorViewport implements ViewportAdapter {
       if (d.pickable === false || !d.shape) continue;
       const shape = d.shape;
       let distance: number | null = null;
-      if (shape.kind === "rect") {
-        const r = shape.rect;
-        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) distance = 0;
-      } else if (shape.kind === "box") {
+      if (shape.kind === "box") {
         continue; // a decal's volume is picked through its gizmo or the Hierarchy, never by clicking the air in it (ADR 0395)
       } else if (shape.kind === "polyline") {
         distance = this.polylineHit(shape, x, y);
@@ -227,21 +224,20 @@ export class BabylonEditorViewport implements ViewportAdapter {
 
   /**
    * Where each active node under `root` with a Transform or a drawing is on the canvas: the rectangle around everything
-   * drawn for it (ADR 0276: sprite quads, meshes, tile layers, water, world canvases, screen Text), or (with
+   * drawn for it (ADR 0276: sprite quads, meshes, tile layers, water, world canvases), or (with
    * nothing drawn) a point at its origin. Nodes partly behind the camera are left out. Parents come before children.
    */
   screenBounds(root: GameObject): { node: GameObject; rect: ScreenRect }[] {
     const world = this.ctx.world(), view = this.view();
     if (!world || !view || !this.hasSize()) return [];
-    const drawn = new Map<GameObject, { quads: AbstractMesh[]; meshes: AbstractMesh[]; rects: ScreenRect[]; boxes: { min: number[]; max: number[] }[] }>();
+    const drawn = new Map<GameObject, { quads: AbstractMesh[]; meshes: AbstractMesh[]; boxes: { min: number[]; max: number[] }[] }>();
     for (const d of this.ctx.drawn()) {
       const shape = d.shape;
       if (!shape) continue;
       const node = d.component.node;
       let entry = drawn.get(node);
-      if (!entry) drawn.set(node, (entry = { quads: [], meshes: [], rects: [], boxes: [] }));
-      if (shape.kind === "rect") entry.rects.push(shape.rect);
-      else if (shape.kind === "box" || shape.kind === "polyline") {
+      if (!entry) drawn.set(node, (entry = { quads: [], meshes: [], boxes: [] }));
+      if (shape.kind === "box" || shape.kind === "polyline") {
         const b = shapeWorldBox(shape);
         if (b) entry.boxes.push(b);
       }
@@ -260,13 +256,9 @@ export class BabylonEditorViewport implements ViewportAdapter {
     const boundsOf = (node: GameObject): ScreenRect | null => {
       const rect: ScreenRect = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
       const d = drawn.get(node);
-      if (d && d.quads.length + d.meshes.length + d.rects.length + d.boxes.length > 0) {
+      if (d && d.quads.length + d.meshes.length + d.boxes.length > 0) {
         for (const b of d.boxes) {
           for (let i = 0; i < 8; i++) if (!grow(rect, project(view, i & 1 ? b.max[0]! : b.min[0]!, i & 2 ? b.max[1]! : b.min[1]!, i & 4 ? b.max[2]! : b.min[2]!))) return null;
-        }
-        for (const r of d.rects) {
-          grow(rect, [r.left, r.top]);
-          grow(rect, [r.right, r.bottom]);
         }
         for (const quad of d.quads) {
           const m = quad.getWorldMatrix();
@@ -287,7 +279,7 @@ export class BabylonEditorViewport implements ViewportAdapter {
     const out: { node: GameObject; rect: ScreenRect }[] = [];
     const visit = (node: GameObject): void => {
       if (world.isPendingDestroy(node.entity) || !node.activeInHierarchy) return;
-      const rect = node.transform || drawn.has(node) ? boundsOf(node) : null; // screen Text needs no Transform
+      const rect = node.transform || drawn.has(node) ? boundsOf(node) : null;
       if (rect) out.push({ node, rect });
       for (const c of node.children) visit(c);
     };

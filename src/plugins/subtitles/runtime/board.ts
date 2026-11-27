@@ -1,6 +1,6 @@
 /**
  * The subtitle board (ADR 0357 §5): what the built-in `SubtitleDisplay` shows, driven by the public audio events and the
- * heard clock. Pure: no World, no UI document, no `Audio`; the display feeds it events and asks for rows each frame.
+ * heard clock. Pure: no World, no UI view, no `Audio`; the display feeds it events and asks for rows each frame.
  *
  * - **Rows.** A line's `start` (with text) or a caption's `start` adds a row; a new line from a speaker replaces that
  *   speaker's row; rows stack oldest first, at most `maxStack`, and when full a caption is dropped before speech

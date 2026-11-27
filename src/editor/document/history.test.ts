@@ -203,7 +203,7 @@ describe("saving and loading history", () => {
 
 describe("text files in the history (ADR 0077)", () => {
   const host = () => {
-    const files = new Map<string, string>([["ui/a.ui.xml", "<Canvas>\n  <Panel/>\n</Canvas>\n"]]);
+    const files = new Map<string, string>([["ui/a.svelte", "<Canvas>\n  <Panel/>\n</Canvas>\n"]]);
     const conflicts: string[] = [];
     return {
       files,
@@ -220,23 +220,23 @@ describe("text files in the history (ADR 0077)", () => {
     const stack = new CommandStack(doc);
     const h = host();
     stack.files = h;
-    const original = h.files.get("ui/a.ui.xml")!;
-    stack.execute(new WriteFiles("Set width", [{ path: "ui/a.ui.xml", text: original.replace("<Panel/>", `<Panel width="10"/>`) }]));
+    const original = h.files.get("ui/a.svelte")!;
+    stack.execute(new WriteFiles("Set width", [{ path: "ui/a.svelte", text: original.replace("<Panel/>", `<Panel width="10"/>`) }]));
     setX(stack, 5);
-    stack.execute(new WriteFiles("Add sheet", [{ path: "ui/a.ui.css", text: ".a { gap: 1px; }\n" }]));
+    stack.execute(new WriteFiles("Add sheet", [{ path: "ui/a.css", text: ".a { gap: 1px; }\n" }]));
     const patch = stack.allStates.find((s) => s.label === "Set width")!.files![0];
-    expect(patch).toEqual({ path: "ui/a.ui.xml", start: 17, before: "", after: ` width="10"` });
+    expect(patch).toEqual({ path: "ui/a.svelte", start: 17, before: "", after: ` width="10"` });
     stack.undo();
-    expect(h.files.has("ui/a.ui.css")).toBe(false); // made by the step: undo deletes it
+    expect(h.files.has("ui/a.css")).toBe(false); // made by the step: undo deletes it
     stack.undo();
     expect(x(doc)).toBe(0);
     stack.undo();
-    expect(h.files.get("ui/a.ui.xml")).toBe(original);
+    expect(h.files.get("ui/a.svelte")).toBe(original);
     stack.redo();
     stack.redo();
     stack.redo();
-    expect(h.files.get("ui/a.ui.css")).toBe(".a { gap: 1px; }\n");
-    expect(h.files.get("ui/a.ui.xml")).toContain(`width="10"`);
+    expect(h.files.get("ui/a.css")).toBe(".a { gap: 1px; }\n");
+    expect(h.files.get("ui/a.svelte")).toContain(`width="10"`);
     expect(x(doc)).toBe(5);
     expect(JSON.stringify(stack.toFile("s.scene.json"))).toContain(`"files"`);
   });
@@ -248,7 +248,7 @@ describe("text files in the history (ADR 0077)", () => {
     const h = host();
     stack.files = h;
     stack.beginGroup("Drag");
-    for (const w of [1, 2, 3]) stack.execute(new WriteFiles("Set width", [{ path: "ui/a.ui.xml", text: `<Canvas width="${w}"/>` }]));
+    for (const w of [1, 2, 3]) stack.execute(new WriteFiles("Set width", [{ path: "ui/a.svelte", text: `<Canvas width="${w}"/>` }]));
     stack.endGroup();
     expect(stack.allStates.length).toBe(2);
     expect(stack.allStates[1].files).toHaveLength(1);
@@ -257,26 +257,26 @@ describe("text files in the history (ADR 0077)", () => {
     expect(stack.dirty).toBe(true);
     stack.undo();
     expect(stack.dirty).toBe(false);
-    h.files.set("ui/a.ui.xml", "changed elsewhere");
+    h.files.set("ui/a.svelte", "changed elsewhere");
     stack.undo();
-    expect(h.conflicts).toEqual(["ui/a.ui.xml"]);
-    expect(h.files.get("ui/a.ui.xml")).toBe("changed elsewhere");
+    expect(h.conflicts).toEqual(["ui/a.svelte"]);
+    expect(h.files.get("ui/a.svelte")).toBe("changed elsewhere");
   });
 
   it("cancels a group: the document and its files go back, nothing is recorded, a nested group just closes (ADR 0231)", () => {
     const doc = new SceneDocument(file());
     const stack = new CommandStack(doc);
     const h = host();
-    h.files.set("ui/a.ui.xml", "<Canvas/>");
+    h.files.set("ui/a.svelte", "<Canvas/>");
     stack.files = h;
     const events: string[] = [];
     stack.subscribe((e) => events.push(`${e.reason}:${e.changes.length}`));
     stack.beginGroup("Drag");
     setX(stack, 4);
-    stack.execute(new WriteFiles("Set width", [{ path: "ui/a.ui.xml", text: `<Canvas width="4"/>` }, { path: "ui/new.css", text: "x" }]));
+    stack.execute(new WriteFiles("Set width", [{ path: "ui/a.svelte", text: `<Canvas width="4"/>` }, { path: "ui/new.css", text: "x" }]));
     expect(stack.cancelGroup()).toBe(true);
     expect(x(doc)).toBe(0);
-    expect(h.files.get("ui/a.ui.xml")).toBe("<Canvas/>");
+    expect(h.files.get("ui/a.svelte")).toBe("<Canvas/>");
     expect(h.files.has("ui/new.css")).toBe(false);
     expect(stack.allStates.length).toBe(1);
     expect(stack.canUndo).toBe(false);
@@ -296,18 +296,18 @@ describe("text files in the history (ADR 0077)", () => {
     const stack = new CommandStack(new SceneDocument(file()));
     const h = host();
     stack.files = h;
-    const original = h.files.get("ui/a.ui.xml")!;
+    const original = h.files.get("ui/a.svelte")!;
     setX(stack, 1);
-    stack.execute(new WriteFiles("Edit", [{ path: "ui/a.ui.xml", text: "<Canvas/>\n" }]));
+    stack.execute(new WriteFiles("Edit", [{ path: "ui/a.svelte", text: "<Canvas/>\n" }]));
     const saved = JSON.parse(JSON.stringify(stack.toFile("s.scene.json")));
     delete saved.states[1].undo; // state 1's way back is lost
     const stack2 = new CommandStack(stack.doc);
     stack2.files = h;
     expect(stack2.load(saved)).not.toBeNull();
     expect(stack2.jumpTo(0)).toBe(false); // undoing state 2 would rewrite the file, but state 1 refuses
-    expect([h.files.get("ui/a.ui.xml"), x(stack2.doc), stack2.current]).toEqual(["<Canvas/>\n", 1, 2]);
+    expect([h.files.get("ui/a.svelte"), x(stack2.doc), stack2.current]).toEqual(["<Canvas/>\n", 1, 2]);
     expect(stack2.undo()).toBe(true); // the intact step still goes back
-    expect(h.files.get("ui/a.ui.xml")).toBe(original);
+    expect(h.files.get("ui/a.svelte")).toBe(original);
   });
 
   it("diffs text to the differing middle", () => {

@@ -31,7 +31,7 @@ fn main() {
         }
     }
 
-    // The shared crates (../common/) are hashed too.
+    // The shared crates it links (SHARED_CRATES under ../common/) are hashed too.
     for path in source_hash::shared_watch(&root) {
         println!("cargo:rerun-if-changed={}", path.display());
     }

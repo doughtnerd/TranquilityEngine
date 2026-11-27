@@ -1,44 +1,19 @@
 /**
- * UI stylesheets (`*.ui.css`, ADR 0077): a CSS subset parsed with `css-tree` (its parser only, not the
- * lexer and its property data), selector matching against the built element tree, and the cascade
- * that turns attributes, rules, inheritance and variables into component field values. Pure and
- * renderer-neutral; never throws for a bad sheet (problems are reported).
+ * UI stylesheets (Svelte components' CSS and the `.css` files they import, ADR 0423; the CSS subset of ADR 0077): parsed with
+ * `css-tree` (its parser only, not the lexer and its property data) into rule data (`UIStylesheet`) for
+ * the cascade (`cascade.ts`, re-exported here). Pure and renderer-neutral; never throws for a bad sheet
+ * (problems are reported). Svelte components' styles are parsed with it when they compile (the editor,
+ * the export), so games using only Svelte UI never load it.
  */
 import parse from "css-tree/parser";
 import type { CssNode, Declaration as CssDeclaration, Rule as CssRule, Selector as CssSelector } from "css-tree";
-import { Color, Vector2 } from "../../core/math";
-import { AssetRef, getFields, type FieldInfo } from "../../core/registry";
-import { UI_TYPES } from "../components";
-import { UI_TAGS as UI_KIND_TAGS } from "../elementKinds";
-import { hasBinding, problemAt, resolvePath } from "./markup";
-import type {
-  Declaration,
-  MarkupAttribute,
-  ParseStylesheet,
-  ResolvedValue,
-  ResolveStyle,
-  Selector,
-  SimpleSelector,
-  SourceProblem,
-  StyleRule,
-  StyleTarget,
-  UIPseudo,
-  UITag,
-  ValueSource,
-} from "./types";
+import { isKnownTag, PSEUDO, PSEUDO_ELEMENTS, selectorSpecificity, UI_TAGS, type SelectorGroup } from "./cascade";
+import { parseMediaQueryList } from "./mediaQuery";
+import { parseCompoundText } from "./selectorQuery";
+import { problemAt } from "./sourceText";
+import type { Combinator, Declaration, ParseStylesheet, Selector, SimpleSelector, SourceProblem, StyleRule, UIAttributeSelector, UIKeyframe, UIKeyframes, UIMediaQuery, UINthSelector, UIPseudo, UIPseudoElement } from "./types";
 
-const UI_TAGS: ReadonlySet<string> = UI_KIND_TAGS;
-const PSEUDO: ReadonlySet<string> = new Set<UIPseudo>(["hover", "pressed", "focus", "disabled"]);
-/** Text fields children inherit, as on the web (camelCase field names). */
-export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign"]);
-/** String fields that hold a `UILength`. */
-const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left"]);
-/** Attributes that aren't fields (`translate="no"` marks text as deliberately unlocalised, ADR 0356 §4). */
-const NOT_FIELDS: ReadonlySet<string> = new Set(["id", "class", "translate"]);
-/** The prefix of key attributes (`t:text="menu.start"`, ADR 0356 §4): the runtime writes the localised message. */
-const KEY_ATTRIBUTE_PREFIX = "t:";
-/** Node reference fields an attribute sets by naming another element's id (ADR 0340): the document resolves them after building. */
-const REFERENCE_FIELDS: ReadonlySet<string> = new Set(["navUp", "navDown", "navLeft", "navRight", "firstSelected"]);
+export * from "./cascade";
 
 // --- Parsing ------------------------------------------------------------------------------------
 
@@ -46,6 +21,7 @@ export const parseStylesheet: ParseStylesheet = (source, file, firstOrder = 0) =
   const problems: SourceProblem[] = [];
   const report = (start: number, end: number, message: string) => problems.push(problemAt(source, file, { start, end }, message));
   const rules: StyleRule[] = [];
+  const keyframes: UIKeyframes[] = [];
   let ast: CssNode;
   try {
     ast = parse(source, {
@@ -59,20 +35,99 @@ export const parseStylesheet: ParseStylesheet = (source, file, firstOrder = 0) =
     return { file, rules, problems };
   }
   if (ast.type !== "StyleSheet") return { file, rules, problems };
-  for (const node of ast.children.toArray()) {
-    const loc = node.loc;
-    const start = loc?.start.offset ?? 0;
-    const end = loc?.end.offset ?? 0;
-    if (node.type === "Atrule") {
-      report(start, end, `@${node.name} isn't supported in UI stylesheets; the rule is ignored.`);
+  const walk = (nodes: readonly CssNode[], media: readonly (readonly UIMediaQuery[])[]) => {
+    for (const node of nodes) {
+      const loc = node.loc;
+      const start = loc?.start.offset ?? 0;
+      const end = loc?.end.offset ?? 0;
+      if (node.type === "Atrule") {
+        const name = node.name.toLowerCase();
+        if (name === "keyframes" && media.length === 0) {
+          const block = parseKeyframes(node, source, report);
+          if (block) keyframes.push(block);
+          continue;
+        }
+        if (name === "media") {
+          // ADR 0422 wave 5: `@media` on the canvas; its rules carry the query lists they're in.
+          const prelude = node.prelude?.loc ? source.slice(node.prelude.loc.start.offset, node.prelude.loc.end.offset) : "";
+          let list: UIMediaQuery[];
+          try {
+            list = parseMediaQueryList(prelude, true);
+          } catch (err) {
+            report(start, end, `@media ${(err as Error).message}; the block is ignored.`);
+            continue;
+          }
+          if (node.block) walk(node.block.children.toArray(), [...media, list]);
+          continue;
+        }
+        report(start, end, `@${node.name} isn't supported${media.length ? " inside @media" : ""} in UI stylesheets; the rule is ignored.`);
+        continue;
+      }
+      if (node.type !== "Rule") continue;
+      const rule = parseRule(node, source, report);
+      if (rule) rules.push({ ...rule, order: firstOrder + rules.length, ...(media.length ? { media } : {}) });
+    }
+  };
+  walk(ast.children.toArray(), []);
+  return keyframes.length ? { file, rules, problems, keyframes } : { file, rules, problems };
+};
+
+// --- @keyframes (ADR 0422 wave 4) ------------------------------------------------------------------
+
+/** A `@keyframes name { from {…} 50% {…} to {…} }` block: its keyframes, with their offsets (0–1) and declarations. */
+function parseKeyframes(node: CssNode, source: string, report: (start: number, end: number, message: string) => void): UIKeyframes | null {
+  if (node.type !== "Atrule") return null;
+  const start = node.loc?.start.offset ?? 0;
+  const end = node.loc?.end.offset ?? 0;
+  const prelude = node.prelude?.type === "AtrulePrelude" ? node.prelude.children.toArray() : [];
+  const head = prelude.length === 1 ? prelude[0] : null;
+  const name = head?.type === "Identifier" ? head.name : head?.type === "String" ? head.value : null;
+  if (!name || name === "none") {
+    report(start, end, "@keyframes needs one name (not none); the block is ignored.");
+    return null;
+  }
+  if (!node.block) {
+    report(start, end, `@keyframes ${name} has no block; it's ignored.`);
+    return null;
+  }
+  const frames: UIKeyframe[] = [];
+  for (const child of node.block.children.toArray()) {
+    const cs = child.loc?.start.offset ?? 0;
+    const ce = child.loc?.end.offset ?? 0;
+    if (child.type !== "Rule" || child.prelude.type !== "SelectorList") {
+      report(cs, ce, `@keyframes ${name}: "${source.slice(cs, ce).trim()}" isn't a keyframe (from, to or a percentage, then declarations).`);
       continue;
     }
-    if (node.type !== "Rule") continue;
-    const rule = parseRule(node, source, report);
-    if (rule) rules.push({ ...rule, order: firstOrder + rules.length });
+    const offsets: number[] = [];
+    let ok = true;
+    for (const sel of child.prelude.children.toArray()) {
+      const parts = sel.type === "Selector" ? sel.children.toArray() : [];
+      const p = parts.length === 1 ? parts[0] : null;
+      const offset = p?.type === "TypeSelector" && p.name.toLowerCase() === "from" ? 0 : p?.type === "TypeSelector" && p.name.toLowerCase() === "to" ? 1 : p?.type === "Percentage" ? parseFloat(p.value) / 100 : NaN;
+      if (!(offset >= 0 && offset <= 1)) ok = false;
+      else offsets.push(offset);
+    }
+    if (!ok || offsets.length === 0) {
+      report(cs, ce, `@keyframes ${name}: a keyframe selector is from, to or a percentage from 0% to 100%; the keyframe is ignored.`);
+      continue;
+    }
+    const declarations: Declaration[] = [];
+    for (const d of child.block.children.toArray()) {
+      const ds = d.loc?.start.offset ?? 0;
+      const de = d.loc?.end.offset ?? 0;
+      if (d.type !== "Declaration") {
+        report(ds, de, `"${source.slice(ds, de).trim()}" isn't a declaration (property: value).`);
+        continue;
+      }
+      const decl = d as CssDeclaration;
+      if (decl.important) report(ds, de, `!important is ignored inside @keyframes.`);
+      const value = decl.value.type === "Raw" ? decl.value.value : source.slice(decl.value.loc?.start.offset ?? ds, decl.value.loc?.end.offset ?? de);
+      declarations.push({ property: decl.property, value: value.replace(/\s*!\s*important\s*$/i, "").trim(), span: { start: ds, end: de } });
+    }
+    frames.push({ offsets, declarations, span: { start: cs, end: ce } });
   }
-  return { file, rules, problems };
-};
+  return { name, frames, span: { start, end } };
+}
 
 function parseRule(node: CssRule, source: string, report: (start: number, end: number, message: string) => void): Omit<StyleRule, "order"> | null {
   const start = node.loc?.start.offset ?? 0;
@@ -86,7 +141,7 @@ function parseRule(node: CssRule, source: string, report: (start: number, end: n
   const selectors: Selector[] = [];
   for (const sel of prelude.children.toArray()) {
     if (sel.type !== "Selector") continue;
-    const parsed = parseSelector(sel, report);
+    const parsed = parseSelector(sel, source, report);
     if (parsed) selectors.push(parsed);
   }
   const declarations: Declaration[] = [];
@@ -106,28 +161,93 @@ function parseRule(node: CssRule, source: string, report: (start: number, end: n
   return { selectors, declarations, selectorText, span: { start, end } };
 }
 
-function parseSelector(sel: CssSelector, report: (start: number, end: number, message: string) => void): Selector | null {
-  const parts: { selector: SimpleSelector; combinator: " " | ">" | null }[] = [];
-  let current: { tag: UITag | null; id: string | null; classes: string[]; pseudo: UIPseudo[]; lang: string[] } | null = null;
-  let pendingCombinator: " " | ">" | null = null;
-  let root = false;
+type Report = (start: number, end: number, message: string) => void;
+
+type MutableCompound = {
+  tag: string | null;
+  id: string | null;
+  classes: string[];
+  pseudo: UIPseudo[];
+  lang: string[];
+  is?: SelectorGroup[];
+  not?: (readonly Selector[])[];
+  nth?: UINthSelector[];
+  attributes?: UIAttributeSelector[];
+  empty?: boolean;
+  root?: boolean;
+  has?: (readonly Selector[])[];
+};
+
+/** Pseudo-classes read by the query reader (ADR 0422 wave 5), so rule data and queries read them alike. */
+const READ_AS_TEXT: ReadonlySet<string> = new Set([
+  "not", "first-child", "last-child", "only-child", "nth-child", "nth-last-child",
+  "first-of-type", "last-of-type", "only-of-type", "nth-of-type", "nth-last-of-type", "empty", "root",
+  // ADR 0432: `:has()` and its relative selectors.
+  "has",
+]);
+
+/** The UI's pseudo-classes and (ADR 0432) pseudo-elements, for messages. */
+const supported = (): string => `:hover, :pressed (or :active), :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), the -of-type forms, :empty, :root and :has(); pseudo-elements: ${[...PSEUDO_ELEMENTS].map((n) => `::${n}`).join(", ")}`;
+
+/** ADR 0432: `nested` (inside `:is()`/`:where()`), where pseudo-elements can't be. */
+function parseSelector(sel: CssSelector, source: string, report: Report, nested = false): Selector | null {
+  const parts: { selector: SimpleSelector; combinator: Combinator | null }[] = [];
+  let current: MutableCompound | null = null;
+  let pendingCombinator: Combinator | null = null;
   let ok = true;
+  /** ADR 0432: the pseudo-element the selector ends with. */
+  let pseudoElement: UIPseudoElement | null = null;
+  const takePseudoElement = (name: string, s: number, e: number) => {
+    if (!PSEUDO_ELEMENTS.has(name)) {
+      report(s, e, `::${name} isn't supported; UI pseudo-elements are ${[...PSEUDO_ELEMENTS].map((n) => `::${n}`).join(", ")}.`);
+      ok = false;
+    } else if (nested) {
+      report(s, e, `A pseudo-element (::${name}) can't be inside a pseudo-class's argument.`);
+      ok = false;
+    } else {
+      compound();
+      pseudoElement = name as UIPseudoElement;
+    }
+  };
   const flush = () => {
     if (!current) return;
     parts.push({ selector: current, combinator: parts.length === 0 ? null : (pendingCombinator ?? " ") });
     current = null;
     pendingCombinator = null;
   };
-  const compound = () => (current ??= { tag: null, id: null, classes: [], pseudo: [], lang: [] });
+  const compound = (): MutableCompound => (current ??= { tag: null, id: null, classes: [], pseudo: [], lang: [] });
+  /** Read `source[s, e)` (an attribute selector or a wave 5 pseudo-class) with the query reader, into the compound. */
+  const readText = (s: number, e: number) => {
+    let read: SimpleSelector;
+    try {
+      read = parseCompoundText(source.slice(s, e));
+    } catch (err) {
+      report(s, e, `"${source.slice(s, e)}": ${(err as Error).message.replace(/ at \d+$/, "")}.`);
+      ok = false;
+      return;
+    }
+    const c = compound();
+    if (read.attributes) (c.attributes ??= []).push(...read.attributes);
+    if (read.nth) (c.nth ??= []).push(...read.nth);
+    if (read.not) (c.not ??= []).push(...read.not);
+    if (read.empty) c.empty = true;
+    if (read.root) c.root = true;
+    if (read.has) (c.has ??= []).push(...read.has);
+  };
   for (const n of sel.children.toArray()) {
     const s = n.loc?.start.offset ?? 0;
     const e = n.loc?.end.offset ?? 0;
+    if (pseudoElement) {
+      report(s, e, `A pseudo-element (::${pseudoElement}) ends its selector; "${source.slice(s, e)}" can't follow it.`);
+      ok = false;
+      break;
+    }
     switch (n.type) {
       case "TypeSelector":
         if (n.name === "*") compound();
-        else if (UI_TAGS.has(n.name)) compound().tag = n.name as UITag;
+        else if (isKnownTag(n.name)) compound().tag = n.name;
         else {
-          report(s, e, `Unknown element "${n.name}" in a selector. Elements are ${[...UI_TAGS].join(", ")}.`);
+          report(s, e, `Unknown element "${n.name}" in a selector. Elements are ${[...UI_TAGS].join(", ")}, or the HTML tags Svelte components write them as (div, span, button…).`);
           ok = false;
         }
         break;
@@ -137,12 +257,20 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
       case "IdSelector":
         compound().id = n.name;
         break;
-      case "PseudoClassSelector":
-        if (n.name === "root") {
-          root = true;
-          compound();
-        } else if (PSEUDO.has(n.name)) compound().pseudo.push(n.name as UIPseudo);
-        else if (n.name === "lang") {
+      case "AttributeSelector":
+        readText(s, e);
+        break;
+      case "PseudoClassSelector": {
+        const name = n.name.toLowerCase();
+        if (PSEUDO.has(name)) compound().pseudo.push(name as UIPseudo);
+        else if (name === "active") compound().pseudo.push("pressed"); // ADR 0432: CSS's name for the engine's `:pressed`
+        else if (name === "before" || name === "after") takePseudoElement(name, s, e); // CSS 2's one-colon form
+        else if (READ_AS_TEXT.has(name)) readText(s, e);
+        else if (name === "is" || name === "where") {
+          const group = parseSelectorGroup(n, source, report);
+          if (group) (compound().is ??= []).push(group);
+          else ok = false;
+        } else if (name === "lang") {
           // `:lang(de)` (ADR 0356 §4): one language range, matched by BCP 47 prefix against the current text language.
           const ranges = (n.children?.toArray() ?? []).map((c) => (c.type === "Identifier" ? c.name : c.type === "String" ? c.value : "")).filter((r) => /^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$/.test(r));
           if (ranges.length !== 1) {
@@ -150,402 +278,49 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
             ok = false;
           } else compound().lang.push(ranges[0]);
         } else {
-          report(s, e, `:${n.name} isn't supported; UI pseudo-classes are :hover, :pressed, :focus, :disabled and :lang().`);
+          report(s, e, `:${n.name} isn't supported; UI pseudo-classes are ${supported()}.`);
           ok = false;
         }
         break;
+      }
       case "Combinator":
-        if (n.name === " " || n.name === ">") {
+        if (n.name === " " || n.name === ">" || n.name === "+" || n.name === "~") {
           flush();
           pendingCombinator = n.name;
         } else {
-          report(s, e, `The "${n.name}" combinator isn't supported; use descendants (A B) or children (A > B).`);
+          report(s, e, `The "${n.name}" combinator isn't supported; use descendants (A B), children (A > B) or siblings (A + B, A ~ B).`);
           ok = false;
         }
         break;
+      case "PseudoElementSelector":
+        takePseudoElement(n.name.toLowerCase(), s, e);
+        break;
       default:
-        report(s, e, `${n.type === "AttributeSelector" ? "Attribute selectors" : n.type === "PseudoElementSelector" ? "Pseudo-elements" : n.type} aren't supported in UI stylesheets.`);
+        report(s, e, `${n.type} isn't supported in UI stylesheets.`);
         ok = false;
     }
   }
   flush();
   if (!ok || parts.length === 0) return null;
-  if (root && (parts.length > 1 || parts[0].selector.tag || parts[0].selector.id || parts[0].selector.classes.length || parts[0].selector.pseudo.length || parts[0].selector.lang.length)) {
-    report(sel.loc?.start.offset ?? 0, sel.loc?.end.offset ?? 0, ":root only goes alone, to declare variables.");
+  const only = parts.length === 1 && !pseudoElement ? parts[0].selector : null;
+  const root = !!only?.root && !only.tag && !only.id && !only.classes.length && !only.pseudo.length && !only.lang.length && !only.is && !only.not && !only.nth && !only.attributes && !only.empty && !only.has;
+  const specificity = selectorSpecificity(parts, pseudoElement);
+  return pseudoElement ? { parts, specificity, root, pseudoElement } : { parts, specificity, root };
+}
+
+function parseSelectorGroup(n: CssNode, source: string, report: Report): SelectorGroup | null {
+  if (n.type !== "PseudoClassSelector") return null;
+  const list = n.children?.toArray().find((c) => c.type === "SelectorList");
+  if (!list || list.type !== "SelectorList") {
+    report(n.loc?.start.offset ?? 0, n.loc?.end.offset ?? 0, `:${n.name}() takes a selector list.`);
     return null;
   }
-  let ids = 0;
-  let classes = 0;
-  let tags = 0;
-  for (const p of parts) {
-    if (p.selector.id) ids++;
-    classes += p.selector.classes.length + p.selector.pseudo.length + p.selector.lang.length;
-    if (p.selector.tag) tags++;
+  const selectors: Selector[] = [];
+  for (const sel of list.children.toArray()) {
+    if (sel.type !== "Selector") continue;
+    const parsed = parseSelector(sel, source, report, true);
+    if (!parsed) return null;
+    selectors.push(parsed);
   }
-  return { parts, specificity: root ? [0, 1, 0] : [ids, classes, tags], root };
-}
-
-// --- Matching -----------------------------------------------------------------------------------
-
-function matchesSimple(s: SimpleSelector, t: StyleTarget): boolean {
-  if (s.tag && s.tag !== t.tag) return false;
-  if (s.id && s.id !== t.id) return false;
-  for (const c of s.classes) if (!t.classes.includes(c)) return false;
-  for (const p of s.pseudo) if (!t.state[p]) return false;
-  for (const range of s.lang) if (!langMatches(t.lang, range)) return false;
-  return true;
-}
-
-/** CSS `:lang()` matching (ADR 0356 §4): the language equals the range or starts with it and a hyphen (`de` matches `de-AT`). */
-function langMatches(language: string | undefined, range: string): boolean {
-  if (!language) return false;
-  const l = language.toLowerCase();
-  const r = range.toLowerCase();
-  return l === r || l.startsWith(`${r}-`);
-}
-
-/** True when a selector matches an element (`:root` selectors match nothing: they only declare variables). */
-export function matchSelector(selector: Selector, target: StyleTarget): boolean {
-  if (selector.root) return false;
-  return matchFrom(selector, selector.parts.length - 1, target);
-}
-
-function matchFrom(selector: Selector, index: number, target: StyleTarget): boolean {
-  const part = selector.parts[index];
-  if (!matchesSimple(part.selector, target)) return false;
-  if (index === 0) return true;
-  // The combinator before this part joins it to the part on its left.
-  if (part.combinator === ">") return target.parent !== null && matchFrom(selector, index - 1, target.parent);
-  for (let p = target.parent; p; p = p.parent) if (matchFrom(selector, index - 1, p)) return true;
-  return false;
-}
-
-/** True when any rule of these sheets uses a pseudo-class (so elements restyle when their state changes). */
-export function usesPseudo(sheets: readonly { rules: readonly StyleRule[] }[]): boolean {
-  return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => sel.parts.some((p) => p.selector.pseudo.length > 0))));
-}
-
-/** True when any rule of these sheets uses `:lang()` (so elements restyle when the language changes, ADR 0356 §4). */
-export function usesLang(sheets: readonly { rules: readonly StyleRule[] }[]): boolean {
-  return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => sel.parts.some((p) => p.selector.lang.length > 0))));
-}
-
-// --- Values -------------------------------------------------------------------------------------
-
-const NAMED_COLORS: Readonly<Record<string, string>> = {
-  black: "#000000", white: "#ffffff", red: "#ff0000", green: "#008000", lime: "#00ff00", blue: "#0000ff",
-  yellow: "#ffff00", cyan: "#00ffff", aqua: "#00ffff", magenta: "#ff00ff", fuchsia: "#ff00ff", orange: "#ffa500",
-  purple: "#800080", pink: "#ffc0cb", brown: "#a52a2a", gray: "#808080", grey: "#808080", silver: "#c0c0c0",
-  navy: "#000080", teal: "#008080", maroon: "#800000", olive: "#808000", gold: "#ffd700", coral: "#ff7f50",
-  crimson: "#dc143c", indigo: "#4b0082", violet: "#ee82ee", salmon: "#fa8072", tomato: "#ff6347",
-  darkgray: "#a9a9a9", darkgrey: "#a9a9a9", lightgray: "#d3d3d3", lightgrey: "#d3d3d3", dimgray: "#696969", dimgrey: "#696969",
-};
-
-/** A CSS colour: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`/`rgba()`, a named colour, `transparent`; `none` is null (no fill). */
-export function parseColor(raw: string): Color | null | undefined {
-  const v = raw.trim().toLowerCase();
-  if (v === "none") return null;
-  if (v === "transparent") return new Color(0, 0, 0, 0);
-  const named = NAMED_COLORS[v];
-  if (named) return Color.from(named);
-  if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(v)) {
-    let hex = v.slice(1);
-    if (hex.length <= 4) hex = hex.split("").map((c) => c + c).join("");
-    const n = (i: number) => parseInt(hex.slice(i, i + 2), 16) / 255;
-    return new Color(n(0), n(2), n(4), hex.length === 8 ? n(6) : 1);
-  }
-  const fn = /^rgba?\(([^)]*)\)$/.exec(v);
-  if (fn) {
-    const parts = fn[1].split(/[\s,/]+/).filter(Boolean);
-    if (parts.length !== 3 && parts.length !== 4) return undefined;
-    const channel = (s: string) => (s.endsWith("%") ? parseFloat(s) / 100 : parseFloat(s) / 255);
-    const alpha = (s: string) => (s.endsWith("%") ? parseFloat(s) / 100 : parseFloat(s));
-    const c = new Color(channel(parts[0]), channel(parts[1]), channel(parts[2]), parts[3] !== undefined ? alpha(parts[3]) : 1);
-    return [c.r, c.g, c.b, c.a].every(Number.isFinite) ? c : undefined;
-  }
-  return undefined;
-}
-
-function parseNumber(raw: string): number | undefined {
-  const m = /^(-?(?:\d+\.?\d*|\.\d+))(px)?$/.exec(raw.trim());
-  return m ? parseFloat(m[1]) : undefined;
-}
-
-function unquote(raw: string): string {
-  const v = raw.trim();
-  return (v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")) ? v.slice(1, -1) : v;
-}
-
-/**
- * Convert a value as written (attribute or declaration, variables already substituted) to a field's
- * type. Undefined when it can't. `file` resolves relative asset paths (`./logo.png`).
- */
-export function convertValue(raw: string, info: FieldInfo, file: string): unknown {
-  const type = info.type;
-  const v = raw.trim();
-  if (type === Number) return parseNumber(v);
-  // A bare attribute (`<Canvas auto-focus>`) is true, as in HTML.
-  if (type === Boolean) return v === "true" || v === "" ? true : v === "false" ? false : undefined;
-  if (type === Color) return parseColor(v);
-  if (type === Vector2) {
-    const parts = v.split(/[\s,]+/).filter(Boolean).map(parseNumber);
-    if (parts.length === 1 && parts[0] !== undefined) return new Vector2(parts[0], parts[0]);
-    return parts.length === 2 && parts[0] !== undefined && parts[1] !== undefined ? new Vector2(parts[0], parts[1]) : undefined;
-  }
-  if (type === AssetRef) {
-    const url = /^url\((.*)\)$/.exec(v);
-    const path = unquote(url ? url[1] : v);
-    if (path === "" || path.startsWith("asset:")) return path;
-    return `asset:${path.startsWith("./") || path.startsWith("../") ? resolvePath(file, path) : path.replace(/^\//, "")}`;
-  }
-  if (type === String) {
-    const s = unquote(v);
-    if (LENGTH_FIELDS.has(info.name)) {
-      if (s === "auto" || /^-?(\d+\.?\d*|\.\d+)%$/.test(s)) return s;
-      const n = parseNumber(s);
-      return n === undefined ? undefined : String(n);
-    }
-    const choices = info.options?.choices;
-    if (Array.isArray(choices) && info.name !== "fontWeight") {
-      const values = choices.map((c) => (typeof c === "string" ? c : (c as { value: unknown }).value));
-      if (!values.includes(s)) return undefined;
-    }
-    return s;
-  }
-  return undefined;
-}
-
-/**
- * A bound value (`{name}` filled in) for a field: text fields take the string as it is (quotes and all);
- * other fields convert like an attribute. Undefined when it can't convert.
- */
-export function boundValue(text: string, info: FieldInfo, file: string): unknown {
-  if (info.type === String && !LENGTH_FIELDS.has(info.name) && !Array.isArray(info.options?.choices)) return text;
-  return convertValue(text, info, file);
-}
-
-/** `background-color` → `backgroundColor`; camelCase stays. */
-export function camelCase(name: string): string {
-  return name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-}
-
-/** Property and attribute names (camelCase) that name another field: CSS's `position` is `positionType`. */
-const ALIASES: Readonly<Record<string, string>> = { position: "positionType" };
-
-/** The field a property or attribute sets: its camelCase name (`flex-direction` → `flexDirection`), or the field an alias names (`position` → `positionType`). */
-export function propertyField(name: string): string {
-  const field = camelCase(name);
-  return ALIASES[field] ?? field;
-}
-
-/** `var(--x)` and `var(--x, fallback)` substituted from `vars`; undefined when a variable is missing and has no fallback. */
-export function substituteVars(value: string, vars: ReadonlyMap<string, string>, depth = 0): string | undefined {
-  if (!value.includes("var(")) return value;
-  if (depth > 8) return undefined;
-  let out = "";
-  let i = 0;
-  while (i < value.length) {
-    const at = value.indexOf("var(", i);
-    if (at < 0) {
-      out += value.slice(i);
-      break;
-    }
-    out += value.slice(i, at);
-    // Find the matching close paren.
-    let level = 0;
-    let j = at + 3;
-    for (; j < value.length; j++) {
-      if (value[j] === "(") level++;
-      else if (value[j] === ")" && --level === 0) break;
-    }
-    const inner = value.slice(at + 4, j);
-    const comma = inner.indexOf(",");
-    const name = (comma < 0 ? inner : inner.slice(0, comma)).trim();
-    const fallback = comma < 0 ? undefined : inner.slice(comma + 1).trim();
-    const found = vars.get(name) ?? fallback;
-    if (found === undefined) return undefined;
-    const resolved = substituteVars(found, vars, depth + 1);
-    if (resolved === undefined) return undefined;
-    out += resolved;
-    i = j + 1;
-  }
-  return out;
-}
-
-// --- Cascade ------------------------------------------------------------------------------------
-
-const fieldMaps = new Map<abstract new (...args: never[]) => object, Map<string, FieldInfo>>();
-
-/** A component class's fields by name. */
-export function fieldsOf(component: abstract new (...args: never[]) => object): Map<string, FieldInfo> {
-  let map = fieldMaps.get(component);
-  if (!map) {
-    map = new Map(getFields(component as never).map((f) => [f.name, f]));
-    fieldMaps.set(component, map);
-  }
-  return map;
-}
-
-let knownFields: Set<string> | null = null;
-/** Every UI component's field names: properties outside these are unknown. */
-function isKnownField(name: string): boolean {
-  knownFields ??= new Set(UI_TYPES.flatMap((t) => [...fieldsOf(t).keys()]));
-  return knownFields.has(name);
-}
-
-/**
- * The field an attribute sets (`flex-direction` and `flexDirection` both name `flexDirection`; `position` names
- * `positionType`), or null for `id`, `class`, `translate` and key attributes (`t:text`, see `keyAttributeField`).
- */
-export function attributeField(attribute: MarkupAttribute): string | null {
-  if (NOT_FIELDS.has(attribute.name) || attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX)) return null;
-  const field = propertyField(attribute.name);
-  return REFERENCE_FIELDS.has(field) ? null : field;
-}
-
-/** The field a key attribute localises (`t:text` → `text`, `t:placeholder` → `placeholder`), or null for other attributes. */
-export function keyAttributeField(attribute: MarkupAttribute): string | null {
-  if (!attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX)) return null;
-  const name = attribute.name.slice(KEY_ATTRIBUTE_PREFIX.length);
-  return name === "" ? null : propertyField(name);
-}
-
-/** True for a field a key attribute may localise: a plain string (not a length, a choice or an asset). */
-export function isTextField(info: FieldInfo): boolean {
-  return info.type === String && !LENGTH_FIELDS.has(info.name) && !Array.isArray(info.options?.choices);
-}
-
-/** The node reference field an attribute names by an element id (`nav-up="play"` → `navUp`, `first-selected` → `firstSelected`), or null. */
-export function referenceField(attribute: MarkupAttribute): string | null {
-  if (attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX)) return null;
-  const field = propertyField(attribute.name);
-  return REFERENCE_FIELDS.has(field) ? field : null;
-}
-
-/** A variable's key in a resolved map: `--name` (variables inherit, like the text properties). */
-const isVariable = (key: string) => key.startsWith("--");
-
-/** Variables declared on `:root` in these sheets, in cascade order. */
-function rootVariables(sheets: readonly { rules: readonly StyleRule[]; file: string }[]): Map<string, ResolvedValue> {
-  const out = new Map<string, ResolvedValue>();
-  const rules = sheets.flatMap((s) => s.rules.map((r) => ({ r, file: s.file }))).filter(({ r }) => r.selectors.some((sel) => sel.root));
-  rules.sort((a, b) => a.r.order - b.r.order);
-  for (const { r, file } of rules) {
-    for (const d of r.declarations) if (isVariable(d.property)) out.set(d.property, { field: d.property, value: d.value, source: { kind: "rule", rule: r, declaration: d, file } });
-  }
-  return out;
-}
-
-const warnedOnce = new Set<string>();
-
-export const resolveStyle: ResolveStyle = (target, element, component, sheets, parent, warn) => {
-  const out = new Map<string, ResolvedValue>();
-  const fields = fieldsOf(component);
-  const warnOnce = (message: string) => {
-    if (warnedOnce.has(message)) return;
-    warnedOnce.add(message);
-    warn(message);
-  };
-
-  // Matching declarations in cascade order: specificity, then rule order, then position in the rule.
-  const matched: { rule: StyleRule; declaration: Declaration; file: string; spec: readonly [number, number, number]; index: number }[] = [];
-  for (const sheet of sheets) {
-    for (const rule of sheet.rules) {
-      let best: readonly [number, number, number] | null = null;
-      for (const sel of rule.selectors) {
-        if (!matchSelector(sel, target)) continue;
-        if (!best || compareSpec(sel.specificity, best) > 0) best = sel.specificity;
-      }
-      if (!best) continue;
-      rule.declarations.forEach((declaration, index) => matched.push({ rule, declaration, file: sheet.file, spec: best!, index }));
-    }
-  }
-  matched.sort((a, b) => compareSpec(a.spec, b.spec) || a.rule.order - b.rule.order || a.index - b.index);
-
-  // Variables: inherited (the root's from `:root`), then this element's own.
-  const inheritedVars = parent ? [...parent].filter(([k]) => isVariable(k)) : [...rootVariables(sheets)];
-  for (const [k, v] of inheritedVars) out.set(k, v);
-  for (const m of matched) {
-    if (isVariable(m.declaration.property)) out.set(m.declaration.property, { field: m.declaration.property, value: m.declaration.value, source: { kind: "rule", rule: m.rule, declaration: m.declaration, file: m.file } });
-  }
-  const vars = new Map<string, string>();
-  for (const [k, v] of out) vars.set(k, String(v.value));
-
-  const set = (field: string, raw: string, source: ValueSource, where: string) => {
-    const info = fields.get(field);
-    if (!info) return false;
-    const substituted = substituteVars(raw, vars);
-    if (substituted === undefined) {
-      warnOnce(`${where}: "${raw}" uses a variable that isn't defined.`);
-      return false;
-    }
-    const value = convertValue(substituted, info, element.file);
-    if (value === undefined) {
-      warnOnce(`${where}: "${substituted}" isn't a valid ${field} for <${target.tag}>.`);
-      return false;
-    }
-    out.set(field, { field, value, source });
-    return true;
-  };
-
-  // Rules.
-  for (const m of matched) {
-    const prop = m.declaration.property;
-    if (isVariable(prop)) continue;
-    const field = propertyField(prop);
-    if (!isKnownField(field)) {
-      warnOnce(`${m.file}: unknown property "${prop}" (in "${m.rule.selectorText}").`);
-      continue;
-    }
-    const where = `${m.file} "${m.rule.selectorText}" ${prop}`;
-    const source: ValueSource = { kind: "rule", rule: m.rule, declaration: m.declaration, file: m.file };
-    if (fields.has(field)) {
-      set(field, m.declaration.value, source, where);
-    } else if (INHERITED_FIELDS.has(field)) {
-      // Not this element's field, but its children inherit it (a Panel's color reaches its Text).
-      const substituted = substituteVars(m.declaration.value, vars);
-      if (substituted !== undefined) out.set(field, { field, value: substituted, source });
-    }
-  }
-
-  // Attributes beat rules. Bound attributes (`{name}`) are the runtime's: it writes them as data changes.
-  for (const a of element.attributes) {
-    const field = attributeField(a);
-    if (!field || hasBinding(a.value)) continue;
-    if (!fields.has(field)) {
-      if (!isKnownField(field)) warnOnce(`${element.file}: <${element.tag}> has no field "${a.name}".`);
-      continue;
-    }
-    set(field, a.value, { kind: "attribute", attribute: a, file: element.file }, `${element.file} <${element.tag} ${a.name}>`);
-  }
-
-  // Inheritance: text properties nothing set here come from the parent.
-  if (parent) {
-    for (const name of INHERITED_FIELDS) {
-      if (out.has(name)) continue;
-      const from = parent.get(name);
-      if (!from) continue;
-      const source: ValueSource = { kind: "inherited", from: target.parent ?? target, source: from.source };
-      const info = fields.get(name);
-      if (!info) {
-        out.set(name, { field: name, value: from.value, source }); // passed on to grandchildren
-        continue;
-      }
-      // A raw string inherited through an element without the field converts here.
-      const value = typeof from.value === "string" && info.type !== String ? convertValue(from.value, info, element.file) : from.value;
-      if (value !== undefined) out.set(name, { field: name, value: cloneValue(value), source });
-    }
-  }
-  return out;
-};
-
-function compareSpec(a: readonly [number, number, number], b: readonly [number, number, number]): number {
-  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
-}
-
-/** Colors and vectors are mutable: each element gets its own copy. */
-export function cloneValue(value: unknown): unknown {
-  if (value instanceof Color) return new Color(value.r, value.g, value.b, value.a);
-  if (value instanceof Vector2) return new Vector2(value.x, value.y);
-  return value;
+  return selectors.length ? { selectors, zero: n.name === "where" } : null;
 }

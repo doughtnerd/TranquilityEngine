@@ -127,7 +127,7 @@ export function StringsView(p: StringsViewProps) {
     return (
       <EmptyState
         title="No string tables yet"
-        body="A string table holds keys with their text in the reference language; translations sit beside it, one file per language. UI documents bind keys with t:text, scenes with LocalizedText, scripts with Locale.t."
+        body="A string table holds keys with their text in the reference language; translations sit beside it, one file per language. Svelte UI binds keys with t(), scripts with Locale.t."
         action={p.onCreateTable ? { label: "New string table", run: p.onCreateTable } : undefined}
       />
     );

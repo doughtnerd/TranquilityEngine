@@ -6,15 +6,15 @@
 //! half-life: the time it takes to close half the gap to the goal (for a step input).
 //!
 //! Deterministic (the rules of `anim-math`): plain `+ − × ÷`, no fused multiply-add, and
-//! `e^-x` through `anim_math::ease::exp2`, never libm.
+//! `e^-x` through `anim_math::trig::exp2`, never libm.
 
-use anim_math::ease::exp2;
+use anim_math::trig::exp2;
 use anim_math::Lane;
 
 /// Added to a half-life so a zero half-life doesn't divide by zero (it then snaps).
 pub const HALF_LIFE_EPSILON: f32 = 1e-5;
 
-/// `e^-x` for `x ≥ 0`, deterministically (`2^(-x·log2 e)` through `anim_math::ease::exp2`;
+/// `e^-x` for `x ≥ 0`, deterministically (`2^(-x·log2 e)` through `anim_math::trig::exp2`;
 /// relative error about 1e-7 for `x` up to ~10). Negative or NaN `x` gives 1.
 #[inline]
 pub fn neg_exp(x: f32) -> f32 {

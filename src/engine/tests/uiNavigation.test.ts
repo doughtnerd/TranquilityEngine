@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameBehavior, GameObject, Input, InputPlayers, defineActions, defineSystem, dpad, button as buttonAction, vec2 } from "../index";
 import { UIButton, UICanvas, UIInputField, type UILength } from "../ui/components";
 import { UIActions, UI_CONTEXT_PRIORITY } from "../ui/navigation";
-import { UIDocument, UIEvents, loadUIDocumentSupport, type UIEvent } from "../ui/UIDocument";
 import { _undefineSystem } from "../core/systems";
 import { World } from "../core/World";
 import { UIPointer, stubDocument, type FakeInput } from "./uiPointer";
+import { buildUI, loadUITestSupport, uiAs, uiElement } from "./uiMarkup";
 
 // ADR 0340: keyboard and gamepad focus navigation, driven by the built-in UI actions (`engine.UIActions`
 // in the `ui` context), through Input.inject, a UI core's layout and pointer, and the public components.
@@ -23,6 +23,7 @@ const systems: string[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
+  await loadUITestSupport();
 });
 
 afterEach(() => {
@@ -51,13 +52,13 @@ function press(key: string): void {
 }
 
 function canvas(init: Partial<UICanvas> = {}, name = "Canvas"): UICanvas {
-  return GameObject.create(name).addBehavior(UICanvas, init as never);
+  return uiElement(name, null, UICanvas, init);
 }
 
 /** A 100 × 50 button at (x, y) in its canvas. */
 function button(name: string, parent: { node: GameObject }, x: number, y: number, init: Partial<UIButton> = {}): UIButton {
   const px = (n: number) => String(n) as UILength;
-  return GameObject.create(name, { parent: parent.node }).addBehavior(UIButton, { positionType: "absolute", left: px(x), top: px(y), width: px(100), height: px(50), padding: 0, ...init } as never);
+  return uiElement(name, parent.node, UIButton, { positionType: "absolute", left: px(x), top: px(y), width: px(100), height: px(50), padding: 0, ...init });
 }
 
 /** A UI core laying the World's UI out and routing the pointer, as the renderer does. */
@@ -488,7 +489,7 @@ describe("input fields (ADR 0340)", () => {
   });
 
   function field(name: string, parent: { node: GameObject }, x: number, y: number): UIInputField {
-    return GameObject.create(name, { parent: parent.node }).addBehavior(UIInputField, { positionType: "absolute", left: String(x), top: String(y), width: "200", height: "40" } as never);
+    return uiElement(name, parent.node, UIInputField, { positionType: "absolute", left: String(x), top: String(y), width: "200", height: "40" });
   }
 
   it("focuses a field by navigation without typing; submit starts typing; Tab, Escape and the gamepad leave it", async () => {
@@ -548,30 +549,23 @@ describe("input fields (ADR 0340)", () => {
   });
 });
 
-describe("UI documents (ADR 0340)", () => {
-  const files: Record<string, unknown> = {
-    "ui/pause.ui.xml": `<Canvas auto-focus first-selected="resume">
-  <Panel flex-direction="column" gap="10">
-    <Button id="title" focusable="false" width="200" height="40">Paused</Button>
-    <Button id="resume" nav-down="quit" width="200" height="40">Resume</Button>
-    <Button id="options" navigation="explicit" width="200" height="40">Options</Button>
-    <Button id="quit" focus-color="#ff0000" width="200" height="40">Quit</Button>
-  </Panel>
-</Canvas>`,
-  };
-
+describe("Svelte UI (ADR 0340, 0423)", () => {
   beforeEach(async () => {
-    Assets.clearSources();
-    Assets.addSource(Assets.fromObject(files));
-    await loadUIDocumentSupport();
+    await loadUITestSupport();
   });
 
-  it("reads focusable, nav-*, navigation, focus-color and the root's auto-focus and first-selected, and runs focus, blur, click and cancel handlers", async () => {
-    const doc = GameObject.create("Pause").addBehavior(UIDocument, { document: "asset:ui/pause.ui.xml" });
-    await doc.ready;
+  it("reads focusable, nav-*, navigation, focus-color and the view's auto-focus and first-selected, and runs focus, blur, click and keydown handlers", async () => {
+    const doc = buildUI(`<Canvas auto-focus first-selected="resume">
+  <div flex-direction="column" gap="10">
+    <button id="title" focusable="false" width="200" height="40">Paused</button>
+    <button id="resume" nav-down="quit" width="200" height="40">Resume</button>
+    <button id="options" navigation="explicit" width="200" height="40">Options</button>
+    <button id="quit" focus-color="#ff0000" width="200" height="40">Quit</button>
+  </div>
+</Canvas>`, { name: "Pause" });
     const el = (id: string) => doc.query(`#${id}`)!;
-    const btn = (id: string) => el(id).as(UIButton);
-    const root = doc.root!.as(UICanvas);
+    const btn = (id: string) => uiAs(el(id), UIButton);
+    const root = uiAs(doc.root, UICanvas);
     expect(root.autoFocus).toBe(true);
     expect(root.firstSelected).toBe(el("resume").node);
     expect(btn("title").focusable).toBe(false);
@@ -581,34 +575,64 @@ describe("UI documents (ADR 0340)", () => {
 
     const log: string[] = [];
     for (const id of ["resume", "options", "quit"]) {
-      el(id)
-        .on("focus", () => log.push(`focus ${id}`))
-        .on("blur", () => log.push(`blur ${id}`))
-        .on("click", () => log.push(`click ${id}`));
+      el(id).on("focus", () => log.push(`focus ${id}`));
+      el(id).on("blur", () => log.push(`blur ${id}`));
+      el(id).on("click", () => log.push(`click ${id}`));
     }
-    doc.root!.on("cancel", () => log.push("cancel"));
-    const rows: UIEvent[] = [];
-    systems.push("test.uiNavigation.events");
-    defineSystem({ name: "test.uiNavigation.events", phase: "update", after: ["engine.UIDocumentEvents"], run: () => rows.push(...UIEvents.read()) });
+    doc.root.on("keydown", (e) => log.push(`keydown ${e.key}`));
 
     await pointer();
     step();
-    expect(el("resume").focused).toBe(true); // auto-focus, on first-selected
+    expect(btn("resume").focused).toBe(true); // auto-focus, on first-selected
     expect(log).toEqual(["focus resume"]);
     log.length = 0;
     press("arrowdown"); // nav-down skips Options
-    expect(log).toEqual(["blur resume", "focus quit"]);
+    expect(log).toEqual(["keydown ArrowDown", "blur resume", "focus quit"]);
     log.length = 0;
     press("arrowup"); // the search: Options (Title isn't focusable)
-    expect(el("options").focused).toBe(true);
+    expect(btn("options").focused).toBe(true);
     press("arrowup"); // explicit, with no nav-up: stays
-    expect(el("options").focused).toBe(true);
+    expect(btn("options").focused).toBe(true);
     log.length = 0;
     press("enter");
     press("escape");
-    expect(log).toEqual(["click options", "cancel"]);
-    expect(rows.map((r) => `${r.type} ${r.element.id ?? "root"}`)).toEqual(expect.arrayContaining(["focus quit", "blur quit", "click options", "cancel root"]));
-    expect(doc.root!.canceled).toBe(false);
+    expect(log).toEqual(["keydown Enter", "click options", "keydown Escape"]);
+  });
+
+  it("follows the view's firstSelected to the element that has the id now, and to nothing once it's gone or cleared", async () => {
+    const doc = buildUI(`<Canvas auto-focus first-selected="#later"><div flex-direction="column"><button id="a" width="100" height="40">A</button><button id="b" width="100" height="40">B</button></div></Canvas>`);
+    const root = uiAs(doc.root, UICanvas);
+    step();
+    expect(root.firstSelected).toBeNull(); // no element has the id yet
+    const b = doc.query("#b")!;
+    b.tree.setAttributes(b, new Map([...b.attributes, ["id", "later"]]));
+    step();
+    expect(root.firstSelected).toBe(b.node);
+    doc.view.firstSelected = "a";
+    step();
+    expect(root.firstSelected).toBe(doc.query("#a")!.node);
+    doc.view.firstSelected = "";
+    step();
+    expect(root.firstSelected).toBeNull();
+    doc.view.firstSelected = "later";
+    step();
+    expect(root.firstSelected).toBe(b.node);
+    b.tree.remove(b);
+    step();
+    expect(root.firstSelected).toBeNull();
+  });
+
+  it("follows a nav reference to the element that has the id now, and to nothing once it's gone", async () => {
+    const doc = buildUI(`<Canvas><div flex-direction="column"><button id="a" nav-down="c" width="100" height="40">A</button><button id="b" width="100" height="40">B</button></div></Canvas>`);
+    const a = uiAs(doc.query("#a")!, UIButton);
+    expect(a.navDown).toBeNull(); // no element has the id yet
+    const b = doc.query("#b")!;
+    b.tree.setAttributes(b, new Map([...b.attributes, ["id", "c"]]));
+    step();
+    expect(a.navDown).toBe(b.node);
+    b.tree.remove(b);
+    step();
+    expect(a.navDown).toBeNull();
   });
 });
 

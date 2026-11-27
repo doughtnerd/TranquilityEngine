@@ -1,4 +1,5 @@
-import { Audio, GameBehavior, Input, SceneManager, Text, behavior, field, type AudioPlaylistHandle } from "myco";
+import { Audio, GameBehavior, GameObject, Input, SceneManager, behavior, field, type AudioPlaylistHandle } from "myco";
+import { setHud } from "../labHud";
 import { MusicReadout } from "../musicReadout";
 import { TouchBar } from "../touchBar";
 
@@ -37,6 +38,8 @@ import { TouchBar } from "../touchBar";
  */
 @behavior("lab.MusicLab")
 export class MusicLab extends GameBehavior {
+  /** The page's HUD node (a UIView of ui/<Page>.svelte): this script passes its `music` prop. */
+  @field(GameObject) hud: GameObject | null = null;
   @field(String) worldEvent = "audio/music/music-world.playlist.json";
   @field(String) loopEvent = "audio/music/music-loop.playlist.json";
   @field(String) playlistEvent = "audio/music/music-playlist.playlist.json";
@@ -156,8 +159,7 @@ export class MusicLab extends GameBehavior {
   }
 
   private show(): void {
-    const label = this.node.getBehavior(Text);
-    if (!label) return;
+    if (!this.hud) return;
     const m = this.handle?.music;
     const where = m && m.segment ? `${m.segment} ${m.bar}:${m.beat}` : this.handle ? "starting" : "-";
     const next = m?.transition ? `, next: ${m.transition.to}` : "";
@@ -169,6 +171,6 @@ export class MusicLab extends GameBehavior {
       "T stinger on the beat, Y on the bar; L loop with a tail, L again leaves it; P playlist; 4 eight stems, 5 playlist A, B, C\n" +
       "O stops; D music readout; B goes back (on a phone the buttons along the bottom do the same)" +
       (this.readout.on ? `\n${this.readout.lines()}` : "");
-    if (text !== this.shown) label.text = this.shown = text;
+    if (text !== this.shown) setHud(this.hud, "music", (this.shown = text));
   }
 }

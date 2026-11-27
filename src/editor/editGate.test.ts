@@ -1,4 +1,4 @@
-// ADR 0247: one edit gate says whether a scene, the open scene's UI documents or the project's files can be edited
+// ADR 0247: one edit gate says whether a scene, the open scene's UI or the project's files can be edited
 // now, with one wording per refusal, reports it to the status bar and opens the undo step; the editor SDK's
 // `editor.scene.edit` goes through it.
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,15 +31,15 @@ describe("the edit gate (ADR 0247)", () => {
     expect(whyNotEdit({ kind: "scene" }, "paste nodes")).toBe("stop playing to paste nodes");
   });
 
-  it("UI documents: a scene and a project that can save, not while playing; read-only through the one message", async () => {
+  it("UI: a scene and a project that can save, not while playing; read-only through the one message", async () => {
     openScene.value = sceneOf();
-    expect(whyNotEdit({ kind: "ui-documents" })).toBe("open a scene first"); // no project
+    expect(whyNotEdit({ kind: "ui" })).toBe("open a scene first"); // no project
     currentProject.value = sampleProject();
-    expect(whyNotEdit({ kind: "ui-documents" })).toBe("Flappy sample is read-only. Open a project folder (or copy the sample) to edit UI documents.");
+    expect(whyNotEdit({ kind: "ui" })).toBe("Flappy sample is read-only. Open a project folder (or copy the sample) to edit the UI.");
     await openTestProject();
-    expect(whyNotEdit({ kind: "ui-documents" })).toBeNull();
+    expect(whyNotEdit({ kind: "ui" })).toBeNull();
     playState.value = "playing";
-    expect(whyNotEdit({ kind: "ui-documents" })).toBe("stop playing to edit UI documents");
+    expect(whyNotEdit({ kind: "ui" })).toBe("stop playing to edit the UI");
   });
 
   it("project files: read-only always; play only for edits that remove or move files", async () => {

@@ -164,10 +164,13 @@ export class GameObject {
    * Attach a component to this node. `init` values that are another World's nodes or components
    * throw (ADR 0032). A component registered for other Worlds (`@behavior(id, { worlds })`, ADR
    * 0033) isn't attached: you get a detached instance that never runs and that `getBehavior`
-   * doesn't find (see `_componentAllowedIn`).
+   * doesn't find (see `_componentAllowedIn`). UI components (`UICanvas`, `UIPanel`, `UIText`,
+   * `UIImage`, `UIButton`, `UIInputField`…) throw: only a `UIView` rendering its component makes them
+   * (ADR 0421, amended by 0423).
    */
   addBehavior<T extends Component>(type: ConcreteComponentType<T>, init?: ComponentInit<T>): T {
     this.check();
+    refuseViewOnly(type);
     if (init) this.world._assertOwnsAll(init, `${this}.addBehavior(${type.name})`);
     if (!_componentAllowedIn(this.world, type)) return detachedComponent(this, type, init);
     return this.world._addComponent(this.entity, type, init as Partial<T>);
@@ -179,6 +182,7 @@ export class GameObject {
    */
   addChildBehavior<T extends Component>(type: ConcreteComponentType<T>, options: { name?: string; position?: Vec3Input; init?: ComponentInit<T> } = {}): T {
     this.check();
+    refuseViewOnly(type);
     if (!_componentAllowedIn(this.world, type)) return detachedComponent(this, type, options.init);
     const child = this.world._createNode(options.name ?? type.name, this.entity);
     this.world.setComponentNode(child.entity, true);
@@ -274,6 +278,30 @@ export class GameObject {
   toString(): string {
     return this.isValid ? `GameObject(${this.name})` : "GameObject(destroyed)";
   }
+}
+
+// --- UI elements come from UI views (ADR 0421, amended by 0423) ----------------------------------
+
+/** Ids of the UI components only a `UIView`'s render creates (ADR 0421, 0423). */
+const VIEW_ONLY = new Set(["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField", "engine.UISvg", "engine.UIVideo", "engine.UIAudio"]);
+
+/** @internal What refusing a UI component outside a UI view says (ADR 0421, 0423); scene loads say it too. */
+export const UI_FROM_VIEWS = "UI elements come from a UIView's Svelte component (ADR 0421, 0423): write the element in the component.";
+
+/**
+ * @internal The id of the UI component `type` is or extends, when only a UI view may create it
+ * (ADR 0421, 0423); else null. Matched by registered id, so this module needn't import the UI components.
+ */
+export function _viewOnlyComponentId(type: ComponentClass): string | null {
+  for (let t: unknown = type; typeof t === "function" && t !== Component; t = Object.getPrototypeOf(t)) {
+    const id = getComponentId(t as ComponentClass);
+    if (id !== undefined && VIEW_ONLY.has(id)) return id;
+  }
+  return null;
+}
+
+function refuseViewOnly(type: ComponentClass): void {
+  if (_viewOnlyComponentId(type) !== null) throw new Error(UI_FROM_VIEWS);
 }
 
 // --- per-World components (ADR 0033 §3) ---------------------------------------------------------

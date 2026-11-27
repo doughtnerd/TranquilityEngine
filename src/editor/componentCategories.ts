@@ -31,7 +31,6 @@ const BY_NAME: Readonly<Record<string, string>> = {
   PostProcessing: "Rendering",
   ReflectionProbe: "Rendering",
   ParticleSystem: "Rendering",
-  Text: "Rendering",
   WaterSurface: "Rendering",
   Tilemap: "Rendering",
   LineRenderer: "Rendering", // ADR 0396
@@ -71,14 +70,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   AudioSpeaker: "Audio", // ADR 0355
   AudioPackageLoader: "Audio", // ADR 0351
   SubtitleDisplay: "UI", // ADR 0357
-  UICanvas: "UI",
-  UIPanel: "UI",
-  UIText: "UI",
-  UIImage: "UI",
-  UIButton: "UI",
-  UIInputField: "UI",
-  UIDocument: "UI",
-  LocalizedText: "UI", // ADR 0356 §4
+  UIView: "UI",
   UIControlMapper: "UI",
 };
 

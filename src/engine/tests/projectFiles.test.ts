@@ -9,8 +9,8 @@ describe("project files", () => {
     ["scenes/main.scene.json", "json"],
     ["images/bird.png.meta.json", "json"],
     ["DATA/A.JSON", "json"],
-    ["ui/hud.ui.xml", "text"],
-    ["ui/hud.ui.css", "text"],
+    ["data/level.xml", "text"],
+    ["ui/theme.css", "text"],
     ["shaders/wave.wgsl", "text"],
     ["shaders/wave.glsl", "text"],
     ["notes.txt", "text"],
@@ -19,6 +19,9 @@ describe("project files", () => {
     ["tools/a.js", "text"],
     ["tools/a.cjs", "text"],
     ["tools/a.mts", "text"],
+    ["ui/Hud.svelte", "text"], // Svelte UI sources (ADR 0423): compiled from their text
+    ["ui/store.svelte.ts", "text"],
+
     ["images/bird.png", "url"],
     ["audio/flap.wav", "url"],
     ["grade/warm.cube", "url"],
@@ -32,20 +35,20 @@ describe("project files", () => {
   });
 
   it("leaves out hidden files and folders, dependency and build folders, and TypeScript", () => {
-    for (const path of ["project.json", "images/a.png", "tools/gen.mjs", "data/dist.json", "levels/target"]) expect(isProjectFile(path), path).toBe(true);
+    for (const path of ["project.json", "images/a.png", "tools/gen.mjs", "data/dist.json", "levels/target", "ui/Hud.svelte", "ui/store.svelte.ts"]) expect(isProjectFile(path), path).toBe(true);
     for (const path of [".env", ".myco/state.json", "node_modules/x/index.js", "dist/web/index.html", "a/target/b.png", "scripts/Bird.ts", "src/x.tsx", "scripts/types.d.ts"]) expect(isProjectFile(path), path).toBe(false);
     for (const name of [".git", ".myco", "node_modules", "dist", "target", "test-results", "playwright-report"]) expect(skipsFolder(name), name).toBe(true);
     expect(skipsFolder("scenes")).toBe(false);
   });
 
   it("loads each file through the host's reader as its asset value, in the order given", async () => {
-    const files: Record<string, string> = { "b.json": '{"x":1}', "ui/a.ui.xml": "<ui/>", "bad.json": "{" };
-    const loaded = await loadProjectFiles(["b.json", "ui/a.ui.xml", "images/c.png", "bad.json"], {
+    const files: Record<string, string> = { "b.json": '{"x":1}', "ui/a.xml": "<ui/>", "bad.json": "{" };
+    const loaded = await loadProjectFiles(["b.json", "ui/a.xml", "images/c.png", "bad.json"], {
       readText: async (p) => files[p],
       url: (p) => `blob:${p}`,
     });
-    expect([...loaded.values]).toEqual([["b.json", { x: 1 }], ["ui/a.ui.xml", "<ui/>"], ["images/c.png", "blob:images/c.png"]]);
-    expect([...loaded.texts.keys()]).toEqual(["b.json", "ui/a.ui.xml"]);
+    expect([...loaded.values]).toEqual([["b.json", { x: 1 }], ["ui/a.xml", "<ui/>"], ["images/c.png", "blob:images/c.png"]]);
+    expect([...loaded.texts.keys()]).toEqual(["b.json", "ui/a.xml"]);
     expect(loaded.problems.map((p) => p.path)).toEqual(["bad.json"]);
   });
 });

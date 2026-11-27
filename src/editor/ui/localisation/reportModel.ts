@@ -1,12 +1,13 @@
 // The Localisation panel's Report tab (ADR 0356 §7, §8, §9): per-language translated / needs review / missing counts,
-// then the lists — keys used but missing a translation, keys used but defined nowhere, unused keys, unkeyed text, keys
-// defined twice, and the text fit check's overflows — each row naming the file that opens it. Built from the engine's
-// key gathering (`exchange/gather.ts`) and the fit check (`fitCheck.ts`).
+// then the lists — keys used but missing a translation, keys used but defined nowhere, unused keys, unkeyed text in
+// Svelte UI, keys defined twice, and the text fit check's overflows — each row naming the file (and line) that opens it.
+// Built from the engine's key gathering (`exchange/gather.ts`), the components' unkeyed text
+// (`uiEdit/svelteStrings.ts`, ADR 0423 wave F) and the fit check (`textFit.ts`).
 //
 // Pure.
 import type { GatherReport } from "../../../engine/localisation/exchange/gather";
-import { unkeyedId } from "../../../engine/localisation/exchange/gather";
-import type { FitResult } from "./fitCheck";
+import { unkeyedId, type UnkeyedText } from "../../uiEdit/svelteStrings";
+import type { FitResult } from "./textFit";
 
 export type ReportSectionId = "missing" | "undefined" | "unused" | "unkeyed" | "duplicates" | "fit";
 
@@ -15,8 +16,10 @@ export interface ReportRow {
   readonly id: string;
   readonly key: string;
   readonly detail: string;
-  /** The file to open (a document, scene, script or table). */
+  /** The file to open (a component, script or table). */
   readonly path: string;
+  /** The line to open it at (1-based), when the row is about one place in a component or script. */
+  readonly line?: number;
   /** For unkeyed text: the dismissal id (`.myco/localisation-ignore.json`). */
   readonly dismiss?: string;
 }
@@ -45,10 +48,23 @@ export interface LocalisationReport {
   readonly issues: number;
 }
 
-const KIND_WORD = { document: "UI document", scene: "scene", script: "script", line: "line table", caption: "playlist caption" } as const;
+const KIND_WORD = { component: "Svelte UI", script: "script", line: "line table", caption: "playlist caption" } as const;
 
-/** The report from a gathering run and, when it was run, the fit check. */
-export function localisationReport(gather: GatherReport, fit: FitResult | null): LocalisationReport {
+/** What the report adds to the gathering: Svelte UI's unkeyed text (dismissed ones left out), and the fit check once it has run. */
+export interface ReportExtras {
+  readonly unkeyed?: readonly UnkeyedText[];
+  /** Dismissed unkeyed text, by `unkeyedId`. */
+  readonly ignore?: readonly string[];
+  readonly fit?: FitResult | null;
+}
+
+const lineOf = (where: string): number | undefined => {
+  const m = /^line (\d+)$/.exec(where);
+  return m ? Number(m[1]) : undefined;
+};
+
+/** The report from a gathering run, the components' unkeyed text and, when it was run, the fit check. */
+export function localisationReport(gather: GatherReport, extras: ReportExtras = {}): LocalisationReport {
   const languages = Object.entries(gather.counts).map(([language, c]) => {
     const total = c.translated + c.needsReview + c.missing;
     return { language, ...c, done: total === 0 ? 1 : c.translated / total };
@@ -69,6 +85,7 @@ export function localisationReport(gather: GatherReport, fit: FitResult | null):
         key: u.key,
         detail: u.uses.map((x) => `${KIND_WORD[x.kind]} ${x.path} (${x.where})`).join("; "),
         path: u.uses[0].path,
+        line: lineOf(u.uses[0].where),
       })),
     },
     {
@@ -80,8 +97,10 @@ export function localisationReport(gather: GatherReport, fit: FitResult | null):
     {
       id: "unkeyed",
       title: "Unkeyed text",
-      hint: "Literal text that isn't localised: select it and use Localise or Extract to string table in the Inspector, or mark it translate=\"no\".",
-      rows: gather.unkeyed.map((u) => ({ id: `unkeyed|${unkeyedId(u)}`, key: u.text, detail: `${u.path} ${u.where} (${u.field})`, path: u.path, dismiss: unkeyedId(u) })),
+      hint: "Literal text in Svelte UI that isn't localised: select its element and use Localise or Extract to string table in the Inspector (text mixed with {…} needs t() in the Code panel), mark it translate=\"no\", or dismiss it.",
+      rows: (extras.unkeyed ?? [])
+        .filter((u) => !(extras.ignore ?? []).includes(unkeyedId(u)))
+        .map((u) => ({ id: `unkeyed|${unkeyedId(u)}`, key: u.text, detail: `${u.path} ${u.where}${u.field === "text" ? "" : ` (${u.field})`}${u.literal ? "" : " · mixed with expressions or elements"}`, path: u.path, line: u.line, dismiss: unkeyedId(u) })),
     },
     {
       id: "duplicates",
@@ -90,16 +109,18 @@ export function localisationReport(gather: GatherReport, fit: FitResult | null):
       rows: gather.duplicates.map((d) => ({ id: `dup|${d.key}`, key: d.key, detail: d.tables.join(", "), path: d.tables[1] ?? d.tables[0] })),
     },
   ];
+  const fit = extras.fit;
   if (fit) {
     sections.push({
       id: "fit",
       title: "Text that doesn't fit",
-      hint: `Laid out in ${fit.languages.join(", ")} with each key's examples (long stand-ins otherwise): ${fit.checked} element${fit.checked === 1 ? "" : "s"} checked, ${fit.skipped} without a fixed width skipped.`,
+      hint: `Laid out in ${fit.languages.join(", ")} with each key's examples (long stand-ins otherwise), in the boxes the open scene's views render: ${fit.checked} element${fit.checked === 1 ? "" : "s"} checked, ${fit.skipped} skipped (no fixed width, or not rendered in the open scene).`,
       rows: fit.overflows.map((o) => ({
-        id: `fit|${o.path}|${o.where}|${o.language}`,
+        id: `fit|${o.path}|${o.line}|${o.where}|${o.language}`,
         key: o.key,
-        detail: `${o.language}: ${o.reason === "lines" ? `${Math.round(o.needed.height)} px tall, box ${o.box.height} px` : `${Math.round(o.needed.width)} px wide, box ${o.box.width} px`} · ${o.path} ${o.where}`,
+        detail: `${o.language}: ${o.reason === "lines" ? `${Math.round(o.needed.height)} px tall, box ${Math.round(o.box.height ?? 0)} px` : `${Math.round(o.needed.width)} px wide, box ${Math.round(o.box.width ?? 0)} px`} · ${o.path} ${o.where}`,
         path: o.path,
+        line: o.line,
       })),
     });
   }

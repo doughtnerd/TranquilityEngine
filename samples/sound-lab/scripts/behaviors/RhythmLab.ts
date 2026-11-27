@@ -1,4 +1,5 @@
-import { Audio, Calibration, GameBehavior, Input, SceneManager, Text, behavior, field, type AudioPlaylistHandle, type CalibrationResult, type MusicEvent } from "myco";
+import { Audio, Calibration, GameBehavior, GameObject, Input, SceneManager, behavior, field, type AudioPlaylistHandle, type CalibrationResult, type MusicEvent } from "myco";
+import { setHud } from "../labHud";
 import { MusicReadout } from "../musicReadout";
 import { PointerTaps, TouchBar } from "../touchBar";
 
@@ -68,6 +69,8 @@ export interface RhythmState {
  */
 @behavior("lab.RhythmLab")
 export class RhythmLab extends GameBehavior {
+  /** The page's HUD node (a UIView of ui/<Page>.svelte): this script passes its `rhythm` prop. */
+  @field(GameObject) hud: GameObject | null = null;
   @field(String) clickEvent = "audio/music/rhythm-click.playlist.json";
   @field(String) gameEvent = "audio/music/rhythm-game.playlist.json";
   @field(String) tapKey = "space";
@@ -258,8 +261,7 @@ export class RhythmLab extends GameBehavior {
   }
 
   private show(): void {
-    const label = this.node.getBehavior(Text);
-    if (!label) return;
+    if (!this.hud) return;
     const s = this.state();
     const ms = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)} ms`;
     const pulse = this.flash > 0 ? "(*)" : "( )";
@@ -283,6 +285,6 @@ export class RhythmLab extends GameBehavior {
     lines.push("C calibrate (tap SPACE, or press the game view, on each click), G tap game, X reset the calibration to 0, O stops, D music readout; B goes back");
     if (this.readout.on) lines.push(this.readout.lines());
     const text = lines.join("\n");
-    if (text !== this.shown) label.text = this.shown = text;
+    if (text !== this.shown) setHud(this.hud, "rhythm", (this.shown = text));
   }
 }

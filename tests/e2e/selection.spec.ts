@@ -149,18 +149,3 @@ test("clicking anywhere inside a collider selects its node, before the sprites d
   expect(await selected(page)).not.toEqual(["ground-collider"]);
   expect((await selected(page)).length).toBe(1);
 });
-
-test("clicking a screen-space Text in the scene view selects its node (ADR 0276)", async ({ page }) => {
-  await openFocused(page);
-  await page.keyboard.press("q"); // no gizmo in the way
-  // MessageLabel has no text until the game runs: give it some, so the UI feature draws it.
-  await page.locator('.tree .row[data-key="message"]').click();
-  const text = page.getByRole("textbox", { name: "text", exact: true });
-  await text.fill("Press Space");
-  await text.press("Enter");
-  await page.locator('.tree .row[data-key="bird"]').click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).nodeRect("message"))).not.toBeNull();
-  const r = await rectOf(page, "message", 0);
-  await page.mouse.click((r.left + r.right) / 2, (r.top + r.bottom) / 2);
-  expect(await selected(page)).toEqual(["message"]);
-});

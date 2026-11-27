@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import type { Plugin, Rollup, UserConfig } from "vite";
 import { compilerOptions as scriptCompilerOptions, SCRIPT_EMIT } from "./src/scriptCompiler.mjs";
+import { ENGINE_SOURCE_DIR, UI_HOST_FILE } from "./src/projectCode/uiModules";
+
 
 /**
  * Compile TypeScript (and TSX) with tsc instead of Vite's default transformer (oxc), which does
@@ -58,8 +60,202 @@ const hash = (text: string) => createHash("sha1").update(text).digest("hex");
 /** The module the editor imports the engine's declarations from (ADR 0030). */
 const ENGINE_TYPES = "virtual:myco-types";
 
+/** The engine's Svelte renderer module (ADR 0423), which compiled UI components import as `myco/ui-renderer`. */
+export const SVELTE_UI_RENDERER = fileURLToPath(new URL("./src/plugins/ui/svelte/renderer.ts", import.meta.url));
+
+/** What compiled UI components get for `svelte/reactivity` (ADR 0422 wave 5): Svelte's with `MediaQuery` on the canvas. */
+const SVELTE_UI_REACTIVITY = fileURLToPath(new URL("./src/plugins/ui/svelte/reactivity.ts", import.meta.url));
+/** Svelte's `svelte/motion` entry, whose `prefersReducedMotion` is a `MediaQuery` from `svelte/reactivity` (ADR 0423 wave Z3). */
+const SVELTE_MOTION_ENTRY = /[\\/]svelte[\\/]src[\\/]motion[\\/]index\.js$/;
+
+/** ADR 0429: the inline HTML parser, which compiled components that use `{@html}` or `bind:innerHTML` import as `myco/ui-html`. */
+export const SVELTE_UI_HTML = fileURLToPath(new URL("./src/plugins/ui/svelte/htmlInline.ts", import.meta.url));
+
+/** The cascade's stylesheet parser, which Vitest's compiled components call when they load (ADR 0423). */
+const UI_STYLESHEET_PARSER = fileURLToPath(new URL("./src/engine/ui/document/stylesheet.ts", import.meta.url));
+/** The id prefix of a plain `.css` file a component imports, as a module registering its rules. */
+const UI_CSS_PREFIX = "\0myco-ui-css:";
+
 /**
- * The engine's public type declarations as a virtual module, `virtual:myco-types`: an
+ * Game UI components (ADR 0423): `*.svelte` compiled with the engine's custom renderer and external CSS,
+ * `*.svelte.ts` rune modules, and plain `.css` files components import, through
+ * `src/plugins/ui/svelte/compile.mjs`. Filenames are passed relative to the repository, so scoping hashes
+ * don't depend on the checkout's location. Vitest uses it; the editor and the export compile the same way
+ * through the project code linker (`projectCode/compileUI.ts`), which parses the CSS while compiling. Here,
+ * in Node, the parser (TypeScript with decorators behind it) can't load while compiling, so the compiled
+ * module calls it when it loads. The editor (dev server and build) uses it too, for the engine's built-in UI components
+ * (ADR 0423 wave B, each plugin's `builtinUI.ts`), which it compiles with its shared runtime.
+ */
+export function svelteUI(options: { dev?: boolean } = {}): Plugin {
+  const root = fileURLToPath(new URL(".", import.meta.url));
+  const styles = { parser: UI_STYLESHEET_PARSER };
+  return {
+    name: "myco:svelte-ui",
+    enforce: "pre",
+    async resolveId(source, importer) {
+      // The renderer compiled components import (in every config that compiles them, aliased or not).
+      if (source === "myco/ui-renderer") return SVELTE_UI_RENDERER;
+      if (source === "myco/ui-html") return SVELTE_UI_HTML;
+      // UI code's `svelte/reactivity` is Svelte's with `MediaQuery` on the canvas (ADR 0422 wave 5), as in the editor and games.
+      // Svelte's own `svelte/motion` too, so its `prefersReducedMotion` follows the engine's setting (canvas `@media`) as UI code's `MediaQuery` does.
+      if (source === "svelte/reactivity" && importer && (/\.svelte(\.[jt]s)?$/.test(importer.split("?")[0]) || SVELTE_MOTION_ENTRY.test(importer.split("?")[0]))) return SVELTE_UI_REACTIVITY;
+      if (!importer || !source.endsWith(".css") || !/\.svelte(\.[jt]s)?$/.test(importer.split("?")[0])) return null;
+      const resolved = await this.resolve(source, importer, { skipSelf: true });
+      return resolved ? UI_CSS_PREFIX + resolved.id : null;
+    },
+    async load(id) {
+      if (!id.startsWith(UI_CSS_PREFIX)) return null;
+      const file = id.slice(UI_CSS_PREFIX.length);
+      const { compileSvelteUIStyles } = await import("./src/plugins/ui/svelte/compile.mjs");
+      return compileSvelteUIStyles(readFileSync(file, "utf8"), { filename: relative(root, file).split(sep).join("/"), styles }).code;
+    },
+    async transform(code, id) {
+      const file = id.split("?")[0];
+      const isComponent = file.endsWith(".svelte");
+      const isModule = file.endsWith(".svelte.ts") || file.endsWith(".svelte.js");
+      // Only the repository's sources: a game build's compiled `code/ui/Hud.svelte.js` is already JavaScript.
+      if ((!isComponent && !isModule) || !file.startsWith(root)) return null;
+      const { compileSvelteUI, compileSvelteUIModule } = await import("./src/plugins/ui/svelte/compile.mjs");
+
+      const filename = relative(root, file).split(sep).join("/");
+      if (isComponent) {
+        const r = compileSvelteUI(code, { filename, dev: options.dev, styles });
+        for (const w of r.warnings) this.warn(`${w.code}: ${w.message}`);
+        return { code: r.code, map: r.map as never };
+      }
+      const js = file.endsWith(".ts") ? ts.transpileModule(code, { fileName: file, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, verbatimModuleSyntax: false } }).outputText : code;
+      const r = compileSvelteUIModule(js, { filename, dev: options.dev });
+      return { code: r.code, map: r.map as never };
+    },
+  };
+}
+
+const REPO_ROOT = fileURLToPath(new URL(".", import.meta.url));
+
+/** The browser's `path` for svelte2tsx (ADR 0432). */
+const POSIX_PATH = fileURLToPath(new URL("./src/editor/code/posixPath.ts", import.meta.url));
+
+/**
+ * svelte2tsx (the editor's type checking inside Svelte components, ADR 0432) imports Node's `path`, which a browser
+ * build stubs out: its import resolves to `src/editor/code/posixPath.ts` instead. Only svelte2tsx's import, so nothing
+ * else's `path` changes. The dev server's dependency bundler takes it too (`optimizeDeps.rolldownOptions.plugins`).
+ */
+export function svelteCheckPath(): Plugin {
+  return {
+    name: "myco:svelte-check-path",
+    enforce: "pre",
+    resolveId(source, importer) {
+      if ((source !== "path" && source !== "node:path") || !importer || !/[\\/]node_modules[\\/]svelte2tsx[\\/]/.test(importer)) return null;
+      return POSIX_PATH;
+    },
+  };
+}
+
+/** A TypeScript module a relative import names, as written or with `.ts`, `.tsx` or `/index.ts`. */
+function tsModuleFile(base: string): string {
+  for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts"), base]) if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  throw new Error(`Can't find the module ${base}.`);
+}
+
+/**
+ * What the engine's renderer, and the files beside it that it imports, import from the engine's own modules
+ * (`ENGINE_SOURCE_DIR`): the value names by module file. Type-only imports are left out.
+ */
+function uiHostImports(): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const seen = new Set<string>();
+  const visit = (file: string) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest);
+    for (const st of source.statements) {
+      if (!(ts.isImportDeclaration(st) || ts.isExportDeclaration(st)) || !st.moduleSpecifier || !ts.isStringLiteral(st.moduleSpecifier)) continue;
+      if (!st.moduleSpecifier.text.startsWith(".")) continue;
+      const target = tsModuleFile(join(dirname(file), st.moduleSpecifier.text));
+      if (!relative(REPO_ROOT, target).split(sep).join("/").startsWith(ENGINE_SOURCE_DIR)) {
+        visit(target);
+        continue;
+      }
+      const names = out.get(target) ?? new Set<string>();
+      out.set(target, names);
+      if (ts.isExportDeclaration(st)) throw new Error(`${file}: the renderer can't re-export from the engine's modules (the player's UI host entry re-exports only what it imports).`);
+      const clause = st.importClause;
+      if (!clause || clause.isTypeOnly) continue;
+      if (clause.name || (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings))) throw new Error(`${file}: import the engine's modules by name (no default or namespace import), so the player's UI host entry can export them.`);
+      for (const el of clause.namedBindings?.elements ?? []) if (!el.isTypeOnly) names.add((el.propertyName ?? el.name).text);
+    }
+  };
+  visit(SVELTE_UI_RENDERER);
+  return out;
+}
+
+/** The id of the player's UI host entry. */
+const UI_HOST_ENTRY = "\0myco-ui-host";
+
+/**
+ * The player's UI host entry (ADR 0425), `myco-ui-host.js` beside myco.js: it re-exports what the engine's renderer
+ * imports from the engine's own modules, by the names it imports (read from the renderer's source, so it follows
+ * the renderer). A game's UI bundle carries the renderer with Svelte and imports these from it, so they're the
+ * player's engine instance (Rollup shares the code with myco.js). Engine code only: the player has no Svelte.
+ */
+export function uiHostEntry(): { input: Record<string, string>; fileName: string; plugin: Plugin } {
+  const name = UI_HOST_FILE.slice(0, -".js".length);
+  return {
+    input: { [name]: UI_HOST_ENTRY },
+    fileName: UI_HOST_FILE,
+    plugin: {
+      name: "myco:ui-host-entry",
+      resolveId: (id) => (id === UI_HOST_ENTRY ? id : null),
+      load(id) {
+        if (id !== UI_HOST_ENTRY) return null;
+        const owner = new Map<string, string>();
+        let code = "";
+        for (const [file, names] of uiHostImports()) {
+          this.addWatchFile(file);
+          for (const n of names) {
+            if (owner.has(n) && owner.get(n) !== file) throw new Error(`The renderer imports "${n}" from two engine modules (${owner.get(n)} and ${file}); the UI host entry needs one name per value.`);
+            owner.set(n, file);
+          }
+          code += names.size > 0 ? `export { ${[...names].sort().join(", ")} } from ${JSON.stringify(file)};\n` : `import ${JSON.stringify(file)};\n`;
+        }
+        return code;
+      },
+    },
+  };
+}
+
+/** The editor's copy of the engine's files a game's UI bundle reads (ADR 0425). */
+const UI_RUNTIME_FILES = "virtual:myco-ui-runtime";
+
+/**
+ * The engine's files a game's UI bundle reads (ADR 0425: Svelte's client runtime, the renderer, the `package.json`
+ * files resolving them reads), by path from the repository, as a virtual module, `virtual:myco-ui-runtime`. The
+ * editor's exports bundle UI code from it (it can't read the engine's folder, which `npm run export` reads), loading
+ * it on the first export with Svelte UI.
+ */
+export function uiRuntimeFiles(): Plugin {
+  const resolved = `\0${UI_RUNTIME_FILES}`;
+  return {
+    name: "myco:ui-runtime-files",
+    resolveId: (id) => (id === UI_RUNTIME_FILES ? resolved : null),
+    async load(id) {
+      if (id !== resolved) return null;
+      const { collectUIRuntimeFiles } = await import("./src/projectCode/uiBundle");
+      const files = await collectUIRuntimeFiles({
+        read: async (path) => {
+          const file = join(REPO_ROOT, ...path.split("/"));
+          return existsSync(file) && statSync(file).isFile() ? readFileSync(file, "utf8") : null;
+        },
+      });
+      for (const path of files.keys()) this.addWatchFile(join(REPO_ROOT, ...path.split("/")));
+      return `export default ${JSON.stringify(Object.fromEntries([...files].sort(([a], [b]) => (a < b ? -1 : 1))))};`;
+    },
+  };
+}
+
+/**
+ * The engine's public type declarations as a virtual module
+, `virtual:myco-types`: an
  * object of `.d.ts` text by path (`index.d.ts`, which re-exports `myco.d.ts`, the public module of
  * ADR 0135; `engine/core/World.d.ts`, `plugins/sky/runtime/index.d.ts`, ...), emitted in memory with
  * `tsconfig.engine.json`'s settings (internals stripped, editor access left out). The editor's
@@ -452,6 +648,9 @@ export function rendezvousFile(): Plugin {
 
 /** `"myco"` (and its old name) as project scripts and samples import the engine (ADR 0031): the engine's public module. */
 export const MYCO_ALIASES: Record<string, string> = {
+  // Before "myco", which would otherwise take it as a path inside the engine's module.
+  "myco/ui-renderer": SVELTE_UI_RENDERER,
+  "myco/ui-html": SVELTE_UI_HTML,
   myco: fileURLToPath(new URL("./src/myco.ts", import.meta.url)),
   tranquility: fileURLToPath(new URL("./src/myco.ts", import.meta.url)),
 };

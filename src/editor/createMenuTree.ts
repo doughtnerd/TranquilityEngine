@@ -8,11 +8,10 @@ import { newNodeKinds, type CreatableKind } from "./nodeKinds";
 const SEPARATOR: MenuEntry = { label: "", separator: true };
 
 /**
- * The Create tree as menu entries; `item` makes a kind's entry, given the label the tree shows for it (its `short`
- * label inside its category). Reads the plugin registry (through `newNodeKinds`), so menus follow plugins.
+ * The Create tree as menu entries; `item` makes a kind's entry, given the label the tree shows for it. Reads the plugin registry (through `newNodeKinds`), so menus follow plugins.
  */
 export function nodeCreateTree(item: (kind: CreatableKind, label: string) => MenuEntry): MenuEntry[] {
-  const kinds = newNodeKinds().map((kind) => ({ kind, label: kind.category ? (kind.short ?? kind.label) : kind.label, category: kind.category }));
+  const kinds = newNodeKinds().map((kind) => ({ kind, label: kind.label, category: kind.category }));
   return categorise(kinds).map((e) => {
     if (e.type === "separator") return SEPARATOR;
     if (e.type === "item") return item(e.item.kind, e.item.label);

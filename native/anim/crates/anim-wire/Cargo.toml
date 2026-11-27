@@ -10,5 +10,8 @@ publish.workspace = true
 name = "gen_wire"
 path = "src/bin/gen_wire.rs"
 
-# No dependencies (std only): anim-wasm links it, and the generator writes its own JSON and TypeScript.
+# ADR 0424 spike: the record mechanism (myco-wire) and the tween family (myco-tween) moved to shared
+# crates, re-exported here. The generator still writes its own JSON and TypeScript.
 [dependencies]
+myco-wire = { path = "../../../common/wire" }
+myco-tween = { path = "../../../common/tween" }

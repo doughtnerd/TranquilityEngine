@@ -59,7 +59,7 @@ export const selection = {
 };
 
 /**
- * The selected element of a UI document (ADR 0077), as a `uiDocuments.ts` key (`uiRefKey`), or
+ * The selected UI element a view rendered (ADR 0423 wave C), as a `uiViews.ts` key (`uiViewRefKey`), or
  * null. Elements aren't document nodes, so they're selected apart; written only through
  * inspectorTarget.ts (`selectUIElement`), which clears the other selections (ADR 0242).
  */

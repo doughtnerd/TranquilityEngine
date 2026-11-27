@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, Input } from "../engine";
-import { componentCatalog, listComponents, type ComponentInfo } from "../engine/editor";
-import { addComponentTo, inFileOrder, moveComponent, newComponentEntry, removeComponentFrom, setComponentEnabled, whyNotAddable, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "./componentEdits";
+import { listComponents, type ComponentInfo } from "../engine/editor";
+import { addComponentTo, componentCatalog, inFileOrder, moveComponent, newComponentEntry, removeComponentFrom, setComponentEnabled, whyNotAddable, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "./componentEdits";
 import { AddNode, SetField, SetOverrides, type NodePath } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
@@ -35,6 +35,18 @@ describe("the Add Component list", () => {
     expect(ids).not.toContain("editor.OrbitCamera");
     const groups = componentCatalog().map((t) => t.group);
     expect(groups.indexOf("Scripts")).toBeGreaterThan(groups.lastIndexOf("Engine")); // grouped, Engine first
+  });
+
+  it("leaves out the UI element types, which only UI views render (ADR 0421, 0423)", () => {
+    const ui = ["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField"];
+    const ids = componentCatalog().map((t) => t.id);
+    expect(ids).toContain("engine.UIView");
+    expect(ids).not.toContain("engine.UIDocument"); // retired (ADR 0423)
+    for (const id of ui) {
+      expect(ids).not.toContain(id);
+      expect(whyNotAddable(target("ceiling").node, id)).toMatch(/comes from a UIView/);
+    }
+    expect(addComponentTo(scene(), [target("ceiling")], "engine.UIPanel")).toBe(0);
   });
 
   it("refuses a second sprite, body or data component, but allows more colliders", () => {

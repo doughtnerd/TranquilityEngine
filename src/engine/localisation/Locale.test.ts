@@ -1,7 +1,7 @@
 // ADR 0356 §6: the `Locale` runtime, through the public API: an Engine boots it from project.json's `languages` and the
 // project's string tables (asset sources), and scripts read, format and switch through `Locale`.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, Locale, LocalText, MemoryStorage, Storage, UIDocument } from "../../myco";
+import { Assets, Engine, Locale, LocalText, MemoryStorage, Storage, UIView } from "../../myco";
 
 const TABLES = {
   "strings/menu.strings.json": {
@@ -184,7 +184,7 @@ describe("Locale: switching", () => {
     }
     vi.stubGlobal("FontFace", FakeFontFace);
     vi.stubGlobal("document", { fonts: { add: () => {}, delete: () => {} } });
-    expect(UIDocument).toBeDefined(); // the UI (with its fonts) is part of the game
+    expect(UIView).toBeDefined(); // the UI (with its fonts) is part of the game
     // A font file no earlier test loaded (faces load once per process).
     await boot({ languages: { ...LANGUAGES, list: LANGUAGES.list.map((l) => (l.code === "ar" ? { ...l, fonts: ["fonts/naskh.woff2"] } : l)) }, files: { "fonts/naskh.woff2": "blob:naskh" } });
     const order: string[] = [];
