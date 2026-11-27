@@ -39,6 +39,17 @@ const CONDITIONS = ["production"];
 /** Where the bundle's shared chunks go, by build path. */
 const CHUNKS = "code/ui-runtime/[name]-[hash]";
 
+/** The folder esbuild writes the bundle under (in memory); every output's build path is its path below it. */
+const OUT_DIR = "myco-ui-bundle";
+
+/** An output's build path (`code/ui/Hud.svelte.js`) from the absolute path esbuild gives it, in a browser or in Node on any OS. */
+function buildPathOf(outputPath: string): string {
+  const path = outputPath.replace(/\\/g, "/");
+  const at = path.lastIndexOf(`/${OUT_DIR}/`);
+  if (at < 0) throw new Error(`The UI bundle wrote ${outputPath}, outside its folder.`);
+  return path.slice(at + OUT_DIR.length + 2);
+}
+
 /** What one import from a runtime file resolves to: a runtime file, an empty module, the player's host entry, or why not. */
 type RuntimeImport = { file: string } | { empty: true } | { host: true } | { error: string };
 
@@ -142,7 +153,7 @@ export async function bundleUI(modules: ReadonlyMap<string, string>, source: UIR
     format: "esm",
     platform: "browser",
     target: "es2022",
-    outdir: "/",
+    outdir: `/${OUT_DIR}`,
     chunkNames: CHUNKS,
     write: false,
     logLevel: "silent",
@@ -154,7 +165,9 @@ export async function bundleUI(modules: ReadonlyMap<string, string>, source: UIR
   const ts = await typescript();
   const files = new Map<string, string>();
   for (const file of result.outputFiles ?? []) {
-    const path = file.path.replace(/\\/g, "/").replace(/^\/+/, "");
+    // esbuild gives each output's absolute path: `/code/ui/Hud.svelte.js` in a browser, but under the working
+    // directory in Node on Windows (`C:\…\code\ui\Hud.svelte.js`, "/" isn't absolute there), so it's taken from `OUT_DIR` on.
+    const path = buildPathOf(file.path);
     const code = file.text;
     files.set(path, rewriteImports(code, importSites(ts, code), (spec) => (spec.startsWith(BUILD_FILE) ? relativeSpecifier(path, spec.slice(BUILD_FILE.length)) : spec)));
   }
