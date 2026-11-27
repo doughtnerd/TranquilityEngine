@@ -76,13 +76,15 @@ test("New Input Context: a mapping bound with a key press in the Input dialog is
   await page.setViewportSize({ width: 1600, height: 1000 });
   await openEditor(page, { files: { "scripts/testActions.ts": ACTIONS } });
 
-  // Create › Input › Input Context (right-click in the Assets panel) writes a context in the folder the panel shows, here the root.
+  // Create › Input › Input Context (right-click in the Assets panel) at the project root writes it in the kind's folder,
+  // input/, which every project has since it holds the default context (ADR 0417).
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   const list = (await assets(page).locator(".asset-items").boundingBox())!;
   await page.mouse.click(list.x + list.width - 10, list.y + list.height - 10, { button: "right" });
   await assetsMenu(page, "Create", "Input", "Input Context");
-  const path = "New Input Context.input.json";
+  const path = "input/New Input Context.input.json";
   await expect.poll(async () => JSON.parse((await read(page, path)) ?? "null")).toEqual({ name: "New Input Context", mappings: [] });
+  await tile(page, "input").dblclick();
   await expect(tile(page, "New Input Context.input.json")).toHaveCount(1);
 
   // Double-click opens the Input dialog on it (ADR 0417), listed with the default context.
@@ -235,5 +237,30 @@ test("Overlay shows each player's action values, phases and recent presses over 
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(overlay).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("File › Input…: a new action set is a file listed in project.json, and Map it in default binds it in input/default.input.json (ADR 0417)", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openEditor(page, { files: {} });
+  await menu(page, "File", "Input…");
+  const dialog = page.getByRole("dialog", { name: "Input" });
+  await expect(dialog).toBeVisible();
+
+  await dialog.getByRole("button", { name: "New action set" }).click();
+  const name = dialog.getByRole("textbox", { name: /^Rename / });
+  await expect(name).toBeFocused();
+  await name.fill("game.Ship");
+  await name.press("Enter");
+
+  const listed = async () => (JSON.parse((await read(page, "project.json")) ?? "{}").input?.actionSets ?? []) as string[];
+  await expect.poll(async () => (await listed()).length).toBe(1);
+  const [file] = await listed();
+  expect(file).toMatch(/^input\/.+\.actions\.json$/);
+  await expect.poll(async () => JSON.parse((await read(page, file)) ?? "null")?.id).toBe("game.Ship");
+
+  await dialog.getByRole("button", { name: "Map it in default" }).first().click();
+  await expect.poll(async () => JSON.parse((await read(page, "input/default.input.json")) ?? "null")?.mappings?.length).toBe(1);
   expect(errors).toEqual([]);
 });

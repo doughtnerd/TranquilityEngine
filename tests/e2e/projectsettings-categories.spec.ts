@@ -6,7 +6,7 @@ import { showTab } from "./tabs";
 test.describe.configure({ timeout: 60_000 });
 
 // The built-in categories, then the plugins' (localisation's Languages, subtitles', animation's compression settings).
-const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "2D Lighting", "Graphics", "Input", "Navigation", "Plugins", "Autoloads", "Build", "Languages", "Subtitles", "Animation"];
+const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "2D Lighting", "Graphics", "Navigation", "Input", "Plugins", "Autoloads", "Build", "Languages", "Subtitles", "Animation"];
 
 async function openProject(page: Page): Promise<void> {
   await openEditor(page, { files: {} });
