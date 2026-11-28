@@ -76,7 +76,7 @@ export { SpriteRenderer } from "./plugins/sprites/runtime";
 export { MeshRenderer } from "./plugins/meshes/runtime";
 
 // The Water plugin (ADR 0072, 0140).
-export { Water, WaterSurface, type WaterSample } from "./plugins/water/runtime";
+export { Water, WaterSurface, WaterWake, type WaterSample, type WaterWakeMode } from "./plugins/water/runtime";
 
 // The Lines plugin (ADR 0396).
 export { CameraShake, ShakeImpulseSource, ShakeImpulses, CAMERA_NOISE_PRESETS, SHAKE_IMPULSE_PRESETS, type CameraNoisePreset, type ShakeImpulse, type ShakeImpulsePreset, type ShakeImpulseTrigger } from "./plugins/camera-shake/runtime";

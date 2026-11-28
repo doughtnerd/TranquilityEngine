@@ -14,6 +14,12 @@
  * - fragment: ripple normals after `pbrBlockNormalFinal`, deep/shallow/foam colour at
  *   CUSTOM_FRAGMENT_UPDATE_ALPHA, roughness (rougher under foam) into `reflectivityBlock`.
  *
+ * Wakes (ADR 0445): `wakes.ts` packs the World's `WaterWake`s once a frame, as trails or as a
+ * simulated height field around the view camera's focus on the water; two float textures carry them
+ * (`mycoWakeTrail`, `mycoWakeField`) and `WAKE_SHADER` reads them: the slope bends the normal after the
+ * ripples, the foam joins the crest foam, its height lightens crests as the waves' own does, and in
+ * "field" mode the vertex rises by the field's height.
+ *
  * Waves are packed into vec4 uniforms (UBO arrays are avoided, `waveUniforms`): `mycoWave0..7` hold
  * (direction x, direction z, wave number, amplitude) per wave and `mycoPhase0/1` the eight phases
  * (the fifth float of `WAVE_STRIDE`). The wave sum, the ripple noise and the colouring maths are KSL
@@ -25,9 +31,12 @@ import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
+import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
+import { Constants } from "@babylonjs/core/Engines/constants.js";
+import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
 import { Color3 } from "@babylonjs/core/Maths/math.color.js";
-import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
+import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
@@ -37,6 +46,8 @@ import { Graphics } from "../Graphics";
 import { shaderSource, type ShaderDialect } from "../shaderSource/shaderSource";
 import { GERSTNER_SHADER, PHASE_UNIFORMS, WAVE_UNIFORMS, maxAmplitude, waveUniforms } from "../water/gerstner";
 import { waterTime, type WaterSurface } from "../water/WaterSurface";
+import { WAKE_SHADER, WAKE_TEXTURES, wakeModeNumber } from "../water/wakeShader";
+import { MAX_WAKES, TRAIL_TEXELS, updateWakes, type WakeFrame, type WaterWakeMode } from "../water/wakes";
 import { useEngineLightFalloff } from "./materials";
 import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 import { pbrInjections } from "./pbrInjection";
@@ -56,16 +67,21 @@ interface WaterState {
   foamAmount: number;
   normalDetail: number;
   maxHeight: number;
+  /** `mycoWake` and `mycoWakeArea` (`wakeShader.ts`), and the wake textures bound this frame. */
+  wake: [number, number, number, number];
+  wakeArea: [number, number, number, number];
+  wakeTrail: BaseTexture | null;
+  wakeField: BaseTexture | null;
 }
 
 function createState(): WaterState {
-  return { waves: {}, count: 0, time: 0, deep: [0, 0, 0], shallow: [0, 0, 0], foam: [0, 0, 0], foamAmount: 0, normalDetail: 0, maxHeight: 0 };
+  return { waves: {}, count: 0, time: 0, deep: [0, 0, 0], shallow: [0, 0, 0], foam: [0, 0, 0], foamAmount: 0, normalDetail: 0, maxHeight: 0, wake: [0, 0, 0, 0], wakeArea: [0, 0, 1, 1], wakeTrail: null, wakeField: null };
 }
 
 
 /** The plugin's uniform buffer entries (all vec4). */
 function waterUniformBuffer(): { name: string; size: number; type: string }[] {
-  const names = [...WAVE_UNIFORMS, ...PHASE_UNIFORMS, "mycoWaterA", "mycoWaterB", "mycoDeep", "mycoShallow", "mycoFoam"];
+  const names = [...WAVE_UNIFORMS, ...PHASE_UNIFORMS, "mycoWaterA", "mycoWaterB", "mycoDeep", "mycoShallow", "mycoFoam", "mycoWake", "mycoWakeArea"];
   return names.map((name) => ({ name, size: 4, type: "vec4" }));
 }
 
@@ -75,6 +91,7 @@ function waterUniformBuffer(): { name: string; size: number; type: string }[] {
  */
 const WATER_SHADER = shaderSource(
   GERSTNER_SHADER,
+  WAKE_SHADER,
   /* KSL */ `
 UNIFORM(KV4, mycoWaterA);
 UNIFORM(KV4, mycoWaterB);
@@ -119,8 +136,8 @@ FN(KV2, mycoShallowFoam, KV4 w, KF facing, KF r1x) {
 `,
 );
 
-/** The water's functions in `dialect` (its uniforms are the plugin's uniform buffer). */
-const waterFunctions = (dialect: ShaderDialect): string => WATER_SHADER.text(dialect, { declarations: "omit" });
+/** The water's functions in `dialect` (its uniforms are the plugin's uniform buffer; its wake textures are the plugin's samplers, declared here). */
+const waterFunctions = (dialect: ShaderDialect): string => WAKE_TEXTURES.text(dialect) + WATER_SHADER.text(dialect, { declarations: "omit" });
 
 /**
  * Where the water's code goes in Babylon's PBR shaders, by injection point (the regular-expression
@@ -139,6 +156,7 @@ function waterCustomCode(shaderType: string, language: ShaderLanguage = ShaderLa
         "normalUpdated = normalize(cross(mycoG[2], mycoG[1]));",
         "#endif",
         "positionUpdated = positionUpdated + mycoG[0];",
+        "positionUpdated.y = positionUpdated.y + mycoWakeHeight((finalWorld * vec4f(positionUpdated, 1.0)).xz);",
       ].join("\n"), after: [
         "vertexOutputs.vMycoW = vec4f(mycoRest, mycoG[0].y, mycoG[1].x * mycoG[2].z - mycoG[1].z * mycoG[2].x);",
         "vertexOutputs.vMycoX = normalize((finalWorld * vec4f(1.0, 0.0, 0.0, 0.0)).xyz);",
@@ -159,10 +177,12 @@ function waterCustomCode(shaderType: string, language: ShaderLanguage = ShaderLa
         "  let axisX = normalize(fragmentInputs.vMycoX);",
         "  let axisZ = normalize(cross(axisX, vec3f(0.0, 1.0, 0.0)));",
         "  normalW = normalize(normalW - axisX * ripples.x - axisZ * ripples.y);",
+        "  let wake = mycoWakeAt(fragmentInputs.vPositionW.xz);",
+        "  normalW = normalize(normalW - vec3f(wake.x, 0.0, wake.y));",
         "  let view = normalize(scene.vEyePosition.xyz - fragmentInputs.vPositionW);",
         "  let amounts = mycoShallowFoam(fragmentInputs.vMycoW, clamp(dot(normalW, view), 0.0, 1.0), ripples.z);",
-        "  mycoShallow = amounts.x;",
-        "  mycoFoam = amounts.y;",
+        "  mycoShallow = clamp(amounts.x + wake.w * 2.5, 0.0, 1.0);",
+        "  mycoFoam = max(amounts.y, wake.z);",
         "}",
       ].join("\n"),
       // vReflectivityColor holds metallic, roughness, IOR and F0 in the metallic workflow.
@@ -184,6 +204,7 @@ function waterCustomCodeGLSL(shaderType: string): { [point: string]: string } {
         "normalUpdated = normalize(cross(mycoG[2], mycoG[1]));",
         "#endif",
         "positionUpdated = positionUpdated + mycoG[0];",
+        "positionUpdated.y = positionUpdated.y + mycoWakeHeight((finalWorld * vec4(positionUpdated, 1.0)).xz);",
       ].join("\n"), after: [
         "vMycoW = vec4(mycoRest, mycoG[0].y, mycoG[1].x * mycoG[2].z - mycoG[1].z * mycoG[2].x);",
         "vMycoX = normalize((finalWorld * vec4(1.0, 0.0, 0.0, 0.0)).xyz);",
@@ -201,10 +222,12 @@ function waterCustomCodeGLSL(shaderType: string): { [point: string]: string } {
         "  vec3 axisX = normalize(vMycoX);",
         "  vec3 axisZ = normalize(cross(axisX, vec3(0.0, 1.0, 0.0)));",
         "  normalW = normalize(normalW - axisX * ripples.x - axisZ * ripples.y);",
+        "  vec4 wake = mycoWakeAt(vPositionW.xz);",
+        "  normalW = normalize(normalW - vec3(wake.x, 0.0, wake.y));",
         "  vec3 view = normalize(vEyePosition.xyz - vPositionW);",
         "  vec2 amounts = mycoShallowFoam(vMycoW, clamp(dot(normalW, view), 0.0, 1.0), ripples.z);",
-        "  mycoShallowK = amounts.x;",
-        "  mycoFoamK = amounts.y;",
+        "  mycoShallowK = clamp(amounts.x + wake.w * 2.5, 0.0, 1.0);",
+        "  mycoFoamK = max(amounts.y, wake.z);",
         "}",
       ].join("\n"),
       reflectivity: "vec4(0.0, mix(vReflectivityColor.y, 0.9, mycoFoamK), vReflectivityColor.zw)",
@@ -231,6 +254,10 @@ class MycoWaterPlugin extends MycoMaterialPlugin {
     return { ubo: waterUniformBuffer() };
   }
 
+  override getSamplers(samplers: string[]): void {
+    samplers.push("mycoWakeTrail", "mycoWakeField");
+  }
+
   override bindForSubMesh(ubo: UniformBuffer, _scene: Scene, _engine: AbstractEngine, _subMesh: SubMesh): void {
     const s = this.state;
     for (const name of [...WAVE_UNIFORMS, ...PHASE_UNIFORMS]) {
@@ -242,6 +269,10 @@ class MycoWaterPlugin extends MycoMaterialPlugin {
     ubo.updateFloat4("mycoDeep", s.deep[0], s.deep[1], s.deep[2], 1);
     ubo.updateFloat4("mycoShallow", s.shallow[0], s.shallow[1], s.shallow[2], 1);
     ubo.updateFloat4("mycoFoam", s.foam[0], s.foam[1], s.foam[2], 1);
+    ubo.updateFloat4("mycoWake", s.wake[0], s.wake[1], s.wake[2], s.wake[3]);
+    ubo.updateFloat4("mycoWakeArea", s.wakeArea[0], s.wakeArea[1], s.wakeArea[2], s.wakeArea[3]);
+    if (s.wakeTrail) ubo.setTexture("mycoWakeTrail", s.wakeTrail);
+    if (s.wakeField) ubo.setTexture("mycoWakeField", s.wakeField);
   }
 
   override getCustomCode(shaderType: string, shaderLanguage?: ShaderLanguage): { [point: string]: string } | null {
@@ -302,17 +333,28 @@ const IDENTITY = Matrix.Identity();
 
 export class BabylonWater {
   private readonly entries = new Map<WaterSurface, WaterEntry>();
+  /** The wake textures (ADR 0445): a 1×1 stand-in bound while a mode's texture isn't in use, and the uploaded version. */
+  private wakeBlank: RawTexture | null = null;
+  private wakeTrail: RawTexture | null = null;
+  private wakeField: RawTexture | null = null;
+  private wakeFieldResolution = 0;
+  private wakeVersion = -1;
 
   constructor(
     private readonly scene: Scene,
     private readonly probeAt: BabylonWaterProbe = () => null,
   ) {}
 
-  /** Bring every surface's mesh up to date for this frame. */
-  sync(world: World, surfaces: readonly WaterSurface[]): void {
+  /**
+   * Bring every surface's mesh up to date for this frame. `camera` is the view's: its focus on the
+   * water picks which wakes are drawn and where the wake height field is centred.
+   */
+  sync(world: World, surfaces: readonly WaterSurface[], camera: TargetCamera | null = null): void {
     const seen = new Set<WaterSurface>();
     const time = waterTime(world);
     const level = Graphics.tier.shaderLevel;
+    const first = surfaces.find((w) => w.isActiveAndEnabled);
+    const wakes = first ? this.syncWakes(world, first, camera) : null;
     for (const w of surfaces) {
       seen.add(w);
       const entry = this.entry(w);
@@ -330,9 +372,55 @@ export class BabylonWater {
       const e = w.node.entity;
       mesh.freezeWorldMatrix(w.node.transform ? Matrix.FromArray(world.worldMatrix(e) as unknown as number[], e * 16) : IDENTITY);
       this.applyState(w, entry, time);
+      this.applyWakes(entry, wakes, time);
       this.applyMaterial(w, entry);
     }
     for (const w of [...this.entries.keys()]) if (!seen.has(w)) this.release(w);
+  }
+
+  /**
+   * The World's wakes for this frame (ADR 0445), in the first surface's `wakeMode` (every surface draws
+   * them that way), uploaded to the wake textures when they changed.
+   */
+  private syncWakes(world: World, surface: WaterSurface, camera: TargetCamera | null): WakeFrame {
+    const mode: WaterWakeMode = surface.wakeMode === "field" || surface.wakeMode === "off" ? surface.wakeMode : "trail";
+    const frame = updateWakes(world, mode, this.focus(camera, surface));
+    if (frame.version === this.wakeVersion) return frame;
+    this.wakeVersion = frame.version;
+    if (frame.mode === "trail") {
+      this.wakeTrail ??= RawTexture.CreateRGBATexture(new Float32Array(TRAIL_TEXELS * MAX_WAKES * 4), TRAIL_TEXELS, MAX_WAKES, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+      this.wakeTrail.update(frame.trail);
+    } else if (frame.mode === "field" && frame.field) {
+      const n = frame.fieldResolution;
+      if (this.wakeFieldResolution !== n) {
+        this.wakeField?.dispose();
+        this.wakeField = RawTexture.CreateRGBATexture(new Float32Array(n * n * 4), n, n, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+        this.wakeFieldResolution = n;
+      }
+      this.wakeField!.update(frame.field);
+    }
+    return frame;
+  }
+
+  /** Where the camera looks on the water (its view ray meeting the surface's plane), else straight below it; null without a camera. */
+  private focus(camera: TargetCamera | null, surface: WaterSurface): { x: number; z: number } | null {
+    if (!camera) return null;
+    const p = camera.globalPosition;
+    const d = camera.getDirection(Vector3.Forward(this.scene.useRightHandedSystem));
+    const y = surface.node.transform?.worldPosition.y ?? 0;
+    const t = d.y < -0.05 ? (y - p.y) / d.y : -1;
+    return t > 0 && t < 500 ? { x: p.x + d.x * t, z: p.z + d.z * t } : { x: p.x, z: p.z };
+  }
+
+  private applyWakes(entry: WaterEntry, frame: WakeFrame | null, time: number): void {
+    const s = entry.state;
+    const mode = frame ? wakeModeNumber(frame.mode) : 0;
+    s.wake = [mode, frame?.trailCount ?? 0, time % 10000, 0];
+    s.wakeArea = frame ? [frame.fieldOrigin[0], frame.fieldOrigin[1], frame.fieldSize, frame.fieldResolution] : [0, 0, 1, 1];
+    this.wakeBlank ??= RawTexture.CreateRGBATexture(new Float32Array(4), 1, 1, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+    s.wakeTrail = mode === 1 && this.wakeTrail ? this.wakeTrail : this.wakeBlank;
+    s.wakeField = mode === 2 && this.wakeField ? this.wakeField : this.wakeBlank;
+    if (mode === 2 && !this.wakeField) s.wake[0] = 0;
   }
 
   private entry(w: WaterSurface): WaterEntry {
@@ -418,6 +506,10 @@ export class BabylonWater {
 
   dispose(): void {
     for (const w of [...this.entries.keys()]) this.release(w);
+    for (const t of [this.wakeBlank, this.wakeTrail, this.wakeField]) t?.dispose();
+    this.wakeBlank = this.wakeTrail = this.wakeField = null;
+    this.wakeFieldResolution = 0;
+    this.wakeVersion = -1;
   }
 }
 

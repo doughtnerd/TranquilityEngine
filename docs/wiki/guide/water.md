@@ -31,6 +31,7 @@ The grid is a square of `size` units centred on the node, in the node's XZ plane
 | `normalDetail` | Strength of two layers of scrolling ripples on top of the waves. |
 | `roughness`, `reflectivity` | How blurry and how strong the Fresnel reflection of the sky and reflection probes is. |
 | `opacity` | Below 1 the water is drawn transparent. |
+| `wakeMode` | How the water draws the wakes of `WaterWake` nodes: `"trail"` (default), `"field"` or `"off"`. See [Wakes](#wakes). |
 
 Choosing waves: a wave's height is `steepness × wavelength / 2π`. The steepnesses of all waves should add up to well under 1, or crests fold over themselves and loop. Spread directions over 90° or so, and use wavelengths that aren't multiples of each other, so the pattern doesn't visibly repeat.
 
@@ -72,6 +73,25 @@ b.strength = 2;
 
 Buoyancy runs in the fixed step, after scripts' `fixedUpdate` and before 3D physics. It needs no renderer, so a dedicated server floats objects the same way the clients do.
 
+## Wakes
+
+Put a `WaterWake` on a moving node, such as a boat, and the water draws its wake in its own shader. The wake bends the surface's light and reflections and foams like the crests do, as strong as the node is fast. The component measures the node's speed itself, so no script has to feed it. The node's +Z is its bow.
+
+| Field | What it does |
+| --- | --- |
+| `strength` | 0–1, scales the whole wake. Set it to 0 (or disable the component) to hide the wake at once, for example while the boat is hidden or sunk. |
+| `fullSpeed` | Speed (m/s) at which the wake is full size. Below 0.5 m/s there is none. |
+| `width` | Width of the foam trail at the stern (m). |
+| `life` | How long churned water lasts behind the boat (s). |
+| `bow`, `stern` | Where the stem and the stern are along the node's +Z (m; the stern is usually negative). |
+| `foam`, `ripples` | 0–1: how white the wake is, and how strongly its waves bend the surface. |
+
+The surface's `wakeMode` picks how wakes are drawn (ADR 0445 compares the two; one will stay):
+- `"trail"`: foam, Kelvin ripples and a bow wave worked out per pixel along the path each stern took (up to 16 wakes, the nearest to the camera). Cheap on the CPU.
+- `"field"`: a simulated wave height field, 96 m across, around the point the camera looks at. Hulls press into it, and the waves spread, cross and fade on their own. It also raises and lowers the surface. It costs about 1 ms of CPU a frame.
+
+Wakes are only for the eye. `Water.sample` and buoyancy don't see them, and servers keep none.
+
 ## Storms
 
 One field changes both the look and the physics:
@@ -88,5 +108,6 @@ Every World computes the same waves from the same clock: in a networked World th
 
 - Gerstner waves repeat; eight waves hide it from a ship-game camera, not from close up.
 - No shoreline foam or depth fade against geometry, no refraction, no underwater view.
+- Wakes don't move floating objects (sampling and buoyancy ignore them).
 - One grid per surface (no camera-following rings for very large oceans).
 - The water node must be level for sampling, and the water isn't picked by clicking in the Scene view (select it in the Hierarchy).

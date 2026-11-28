@@ -34,6 +34,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   ReflectionProbe: "Rendering",
   ParticleSystem: "Rendering",
   WaterSurface: "Rendering",
+  WaterWake: "Rendering",
   Tilemap: "Rendering",
   MapObject: "Rendering",
   LineRenderer: "Rendering", // ADR 0396

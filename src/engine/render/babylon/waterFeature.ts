@@ -3,7 +3,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
 import { WaterSurface } from "../water/WaterSurface";
-import { PICK_ORDER, type BabylonFeature, type DrawnNode } from "./feature";
+import { PICK_ORDER, type BabylonFeature, type DrawnNode, type FeatureSyncContext } from "./feature";
 import { BabylonWater, type BabylonWaterProbe } from "./water";
 
 declare module "../RenderSurface" {
@@ -21,8 +21,8 @@ export class WaterFeature implements BabylonFeature {
     this.water = new BabylonWater(scene, probeLookup);
   }
 
-  sync(world: World): void {
-    this.water.sync(world, world._componentsOfType(WaterSurface));
+  sync(world: World, ctx?: FeatureSyncContext): void {
+    this.water.sync(world, world._componentsOfType(WaterSurface), ctx?.viewCamera ?? null);
   }
 
   release(c: Component): void {

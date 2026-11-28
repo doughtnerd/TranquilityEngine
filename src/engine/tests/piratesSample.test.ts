@@ -1,8 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, Input, Lobby, Replicated, SceneInstance } from "../index";
-import { LineRenderer } from "../../plugins/lines/runtime";
-import { Water } from "../../plugins/water/runtime";
+import { WaterWake } from "../../plugins/water/runtime";
 import { UIButton, UIPanel, UIText } from "../ui/components";
 import { UIView } from "../../plugins/ui/runtime/UIView";
 import type { UIHostElement } from "../ui/host/UIHost";
@@ -232,20 +231,17 @@ describe("the King of Pirates sample", () => {
     const mine = seen.filter((s) => s.rep.isOwnedLocally);
     expect(mine).toHaveLength(1);
     expect(mine[0].rep.isPredictedLocally).toBe(true);
-    // Ships under way churn the water on the client: each afloat and seen draws a stern wake and a bow wave lying on the
-    // waves (the marks are only for the eye: the server World draws none).
-    const marks = (world: World, name: string) => world._componentsOfType(LineRenderer).filter((l) => l.node.name === name && l.isActiveAndEnabled);
-    expect(marks(server, "Stern Wake")).toEqual([]);
-    expect(marks(client, "Stern Wake").length).toBeGreaterThan(0);
-    expect(marks(client, "Bow Wave").length).toBeGreaterThan(0);
-    for (const line of [...marks(client, "Stern Wake"), ...marks(client, "Bow Wave")]) {
-      expect(line.color.a).toBeGreaterThan(0);
-      expect(line.positionCount).toBeGreaterThan(2);
-      for (const p of line.positions) {
-        const sea = World._runIn(client, () => Water.sample(p.x, p.z))!.height;
-        expect(Math.abs(p.y - sea)).toBeLessThan(0.25);
-      }
+    // Ships churn the water on the client: each carries a WaterWake the sea's shader draws (ADR 0445), shown
+    // while it's afloat and seen (the wakes are only for the eye: the server World has none).
+    expect(server._componentsOfType(WaterWake)).toEqual([]);
+    const wakes = client._componentsOfType(WaterWake);
+    expect(wakes).toHaveLength(6);
+    for (const s of seen) {
+      const wake = s.rep.node.getComponent(WaterWake)!;
+      expect(wake).toBeTruthy();
+      expect(wake.strength).toBe(s.data.sunk > 0 ? 0 : wake.strength);
     }
+    expect(wakes.some((w) => w.strength === 1)).toBe(true);
     // The player's ship sails under their room slot's colours; the HUD names the bots.
     expect(mine[0].data.team).toBe(Lobby.me!.slot);
     // The HUD is a Svelte component (ui/Hud.svelte): its leaderboard rows are an {#each} of the captains.
