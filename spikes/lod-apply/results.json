@@ -1,0 +1,1547 @@
+{
+ "info": {
+  "webgl2": true,
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "crossOriginIsolated": true
+ },
+ "date": "2026-11-28T03:22:12.859Z",
+ "runs": 5,
+ "correctness": {
+  "1-selectorProbe": {
+   "callsPerCamera": {
+    "?|A": 10000,
+    "?|B": 10000
+   },
+   "cachedCameras": [
+    "A",
+    "B"
+   ],
+   "note": "geometry and render passes of one camera both draw its meshes yet the selector ran once per mesh per camera per scene.render(): the per-camera _currentLOD cache (frame id keyed) serves the second pass"
+  },
+  "1-parity/a": {
+   "variant": "a",
+   "hookGeometryToo": false,
+   "renderCheck": {
+    "mismatches": 0,
+    "perViewVisible": [
+     6000,
+     6001
+    ],
+    "overlap": 3000
+   },
+   "expectedVisible": [
+    6000,
+    6001
+   ],
+   "depthCovered": [
+    6000,
+    6001
+   ],
+   "depthMismatchVsExpected": 0,
+   "depthRange": [
+    {
+     "min": 9,
+     "max": 50
+    },
+    {
+     "min": 9,
+     "max": 50
+    }
+   ],
+   "draws": {
+    "renderA": {
+     "calls": 4,
+     "instances": 6000
+    },
+    "renderB": {
+     "calls": 4,
+     "instances": 6001
+    },
+    "geomA": {
+     "calls": 4,
+     "instances": 6000
+    },
+    "geomB": {
+     "calls": 4,
+     "instances": 6001
+    }
+   }
+  },
+  "1-parity/b": {
+   "variant": "b",
+   "hookGeometryToo": false,
+   "renderCheck": {
+    "mismatches": 0,
+    "perViewVisible": [
+     6000,
+     6001
+    ],
+    "overlap": 3000
+   },
+   "expectedVisible": [
+    6000,
+    6001
+   ],
+   "depthCovered": [
+    6000,
+    6001
+   ],
+   "depthMismatchVsExpected": 0,
+   "depthRange": [
+    {
+     "min": 9,
+     "max": 50
+    },
+    {
+     "min": 9,
+     "max": 50
+    }
+   ],
+   "draws": {
+    "renderA": {
+     "calls": 4,
+     "instances": 6000
+    },
+    "renderB": {
+     "calls": 4,
+     "instances": 6001
+    },
+    "geomA": {
+     "calls": 4,
+     "instances": 6000
+    },
+    "geomB": {
+     "calls": 4,
+     "instances": 6001
+    }
+   }
+  },
+  "1-parity/b-noCurrentLod": {
+   "variant": "b-noCurrentLod",
+   "hookGeometryToo": false,
+   "renderCheck": {
+    "mismatches": 12001,
+    "perViewVisible": [
+     0,
+     0
+    ],
+    "overlap": 0
+   },
+   "expectedVisible": [
+    6000,
+    6001
+   ],
+   "depthCovered": [
+    0,
+    0
+   ],
+   "depthMismatchVsExpected": 12001,
+   "depthRange": [
+    {
+     "min": 50,
+     "max": 50
+    },
+    {
+     "min": 50,
+     "max": 50
+    }
+   ],
+   "draws": {
+    "renderA": {
+     "calls": 0,
+     "instances": 0
+    },
+    "renderB": {
+     "calls": 0,
+     "instances": 0
+    },
+    "geomA": {
+     "calls": 0,
+     "instances": 0
+    },
+    "geomB": {
+     "calls": 0,
+     "instances": 0
+    }
+   }
+  },
+  "1-parity/c-setEnabled (render hook only)": {
+   "variant": "c-setEnabled",
+   "hookGeometryToo": false,
+   "renderCheck": {
+    "mismatches": 0,
+    "perViewVisible": [
+     6000,
+     6001
+    ],
+    "overlap": 3000
+   },
+   "expectedVisible": [
+    6000,
+    6001
+   ],
+   "depthCovered": [
+    10000,
+    10000
+   ],
+   "depthMismatchVsExpected": 7999,
+   "depthRange": [
+    {
+     "min": 9,
+     "max": 9
+    },
+    {
+     "min": 9,
+     "max": 9
+    }
+   ],
+   "draws": {
+    "renderA": {
+     "calls": 4,
+     "instances": 6000
+    },
+    "renderB": {
+     "calls": 4,
+     "instances": 6001
+    },
+    "geomA": {
+     "calls": 4,
+     "instances": 40000
+    },
+    "geomB": {
+     "calls": 4,
+     "instances": 40000
+    }
+   }
+  },
+  "1-parity/c-setEnabled (hook on geometry pass too)": {
+   "variant": "c-setEnabled",
+   "hookGeometryToo": true,
+   "renderCheck": {
+    "mismatches": 0,
+    "perViewVisible": [
+     6000,
+     6001
+    ],
+    "overlap": 3000
+   },
+   "expectedVisible": [
+    6000,
+    6001
+   ],
+   "depthCovered": [
+    6000,
+    6001
+   ],
+   "depthMismatchVsExpected": 0,
+   "depthRange": [
+    {
+     "min": 9,
+     "max": 50
+    },
+    {
+     "min": 9,
+     "max": 50
+    }
+   ],
+   "draws": {
+    "renderA": {
+     "calls": 4,
+     "instances": 6000
+    },
+    "renderB": {
+     "calls": 4,
+     "instances": 6001
+    },
+    "geomA": {
+     "calls": 4,
+     "instances": 6000
+    },
+    "geomB": {
+     "calls": 4,
+     "instances": 6001
+    }
+   }
+  },
+  "2-scenario/baseline": {
+   "scenario": "baseline",
+   "skinned": false,
+   "levelTriangles": [
+    20000,
+    5000,
+    800,
+    200
+   ],
+   "bytes": {
+    "levelMeshes": {
+     "creates": 16,
+     "deletes": 0,
+     "vertexBytes": 1305728,
+     "indexBytes": 312000,
+     "otherBytes": 0,
+     "datas": 16,
+     "liveBytes": 1617728,
+     "liveBuffers": 16
+    },
+    "instancedMeshes": {
+     "creates": 0,
+     "deletes": 0,
+     "vertexBytes": 0,
+     "indexBytes": 0,
+     "otherBytes": 0,
+     "datas": 0,
+     "liveBytes": 0,
+     "liveBuffers": 0
+    },
+    "thinSources": {
+     "creates": 16,
+     "deletes": 0,
+     "vertexBytes": 1305728,
+     "indexBytes": 312000,
+     "otherBytes": 0,
+     "datas": 16,
+     "liveBytes": 1617728,
+     "liveBuffers": 16
+    },
+    "thinBuffers": {
+     "creates": 4,
+     "deletes": 0,
+     "vertexBytes": 256,
+     "indexBytes": 0,
+     "otherBytes": 0,
+     "datas": 4,
+     "liveBytes": 256,
+     "liveBuffers": 4
+    },
+    "firstRender": {
+     "creates": 11,
+     "deletes": 0,
+     "vertexBytes": 8224,
+     "indexBytes": 12,
+     "otherBytes": 12176,
+     "datas": 11,
+     "liveBytes": 8236,
+     "liveBuffers": 6
+    },
+    "total": {
+     "creates": 47,
+     "deletes": 0,
+     "vertexBytes": 2619936,
+     "indexBytes": 624012,
+     "otherBytes": 12176,
+     "datas": 47,
+     "liveBytes": 3243948,
+     "liveBuffers": 42
+    }
+   },
+   "liveGpuBuffers": 42,
+   "liveGpuBytes": 3243948,
+   "pixels": {
+    "plainRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "instancedRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "thinRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "emptyRow": [
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "centroidRowInCell": [
+    [
+     49.5,
+     49.5,
+     49.5,
+     49.5
+    ],
+    [
+     49.5,
+     49.5,
+     49.5,
+     49.5
+    ],
+    [
+     49.5,
+     49.5,
+     49.5,
+     49.5
+    ]
+   ],
+   "drawCalls": 8,
+   "drawIndexCounts": [
+    "60000x2",
+    "60000x1",
+    "15000x2",
+    "15000x1",
+    "2400x2",
+    "2400x1",
+    "600x2",
+    "600x1"
+   ],
+   "canvasHash": "8770a225",
+   "afterDispose": {
+    "deletedBuffers": 35,
+    "liveBuffersLeft": 7,
+    "survivorPixels": [
+     5024,
+     0,
+     0,
+     0
+    ],
+    "note": "baseline: level 0 mesh left drawing after the others were disposed"
+   }
+  },
+  "2-scenario/sharedVB": {
+   "scenario": "sharedVB",
+   "skinned": false,
+   "levelTriangles": [
+    20000,
+    5000,
+    800,
+    200
+   ],
+   "bytes": {
+    "levelMeshes": {
+     "creates": 7,
+     "deletes": 0,
+     "vertexBytes": 326432,
+     "indexBytes": 312000,
+     "otherBytes": 0,
+     "datas": 7,
+     "liveBytes": 638432,
+     "liveBuffers": 7
+    },
+    "instancedMeshes": {
+     "creates": 0,
+     "deletes": 0,
+     "vertexBytes": 0,
+     "indexBytes": 0,
+     "otherBytes": 0,
+     "datas": 0,
+     "liveBytes": 0,
+     "liveBuffers": 0
+    },
+    "thinSources": {
+     "creates": 4,
+     "deletes": 0,
+     "vertexBytes": 0,
+     "indexBytes": 312000,
+     "otherBytes": 0,
+     "datas": 4,
+     "liveBytes": 312000,
+     "liveBuffers": 4
+    },
+    "thinBuffers": {
+     "creates": 4,
+     "deletes": 0,
+     "vertexBytes": 256,
+     "indexBytes": 0,
+     "otherBytes": 0,
+     "datas": 4,
+     "liveBytes": 256,
+     "liveBuffers": 4
+    },
+    "firstRender": {
+     "creates": 11,
+     "deletes": 0,
+     "vertexBytes": 8224,
+     "indexBytes": 12,
+     "otherBytes": 12176,
+     "datas": 11,
+     "liveBytes": 8236,
+     "liveBuffers": 6
+    },
+    "total": {
+     "creates": 26,
+     "deletes": 0,
+     "vertexBytes": 334912,
+     "indexBytes": 624012,
+     "otherBytes": 12176,
+     "datas": 26,
+     "liveBytes": 958924,
+     "liveBuffers": 21
+    }
+   },
+   "liveGpuBuffers": 21,
+   "liveGpuBytes": 958924,
+   "pixels": {
+    "plainRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "instancedRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "thinRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "emptyRow": [
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "centroidRowInCell": [
+    [
+     49.5,
+     49.5,
+     49.5,
+     49.5
+    ],
+    [
+     49.5,
+     49.5,
+     49.5,
+     49.5
+    ],
+    [
+     49.5,
+     49.5,
+     49.5,
+     49.5
+    ]
+   ],
+   "drawCalls": 8,
+   "drawIndexCounts": [
+    "60000x2",
+    "60000x1",
+    "15000x2",
+    "15000x1",
+    "2400x2",
+    "2400x1",
+    "600x2",
+    "600x1"
+   ],
+   "canvasHash": "8770a225",
+   "afterDispose": {
+    "deletedBuffers": 14,
+    "liveBuffersLeft": 7,
+    "survivorPixels": [
+     5024,
+     0,
+     0,
+     0
+    ],
+    "note": "sharedVB: level 0 mesh left drawing after the others were disposed"
+   }
+  },
+  "2-scenario/sharedGeo": {
+   "scenario": "sharedGeo",
+   "skinned": false,
+   "levelTriangles": [
+    20000,
+    5000,
+    800,
+    200
+   ],
+   "bytes": {
+    "levelMeshes": {
+     "creates": 4,
+     "deletes": 0,
+     "vertexBytes": 326432,
+     "indexBytes": 312000,
+     "otherBytes": 0,
+     "datas": 4,
+     "liveBytes": 638432,
+     "liveBuffers": 4
+    },
+    "instancedMeshes": {
+     "creates": 0,
+     "deletes": 0,
+     "vertexBytes": 0,
+     "indexBytes": 0,
+     "otherBytes": 0,
+     "datas": 0,
+     "liveBytes": 0,
+     "liveBuffers": 0
+    },
+    "thinSources": {
+     "creates": 0,
+     "deletes": 0,
+     "vertexBytes": 0,
+     "indexBytes": 0,
+     "otherBytes": 0,
+     "datas": 0,
+     "liveBytes": 0,
+     "liveBuffers": 0
+    },
+    "thinBuffers": {
+     "creates": 4,
+     "deletes": 0,
+     "vertexBytes": 256,
+     "indexBytes": 0,
+     "otherBytes": 0,
+     "datas": 4,
+     "liveBytes": 256,
+     "liveBuffers": 4
+    },
+    "firstRender": {
+     "creates": 11,
+     "deletes": 0,
+     "vertexBytes": 8224,
+     "indexBytes": 12,
+     "otherBytes": 12176,
+     "datas": 11,
+     "liveBytes": 8236,
+     "liveBuffers": 6
+    },
+    "total": {
+     "creates": 19,
+     "deletes": 0,
+     "vertexBytes": 334912,
+     "indexBytes": 312012,
+     "otherBytes": 12176,
+     "datas": 19,
+     "liveBytes": 646924,
+     "liveBuffers": 14
+    }
+   },
+   "liveGpuBuffers": 14,
+   "liveGpuBytes": 646924,
+   "pixels": {
+    "plainRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "instancedRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "thinRow": [
+     0,
+     0,
+     0,
+     4920
+    ],
+    "emptyRow": [
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "centroidRowInCell": [
+    [
+     49.5,
+     49.5,
+     49.5,
+     49.5
+    ],
+    [
+     49.5,
+     49.5,
+     49.5,
+     49.5
+    ],
+    [
+     -1,
+     -1,
+     -1,
+     49.5
+    ]
+   ],
+   "drawCalls": 8,
+   "drawIndexCounts": [
+    "60000x2",
+    "60000x1",
+    "15000x2",
+    "15000x1",
+    "2400x2",
+    "2400x1",
+    "600x2",
+    "600x1"
+   ],
+   "canvasHash": "28e3f6ae",
+   "afterDispose": {
+    "deletedBuffers": 7,
+    "liveBuffersLeft": 7,
+    "survivorPixels": [
+     5024,
+     0,
+     0,
+     0
+    ],
+    "note": "sharedGeo: level 0 mesh left drawing after the others were disposed"
+   }
+  },
+  "2-scenario/baseline skinned": {
+   "scenario": "baseline",
+   "skinned": true,
+   "levelTriangles": [
+    20000,
+    5000,
+    800,
+    200
+   ],
+   "bytes": {
+    "levelMeshes": {
+     "creates": 24,
+     "deletes": 0,
+     "vertexBytes": 2611456,
+     "indexBytes": 312000,
+     "otherBytes": 0,
+     "datas": 24,
+     "liveBytes": 2923456,
+     "liveBuffers": 24
+    },
+    "instancedMeshes": {
+     "creates": 0,
+     "deletes": 0,
+     "vertexBytes": 0,
+     "indexBytes": 0,
+     "otherBytes": 0,
+     "datas": 0,
+     "liveBytes": 0,
+     "liveBuffers": 0
+    },
+    "thinSources": {
+     "creates": 24,
+     "deletes": 0,
+     "vertexBytes": 2611456,
+     "indexBytes": 312000,
+     "otherBytes": 0,
+     "datas": 24,
+     "liveBytes": 2923456,
+     "liveBuffers": 24
+    },
+    "thinBuffers": {
+     "creates": 4,
+     "deletes": 0,
+     "vertexBytes": 256,
+     "indexBytes": 0,
+     "otherBytes": 0,
+     "datas": 4,
+     "liveBytes": 256,
+     "liveBuffers": 4
+    },
+    "firstRender": {
+     "creates": 11,
+     "deletes": 0,
+     "vertexBytes": 8224,
+     "indexBytes": 12,
+     "otherBytes": 12176,
+     "datas": 11,
+     "liveBytes": 8236,
+     "liveBuffers": 6
+    },
+    "total": {
+     "creates": 63,
+     "deletes": 0,
+     "vertexBytes": 5231392,
+     "indexBytes": 624012,
+     "otherBytes": 12176,
+     "datas": 63,
+     "liveBytes": 5855404,
+     "liveBuffers": 58
+    }
+   },
+   "liveGpuBuffers": 58,
+   "liveGpuBytes": 5855404,
+   "pixels": {
+    "plainRow": [
+     4990,
+     4990,
+     4990,
+     4894
+    ],
+    "instancedRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "thinRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "emptyRow": [
+     34,
+     34,
+     34,
+     26
+    ]
+   },
+   "centroidRowInCell": [
+    [
+     61.5,
+     61.5,
+     61.5,
+     61.5
+    ],
+    [
+     61.1,
+     61.1,
+     61.1,
+     61.2
+    ],
+    [
+     61.1,
+     61.1,
+     61.1,
+     61.2
+    ]
+   ],
+   "drawCalls": 8,
+   "drawIndexCounts": [
+    "60000x2",
+    "60000x1",
+    "15000x2",
+    "15000x1",
+    "2400x2",
+    "2400x1",
+    "600x2",
+    "600x1"
+   ],
+   "canvasHash": "b6cde6ab",
+   "bonePalette": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    -12,
+    0,
+    1
+   ],
+   "useBones": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "afterDispose": {
+    "deletedBuffers": 49,
+    "liveBuffersLeft": 9,
+    "survivorPixels": [
+     4990,
+     0,
+     0,
+     0
+    ],
+    "note": "baseline: level 0 mesh left drawing after the others were disposed"
+   }
+  },
+  "2-scenario/sharedVB skinned": {
+   "scenario": "sharedVB",
+   "skinned": true,
+   "levelTriangles": [
+    20000,
+    5000,
+    800,
+    200
+   ],
+   "bytes": {
+    "levelMeshes": {
+     "creates": 9,
+     "deletes": 0,
+     "vertexBytes": 652864,
+     "indexBytes": 312000,
+     "otherBytes": 0,
+     "datas": 9,
+     "liveBytes": 964864,
+     "liveBuffers": 9
+    },
+    "instancedMeshes": {
+     "creates": 0,
+     "deletes": 0,
+     "vertexBytes": 0,
+     "indexBytes": 0,
+     "otherBytes": 0,
+     "datas": 0,
+     "liveBytes": 0,
+     "liveBuffers": 0
+    },
+    "thinSources": {
+     "creates": 4,
+     "deletes": 0,
+     "vertexBytes": 0,
+     "indexBytes": 312000,
+     "otherBytes": 0,
+     "datas": 4,
+     "liveBytes": 312000,
+     "liveBuffers": 4
+    },
+    "thinBuffers": {
+     "creates": 4,
+     "deletes": 0,
+     "vertexBytes": 256,
+     "indexBytes": 0,
+     "otherBytes": 0,
+     "datas": 4,
+     "liveBytes": 256,
+     "liveBuffers": 4
+    },
+    "firstRender": {
+     "creates": 11,
+     "deletes": 0,
+     "vertexBytes": 8224,
+     "indexBytes": 12,
+     "otherBytes": 12176,
+     "datas": 11,
+     "liveBytes": 8236,
+     "liveBuffers": 6
+    },
+    "total": {
+     "creates": 28,
+     "deletes": 0,
+     "vertexBytes": 661344,
+     "indexBytes": 624012,
+     "otherBytes": 12176,
+     "datas": 28,
+     "liveBytes": 1285356,
+     "liveBuffers": 23
+    }
+   },
+   "liveGpuBuffers": 23,
+   "liveGpuBytes": 1285356,
+   "pixels": {
+    "plainRow": [
+     4990,
+     4990,
+     4990,
+     4894
+    ],
+    "instancedRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "thinRow": [
+     5024,
+     5024,
+     5024,
+     4920
+    ],
+    "emptyRow": [
+     34,
+     34,
+     34,
+     26
+    ]
+   },
+   "centroidRowInCell": [
+    [
+     61.5,
+     61.5,
+     61.5,
+     61.5
+    ],
+    [
+     61.1,
+     61.1,
+     61.1,
+     61.2
+    ],
+    [
+     61.1,
+     61.1,
+     61.1,
+     61.2
+    ]
+   ],
+   "drawCalls": 8,
+   "drawIndexCounts": [
+    "60000x2",
+    "60000x1",
+    "15000x2",
+    "15000x1",
+    "2400x2",
+    "2400x1",
+    "600x2",
+    "600x1"
+   ],
+   "canvasHash": "b6cde6ab",
+   "bonePalette": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    -12,
+    0,
+    1
+   ],
+   "useBones": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "afterDispose": {
+    "deletedBuffers": 14,
+    "liveBuffersLeft": 9,
+    "survivorPixels": [
+     4990,
+     0,
+     0,
+     0
+    ],
+    "note": "sharedVB: level 0 mesh left drawing after the others were disposed"
+   }
+  },
+  "2-dispose": {
+   "sharedVB": {
+    "createdLive": 7,
+    "liveAfterAllDisposed": 0,
+    "deletesTotal": 7
+   },
+   "sharedGeo": {
+    "createdLive": 4,
+    "liveAfterAllDisposed": 0,
+    "deletesTotal": 4
+   }
+  },
+  "3-views": {
+   "expected": [
+    6000,
+    6001
+   ],
+   "seen": [
+    6000,
+    6001
+   ],
+   "mismatches": 0,
+   "wrongColour": 0,
+   "draws": {
+    "A": {
+     "calls": 1,
+     "instances": 6000
+    },
+    "B": {
+     "calls": 1,
+     "instances": 6001
+    }
+   }
+  },
+  "3-cascades/all": {
+   "mode": "all",
+   "casters": 171,
+   "shadowPixels": 3167,
+   "bandsTopToBottom": [
+    0,
+    0,
+    12,
+    124,
+    360,
+    559,
+    80,
+    2032
+   ],
+   "castersVisiblePx": 108548,
+   "selectedPerLayer": [],
+   "shadowDrawsPerLayer": [
+    {
+     "calls": 1,
+     "instances": 171
+    },
+    {
+     "calls": 1,
+     "instances": 171
+    },
+    {
+     "calls": 1,
+     "instances": 171
+    }
+   ],
+   "shadowInstancesTotal": 513,
+   "selectMsPerLayer": []
+  },
+  "3-cascades/perCascade": {
+   "mode": "perCascade",
+   "casters": 171,
+   "shadowPixels": 3167,
+   "bandsTopToBottom": [
+    0,
+    0,
+    12,
+    124,
+    360,
+    559,
+    80,
+    2032
+   ],
+   "castersVisiblePx": 108548,
+   "selectedPerLayer": [
+    25,
+    84,
+    155
+   ],
+   "shadowDrawsPerLayer": [
+    {
+     "calls": 1,
+     "instances": 25
+    },
+    {
+     "calls": 1,
+     "instances": 84
+    },
+    {
+     "calls": 1,
+     "instances": 155
+    }
+   ],
+   "shadowInstancesTotal": 264,
+   "selectMsPerLayer": [
+    0.3,
+    0.265,
+    0.295,
+    0.175,
+    0.14,
+    1.375,
+    0.21,
+    0.2,
+    0.175,
+    0.185,
+    0.035,
+    0.07,
+    0.055,
+    0.07,
+    0.04
+   ]
+  },
+  "3-cascades/perCascade-emptyLayer0": {
+   "mode": "perCascade-emptyLayer",
+   "casters": 171,
+   "shadowPixels": 770,
+   "bandsTopToBottom": [
+    0,
+    0,
+    12,
+    124,
+    360,
+    274,
+    0,
+    0
+   ],
+   "castersVisiblePx": 108548,
+   "selectedPerLayer": [
+    25,
+    84,
+    155
+   ],
+   "shadowDrawsPerLayer": [
+    {
+     "calls": 0,
+     "instances": 0
+    },
+    {
+     "calls": 1,
+     "instances": 84
+    },
+    {
+     "calls": 1,
+     "instances": 155
+    }
+   ],
+   "shadowInstancesTotal": 239,
+   "selectMsPerLayer": [
+    0.275,
+    0.145,
+    0.32,
+    0.175,
+    0.155,
+    0.35,
+    0.11,
+    0.1,
+    0.16,
+    0.21,
+    0.16,
+    0.17,
+    0.055,
+    0.07,
+    0.06
+   ]
+  },
+  "3-cascades/perCascade-emptyLayer1": {
+   "mode": "perCascade-emptyLayer",
+   "casters": 171,
+   "shadowPixels": 2361,
+   "bandsTopToBottom": [
+    0,
+    0,
+    12,
+    78,
+    0,
+    159,
+    80,
+    2032
+   ],
+   "castersVisiblePx": 108548,
+   "selectedPerLayer": [
+    25,
+    84,
+    155
+   ],
+   "shadowDrawsPerLayer": [
+    {
+     "calls": 1,
+     "instances": 25
+    },
+    {
+     "calls": 0,
+     "instances": 0
+    },
+    {
+     "calls": 1,
+     "instances": 155
+    }
+   ],
+   "shadowInstancesTotal": 180,
+   "selectMsPerLayer": [
+    0.355,
+    0.28,
+    0.33,
+    0.16,
+    0.18,
+    0.935,
+    0.105,
+    0.21,
+    0.14,
+    0.05,
+    0.03,
+    0.225,
+    0.165,
+    0.07,
+    0.055
+   ]
+  },
+  "3-cascades/perCascade-emptyLayer2": {
+   "mode": "perCascade-emptyLayer",
+   "casters": 171,
+   "shadowPixels": 3077,
+   "bandsTopToBottom": [
+    0,
+    0,
+    0,
+    46,
+    360,
+    559,
+    80,
+    2032
+   ],
+   "castersVisiblePx": 108548,
+   "selectedPerLayer": [
+    25,
+    84,
+    155
+   ],
+   "shadowDrawsPerLayer": [
+    {
+     "calls": 1,
+     "instances": 25
+    },
+    {
+     "calls": 1,
+     "instances": 84
+    },
+    {
+     "calls": 0,
+     "instances": 0
+    }
+   ],
+   "shadowInstancesTotal": 109,
+   "selectMsPerLayer": [
+    0.325,
+    0.19,
+    0.265,
+    0.14,
+    0.15,
+    0.915,
+    0.16,
+    0.25,
+    0.16,
+    0.06,
+    0.075,
+    0.11,
+    0.035,
+    0.04,
+    0.08
+   ]
+  }
+ },
+ "timing": {
+  "note": "ms, JS side, pooled over runs; applyA/applyB = per-view apply cost; renderMs = whole scene.render() of both views (cull + geometry-free render pass + GL calls)",
+  "runs": 5,
+  "perViewSelection10k": {
+   "a": {
+    "applyA": {
+     "p50": 0.055,
+     "p99": 0.155,
+     "max": 0.155,
+     "n": 150
+    },
+    "applyB": {
+     "p50": 0.035,
+     "p99": 0.155,
+     "max": 0.265,
+     "n": 150
+    },
+    "sceneRender": {
+     "p50": 33.71,
+     "p99": 60.935,
+     "max": 72.085,
+     "n": 150
+    },
+    "perRunP50": {
+     "applyA": [
+      0.04,
+      0.075,
+      0.04,
+      0.055,
+      0.075
+     ],
+     "render": [
+      33.65,
+      35.305,
+      35.585,
+      33.085,
+      33.68
+     ]
+    }
+   },
+   "b": {
+    "applyA": {
+     "p50": 1.67,
+     "p99": 3.37,
+     "max": 3.81,
+     "n": 150
+    },
+    "applyB": {
+     "p50": 1.575,
+     "p99": 2.76,
+     "max": 2.785,
+     "n": 150
+    },
+    "sceneRender": {
+     "p50": 32.03,
+     "p99": 43.51,
+     "max": 46.085,
+     "n": 150
+    },
+    "perRunP50": {
+     "applyA": [
+      1.66,
+      1.685,
+      1.595,
+      1.715,
+      1.715
+     ],
+     "render": [
+      39.03,
+      32.68,
+      28.13,
+      33.19,
+      28.62
+     ]
+    }
+   },
+   "c-setEnabled": {
+    "applyA": {
+     "p50": 15.395,
+     "p99": 23.765,
+     "max": 25.59,
+     "n": 150
+    },
+    "applyB": {
+     "p50": 15.36,
+     "p99": 24.16,
+     "max": 24.345,
+     "n": 150
+    },
+    "sceneRender": {
+     "p50": 102.915,
+     "p99": 145.34,
+     "max": 146.625,
+     "n": 150
+    },
+    "perRunP50": {
+     "applyA": [
+      16.275,
+      15,
+      15.44,
+      15.56,
+      14.295
+     ],
+     "render": [
+      106.83,
+      101.62,
+      104.5,
+      100.305,
+      106.515
+     ]
+    }
+   },
+   "c-isVisible": {
+    "applyA": {
+     "p50": 1.595,
+     "p99": 2.97,
+     "max": 5.715,
+     "n": 150
+    },
+    "applyB": {
+     "p50": 1.62,
+     "p99": 2.43,
+     "max": 2.535,
+     "n": 150
+    },
+    "sceneRender": {
+     "p50": 74.475,
+     "p99": 108.135,
+     "max": 118.965,
+     "n": 150
+    },
+    "perRunP50": {
+     "applyA": [
+      1.51,
+      1.685,
+      1.69,
+      1.58,
+      1.54
+     ],
+     "render": [
+      69.445,
+      78.06,
+      76.155,
+      73.35,
+      72.71
+     ]
+    }
+   }
+  },
+  "perPassFillUpload10k": {
+   "passes": [
+    "view A (60 %)",
+    "view B (60 %)",
+    "cascade 0 (25 %)",
+    "cascade 1 (40 %)",
+    "cascade 2 (60 %)"
+   ],
+   "fillMs": [
+    {
+     "p50": 0.36,
+     "p99": 0.715,
+     "max": 0.855,
+     "n": 200
+    },
+    {
+     "p50": 0.35,
+     "p99": 0.705,
+     "max": 0.705,
+     "n": 200
+    },
+    {
+     "p50": 0.185,
+     "p99": 0.53,
+     "max": 0.535,
+     "n": 200
+    },
+    {
+     "p50": 0.27,
+     "p99": 0.57,
+     "max": 0.605,
+     "n": 200
+    },
+    {
+     "p50": 0.35,
+     "p99": 0.89,
+     "max": 2.045,
+     "n": 200
+    }
+   ],
+   "uploadMs": [
+    {
+     "p50": 0.055,
+     "p99": 0.79,
+     "max": 0.855,
+     "n": 200
+    },
+    {
+     "p50": 0.05,
+     "p99": 0.355,
+     "max": 0.45,
+     "n": 200
+    },
+    {
+     "p50": 0.025,
+     "p99": 0.15,
+     "max": 0.245,
+     "n": 200
+    },
+    {
+     "p50": 0.035,
+     "p99": 0.34,
+     "max": 0.61,
+     "n": 200
+    },
+    {
+     "p50": 0.05,
+     "p99": 0.43,
+     "max": 0.75,
+     "n": 200
+    }
+   ],
+   "allFivePassesPerFrame": {
+    "p50": 1.875,
+    "p99": 3.52,
+    "max": 3.69,
+    "n": 200
+   },
+   "perRunP50": [
+    1.83,
+    2.255,
+    2.065,
+    1.825,
+    1.72
+   ],
+   "bytesPerPassBuffer": 640000,
+   "bytesAllFivePasses": 3200000
+  }
+ }
+}
