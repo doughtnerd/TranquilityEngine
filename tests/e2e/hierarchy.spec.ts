@@ -7,6 +7,9 @@ const indent = (page: Page, key: string) => row(page, key).evaluate((el) => pars
 
 /** Press on a row and move to `fraction` of another row's height; optionally release. */
 async function dragRow(page: Page, from: string, to: string, fraction: number, release = true): Promise<void> {
+  // The tree can run past the panel's fold (the flappy sample's HUD lists its UI elements): show both rows first.
+  await row(page, from).scrollIntoViewIfNeeded();
+  await row(page, to).scrollIntoViewIfNeeded();
   const a = await box(row(page, from));
   const b = await box(row(page, to));
   await page.mouse.move(a.x + 40, a.y + a.height / 2);
@@ -59,7 +62,7 @@ test("nodes inside prefab instances can't be moved, and invalid drops change not
   await row(page, "pipe-pair").locator(".caret").click();
   const before = await rootNames(page);
 
-  await dragRow(page, "pipe-pair/top", "camera", 0.1, false);
+  await dragRow(page, "pipe-pair/top", "game", 0.1, false); // a row near the instance, so both fit in the panel
   await expect(page.locator(".asset-drag-ghost.invalid")).toContainText("moved in the prefab");
   await page.mouse.up();
 
@@ -67,8 +70,7 @@ test("nodes inside prefab instances can't be moved, and invalid drops change not
   await expect(page.locator(".asset-drag-ghost.invalid")).toContainText("inside itself");
   await page.mouse.up();
 
-  // Into a prefab's insides (the instance's last row can sit below the fold: show it, and drag a row beside it).
-  await row(page, "pipe-pair/bottom").scrollIntoViewIfNeeded();
+  // Into a prefab's insides (the instance's last row can sit below the fold: dragRow shows it, and a row beside it drags).
   await dragRow(page, "game", "pipe-pair/bottom", 0.5, false);
   await expect(page.locator(".asset-drag-ghost.invalid")).toContainText("can't move inside a prefab instance");
   await page.keyboard.press("Escape");

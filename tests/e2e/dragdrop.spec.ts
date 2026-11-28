@@ -72,6 +72,7 @@ test("dropping on a node inside a prefab instance adds the asset there as an ove
   await page.locator(".asset-tile", { hasText: "pipe-pair" }).getByRole("button").click();
   await row(page, "pipe-pair").locator(".caret").click();
   await showFolder(page, "music");
+  await row(page, "pipe-pair/top").scrollIntoViewIfNeeded(); // the instance's rows can sit below the panel's fold
   const top = await box(row(page, "pipe-pair/top"));
   await dragAsset(page, "foo.mp3", top.x + 40, top.y + top.height / 2, false);
   await expect(row(page, "pipe-pair/top")).toHaveClass(/drop-into/);
