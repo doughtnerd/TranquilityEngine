@@ -107,6 +107,16 @@ export interface ThemeTokens {
   "series-6": string;
   "series-7": string;
   "series-8": string;
+  // LOD bar colours (ADR 0446 §7): one per level, then the culled segment; legible on the panels like the series.
+  lod0: string;
+  lod1: string;
+  lod2: string;
+  lod3: string;
+  lod4: string;
+  lod5: string;
+  lod6: string;
+  lod7: string;
+  lodCulled: string;
 }
 
 /** The hues the Audio Studio's colours start from beside the preset's own (blue notes, pink cues, salmon hits and pickups, violet tails, magenta). */
@@ -279,6 +289,15 @@ function resolveTheme(preset: ThemePreset, overrides?: Partial<Record<string, un
     "series-6": violet,
     "series-7": salmon,
     "series-8": ensureContrast(mix(text, panel, 0.3), panel, hc ? 4.5 : 3, text),
+    lod0: success,
+    lod1: accent,
+    lod2: blue,
+    lod3: violet,
+    lod4: magenta,
+    lod5: salmon,
+    lod6: warning,
+    lod7: pink,
+    lodCulled: ensureContrast(mix(text, panel, 0.5), panel, hc ? 4.5 : 3, text),
   };
   if (hc) Object.assign(tokens, { buttonHover: mix(panel, accent, 0.3), glow: `0 0 0 2px ${accent}` });
   return { ...tokens, ...preset.tokens };

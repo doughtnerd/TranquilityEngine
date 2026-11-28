@@ -6,6 +6,10 @@ import { DEFAULT_SLOT, loadMeshes, materialSlots } from "../../../engine/scene/m
 import { extractModelMaterials } from "../../../editor/materialExtract";
 import { editor, type ImportSettingsViewProps } from "../../../editor/sdk";
 import type { ImportSettings } from "../../../engine/scene/importSettings";
+import type { LodSettings, OccluderSetting } from "../../../engine/scene/lod/types";
+import type { ModelMesh } from "../../../engine/scene/models";
+import "../../../editor/ui/lodBar/lodBar.css";
+import { addLevel, canAddLevel, editLevel, levelReports, modelTriangles, removeLevel, setGenerate, setPixelError, shortWarning, suggestsLods, MAX_LOD_LEVELS } from "./modelImportSettingsLogic";
 
 /** The Import Settings card's rows for a model. */
 export function ModelImportSettings(props: ImportSettingsViewProps) {
@@ -55,6 +59,7 @@ export function ModelImportSettings(props: ImportSettingsViewProps) {
             <option value="node">Node</option>
           </select>
         </label>
+        <ModelLodRows path={path} lod={draft.lod} occluder={draft.occluder} dirty={dirty} readOnly={readOnly} onLod={(lod) => set({ lod })} onOccluder={(occluder) => set({ occluder })} />
         <ModelMaterialRows path={path} materials={draft.materials} dirty={dirty} readOnly={readOnly} onChange={(materials) => set({ materials })} />
     </>
   );
@@ -138,3 +143,113 @@ function ModelMaterialRows(props: { path: string; materials: Record<string, stri
   );
 }
 
+
+const OCCLUDER_CHOICES: readonly { value: OccluderSetting; label: string; title: string }[] = [
+  { value: "auto", label: "Automatic", title: "A simplified stand-in where the mesh is a good occluder" },
+  { value: "lod", label: "Coarsest LOD", title: "Occlusion culling uses the coarsest generated level" },
+  { value: "none", label: "None", title: "This model never hides other things" },
+];
+
+const percent = (n: number) => `${Math.round(n * 1000) / 10}%`;
+
+/**
+ * Generated LOD levels (ADR 0446 §1, §7): the "Generate LODs" switch, the level rows and options, the occluder choice,
+ * and, once the model has loaded, what each level reached.
+ */
+function ModelLodRows(props: { path: string; lod: LodSettings | null; occluder: OccluderSetting; dirty: boolean; readOnly: string | null; onLod: (lod: LodSettings | null) => void; onOccluder: (o: OccluderSetting) => void }) {
+  const { path, lod } = props;
+  const [meshes, setMeshes] = useState<readonly ModelMesh[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    setMeshes(null);
+    loadMeshes(`asset:${path}`)
+      .then((m) => live && setMeshes(m))
+      .catch(() => live && setMeshes([]));
+    return () => {
+      live = false;
+    };
+  }, [path, editor.project.version]);
+  const locked = !!props.readOnly;
+  const triangles = meshes ? modelTriangles(meshes) : 0;
+  const reports = meshes && lod ? levelReports(meshes, lod) : null;
+  const warning = lod ? shortWarning(reports, lod) : null;
+  const num = (e: Event) => Number((e.currentTarget as HTMLInputElement).value);
+  const flag = (key: "attributes" | "permissive" | "lockBorders", label: string, title: string) => (
+    <label class="import-row" title={title}>
+      <span>{label}</span>
+      <input type="checkbox" aria-label={label} checked={lod![key]} disabled={locked} onChange={(e) => props.onLod({ ...lod!, [key]: (e.currentTarget as HTMLInputElement).checked })} />
+    </label>
+  );
+  return (
+    <>
+      <label class="import-row" title="Generate simpler copies of each mesh when the model is imported, for an LODGroup to draw from far away (ADR 0446)">
+        <span>Generate LODs</span>
+        <input type="checkbox" aria-label="Generate LODs" checked={lod !== null} disabled={locked} onChange={(e) => props.onLod(setGenerate(lod, (e.currentTarget as HTMLInputElement).checked))} />
+      </label>
+      {suggestsLods(lod, triangles) && (
+        <p class="lod-import-note" role="note">
+          This model has {triangles.toLocaleString()} triangles: Generate LODs would let it draw fewer of them from far away.
+        </p>
+      )}
+      {lod && (
+        <>
+          <div class="lod-import-levels" role="group" aria-label="LOD levels">
+            <div class="lod-import-head" aria-hidden="true">
+              <span>Level</span>
+              <span>Triangles</span>
+              <span>Error</span>
+              <span />
+            </div>
+            {lod.levels.map((l, i) => {
+              const r = reports?.find((x) => x.level === i + 1);
+              return (
+                <div class="lod-import-level" key={i}>
+                  <span class="lod-import-name" style={{ color: `var(--lod${Math.min(i + 1, 7)})` }}>
+                    LOD{i + 1}
+                  </span>
+                  <input type="number" min={0.01} max={0.99} step={0.05} aria-label={`LOD${i + 1} ratio`} title="Triangle target, relative to LOD0" value={l.ratio} disabled={locked} onChange={(e) => props.onLod(editLevel(lod, i, { ratio: num(e) }))} />
+                  <input type="number" min={0} step={0.005} aria-label={`LOD${i + 1} error`} title="Error limit, as a fraction of the model's size" value={l.error} disabled={locked} onChange={(e) => props.onLod(editLevel(lod, i, { error: num(e) }))} />
+                  <button class="icon" aria-label={`Remove LOD${i + 1}`} title="Remove this level" disabled={locked || lod.levels.length <= 1} onClick={() => props.onLod(removeLevel(lod, i))}>
+                    ×
+                  </button>
+                  {r && (
+                    <span class={`lod-import-reached${r.short ? " short" : ""}`} aria-label={`LOD${i + 1} reached`}>
+                      reached {r.triangles.toLocaleString()} triangles ({percent(r.reached)}), error {percent(r.error)}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+            <button disabled={locked || !canAddLevel(lod)} title={lod.levels.length >= MAX_LOD_LEVELS ? `At most ${MAX_LOD_LEVELS} levels` : "Add a coarser level"} onClick={() => props.onLod(addLevel(lod))}>
+              Add Level
+            </button>
+          </div>
+          {reports === null && meshes && meshes.length > 0 && !props.dirty && <p class="lod-import-note">The levels appear here once the model has generated them.</p>}
+          {reports && props.dirty && <p class="lod-import-note">Reached values are from the applied settings; Apply to generate the new ones.</p>}
+          {warning && (
+            <p class="lod-import-warning" role="alert">
+              {warning}
+            </p>
+          )}
+          {flag("attributes", "Attributes", "Weigh normals, UVs and vertex colours while simplifying (off: positions only)")}
+          {flag("permissive", "Permissive", "Let hard edges and seams collapse: needed for boxy, flat-shaded meshes")}
+          {flag("lockBorders", "Lock borders", "Keep open borders exactly, for terrain tiles that must meet their neighbours")}
+          <label class="import-row" title="The screen error, in pixels at 1080p, that sets the automatic transition heights">
+            <span>Pixel error</span>
+            <input type="number" min={0.1} step={0.1} aria-label="Pixel error" value={lod.pixelError} disabled={locked} onChange={(e) => props.onLod(setPixelError(lod, num(e)))} />
+          </label>
+        </>
+      )}
+      <label class="import-row" title="The stand-in occlusion culling rasterises for this model (ADR 0447)">
+        <span>Occluder</span>
+        <select aria-label="Occluder" value={props.occluder} disabled={locked} onChange={(e) => props.onOccluder((e.currentTarget as HTMLSelectElement).value as OccluderSetting)}>
+          {OCCLUDER_CHOICES.map((c) => (
+            <option key={c.value} value={c.value} title={c.title}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    </>
+  );
+}

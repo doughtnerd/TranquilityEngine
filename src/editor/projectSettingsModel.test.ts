@@ -209,6 +209,24 @@ describe("the Project panel's settings", () => {
       expect(settingsProblems(d)).toEqual([]);
     });
 
+    it("sets the LOD and occlusion fields of a tier (ADR 0446 §5, 0447 §5)", () => {
+      let d = setTierValue(readDraft({}), 1, "lodBias", 1.25);
+      d = setTierValue(d, 1, "lodFirstLevel", 2);
+      d = setTierValue(d, 1, "lodCrossfade", false);
+      d = setTierValue(d, 1, "occlusionBuffer", "high");
+      d = setTierValue(d, 1, "occluderBudget", 50000);
+      d = setTierValue(d, 1, "occlusionViews", 3);
+      expect(graphicsOf(d).tiers[1]).toMatchObject({ lodBias: 1.25, lodFirstLevel: 2, lodCrossfade: false, occlusionBuffer: "high", occluderBudget: 50000, occlusionViews: 3 });
+      expect(settingsProblems(d)).toEqual([]);
+    });
+
+    it("reports a bad LOD or occlusion value", () => {
+      expect(settingsProblems(setTierValue(readDraft({}), 0, "lodBias", 0)).length).toBeGreaterThan(0);
+      expect(settingsProblems(setTierValue(readDraft({}), 0, "lodFirstLevel", 1.5)).length).toBeGreaterThan(0);
+      expect(settingsProblems(setTierValue(readDraft({}), 0, "occlusionBuffer", "huge")).length).toBeGreaterThan(0);
+      expect(settingsProblems(setTierValue(readDraft({}), 0, "occlusionViews", 99)).length).toBeGreaterThan(0);
+    });
+
     it("reorders tiers within bounds", () => {
       const d = moveTier(readDraft({}), 0, 1);
       expect(names(d)).toEqual(["Medium", "Low", "High", "Ultra"]);

@@ -77,6 +77,16 @@
   --series-6: #b48cf0;
   --series-7: #e8907a;
   --series-8: #afaea8;
+  /* LOD bar (ADR 0446 §7): one colour per level, then the culled segment */
+  --lod0: #9fd94a;
+  --lod1: #2ad4d4;
+  --lod2: #6aa8ff;
+  --lod3: #b48cf0;
+  --lod4: #e879c6;
+  --lod5: #e8907a;
+  --lod6: #f2b84b;
+  --lod7: #f07ab4;
+  --lod-culled: #82827f;
   /* fonts (Settings > Appearance); --ui-scale is the UI font size over the default 13px */
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-size-ui: 13px;

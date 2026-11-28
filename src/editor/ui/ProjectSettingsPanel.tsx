@@ -2,7 +2,7 @@ import type { ComponentChildren } from "preact";
 import { Panel } from "./panel/Panel";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDraftText } from "./draftText";
-import { ANTIALIAS_MODES, LIGHTS_2D_QUALITIES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
+import { ANTIALIAS_MODES, LIGHTS_2D_QUALITIES, OCCLUSION_BUFFER_QUALITIES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings, INPUT_JOIN_POLICIES } from "../../engine/core/settings";
 import { inputActionSets } from "../../engine/editor";
 import { allPluginManifests } from "../../plugins/thirdPartyEditor";
@@ -577,7 +577,22 @@ function Tiers(props: { draft: SettingsDraft; problems: readonly SettingsProblem
       </select>
     );
   };
-  const toggle = (i: number, key: "postProcessing" | "bloom" | "depthOfField", label: string, disabled = false) => (
+  const tierNumber = (i: number, key: TierValueKey, label: string, min: number, max: number, step: number, disabled = false) => (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      aria-label={`${g.tiers[i].name} ${label}`}
+      value={g.tiers[i][key as "lodBias"]}
+      disabled={disabled}
+      onChange={(e) => {
+        const n = (e.currentTarget as HTMLInputElement).valueAsNumber;
+        if (Number.isFinite(n)) value(i, key, n);
+      }}
+    />
+  );
+  const toggle = (i: number, key: "postProcessing" | "bloom" | "depthOfField" | "lodCrossfade", label: string, disabled = false) => (
     <input
       type="checkbox"
       aria-label={`${g.tiers[i].name} ${label}`}
@@ -736,6 +751,30 @@ function Tiers(props: { draft: SettingsDraft; problems: readonly SettingsProblem
             <label>
               <span class="tier-label">2D lights</span>
               {choice(i, "lights2D", "2D lights", LIGHTS_2D_QUALITIES)}
+            </label>
+            <label title="Scales the screen height LOD groups are chosen by: below 1 drops detail sooner (ADR 0446)">
+              <span class="tier-label">LOD bias</span>
+              {tierNumber(i, "lodBias", "LOD bias", 0.1, 5, 0.1)}
+            </label>
+            <label title="The most detailed LOD level this tier draws: 1 never draws LOD0">
+              <span class="tier-label">First LOD level</span>
+              {tierNumber(i, "lodFirstLevel", "first LOD level", 0, 7, 1)}
+            </label>
+            <label title="Dithered crossfade between LOD levels (off: they switch at once)">
+              <span class="tier-label">LOD crossfade</span>
+              {toggle(i, "lodCrossfade", "LOD crossfade")}
+            </label>
+            <label title="The occlusion culling depth buffer's size (ADR 0447)">
+              <span class="tier-label">Occlusion buffer</span>
+              {choice(i, "occlusionBuffer", "occlusion buffer", OCCLUSION_BUFFER_QUALITIES)}
+            </label>
+            <label class={t.occlusionBuffer === "off" ? "disabled" : ""} title="Occluder triangles rasterised per view">
+              <span class="tier-label">Occluder budget</span>
+              {tierNumber(i, "occluderBudget", "occluder budget", 0, 200000, 1000, t.occlusionBuffer === "off")}
+            </label>
+            <label class={t.occlusionBuffer === "off" ? "disabled" : ""} title="How many views per frame run occlusion culling: 1 is the main camera">
+              <span class="tier-label">Occlusion views</span>
+              {tierNumber(i, "occlusionViews", "occlusion views", 0, 8, 1, t.occlusionBuffer === "off")}
             </label>
           </div>
         </div>

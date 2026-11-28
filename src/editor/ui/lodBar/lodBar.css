@@ -1,0 +1,26 @@
+/* The LODGroup's LOD bar (ADR 0446 §7) and the model import panel's LOD rows. Theme tokens only (src/editor/theme.ts). */
+.lod-bar-section { margin: var(--sp-3) 0; font-size: var(--fs-md); }
+.lod-bar-head { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-2); }
+.lod-bar-title { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lod-bar-badge { background: var(--warning-soft); color: var(--warning); border: 1px solid var(--warning); border-radius: 3px; padding: 0 var(--sp-3); font-size: var(--fs-sm); white-space: nowrap; }
+.lod-bar { position: relative; height: calc(44px * var(--ui-scale)); background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 3px; overflow: hidden; touch-action: none; }
+.lod-bar-segment { position: absolute; top: 0; bottom: 0; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; justify-content: center; padding: 0 var(--sp-2); color: var(--bg); line-height: 1.25; white-space: nowrap; border-right: 1px solid var(--bg-sunken); }
+.lod-bar-segment.forced { box-shadow: inset 0 0 0 2px var(--text-strong); }
+.lod-bar-name { font-weight: 600; font-size: var(--fs-md); }
+.lod-bar-height, .lod-bar-tris { font-size: var(--fs-xs); opacity: 0.9; overflow: hidden; text-overflow: ellipsis; }
+.lod-bar-divider { position: absolute; top: 0; bottom: 0; width: 9px; margin-left: -4px; cursor: ew-resize; z-index: 1; }
+.lod-bar-divider::after { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 2px; background: var(--text-strong); opacity: 0.55; }
+.lod-bar-divider:hover::after, .lod-bar-divider.dragging::after, .lod-bar-divider:focus-visible::after { opacity: 1; background: var(--focus-ring); }
+.lod-bar-divider:focus-visible { outline: none; }
+.lod-bar[data-locked] .lod-bar-divider { cursor: default; pointer-events: none; }
+.lod-bar-axis { display: flex; justify-content: space-between; color: var(--faint); font-size: var(--fs-xs); margin-top: var(--sp-1); }
+
+/* Import panel: Generate LODs */
+.lod-import-levels { display: grid; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-3); }
+.lod-import-head, .lod-import-level { display: grid; grid-template-columns: 3.5em 1fr 1fr auto; gap: var(--sp-3); align-items: center; }
+.lod-import-head { color: var(--faint); font-size: var(--fs-xs); }
+.lod-import-name { font-weight: 600; }
+.lod-import-reached { grid-column: 1 / -1; color: var(--muted); font-size: var(--fs-sm); padding-left: calc(3.5em + var(--sp-3)); }
+.lod-import-reached.short { color: var(--warning); }
+.lod-import-note { color: var(--muted); font-size: var(--fs-sm); margin: var(--sp-2) 0; }
+.lod-import-warning { color: var(--warning); background: var(--warning-soft); border-radius: 3px; font-size: var(--fs-sm); margin: var(--sp-2) 0; padding: var(--sp-2) var(--sp-3); }
