@@ -83,7 +83,7 @@ Coordinator's log of merges, checks and findings. Newest last.
   frame on the forest fly-through.
 - **Measuring on this machine:** SwiftShader on a shared container drifts by tens of percent between runs (the
   unchanged no-LOD forest static read 54.6, 58.0 and 37.3 ms in three sequential runs). Comparisons are now
-  interleaved, no-LOD and LOD alternating (`/tmp`-free: `run.mjs --only <id>$`, one run each, three rounds).
+  interleaved, no-LOD and LOD alternating (`run.mjs --only <id>$`, one run each, three rounds).
 - **Interleaved, forest (ms p50 per round):**
 
   | Path | No LOD | LOD | Mean no LOD → LOD |
