@@ -51,3 +51,29 @@ Coordinator's log of merges, checks and findings. Newest last.
   Token name: the editor defines `--lod-culled` (records said `--lodCulled`); the code and CSS agree.
 - **Benchmark:** forest-auto didn't start play within 10 min on software GL under load (a forest frame takes ~47 s);
   limits raised to 30 min, forest variants to be re-run on an idle machine.
+- **CPU against no LOD (2026-11-28).** The first same-conditions run (occlusion-gate harness, `-base` projects without
+  `LODGroup`s, 3 runs) showed LOD costing JS CPU, against 0446's target "JS CPU ≤ baseline with LODs on": forest static
+  67 → 90 ms, fly 69 → 143 ms; city static 41 → 42, fly 41 → 53. Profiling (`spikes/occlusion-gate/profile.mjs`) found:
+  - **Dead Babylon instances.** Pooled drawables never expired at level 0, so every renderer kept a disabled LOD0
+    instance; the scene walks all meshes each frame (16,350 meshes for 10k renderers static, 36,626 flying, against
+    10,009 without LOD). Fixed: level 0 expires; the pool counts frames (`POOL_FRAMES`), not seconds (a fast camera at a
+    high frame rate left more behind, not fewer); off-screen renderers keep their drawable enabled and unlisted, as
+    without levels; batches hand a given-back instance to the next renderer switching into them (`FREE_FRAMES`).
+  - **Per-frame string work.** `meshesIfLoaded` re-read the asset sources per renderer per call (about 15 % of every
+    frame, with or without LOD); it now resolves each reference once per pass (`beginMeshLookups`), and the pure path
+    helpers are memoised. This speeds up the baseline too.
+  - **Allocations in `prepareViews`** (arrays and closures per renderer per frame): removed; one sweep instead of two.
+- **After the fixes (2 runs each, ms p50, SwiftShader, 1280×720, High):**
+
+  | Scene | Base CPU | LOD CPU | Base tris | LOD tris |
+  |---|---|---|---|---|
+  | forest static | 58.0 | 63.2 | 61.4M | 15.0M |
+  | forest fly | 52.9 | 103.8 | 48.1M | 16.1M |
+  | city static | 30.6 | **23.5** | 10.3M | 1.8M |
+  | city fly | 27.7 | 33.3 | 6.9M | 1.4M |
+
+  City static now meets the target. Forest static is 9 % over; both fly paths are over, forest by about 2×. What remains
+  is the per-renderer `InstancedMesh` design under LOD: Babylon's per-mesh walk, frustum and caster tests on each
+  instance, level-switch churn, and the engine's per-member gather. 0446's own spike measured thin batches at about half
+  the JS CPU of auto. Proposed next (owner decision): draw auto batches through per-pass thin sources while levels are
+  applied, as thin batches already do.
