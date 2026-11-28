@@ -129,3 +129,10 @@ Coordinator's log of merges, checks and findings. Newest last.
   city static 16.5 → 17.9 and 16.7 → 20.2 (mean +2.5, unchanged within this machine's noise; triangles halved as
   before); forest fly 35.3 → 34.8 and 38.7 → 42.6 (mean +1.7, was +2.6), p99 61.9 → 60.7 and 66.4 → 76.5 (was 73 → 105).
   Still above the record's ~1.2 ms a view on SwiftShader; hardware numbers are the owner's.
+- **T11b merged (editor debug tools).** The Scene toolbar's View menu: scene-view occlusion (it keeps one of the
+  tier's `occlusionViews` while on, or the edit-mode main camera, selected first, would always use the only one),
+  freeze, validator, LOD-level and occlusion debug views; the Inspector's effective role (one rule in
+  `visibility/occlusion/role.ts`, which the service now uses too); diagnostics `occlusion` summed over the frame's
+  views. `tests/e2e/occlusion.spec.ts`: 3 pass after one spec fix (a reload dropped the in-memory project). Found:
+  occlusion runs only in Worlds with an `LODGroup`, because the visibility stage starts with the first one; a scene of
+  plain MeshRenderers gets none. Raised with the owner.
