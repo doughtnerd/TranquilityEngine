@@ -12,7 +12,9 @@
  *
  * Besides MeshRenderers' meshes it draws what the renderer builds for other content (`WarmCustom`):
  * a particle effect's draws holding one particle each, a world-space UI canvas's plane. Built-in
- * materials are also drawn with the renderer's reflection-probe copies (`probeVariants`).
+ * materials are also drawn with the renderer's reflection-probe copies (`probeVariants`). While the tier crossfades
+ * LOD changes, a mesh with levels is also drawn as a fade batch draws it (ADR 0446 §4), so a first transition doesn't
+ * wait for that variant; a tier change that switches crossfade on warms everything again (`pipelineTierKey`).
  */
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
@@ -28,6 +30,8 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import type { WarmMesh } from "../../scene/warmUp";
 import { nextBatchSize } from "../batchSize";
+import { Graphics } from "../Graphics";
+import { addLodFade, canFade, LOD_FADE_ATTRIBUTE, markFadeSource } from "./lodFade";
 import { meshOf } from "./materials";
 import type { MaterialInstancing } from "../../scene/material";
 import "@babylonjs/core/Meshes/instancedMesh.js"; // Mesh.createInstance
@@ -344,7 +348,9 @@ export class PipelineWarmer {
       const drawnOf = mats.slotMaterials(w, sources);
       // As the renderer: slot 0's material asset says how it batches.
       const mode = mats.instancing(w.materials?.[0] || w.material || null);
-      const place = (mesh: Mesh, material: BabylonMaterial, fogOf: BabylonMaterial) => {
+      // `fade`: drawn as a crossfade batch draws it (ADR 0446 §4): the fade plugin's variant, never a caster.
+      const place = (mesh: Mesh, material: BabylonMaterial, fogOf: BabylonMaterial, fade = false) => {
+        if (fade) addLodFade(material);
         mesh.material = material;
         const pbrs = material instanceof MultiMaterial ? material.subMaterials : [material];
         for (const m of pbrs) {
@@ -360,14 +366,17 @@ export class PipelineWarmer {
         // Drawn as the scene draws it (ADR 0108): an instance of a hidden source, a thin instance, or plain.
         if (mode === "auto") {
           mesh.isVisible = false;
+          if (fade) markFadeSource(mesh);
           const instance = mesh.createInstance(`${mesh.name}:instance`);
           instance.isPickable = false;
           instance.freezeWorldMatrix(this.matrix.clone());
-          if (w.castShadows) b.casters.push(instance);
+          if (fade) instance.instancedBuffers[LOD_FADE_ATTRIBUTE] = 0;
+          else if (w.castShadows) b.casters.push(instance);
         } else if (mode === "thin") {
           mesh.freezeWorldMatrix(Matrix.Identity());
           mesh.thinInstanceSetBuffer("matrix", this.matrix.toArray() as Float32Array, 16, true);
-          if (w.castShadows) b.casters.push(mesh);
+          if (fade) markFadeSource(mesh, new Float32Array(1));
+          else if (w.castShadows) b.casters.push(mesh);
         } else {
           mesh.freezeWorldMatrix(this.matrix.clone());
           if (w.castShadows) b.casters.push(mesh);
@@ -402,11 +411,21 @@ export class PipelineWarmer {
         const plain = meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}`, src);
         const drawn = drawnOf(src, plain);
         place(plain, drawn, drawn);
+        // A mesh with levels may crossfade (an `LODGroup` with `fade: "crossfade"` is what the editor adds to it,
+        // ADR 0446 §2) while the tier allows it: its fade variants too, in every copy below (ADR 0446 §4).
+        const fades = Graphics.tier.lodCrossfade && mode !== "off" && (src.lods?.levels.length ?? 1) > 1;
+        if (fades && canFade(drawn)) {
+          const faded = meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}:fade`, src);
+          place(faded, drawnOf(src, faded), drawn, true);
+        }
         // A multi-material's parts are varied on the whole mesh: a pipeline doesn't depend on which indices draw.
         const multi = drawn instanceof MultiMaterial;
         const parts = multi ? [...new Set(drawn.subMaterials.filter((m): m is BabylonMaterial => !!m))] : [drawn];
         for (const part of parts) {
-          for (const variant of extrasOf(part, multi)) place(meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}`, src), variant, part);
+          for (const variant of extrasOf(part, multi)) {
+            place(meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}`, src), variant, part);
+            if (fades && canFade(variant)) place(meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}:fade`, src), variant, part, true);
+          }
         }
       }
     }

@@ -11,6 +11,12 @@
  * of levels above 0 are kept while any view drew them in the last `POOL_SECONDS`, and batches they leave empty a few
  * seconds more, so a moving camera doesn't make and dispose Babylon meshes. Without the visibility stage (or before
  * its first frame, or in a thumbnail, which only syncs) every renderer draws LOD0 as it always did.
+ *
+ * **Crossfades (ADR 0446 §4).** While a view's result fades a renderer (its `fade` value isn't 0), the view draws both
+ * levels in fade batches (`DrawKey.fade`): the incoming level with the result's value, the outgoing one with its
+ * complement. Fade drawables are kept per view, as each instance carries that view's value, and pooled like levels.
+ * A renderer whose material can't fade (or that draws `off`) shows whichever level shows more instead. Renderers in a
+ * crossfading group reserve their fade batches ahead of the first fade, so it doesn't make Babylon meshes.
  */
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
@@ -24,7 +30,9 @@ import { drawnVariant, materialSlots, meshesIfLoaded, type MaterialSlot, type Mo
 import { MeshRenderer } from "../components";
 import type { DrawnMaterial } from "../RenderSurface";
 import { visibilityService } from "../visibility/service";
+import { outgoingOf } from "../visibility/select";
 import { LOD_CULLED, type VisibilityResult, type VisibilityStats } from "../visibility/types";
+import { canFade } from "./lodFade";
 import { PICK_ORDER, type BabylonFeature, type DrawnDescription, type DrawnNode, type FeatureSyncContext, type FeatureView, type ViewDrawing } from "./feature";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import { matrixChanged } from "../changeDetection";
@@ -68,6 +76,10 @@ interface MeshEntry {
   shown: Drawable[];
   /** Per model mesh, its drawables by level (ADR 0108, 0446). */
   levels: (LevelDrawable | undefined)[][];
+  /** Per view key, per model mesh, its fade drawables by level (ADR 0446 §4). */
+  fades: Map<string, (LevelDrawable | undefined)[][]>;
+  /** The fade batches it reserved (every level of every model mesh), while its group crossfades. */
+  reserved: DrawKey[];
   /** Per model mesh, the batch it wants at LOD0 (a copy; a level's swaps in the level's mesh). */
   keys: DrawKey[];
   sources: readonly ModelMesh[] | null;
@@ -93,6 +105,17 @@ function drawnMaterial(m: BabylonMaterial): DrawnMaterial {
 function meshLevel(src: ModelMesh, level: number): number {
   const n = src.lods?.levels.length ?? 1;
   return level < n ? level : n - 1;
+}
+
+/** Whether a renderer mesh's batch can crossfade: an instanced batch (auto or thin) of a material the fade plugin takes (ADR 0446 §4). */
+function fadeable(key: DrawKey | undefined): boolean {
+  return !!key && key.mode !== "off" && canFade(key.material);
+}
+
+/** Every drawable a renderer entry holds: its levels' and its fade drawables in every view. */
+function* allDrawables(e: MeshEntry): Iterable<LevelDrawable> {
+  for (const part of e.levels) for (const ld of part) if (ld) yield ld;
+  for (const perView of e.fades.values()) for (const part of perView) for (const ld of part ?? []) if (ld) yield ld;
 }
 
 /** @internal Draws every MeshRenderer, batched for GPU instancing (ADR 0108), with levels chosen per view (ADR 0446). */
@@ -160,29 +183,62 @@ export class BabylonMeshes implements BabylonFeature {
     for (let k = 0; k < views.length; k++) (lists[k] ??= []).length = 0;
     const casterMeshes = this.casterMeshes;
     casterMeshes.length = 0;
-    const use = (r: MeshRenderer, e: MeshEntry, i: number, level: number): Drawable => {
-      const ld = this.levelDrawable(r, e, i, meshLevel(e.sources![i], level));
+    const touch = (ld: LevelDrawable): Drawable => {
       ld.used = this.now;
       ld.frame = frame;
       return ld.d;
     };
+    const use = (r: MeshRenderer, e: MeshEntry, i: number, level: number): Drawable => touch(this.levelDrawable(r, e, i, meshLevel(e.sources![i], level)));
+    // Each view's outgoing levels during fades (ADR 0446 §4).
+    const fadeFrom = views.map((v) => (v.result ? service.fadeLevels(v.result) : null));
     for (const [r, e] of this.meshRenderers) {
       e.shown = [];
       const n = e.sources?.length ?? 0;
       if (!n || !r.isActiveAndEnabled) continue;
       const slot = service.slotOf(r);
+      this.reserveFades(e, slot >= 0 && service.crossfades(r));
       for (let k = 0; k < views.length; k++) {
         const result = views[k].result;
-        let level = 0;
+        const pass = views[k].visibility.key;
+        let level = 0, from = LOD_CULLED, f = 0;
         if (result && slot >= 0 && slot < result.levels.length) {
           if (result.hidden[slot]) continue;
           level = result.levels[slot];
-          if (level === LOD_CULLED) continue;
+          f = result.fade[slot];
+          const outgoing = fadeFrom[k];
+          if (f !== 0 && outgoing && slot < outgoing.length) from = outgoing[slot];
+          else f = 0;
         }
+        if (f === 0 && level === LOD_CULLED) continue;
         for (let i = 0; i < n; i++) {
-          const d = use(r, e, i, level);
-          this.batches.add(d, views[k].visibility.key, lists[k]);
-          if (k === 0) e.shown.push(d);
+          const src = e.sources![i];
+          const show = (d: Drawable) => {
+            this.batches.add(d, pass, lists[k]);
+            if (k === 0) e.shown.push(d);
+          };
+          if (f === 0) {
+            show(use(r, e, i, level));
+            continue;
+          }
+          // Fading: each level this mesh draws for the incoming and the outgoing group level (-1: none).
+          const into = level === LOD_CULLED ? -1 : meshLevel(src, level);
+          const out = from === LOD_CULLED ? -1 : meshLevel(src, from);
+          if (into === out || !fadeable(e.keys[i])) {
+            // The same mesh both ways draws whole; a mesh that can't fade shows the level showing more.
+            const shown = into === out ? into : outgoingOf(f) < 0.5 ? out : into;
+            if (shown >= 0) show(touch(this.levelDrawable(r, e, i, shown)));
+            continue;
+          }
+          if (into >= 0) {
+            const d = touch(this.fadeDrawable(r, e, i, into, pass));
+            d.setFade(f);
+            show(d);
+          }
+          if (out >= 0) {
+            const d = touch(this.fadeDrawable(r, e, i, out, pass));
+            d.setFade(outgoingOf(f));
+            show(d);
+          }
         }
       }
       // Casters: the main view's caster levels (LOD-culled groups cast at their coarsest level within the tier's
@@ -196,6 +252,7 @@ export class BabylonMeshes implements BabylonFeature {
     for (const [r, e] of this.meshRenderers) {
       const active = r.isActiveAndEnabled;
       for (const part of e.levels) for (const ld of part) ld?.d.setEnabled(active && ld.frame === frame);
+      for (const perView of e.fades.values()) for (const part of perView) for (const ld of part ?? []) ld?.d.setEnabled(active && ld.frame === frame);
       e.meshes = e.shown.flatMap((d) => (d.mesh ? [d.mesh] : []));
     }
     this.batches.endPasses();
@@ -244,7 +301,7 @@ export class BabylonMeshes implements BabylonFeature {
   diagnostics(): unknown {
     const s = this.stats;
     if (!s) return undefined;
-    return { lod: { groups: s.groups, perLevel: [...s.perLevel], culled: s.lodCulled, fading: 0 } };
+    return { lod: { groups: s.groups, perLevel: [...s.perLevel], culled: s.lodCulled, fading: s.fading } };
   }
 
   /** The renderer that owns a drawn mesh or batch source (`describe`, for the variant report), or null. */
@@ -252,7 +309,7 @@ export class BabylonMeshes implements BabylonFeature {
     const batch = this.batches.keyOf(drawn as AbstractMesh);
     for (const [r, e] of this.meshRenderers) {
       if (e.meshes.includes(drawn as AbstractMesh)) return r;
-      for (const part of e.levels) for (const ld of part) if (ld && (ld.d.source === drawn || ld.d.mesh === drawn || ld.d.key === batch)) return r;
+      for (const ld of allDrawables(e)) if (ld.d.source === drawn || ld.d.mesh === drawn || ld.d.key === batch) return r;
     }
     return null;
   }
@@ -296,11 +353,60 @@ export class BabylonMeshes implements BabylonFeature {
           part[level] = undefined;
         }
       }
+      // Fade drawables of every level, per view (a view gone takes its fade drawables with it).
+      for (const [view, perView] of e.fades) {
+        let any = false;
+        for (const part of perView) {
+          for (let level = 0; level < (part?.length ?? 0); level++) {
+            const ld = part![level];
+            if (!ld) continue;
+            if (this.now - ld.used <= POOL_SECONDS) {
+              any = true;
+              continue;
+            }
+            this.batches.release(ld.d, true);
+            part![level] = undefined;
+          }
+        }
+        if (!any) e.fades.delete(view);
+      }
+    }
+  }
+
+  /** Reserve a renderer's fade batches while its group crossfades (and its levels can fade), and give them back after. */
+  private reserveFades(e: MeshEntry, crossfades: boolean): void {
+    if (crossfades && !e.reserved.length) {
+      (e.sources ?? []).forEach((src, i) => {
+        const levels = src.lods?.levels.length ?? 1;
+        if (levels < 2 || !fadeable(e.keys[i])) return;
+        for (let level = 0; level < levels; level++) {
+          const key: DrawKey = { ...e.keys[i], fade: true };
+          if (level > 0) key.src = src.lods!.levels[level].mesh;
+          this.batches.reserve(key);
+          e.reserved.push(key);
+        }
+      });
+    } else if (!crossfades && e.reserved.length) this.unreserveFades(e);
+  }
+
+  private unreserveFades(e: MeshEntry): void {
+    for (const key of e.reserved) this.batches.unreserve(key);
+    e.reserved = [];
+  }
+
+  /** Give back a model mesh's fade drawables in every view. */
+  private releaseFades(e: MeshEntry, i: number): void {
+    for (const perView of e.fades.values()) {
+      for (const ld of perView[i] ?? []) if (ld) this.batches.release(ld.d, true);
+      perView[i] = [];
     }
   }
 
   private releaseAll(e: MeshEntry): void {
     for (const part of e.levels) for (const ld of part) if (ld) this.batches.release(ld.d);
+    for (const perView of e.fades.values()) for (const part of perView) for (const ld of part ?? []) if (ld) this.batches.release(ld.d);
+    e.fades.clear();
+    this.unreserveFades(e);
     e.levels = [];
     e.keys = [];
     e.shown = [];
@@ -324,11 +430,30 @@ export class BabylonMeshes implements BabylonFeature {
     return ld;
   }
 
+  /** A renderer mesh's fade drawable at `level` (of its model mesh) for view `view`, acquired on first use at its matrix. */
+  private fadeDrawable(r: MeshRenderer, e: MeshEntry, i: number, level: number, view: string): LevelDrawable {
+    let perView = e.fades.get(view);
+    if (!perView) e.fades.set(view, (perView = []));
+    const part = (perView[i] ??= []);
+    let ld = part[level];
+    if (ld) return ld;
+    const src = e.sources![i];
+    const key: DrawKey = { ...e.keys[i], fade: true };
+    if (level > 0) key.src = src.lods!.levels[level].mesh;
+    const d = this.batches.acquire(key, `${r.node.name}:${src.name}:lod${level}:fade`);
+    if (e.matrix) {
+      Matrix.FromArrayToRef(e.matrix as unknown as number[], 0, tmpMatrix);
+      d.setMatrix(tmpMatrix);
+    }
+    part[level] = ld = { d, used: this.now, frame: -1 };
+    return ld;
+  }
+
   private syncMesh(world: World, r: MeshRenderer): void {
     const { materials, probes } = this.host;
     let entry = this.meshRenderers.get(r);
     if (!entry) {
-      entry = { meshes: [], shown: [], levels: [], keys: [], sources: null, material: null, slotList: [], matrix: null };
+      entry = { meshes: [], shown: [], levels: [], fades: new Map(), reserved: [], keys: [], sources: null, material: null, slotList: [], matrix: null };
       this.meshRenderers.set(r, entry);
     }
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
@@ -372,19 +497,29 @@ export class BabylonMeshes implements BabylonFeature {
         // Another batch: every level's drawable goes, and comes back on first use in it.
         for (const ld of entry!.levels[i] ?? []) if (ld) this.batches.release(ld.d);
         entry!.levels[i] = [];
+        this.releaseFades(entry!, i);
+        this.unreserveFades(entry!); // reserved again for the new batches by the next `prepareViews`
         entry!.keys[i] = { ...key };
         changed = true;
       }
       const part = entry!.levels[i]!;
+      const fades: LevelDrawable[] = [];
+      for (const perView of entry!.fades.values()) for (const ld of perView[i] ?? []) if (ld) fades.push(ld);
       if (moved && entry!.matrix) {
         Matrix.FromArrayToRef(entry!.matrix as unknown as number[], 0, tmpMatrix);
         for (const ld of part) ld?.d.setMatrix(tmpMatrix);
+        for (const ld of fades) ld.d.setMatrix(tmpMatrix);
       }
       if (this.perView) {
         // Views enable what they draw (`prepareViews`); a renderer turned off draws in none.
-        if (!visible) for (const ld of part) ld?.d.setEnabled(false);
+        if (!visible) {
+          for (const ld of part) ld?.d.setEnabled(false);
+          for (const ld of fades) ld.d.setEnabled(false);
+        }
         return;
       }
+      // Without levels per view nothing fades: fade drawables wait, disabled, to be given back.
+      for (const ld of fades) ld.d.setEnabled(false);
       // LOD0 for every view, as without levels; any other level's drawable waits, disabled, to be given back.
       const ld0 = this.levelDrawable(r, entry!, i, 0);
       ld0.used = this.now;

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Component } from "../../core/Component";
 import { component } from "../../core/registry";
 import { _startWorldService } from "../../core/worldServices";
-import { Engine, GameObject, Quaternion } from "../../index";
+import { Engine, GameObject, Graphics, Quaternion } from "../../index";
 import type { ModelMesh } from "../../scene/models";
 import { Camera, LODGroup, MeshRenderer } from "../components";
 import { registerLodMemberType } from "./lodMember";
@@ -172,6 +172,88 @@ describe("the visibility service", () => {
     engine.step(1 / 60);
     expect(service.stats(service.main!.view.key)).toEqual({ groups: 2, perLevel: [0, 1], lodCulled: 1, fading: 0, occlusion: null });
     expect(service.stats("nothing")).toBeNull();
+  });
+
+  describe("crossfades (ADR 0446 §4)", () => {
+    afterEach(() => {
+      Graphics.quality = Graphics.defaultQuality;
+    });
+
+    it("writes each member's fade value and outgoing level on the engine's clock, casters switching at the midpoint", async () => {
+      const { engine, service, group, renderer } = await setup();
+      Graphics.quality = "High";
+      const quiet = GameObject.create("quiet", { parent: group.node }).addComponent(MeshRenderer);
+      quiet.castShadows = false;
+      place(group, 0, 0, 2); // level 1
+      engine.step(1 / 60);
+      const r = service.slotOf(renderer), q = service.slotOf(quiet);
+      expect(service.crossfades(renderer)).toBe(true);
+      expect(service.main!.fade[r]).toBe(0);
+      place(group, 0, 0, 0.5); // level 0: a 0.3 s fade starts
+      engine.step(1 / 60);
+      let main = service.main!;
+      expect([main.levels[r], main.levels[q]]).toEqual([0, 0]);
+      expect(main.fade[r]).toBeLessThan(0);
+      expect(main.fade[q]).toBe(main.fade[r]);
+      expect([service.fadeLevels(main)![r], service.fadeLevels(main)![q]]).toEqual([1, 1]);
+      expect([main.casterLevels[r], main.casterLevels[q]]).toEqual([1, LOD_CULLED]);
+      expect(group.currentLevel).toBe(0); // the level chosen, not the fade
+      expect(service.stats(main.view.key)!.fading).toBe(1);
+      engine.step(0.2); // t ≈ 0.67
+      main = service.main!;
+      expect(main.fade[r]).toBeCloseTo(-0.2 / 0.3, 4);
+      expect(main.casterLevels[r]).toBe(0);
+      engine.step(0.2); // done
+      main = service.main!;
+      expect(main.fade[r]).toBe(0);
+      expect(service.fadeLevels(main)![r]).toBe(LOD_CULLED);
+      expect(service.stats(main.view.key)!.fading).toBe(0);
+    });
+
+    it("advances a fade once a frame however often update runs in it (the animation gather's, then after propagation)", async () => {
+      const { engine, service, group, renderer } = await setup();
+      Graphics.quality = "High";
+      place(group, 0, 0, 2);
+      engine.step(1 / 60);
+      place(group, 0, 0, 0.5);
+      engine.step(1 / 60); // the fade starts
+      const r = service.slotOf(renderer);
+      const start = service.main!.fade[r];
+      service.update();
+      service.update();
+      expect(service.main!.fade[r]).toBe(start); // the same frame: no advance
+      engine.step(0.06);
+      const once = service.main!.fade[r];
+      service.update();
+      expect(service.main!.fade[r]).toBe(once);
+      expect(once - start).toBeCloseTo(-0.06 / 0.3, 4); // one frame's worth
+    });
+
+    it("snaps with fade none, on a tier without crossfade, and in views that don't persist", async () => {
+      const { engine, service, group, renderer } = await setup();
+      Graphics.quality = "High";
+      const change = (z: number) => {
+        place(group, 0, 0, z);
+        engine.step(1 / 60);
+        return service.main!.fade[service.slotOf(renderer)];
+      };
+      change(2);
+      group.fade = "none";
+      expect(change(0.5)).toBe(0);
+      expect(service.crossfades(renderer)).toBe(false); // as of the last frame
+      group.fade = "crossfade";
+      Graphics.quality = "Low"; // lodCrossfade off (and lodFirstLevel 1: level 2 at z = 4)
+      expect(change(4)).toBe(0);
+      expect(service.crossfades(renderer)).toBe(false);
+      Graphics.quality = "High";
+      expect(change(0.5)).toBeLessThan(0);
+      expect(service.crossfades(renderer)).toBe(true);
+      const probe = (z: number) => makeView({ key: "probe/0", kind: "probe", position: [0, 0, z], right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1], projection: "perspective", fovY: Math.PI / 2, orthoHalfHeight: 0, near: 0.1, far: 100, widthPx: 128, heightPx: 128, persistent: false, occlusion: false });
+      expect(service.select(probe(0)).levels[service.slotOf(renderer)]).toBe(0);
+      const later = service.select(probe(-1.5)); // a coarser level, chosen afresh: no fade
+      expect(later.levels[service.slotOf(renderer)]).toBe(1);
+      expect(later.fade[service.slotOf(renderer)]).toBe(0);
+    });
   });
 });
 
