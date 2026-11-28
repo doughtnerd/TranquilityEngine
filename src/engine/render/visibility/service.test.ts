@@ -101,6 +101,21 @@ describe("the visibility service", () => {
     expect(service.slotOf(loose)).toBe(-1);
   });
 
+  it("drops a group and its renderers whose node was destroyed (undoing a placement) without touching the dead node", async () => {
+    const { engine, service, group, renderer } = await setup();
+    place(group, 0, 0, 2);
+    engine.step(1 / 60);
+    expect(service.slotOf(renderer)).toBeGreaterThanOrEqual(0);
+    GameObject.destroy(group.node); // queued: the node goes at the end of the next frame
+    engine.step(1 / 60);
+    // Between that teardown and the next frame the renderer still selects its views (an edit-mode redraw, a probe).
+    const other = makeView({ key: "probe/0", kind: "probe", position: [0, 0, 1.75], right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1], projection: "perspective", fovY: Math.PI / 2, orthoHalfHeight: 0, near: 0.1, far: 100, widthPx: 128, heightPx: 128, persistent: false, occlusion: false });
+    expect(() => service.select(other)).not.toThrow();
+    expect(() => service.update()).not.toThrow();
+    engine.step(1 / 60);
+    expect(service.slotOf(renderer)).toBe(-1);
+  });
+
   it("stops at a nested LODGroup, and lets a disabled one keep its members out of the outer group", async () => {
     const { engine, service, group } = await setup();
     place(group, 0, 0, 2); // the outer group draws level 1

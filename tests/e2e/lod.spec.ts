@@ -131,7 +131,10 @@ const groupOf = (page: Page): Promise<Group | null> =>
 /** Move the game's camera along z (the rock stays at z = 10). */
 const moveCamera = (page: Page, z: number) =>
   inLiveWorld(page, null, (w, _tools, arg: { z: number }) => {
-    const cam = w!.root.children.find((n) => n.name === "Camera")!;
+    // The scene is a node under the World's root (ADR 0016): look through the whole tree.
+    type Node = NonNullable<typeof w>["root"];
+    const find = (n: Node, name: string): Node | undefined => (n.name === name ? n : n.children.map((c) => find(c, name)).find(Boolean));
+    const cam = find(w!.root, "Camera")!;
     cam.transform!.position.set(0, 12, arg.z);
   }, { z });
 
@@ -209,25 +212,25 @@ test.describe("in play mode", () => {
     await openEditor(page, { files: project({ rock: true, lod: DEFAULT_LOD }), viewport: { width: 1280, height: 720 }, timeout: 2 * 60_000 });
     await play(page);
     await expect(page.getByRole("region", { name: "Stats" })).toBeVisible();
-    // The view is drawn once the levels have generated and the model has loaded: the rock shows at full detail from here.
-    await expect.poll(() => groupOf(page), { timeout: 2 * 60_000 }).toEqual({ currentLevel: 0, visibility: "drawn" });
+    // The view is drawn once the levels have generated and the model has loaded. Which level shows from here depends on the
+    // levels' measured errors: a smooth rock's first level is invisible at 1 px from most distances, so it may already be 1.
+    await expect.poll(async () => (await groupOf(page))?.visibility, { timeout: 2 * 60_000 }).toBe("drawn");
   }
 
   test("a far camera draws a lower level and fewer triangles, and a group culled below its last height draws nothing", async ({ page }) => {
     const errors = trackErrors(page);
     await playRock(page);
     const near = await steadyTriangles(page);
-    expect(near).toBeGreaterThan(15_000); // LOD0: about 20,000 triangles and the ground's two
+    const nearLevel = (await groupOf(page))!.currentLevel;
+    expect(near).toBeGreaterThan(1_000);
 
     await moveCamera(page, -300);
-    await expect.poll(async () => (await groupOf(page))?.currentLevel, { timeout: 60_000 }).not.toBe(0);
-    const far = (await groupOf(page))!;
-    expect(far.currentLevel).toBeGreaterThan(0);
+    await expect.poll(async () => (await groupOf(page))?.currentLevel, { timeout: 60_000 }).toBeGreaterThan(nearLevel);
     await expect.poll(() => steadyTriangles(page), { timeout: 90_000 }).toBeLessThan(near * 0.75);
 
-    // Back close: level 0 again.
+    // Back close: the near level again.
     await moveCamera(page, NEAR_Z);
-    await expect.poll(async () => (await groupOf(page))?.currentLevel, { timeout: 60_000 }).toBe(0);
+    await expect.poll(async () => (await groupOf(page))?.currentLevel, { timeout: 60_000 }).toBe(nearLevel);
 
     // Explicit heights that cull at this distance (the rock is 45% of the view's height, below the last value 0.6).
     const drawn = await steadyView(gameView(page));
@@ -246,7 +249,7 @@ test.describe("in play mode", () => {
     const errors = trackErrors(page);
     await playRock(page);
     await moveCamera(page, -300);
-    await expect.poll(async () => (await groupOf(page))?.currentLevel, { timeout: 60_000 }).toBeGreaterThan(0);
+    await expect.poll(async () => (await groupOf(page))?.currentLevel, { timeout: 60_000 }).toBeGreaterThan(1);
     await setGroup(page, { forceLevel: 0 });
     await expect.poll(async () => (await groupOf(page))?.currentLevel, { timeout: 60_000 }).toBe(0);
     await setGroup(page, { forceLevel: 2 });
@@ -266,7 +269,9 @@ test.describe("in play mode", () => {
 
     // The same view with the light's shadows off: the dark patch on the ground is the shadow, and only it.
     await inLiveWorld(page, null, (w, tools) => {
-      const sun = w!.root.children.find((n) => n.name === "Sun")!;
+      type Node = NonNullable<typeof w>["root"];
+    const find = (n: Node, name: string): Node | undefined => (n.name === name ? n : n.children.map((c) => find(c, name)).find(Boolean));
+      const sun = find(w!.root, "Sun")!;
       tools.componentsOf<{ castShadows: boolean }>(sun, tools.myco.Light)[0].castShadows = false;
     });
     await expect.poll(async () => darkPixels(await steadyView(gameView(page))), { timeout: 60_000 }).toBeLessThan(darkPixels(shadowed) / 2);

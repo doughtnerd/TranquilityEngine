@@ -185,7 +185,8 @@ export class VisibilityService {
     // Owner entity → its LODGroup, or null for a disabled one (which stops the search).
     const owners = new Map<number, LODGroup | null>();
     for (const g of world._componentsOfType(LODGroup)) {
-      if (g._destroyed) continue;
+      // A component can outlive its node for a moment while the node is torn down (undoing a placement): skip both.
+      if (g._destroyed || !g.owner.isValid) continue;
       const e = g.owner.entity;
       const active = g.isActiveAndEnabled;
       if (active && !owners.get(e)) owners.set(e, g);
@@ -194,7 +195,7 @@ export class VisibilityService {
     }
     for (const type of lodMemberTypes()) {
       for (const c of world._componentsOfType(type)) {
-        if (!c.isActiveAndEnabled) continue;
+        if (c._destroyed || !c.gameObject.isValid || !c.isActiveAndEnabled) continue;
         let m = this.members.get(c);
         if (!m) {
           const slot = this.freeSlots.pop() ?? this.slotCount++;
