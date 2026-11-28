@@ -19,9 +19,7 @@ import { currentProject, openScene, playState, sceneCamera, status, viewMode } f
 import { whyNotEdit } from "./editGate";
 import { nodeAssetDrops } from "./sdk/contributions";
 import { eventWindow } from "./windows/dom";
-
-/** Pointer travel (CSS px) before pressing an asset tile becomes a drag. */
-const DRAG_THRESHOLD = 5;
+import { startPointerDrag } from "./pointerDrag";
 
 /** Where a dragged asset would go. */
 export type AssetDropTarget =
@@ -128,84 +126,60 @@ function problemFor(paths: readonly string[], target: AssetDropTarget): string |
 }
 
 /**
- * Press on an asset tile: past the threshold this drags `paths` (the selection). The ghost label
+ * Press on an asset tile: past the drag threshold (`pointerDrag.ts`) this drags `paths` (the selection). The ghost label
  * follows the pointer and says what will happen; releasing over a valid spot adds the assets to
  * the scene (`addAssets`: one undoable step, selecting them) or moves them to a folder; anywhere else, or
  * Escape, does nothing.
  */
 export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void {
-  if (e.button !== 0) return;
-  const startX = e.clientX, startY = e.clientY;
-  let active = false;
   // The window the drag started in: a detached panel window's own (ADR 0174). Dragging between windows isn't supported.
   const win = eventWindow(e);
-  const doc = win.document;
   /** The plugin target the pointer is over now, to tell it when the pointer leaves. */
   let over: AssetDropTargetSpec | null = null;
   const setOver = (spec: AssetDropTargetSpec | null) => {
     if (over && over !== spec) over.leave?.();
     over = spec;
   };
-
-  const update = (m: PointerEvent) => {
-    if (!active && Math.hypot(m.clientX - startX, m.clientY - startY) < DRAG_THRESHOLD) return;
-    if (!active) {
-      active = true;
+  startPointerDrag(e, {
+    begin: () => {
       win.getSelection()?.removeAllRanges();
       setDraggedAssets(paths);
-    }
-    const plugin = dropTarget(paths, m.clientX, m.clientY, doc);
-    setOver(plugin?.spec ?? null);
-    if (plugin) {
-      assetDrag.value = { paths, x: m.clientX, y: m.clientY, target: plugin.target, problem: plugin.target ? null : plugin.problem };
-      return;
-    }
-    const found = targetAt(m.clientX, m.clientY, doc);
-    const target = (found?.kind === "hierarchy" ? nodeDropTarget(paths, found.drop, { x: m.clientX, y: m.clientY }) : null) ?? found;
-    const problem = target ? problemFor(paths, target) : (problemFor(paths, { kind: "viewport", x: 0, y: 0 }) ?? "drop it in the viewport, the hierarchy or a folder");
-    assetDrag.value = { paths, x: m.clientX, y: m.clientY, target: problem ? null : target, problem };
-  };
-  const finish = (apply: boolean) => {
-    win.removeEventListener("pointermove", update);
-    win.removeEventListener("pointerup", up);
-    win.removeEventListener("pointercancel", cancel);
-    win.removeEventListener("keydown", key, true);
-    const state = assetDrag.value;
-    assetDrag.value = null;
-    setOver(null);
-    setDraggedAssets(null);
-    if (!apply || !active || !state?.target) return;
-    const target = state.target;
-    if (target.kind === "plugin") {
-      target.spec.drop(paths, target.point);
-      return;
-    }
-    if (target.kind === "folder") {
-      void moveAssetsTo(paths, target.folder);
-      return;
-    }
-    const point = target.kind === "viewport" ? viewportDropPoint(target.x, target.y) : ([0, 0, 0] as const);
-    // One operation (ADR 0149): prepares (a model's meshes), adds to the scene open now or to none, one undo step.
-    void addAssets(paths, addTarget(target, point)).then(({ ids, message }) => {
-      if (ids.length > 0) select(ids); // through the Inspector rule (ADR 0242): a selected UI element or asset gives way
-      status.value = message;
-    });
-  };
-  const up = (m: PointerEvent) => {
-    if (active) update(m);
-    finish(true);
-  };
-  const cancel = () => finish(false);
-  const key = (k: KeyboardEvent) => {
-    if (k.key !== "Escape" || !active) return;
-    k.preventDefault();
-    k.stopPropagation();
-    finish(false);
-  };
-  win.addEventListener("pointermove", update);
-  win.addEventListener("pointerup", up);
-  win.addEventListener("pointercancel", cancel);
-  win.addEventListener("keydown", key, true);
+    },
+    move: (m, doc) => {
+      const plugin = dropTarget(paths, m.clientX, m.clientY, doc);
+      setOver(plugin?.spec ?? null);
+      if (plugin) {
+        assetDrag.value = { paths, x: m.clientX, y: m.clientY, target: plugin.target, problem: plugin.target ? null : plugin.problem };
+        return;
+      }
+      const found = targetAt(m.clientX, m.clientY, doc);
+      const target = (found?.kind === "hierarchy" ? nodeDropTarget(paths, found.drop, { x: m.clientX, y: m.clientY }) : null) ?? found;
+      const problem = target ? problemFor(paths, target) : (problemFor(paths, { kind: "viewport", x: 0, y: 0 }) ?? "drop it in the viewport, the hierarchy or a folder");
+      assetDrag.value = { paths, x: m.clientX, y: m.clientY, target: problem ? null : target, problem };
+    },
+    end: (how) => {
+      const state = assetDrag.value;
+      assetDrag.value = null;
+      setOver(null);
+      setDraggedAssets(null);
+      if (how !== "drop" || !state?.target) return;
+      const target = state.target;
+      if (target.kind === "plugin") {
+        target.spec.drop(paths, target.point);
+        return;
+      }
+      if (target.kind === "folder") {
+        void moveAssetsTo(paths, target.folder);
+        return;
+      }
+      const point = target.kind === "viewport" ? viewportDropPoint(target.x, target.y) : ([0, 0, 0] as const);
+      // One operation (ADR 0149): prepares (a model's meshes), adds to the scene open now or to none, one undo step.
+      void addAssets(paths, addTarget(target, point)).then(({ ids, message }) => {
+        if (ids.length > 0) select(ids); // through the Inspector rule (ADR 0242): a selected UI element or asset gives way
+        status.value = message;
+      });
+    },
+  });
 }
 
 /** Text for the ghost label: what releasing here will do. */
