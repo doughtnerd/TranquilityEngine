@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { expect, openEditor, play, test } from "./fixtures";
+import { expect, openEditor, test } from "./fixtures";
 import { inLiveWorld } from "./liveWorld";
 import { BENCH_SCENES } from "./render-bench/scenes";
 
@@ -65,7 +65,10 @@ for (const bench of BENCH_SCENES) {
   if (!bench.id.includes(ONLY)) continue;
   test(`render bench: ${bench.id}`, { tag: "@slow" }, async ({ page }) => {
     await openEditor(page, { files: bench.files(), viewport: { width: 1600, height: 900 }, timeout: 5 * 60_000 });
-    await play(page);
+    // Not the fixture's `play`: its 20 s start budget is for small scenes. Starting play on a 5,000-object scene with software GL
+    // (the World's copy, model loads, the first frame's pipelines) takes longer.
+    await page.getByRole("button", { name: "Play", exact: true, description: /^Play the open scene/ }).click();
+    await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: 10 * 60_000 });
     await expect(page.getByRole("region", { name: "Stats" })).toBeVisible();
 
     // Warm up: pipelines compile and the first frames settle (frames of the engine's own clock).
