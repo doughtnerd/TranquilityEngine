@@ -111,7 +111,9 @@
 - **In memory,** each level is a derived `ModelMesh` (internal), cached with a stable identity. It has LOD0's `surfaces`, skin and morph targets, and its own `data`, which shares LOD0's vertex arrays but has its own `indices` and `groups`, plus its measured `error`. The batch key (`meshBatches.ts:67`) and `makeSource` keep working unchanged.
   - Bounds are computed once per `MeshData` from its positions, or read from the baked file.
 - **One vertex buffer on the GPU too.** `meshOf` (`render/babylon/materials.ts:404`) today uploads vertex data for every Babylon mesh. Level meshes and fade-batch meshes will share one set of Babylon vertex buffers per model mesh, each with only its own index buffer. The ×1.1–1.3 figure then holds in GPU memory as well as on disk.
-  - This is checked in the first wave, with a GPU-memory target of ≤ 1.3× LOD0 per model mesh, whatever the batch count.
+  - **First-wave result** (`spikes/lod-apply/` §2): share Babylon `VertexBuffer` objects through `mesh.setVerticesBuffer(vb, false)`, each level mesh keeping its own `Geometry` and index buffer (`setIndices`). That gives 1.13× LOD0 in GPU bytes for 4 levels, against 2.86× with today's `meshOf`, and 1.08× against 3.27× for a skinned mesh. Babylon ref-counts the buffers.
+  - **Never share one `Geometry`** across thin-instance source meshes: `thinInstanceSetBuffer` attaches its matrices to the `Geometry`, so every source would draw the last one's instances.
+  - GPU-memory target: ≤ 1.3× LOD0 per model mesh, whatever the batch count.
 
 ### 2. `LODGroup`, a component
 
@@ -161,9 +163,14 @@
 - **Applying it in Babylon: per-view object lists, not toggling.** Each view's `FrameGraphCullObjectsTask` (`frameGraph.ts:596`) is given that view's own object list, built from the visibility stage. The spike shows this works for `InstancedMesh` (`spikes/lod-crossfade/` §1).
   - The view's geometry pass (AO, depth of field, `frameGraph.ts:603-621`) and its render pass both draw from the cull output, so they see the same set. Nothing is hidden and restored, and no `afterView` hook is needed.
   - Probes get a `renderList` filtered by their own selection (`probes.ts:122`).
-  - Babylon's `scene.customLODSelector` route is measured against this in the first wave and replaces it only if it wins. That spike measures per-view lists, `customLODSelector` and enable toggling at 10k instances, with JS time per view.
+  - **First-wave result** (`spikes/lod-apply/` §1, 10k instances × 4 levels, 2 views; JS cost to apply per view, p50 / p99):
+    - per-view object lists: 0.055 / 0.155 ms, with the geometry pass drawing exactly the render set;
+    - `customLODSelector`: 1.67 / 3.4 ms, and it draws only if it sets Babylon's private `InstancedMesh._currentLOD`, a single field per instance rather than per camera;
+    - `setEnabled` toggling: 15.4 / 23.8 ms.
+    Per-view lists are kept; the other two are dropped.
 - **Thin batches split per level and per pass.** A level's derived `ModelMesh` is its own batch key, so thin batches split per level automatically (0108).
   - Each thin batch has one source mesh per pass that draws it: each view, and each shadow cascade. All of them share the batch's geometry (§1). Each pass's matrix buffer holds only the instances that pass draws.
+  - **First-wave result** (`spikes/lod-apply/` §3): per-pass sources work for views and for cascades through the shadow map's custom render list, with shadow pixels identical to baseline and shadow instances −49 %. Fill and upload cost 1.88 ms p50 for 10k instances in each of 5 passes (smoke-level).
   - Rewriting one shared buffer between passes was proven on WebGL2 only. On WebGPU, buffer writes may all land before the frame's passes run, so every pass would see the last write. Separate buffers per pass avoid the question on both backends, at 64 bytes per instance per pass.
   - **Per-cascade compaction:** a cascade's buffer keeps only instances whose spheres meet that cascade's frustum. This is the thin-batch counterpart of `shadowCulling.ts`, and removes the measured 173.6M shadow triangles that thin batches spend drawing everything in every cascade.
 - **Shadows.**
@@ -255,7 +262,7 @@ The owner accepted the direction. Two choices weren't answered and stand as prov
 ## Alternatives considered
 
 - **Babylon's `addLODLevel`:** chooses per camera inside Babylon, but has no thin-instance support, no crossfade control or shadow rule, and puts selection inside Babylon. The owner ruled it out.
-- **Babylon's `scene.customLODSelector` driven by `select.ts`:** keeps selection ours and skips building object lists for `auto` batches (`instancedMesh.pure.js:418-431`). Thin batches still need their own path. It is measured in the first wave against per-view object lists, and taken if it wins.
+- **Babylon's `scene.customLODSelector` driven by `select.ts`:** keeps selection ours, but costs 1.67 ms per view against 0.055 ms for per-view lists. It draws only if it sets Babylon's private per-instance `_currentLOD` field, and it is a scene-global hook (`spikes/lod-apply/` §1).
 - **Babylon's `DitheredTileFadeMaterialPlugin`** (9.32): supports instances, thin instances and WGSL (`ditheredTileFadeMaterialPlugin.js:154-220`), but has no define. Its `discard` is compiled into every mesh that uses the material (`:367`), costing steady instances their early depth test. Scoping it to fading batches would mean cloning materials. We keep our own plugin, which is scoped per mesh by a define, and reuse Babylon's Bayer include.
 - **The Rust `meshopt` crate:** the same C++ (1.3), but it needed libm and `operator new` shims to build for wasm, and saves only 3 KB over npm.
 - **Hard switches only, crossfade later:** about 300–350 fewer lines, but popping is the most visible LOD artefact. The spike found no obstacle, and the Low tier can still switch hard (`lodCrossfade`).
