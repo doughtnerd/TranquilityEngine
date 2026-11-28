@@ -113,7 +113,7 @@ GPU Hi-Z belongs to the high-end pipeline (O24), and baked PVS is a later option
   4. Build the coarse level.
   5. Test in-frustum occludees with a 1-pixel dilation and a 0.25-pixel coverage shrink.
   6. Hand the hidden set to the mesh feature, which applies it in that view's `fit(camera)` hook (0446 §3).
-- **Same-frame buffer.** v1 rasterises this frame's buffer before the view draws: about 1 ms in browser wasm for a city view (spike), with no latency artefacts. Reusing last frame's buffer is a later optimisation (Open questions).
+- **Same-frame buffer.** v1 rasterises this frame's buffer before the view draws: about 1.2 ms (p99 1.3 ms) in Chromium wasm for a city view (spike), with no latency artefacts. Reusing last frame's buffer is a later optimisation (Open questions).
 - **On the main thread** in v1. A worker needs shared memory, and with it COOP/COEP headers (Open questions).
 
 ### 5. Quality tiers
@@ -167,7 +167,7 @@ This is a constraint on the design, not a plan (open question O24):
 - **Conservative by construction:** zero false occlusions in the measured cities, and the rules are tested against a full-resolution reference.
 
 **Negative / costs**
-- **About 1 ms of main-thread CPU per occlusion view** on the reference machine (est. 3–4 ms on the Android floor at 4× throttling, unmeasured). That is wasted in open scenes such as forests, where it culls little, so cameras can turn it off.
+- **About 1.2 ms of main-thread CPU per occlusion view** on the reference machine (est. 3–4 ms on the Android floor at 4× throttling, unmeasured). That is wasted in open scenes such as forests, where it culls little, so cameras can turn it off.
 - **A second wasm module** to build, pin and size-gate (about 40 KB gzip, est.).
 - **One-frame correctness only:** a moving occluder works, because the buffer is rebuilt every frame, but CPU cost grows with the occluder budget.
 - **Unverified here:** WebKit and the Tauri webviews on macOS and Linux, and the Android floor.
@@ -180,7 +180,7 @@ Nothing.
 
 - **Temporal reuse** of the previous frame's buffer (nearly free in the spike), after fast-rotation tests.
 - **A worker thread** for the rasteriser (needs shared memory and cross-origin isolation in the player).
-- **Whether `Camera.occlusionCulling` should default off,** given that open scenes gain little (recommended: on, as the cost is about 1 ms).
+- **Whether `Camera.occlusionCulling` should default off,** given that open scenes gain little (recommended: on, as the cost is about 1.2 ms).
 - **SIMD in setup and the occludee test,** the spike's next optimisations.
 - **Baked PVS for static levels.**
 
