@@ -1,0 +1,18 @@
+[package]
+name = "vis-editor-wasm"
+description = "Myco occlusion core (ADR 0447): the editor and export module (import-time hole trimming of occluder stand-ins). Never loaded by games."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vis-trim.workspace = true
+wasm-bindgen.workspace = true
+
+[build-dependencies]
+sha2.workspace = true
