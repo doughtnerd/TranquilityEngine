@@ -602,6 +602,8 @@ Waits: value
 Water: value
 WaterSample: type
 WaterSurface: value
+WaterWake: value
+WaterWakeMode: type
 WaterWave: type
 WorldConfig: type
 WorldHandle: type
