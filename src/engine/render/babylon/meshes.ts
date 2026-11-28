@@ -56,10 +56,11 @@ export interface BabylonMeshHost {
 
 /** Seconds a level's drawable is kept after the last view drew it (ADR 0446 §3). */
 /**
- * Frames a drawable no view drew is kept before it's given back. Counted in frames, not seconds: a disabled Babylon
- * instance still costs every frame (the scene walks all its meshes), and a fast camera leaves many behind each frame.
+ * Frames a drawable no view drew is kept before it's given back (to its batch, which hands the instance to the next
+ * renderer switching into it, `FREE_FRAMES`). Counted in frames, not seconds: a disabled Babylon instance still costs
+ * every frame (the scene walks all its meshes), and a fast camera leaves many behind each frame.
  */
-export const POOL_FRAMES = 20;
+export const POOL_FRAMES = 4;
 /** Frames between sweeps for pooled drawables to give back. */
 const EXPIRE_EVERY = 5;
 
@@ -470,11 +471,8 @@ export class BabylonMeshes implements BabylonFeature {
     const src = e.sources![i];
     const key = { ...e.keys[i] };
     if (level > 0) key.src = src.lods!.levels[level].mesh;
-    const d = this.batches.acquire(key, level > 0 ? `${r.node.name}:${src.name}:lod${level}` : `${r.node.name}:${src.name}`);
-    if (e.matrix) {
-      Matrix.FromArrayToRef(e.matrix as unknown as number[], 0, tmpMatrix);
-      d.setMatrix(tmpMatrix);
-    }
+    if (e.matrix) Matrix.FromArrayToRef(e.matrix as unknown as number[], 0, tmpMatrix);
+    const d = this.batches.acquire(key, level > 0 ? `${r.node.name}:${src.name}:lod${level}` : `${r.node.name}:${src.name}`, e.matrix ? tmpMatrix : undefined);
     part[level] = ld = { d, used: this.now, frame: -1 };
     return ld;
   }
@@ -489,11 +487,8 @@ export class BabylonMeshes implements BabylonFeature {
     const src = e.sources![i];
     const key: DrawKey = { ...e.keys[i], fade: true };
     if (level > 0) key.src = src.lods!.levels[level].mesh;
-    const d = this.batches.acquire(key, `${r.node.name}:${src.name}:lod${level}:fade`);
-    if (e.matrix) {
-      Matrix.FromArrayToRef(e.matrix as unknown as number[], 0, tmpMatrix);
-      d.setMatrix(tmpMatrix);
-    }
+    if (e.matrix) Matrix.FromArrayToRef(e.matrix as unknown as number[], 0, tmpMatrix);
+    const d = this.batches.acquire(key, `${r.node.name}:${src.name}:lod${level}:fade`, e.matrix ? tmpMatrix : undefined);
     part[level] = ld = { d, used: this.now, frame: -1 };
     return ld;
   }

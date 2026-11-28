@@ -22,7 +22,7 @@ import type { VisibilityView } from "../visibility/types";
 import type { FeatureView } from "./feature";
 import { BabylonMaterialLibrary } from "./materialLibrary";
 import { BabylonMeshes, POOL_FRAMES } from "./meshes";
-import { BATCH_RETAIN_SECONDS } from "./meshBatches";
+import { BATCH_RETAIN_SECONDS, FREE_FRAMES } from "./meshBatches";
 import { LOD_FADE_ATTRIBUTE } from "./lodFade";
 
 /** A bumpy sphere as an OBJ (latitude-longitude grid with normals and UVs). */
@@ -187,7 +187,7 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
     expect(casters).toEqual([]);
   });
 
-  it("keeps a level's drawable POOL_FRAMES frames after the views stop drawing it, and its empty batch a few seconds more", async () => {
+  it("keeps a level's drawable POOL_FRAMES frames after the views stop drawing it, its instance FREE_FRAMES more, and its empty batch a few seconds more", async () => {
     const camera = eye();
     const { group: g } = group("rock", 4);
     g.fade = "none"; // hard switches: the pooling of the levels themselves (crossfades: below)
@@ -206,14 +206,16 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
     g.node.transform!.position.set(0, 0, 4);
     frame(0.5);
     expect(listOf(prepare(), 0)).toEqual([level2]);
-    // Away for longer: the drawable goes (by the next sweep, a few frames on), its batch stays a few seconds, then goes too.
+    // Away for longer: the drawable goes back to its batch (by the next sweep, a few frames on), which keeps the instance
+    // FREE_FRAMES for another renderer to take, then disposes it; the empty batch stays a few seconds, then goes too.
     g.node.transform!.position.set(0, 0, 2);
-    for (let i = 0; i < POOL_FRAMES; i++) {
+    for (let i = 0; i < POOL_FRAMES + 10; i++) {
       frame();
       prepare();
     }
     expect(level2.isDisposed()).toBe(false);
-    for (let i = 0; i < 10; i++) {
+    expect(level2.isEnabled()).toBe(false);
+    for (let i = 0; i < FREE_FRAMES + 1; i++) {
       frame();
       prepare();
     }
@@ -222,6 +224,31 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
     frame(BATCH_RETAIN_SECONDS + 0.1);
     prepare();
     expect(source2.isDisposed()).toBe(true);
+  });
+
+  it("hands a level's instance given back by one renderer to the next renderer switching to that level", async () => {
+    const camera = eye();
+    const a = group("a", 4); // level 2
+    const b = group("b", 2); // level 1
+    a.group.fade = b.group.fade = "none";
+    const s = await service();
+    const prepare = () => feature.prepareViews([featureView(s, cameraView(camera, 1080, 1080))], s.main)!;
+    frame();
+    prepare();
+    const meshesOf = (r: MeshRenderer) => ([...feature.drawn()].find((d) => d.component === r)!.shape as unknown as { meshes: InstancedMesh[] }).meshes;
+    const [aLevel2] = meshesOf(a.renderer);
+    expect(drawnTriangles([aLevel2])).toEqual([tris(2)]);
+    a.group.node.transform!.position.set(0, 0, 2); // a: level 1; its level 2 instance goes back to the batch
+    for (let i = 0; i < POOL_FRAMES + 10; i++) {
+      frame();
+      prepare();
+    }
+    b.group.node.transform!.position.set(0, 0, 4); // b: level 2, taking a's old instance
+    frame();
+    prepare();
+    expect(meshesOf(b.renderer)).toEqual([aLevel2]);
+    expect(aLevel2.isEnabled()).toBe(true);
+    expect(aLevel2.isDisposed()).toBe(false);
   });
 
   it("keeps an off-screen renderer's drawable enabled and out of the view's list, so turning the camera doesn't remake it", async () => {

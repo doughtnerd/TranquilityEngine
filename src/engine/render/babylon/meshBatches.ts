@@ -80,6 +80,8 @@ export const CASTERS_PASS: PassKey = "casters";
 
 /** Seconds an empty batch given back with `retain` is kept before it's disposed. */
 export const BATCH_RETAIN_SECONDS = 3;
+/** Frames a batch keeps an instance given back with `retain` for another renderer to take before disposing it. */
+export const FREE_FRAMES = 30;
 /** Seconds a pass's source is kept after it last drew. */
 const PASS_RETAIN_SECONDS = 3;
 
@@ -102,6 +104,13 @@ interface InstanceBatch {
   kind: "auto";
   key: string;
   source: Mesh;
+  /**
+   * Instances given back with `retain`, disabled, for the next `acquire` in this batch to take (the most recent first),
+   * each with the frame it was given back in (`freedAt`): a level switch moves an instance from one renderer to
+   * another instead of disposing one and making another. Ones unused for `FREE_FRAMES` are disposed by `flush`.
+   */
+  free: AbstractMesh[];
+  freedAt: number[];
   members: number;
   /** `reserve` calls not yet undone: a reserved batch isn't disposed while empty. */
   reserved: number;
@@ -242,6 +251,8 @@ export class MeshBatches implements CascadeExpander {
   private readonly passOwner = new WeakMap<AbstractMesh, ThinBatch>();
   private readonly casterOwner = new WeakMap<AbstractMesh, ThinBatch>();
   private now = 0;
+  /** `flush` calls so far: what free instances' ages count in. */
+  private frames = 0;
   private passMode = false;
 
   constructor(private readonly scene: Scene) {}
@@ -278,24 +289,42 @@ export class MeshBatches implements CascadeExpander {
     return null;
   }
 
-  /** A drawable for one renderer mesh in the batch `key` describes (made on first use). Starts enabled, at the identity. */
-  acquire(k: DrawKey, name: string): Drawable {
+  /**
+   * A drawable for one renderer mesh in the batch `key` describes (made on first use). Starts enabled, at `matrix`
+   * (the identity when not given).
+   */
+  acquire(k: DrawKey, name: string, matrix?: Matrix): Drawable {
     const key = drawKey(k);
     if (k.mode === "off") {
       const mesh = this.makeSource({ ...k, fade: false }, `mesh:${name}`);
-      return new MeshDrawable("off", key, { ...k, fade: false }, mesh, mesh);
+      const d = new MeshDrawable("off", key, { ...k, fade: false }, mesh, mesh);
+      if (matrix) d.setMatrix(matrix);
+      return d;
     }
     const batch = this.batchFor(k, key);
     batch.members++;
     batch.emptySince = -1;
     if (batch.kind === "thin") {
       const d = new ThinDrawable(key, { ...k }, batch);
+      if (matrix) d.setMatrix(matrix);
       d.setEnabled(true);
       return d;
     }
-    const instance = batch.source.createInstance(`mesh:${name}`);
-    this.made.add(instance);
-    return new MeshDrawable("auto", key, { ...k }, instance, batch.source);
+    const reused = batch.kind === "auto" ? batch.free.pop() : undefined;
+    let instance: AbstractMesh;
+    if (reused) {
+      (batch as InstanceBatch).freedAt.pop();
+      reused.name = `mesh:${name}`;
+      reused.setEnabled(true);
+      instance = reused;
+    } else {
+      instance = batch.source.createInstance(`mesh:${name}`);
+      this.made.add(instance);
+    }
+    const d = new MeshDrawable("auto", key, { ...k }, instance, batch.source);
+    // A taken instance still stands where its last renderer did.
+    if (matrix || reused) d.setMatrix(matrix ?? IDENTITY);
+    return d;
   }
 
   /**
@@ -333,7 +362,7 @@ export class MeshBatches implements CascadeExpander {
         source.isVisible = false; // only its instances draw
         source.isPickable = false;
         if (k.fade) markFadeSource(source);
-        batch = { kind: "auto", key, source, members: 0, reserved: 0, emptySince: -1 };
+        batch = { kind: "auto", key, source, free: [], freedAt: [], members: 0, reserved: 0, emptySince: -1 };
       }
       this.batches.set(key, batch);
     }
@@ -351,7 +380,14 @@ export class MeshBatches implements CascadeExpander {
     }
     const batch = this.batches.get(d.key);
     if (d instanceof ThinDrawable) d.setEnabled(false);
-    else d.mesh?.dispose();
+    else if (d.mesh) {
+      if (retain && batch?.kind === "auto" && !d.mesh.isDisposed()) {
+        // Kept for the batch's next drawable (a level switch elsewhere), disabled meanwhile.
+        d.setEnabled(false);
+        batch.free.push(d.mesh);
+        batch.freedAt.push(this.frames);
+      } else d.mesh.dispose();
+    }
     if (!batch) return;
     if (--batch.members > 0) return;
     if (retain || batch.reserved > 0) {
@@ -363,6 +399,17 @@ export class MeshBatches implements CascadeExpander {
 
   /** After syncing: dispose batches empty past their time, upload changed thin-instance buffers and refresh their bounds. */
   flush(): void {
+    this.frames++;
+    for (const b of this.batches.values()) {
+      if (b.kind !== "auto" || !b.free.length) continue;
+      // The oldest are at the front.
+      let n = 0;
+      while (n < b.free.length && this.frames - b.freedAt[n] > FREE_FRAMES) b.free[n++].dispose();
+      if (n) {
+        b.free.splice(0, n);
+        b.freedAt.splice(0, n);
+      }
+    }
     for (const b of [...this.batches.values()]) {
       if (b.members === 0 && b.reserved === 0 && b.emptySince >= 0 && this.now - b.emptySince > BATCH_RETAIN_SECONDS) this.disposeBatch(b);
     }
