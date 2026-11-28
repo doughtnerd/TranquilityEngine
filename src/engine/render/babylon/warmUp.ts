@@ -108,7 +108,7 @@ export interface WarmMaterials {
    * How renderers drawing a material asset batch (ADR 0108): warm meshes draw the same way (instanced,
    * thin-instanced or plain), since instancing is part of the shader variant.
    */
-  instancing(path: string | null): MaterialInstancing;
+  instancing(path: string | null, levelsApplied?: boolean): MaterialInstancing;
   /**
    * Extra copies of a material in the keyword combinations scripts may switch to (`"variants": "all"`,
    * ADR 0106), drawn too so those variants compile now; each with its dispose.
@@ -126,6 +126,8 @@ export interface WarmDeps {
    * They're the renderer's own copies, kept: not disposed with the batch.
    */
   probeVariants?(base: PBRMaterial): PBRMaterial[];
+  /** Whether the World applies levels per view now (ADR 0446 §3): auto batches then draw thin (ADR 0448), and warm so. */
+  levelsApplied?(): boolean;
   /** With async pipeline compiles (WebGPU): resolves once the compiles started so far finish. Without, warm draws compile (and stall) as they go. */
   compiling?(): Promise<void>;
   /** Milliseconds spent creating effects so far (`effectClock`), to size the batches; without it batches keep their largest size. */
@@ -347,7 +349,7 @@ export class PipelineWarmer {
       // What each model mesh draws with: its slots' materials (ADR 0089), one material or a multi-material.
       const drawnOf = mats.slotMaterials(w, sources);
       // As the renderer: slot 0's material asset says how it batches.
-      const mode = mats.instancing(w.materials?.[0] || w.material || null);
+      const mode = mats.instancing(w.materials?.[0] || w.material || null, this.deps.levelsApplied?.() ?? false);
       // `fade`: drawn as a crossfade batch draws it (ADR 0446 §4): the fade plugin's variant, never a caster.
       const place = (mesh: Mesh, material: BabylonMaterial, fogOf: BabylonMaterial, fade = false) => {
         if (fade) addLodFade(material);

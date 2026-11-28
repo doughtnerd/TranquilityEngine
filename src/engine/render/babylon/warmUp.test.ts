@@ -52,6 +52,8 @@ describe("pipeline warm-up of the crossfade variant (ADR 0080, 0446 §4)", () =>
   let scene: Scene;
   let camera: TargetCamera;
   let mode: MaterialInstancing;
+  /** Whether the World applies levels per view (the warmer's `levelsApplied`). */
+  let levelsApplied = false;
   let warmer: PipelineWarmer;
 
   beforeEach(async () => {
@@ -81,10 +83,11 @@ describe("pipeline warm-up of the crossfade variant (ADR 0080, 0446 §4)", () =>
       isGraph: () => false,
       fogless: () => false,
       loading: () => false,
-      instancing: () => mode,
+      instancing: (_path, levelsApplied) => (mode === "auto" && levelsApplied ? "thin" : mode),
       warmVariants: () => [],
     };
-    warmer = new PipelineWarmer({ scene, materials });
+    levelsApplied = false;
+    warmer = new PipelineWarmer({ scene, materials, levelsApplied: () => levelsApplied });
   });
   afterEach(() => {
     warmer.dispose();
@@ -127,6 +130,15 @@ describe("pipeline warm-up of the crossfade variant (ADR 0080, 0446 §4)", () =>
     expect(fades).toHaveLength(1);
     expect(fades[0].getVertexBuffer(LOD_FADE_ATTRIBUTE)?.getData()).toEqual(new Float32Array(1));
     expect(casters).not.toContain(fades[0]);
+  });
+
+  it("warms auto materials as thin instances while the World applies levels, as its renderers then draw them (ADR 0448)", () => {
+    levelsApplied = true;
+    const { plain, casters } = batch(warm(BALL));
+    expect(plain).toHaveLength(1);
+    expect(plain[0].instances).toHaveLength(0);
+    expect(plain[0].thinInstanceCount).toBe(1);
+    expect(casters).toEqual([plain[0]]);
   });
 
   it("draws no fade variant on a tier without crossfade, for a mesh without levels, or for meshes drawn on their own", () => {

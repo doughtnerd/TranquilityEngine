@@ -217,10 +217,15 @@ export function resolveMaterial(path: string, opts: { shaderLevel: ShaderLevel; 
   return out;
 }
 
-/** A material's `instancing` (ADR 0108), with editor picking: thin batches draw as instances there, so each object can be picked. */
-export function instancingFor(mode: MaterialInstancing | undefined, editorPicking: boolean): MaterialInstancing {
+/**
+ * A material's `instancing` (ADR 0108) as drawn. With editor picking, thin batches draw as instances, so each object
+ * can be picked. Without it, while levels are applied per view (ADR 0446 §3), auto batches draw thin: through per-pass
+ * buffers, with no Babylon object per renderer (ADR 0448).
+ */
+export function instancingFor(mode: MaterialInstancing | undefined, editorPicking: boolean, levelsApplied = false): MaterialInstancing {
   const m = mode || "auto";
-  return m === "thin" && editorPicking ? "auto" : m;
+  if (editorPicking) return m === "thin" ? "auto" : m;
+  return m === "auto" && levelsApplied ? "thin" : m;
 }
 
 // --- Material slots (ADR 0089) ---------------------------------------------------------------------------

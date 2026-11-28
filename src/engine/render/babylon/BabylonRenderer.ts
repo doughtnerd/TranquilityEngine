@@ -295,6 +295,7 @@ export class BabylonRenderer {
       : new PipelineReadiness(engine, scene, {
           materials: this.materials,
           probeVariants: (base) => this.probes.warmHits().map((hit) => this.materials.probeCopy(base, hit)),
+          levelsApplied: () => (this.owner ? visibilityService(this.owner) !== null : false),
           describe: (m) => describeDrawn(this.slots.map((s) => s.feature), m),
         });
   }

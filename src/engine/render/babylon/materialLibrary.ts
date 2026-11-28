@@ -435,8 +435,8 @@ export class BabylonMaterialLibrary {
   }
 
   /** How renderers drawing a material asset batch (ADR 0108). */
-  instancing(path: string | null): MaterialInstancing {
-    return instancingFor(path ? this.assets.get(path)?.resolved.instancing : undefined, this.opts.editorPicking?.() ?? false);
+  instancing(path: string | null, levelsApplied = false): MaterialInstancing {
+    return instancingFor(path ? this.assets.get(path)?.resolved.instancing : undefined, this.opts.editorPicking?.() ?? false, levelsApplied);
   }
 
   /**

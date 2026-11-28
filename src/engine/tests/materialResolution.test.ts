@@ -229,6 +229,15 @@ describe("material resolution (ADR 0127)", () => {
       expect(instancingFor(undefined, false)).toBe("auto");
       expect(instancingFor("off", true)).toBe("off");
     });
+
+    it("draws auto batches thin while levels apply, except while the editor picks (ADR 0448)", () => {
+      expect(instancingFor("auto", false, true)).toBe("thin");
+      expect(instancingFor(undefined, false, true)).toBe("thin");
+      expect(instancingFor("auto", true, true)).toBe("auto");
+      expect(instancingFor("thin", true, true)).toBe("auto");
+      expect(instancingFor("off", false, true)).toBe("off");
+      expect(instancingFor("auto", false, false)).toBe("auto");
+    });
   });
 
   describe("textures (ADR 0040)", () => {

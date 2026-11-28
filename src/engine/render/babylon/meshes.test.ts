@@ -59,6 +59,11 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
   let lib: BabylonMaterialLibrary;
   let feature: BabylonMeshes;
   let rock: ModelMesh;
+  /**
+   * Editor picking: auto batches keep a Babylon instance per renderer (ADR 0108). Off (a game), they draw through
+   * per-pass thin buffers from the first frame levels apply (ADR 0448).
+   */
+  let picking = false;
 
   beforeEach(async () => {
     setLodHost({ generate: generateLods, cache: memoryLodCache() });
@@ -77,7 +82,8 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
     [rock] = await loadMeshes(ROCK);
     nullEngine = new NullEngine();
     scene = new BabylonScene(nullEngine);
-    lib = new BabylonMaterialLibrary(scene, { editorPicking: () => false });
+    picking = false;
+    lib = new BabylonMaterialLibrary(scene, { editorPicking: () => picking });
     feature = new BabylonMeshes({ scene, materials: lib, probes: { any: false, lookup: () => null } });
   });
   afterEach(() => {
@@ -188,6 +194,7 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
   });
 
   it("keeps a level's drawable POOL_FRAMES frames after the views stop drawing it, its instance FREE_FRAMES more, and its empty batch a few seconds more", async () => {
+    picking = true; // the editor's per-instance path
     const camera = eye();
     const { group: g } = group("rock", 4);
     g.fade = "none"; // hard switches: the pooling of the levels themselves (crossfades: below)
@@ -227,6 +234,7 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
   });
 
   it("hands a level's instance given back by one renderer to the next renderer switching to that level", async () => {
+    picking = true; // the editor's per-instance path
     const camera = eye();
     const a = group("a", 4); // level 2
     const b = group("b", 2); // level 1
@@ -252,6 +260,7 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
   });
 
   it("keeps an off-screen renderer's drawable enabled and out of the view's list, so turning the camera doesn't remake it", async () => {
+    picking = true; // the editor's per-instance path
     const camera = eye();
     const { group: g, renderer } = group("rock", 4);
     g.fade = "none";
@@ -305,6 +314,55 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
     for (const m of casters) expect(mainSources.has(m)).toBe(false);
   });
 
+  describe("auto batches in a game draw through per-pass thin buffers (ADR 0448)", () => {
+    /** Each listed pass source's level (by triangles) and how many instances it draws, finest first. */
+    const passes = (list: readonly AbstractMesh[]) =>
+      list.map((m) => {
+        expect(m).not.toBeInstanceOf(InstancedMesh);
+        return [drawnTriangles([m])[0], (m as Mesh).thinInstanceCount] as const;
+      }).sort((a, b) => b[0] - a[0]);
+
+    it("has no Babylon object per renderer once levels apply, and a level switch makes none", async () => {
+      const camera = eye();
+      group("a", 4); // level 2
+      group("b", 4);
+      const c = group("c", 2); // level 1
+      c.group.fade = "none";
+      const s = await service();
+      const prepare = () => feature.prepareViews([featureView(s, cameraView(camera, 1080, 1080))], s.main)!;
+      frame();
+      prepare(); // the first frame draws as before; from the next, levels apply
+      frame();
+      const drawing = prepare();
+      expect(passes(listOf(drawing, 0))).toEqual([
+        [tris(1), 1],
+        [tris(2), 2],
+      ]);
+      expect(scene.meshes.filter((m) => m instanceof InstancedMesh && !m.isDisposed())).toEqual([]);
+      const before = new Set(scene.meshes);
+      c.group.node.transform!.position.set(0, 0, 4); // c: level 2 too
+      frame();
+      expect(passes(listOf(prepare(), 0))).toEqual([[tris(2), 3]]);
+      expect(scene.meshes.filter((m) => !before.has(m))).toEqual([]);
+    });
+
+    it("casts per renderer: the casters pass leaves out renderers without castShadows", async () => {
+      const camera = eye();
+      group("a", 4);
+      const quiet = group("b", 4);
+      quiet.renderer.castShadows = false;
+      const s = await service();
+      const prepare = () => feature.prepareViews([featureView(s, cameraView(camera, 1080, 1080))], s.main)!;
+      frame();
+      prepare();
+      frame();
+      expect(passes(listOf(prepare(), 0)).reduce((n, [, k]) => n + k, 0)).toBe(2);
+      const casters: AbstractMesh[] = [];
+      feature.casters(casters);
+      expect(passes(casters)).toEqual([[tris(2), 1]]);
+    });
+  });
+
   describe("crossfades (ADR 0446 §4)", () => {
     beforeEach(() => {
       Graphics.quality = "High"; // lodCrossfade on
@@ -317,6 +375,7 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
     const fades = (list: readonly AbstractMesh[]) => list.map((m) => [drawnTriangles([m])[0], fadeOf(m)] as const).sort((a, b) => b[0] - a[0]);
 
     it("draws both levels in reserved fade batches for fadeDuration, casters switching at the midpoint, then one steady level", async () => {
+      picking = true; // per-instance fade values (the thin path: below)
       const camera = eye();
       const { group: g } = group("rock", 4); // level 2
       const s = await service();

@@ -7,7 +7,8 @@
  * calls `prepareViews` each frame with every view's visibility result, and each view draws exactly the drawables
  * chosen for it: per renderer mesh, the drawable of the level its result gives (none when hidden or LOD-culled),
  * acquired on first use. A level's derived `ModelMesh` is its batch key, so batches split per level; thin batches
- * draw through per-pass sources (`meshBatches.ts`). Shadow casters follow the main view's `casterLevels`. A drawable
+ * draw through per-pass sources (`meshBatches.ts`), and so do auto batches outside the editor's picking (ADR 0448:
+ * no Babylon object per renderer). The pooling of per-renderer instances below serves the editor. Shadow casters follow the main view's `casterLevels`. A drawable
  * is kept while a view drew it (or, off-screen, would draw it) in the last `POOL_FRAMES` frames, and batches left
  * empty a few seconds more, so a moving camera doesn't make and dispose Babylon meshes on every switch. Without the visibility stage (or before
  * its first frame, or in a thumbnail, which only syncs) every renderer draws LOD0 as it always did.
@@ -577,8 +578,11 @@ export class BabylonMeshes implements BabylonFeature {
     }
   }
 
-  /** How a renderer's meshes batch (ADR 0108): its slot 0 material asset's `instancing`. */
+  /**
+   * How a renderer's meshes batch (ADR 0108): its slot 0 material asset's `instancing`; auto draws thin while levels
+   * are applied per view, outside the editor's picking (ADR 0448).
+   */
   private instancingFor(r: MeshRenderer): MaterialInstancing {
-    return this.host.materials.instancing(r.materials[0] || r.material);
+    return this.host.materials.instancing(r.materials[0] || r.material, this.perView);
   }
 }

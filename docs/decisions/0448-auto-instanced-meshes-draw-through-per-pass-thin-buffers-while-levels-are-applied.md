@@ -48,9 +48,14 @@ object for them then.
   batches already draw as instances there (0108), because picking and selection outlines need per-object meshes.
 - **How:** an auto drawable becomes a slot in its batch's matrix list, and each pass's source holds what the pass
   draws. That is the per-pass machinery thin batches already have: `beginPasses`/`add`/`endPasses`, per-cascade
-  compaction through `expand`, and the fade buffer for crossfades. Shadow casting stays per renderer: an auto
-  drawable that doesn't cast is left out of the casters pass. That differs from thin, where casting is part of the
-  batch key.
+  compaction through `expand`, and the fade buffer for crossfades. Casting is part of the batch key, as for thin
+  batches, so a renderer that doesn't cast draws in a batch of its own and is left out of the casters pass. *(As built:
+  the record first said casting would stay per drawable inside one batch. Splitting by key reuses thin batches as
+  they are.)*
+- **Where it's decided:** `instancingFor(mode, editorPicking, levelsApplied)` in `render/materialResolution.ts`. The
+  mesh feature asks with "levels applied" from the frame before, so the first frame a World applies levels still draws
+  as before, and the batches move to thin from the next. Warm-up asks the same way, so it compiles the thin variants
+  the renderers will draw.
 - **Culling:** the visibility stage's per-view `hidden` bits (and 0447's occlusion later) do it. Pass sources aren't
   culled again by Babylon, as thin pass sources aren't now.
 - **Unchanged:** batch keys, the material's `instancing` field, `off`, thin, `LODGroup`, the sidecar and every public

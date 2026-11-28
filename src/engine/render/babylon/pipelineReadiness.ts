@@ -24,6 +24,8 @@ export interface ReadinessDeps {
   readonly materials: WarmMaterials;
   /** The renderer's probe copies of a built-in material (`WarmDeps.probeVariants`). */
   probeVariants(base: PBRMaterial): PBRMaterial[];
+  /** Whether the World applies levels per view (`WarmDeps.levelsApplied`). */
+  levelsApplied?(): boolean;
   /** What a drawn object is, for the variant report. */
   describe(drawn: AbstractMesh): { what: string; prefab?: string } | null;
 }
@@ -68,6 +70,7 @@ export class PipelineReadiness {
       ...(pipelines ? { compiling: () => pipelines.settled() } : {}),
       effectMs: () => this.effects.ms(),
       probeVariants: (base) => deps.probeVariants(base),
+      levelsApplied: () => deps.levelsApplied?.() ?? false,
     });
     this.warmer.onDrained = () => this.report?.quiet();
   }
