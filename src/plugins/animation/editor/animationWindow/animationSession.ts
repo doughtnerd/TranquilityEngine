@@ -12,11 +12,8 @@
 //   of the scene (a gizmo drag, an Inspector scrub) becomes one undo step on the clip when the step closes.
 import { computed, signal } from "@preact/signals";
 import type { AnimSource } from "../../../../engine/animation/animSource";
-<<<<<<< HEAD
 import { nodePathOf, parseFieldPath, resolveNodePath, trackBinding } from "../../../../engine/animation/bindingPath";
-=======
 import { snapToFrame } from "../../../../engine/animation/compile/frames";
->>>>>>> worktree-agent-a9c97a31c099e16d5
 import type { Binding } from "../../../../engine/animation/tracks";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import {
