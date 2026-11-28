@@ -20,8 +20,9 @@ import type { Curve, CurveKey } from "../../../../engine/core/curve";
 import { ROOT_MOTION_AXES, type RootMotion, type RootMotionAxis } from "../../../../engine/animation/animSource";
 import type { ImportedTake } from "../../../../engine/animation/import/channels";
 import { ANIMATION_IMPORT_LIMITS, defaultClipSettings, modelAnimationToJson, parseModelAnimation, type ClipImportSettings, type ModelAnimationSettings } from "../../../../engine/animation/import/clips";
-import { DEFAULT_NOTIFY_THRESHOLD, MARKER_KINDS, TRACK_LIMITS, type BoneTrack, type EventKey, type MarkerKey, type MarkerKind, type QuatKey, type Vec3Key } from "../../../../engine/animation/tracks";
+import { DEFAULT_NOTIFY_THRESHOLD, MARKER_KINDS, TRACK_LIMITS, type BoneTrack, type EventKey, type MarkerKey, type MarkerKind } from "../../../../engine/animation/tracks";
 import type { CompressionLevel } from "../../../../engine/animation/compile/settings";
+import { sampleQuat, sampleVec } from "../../../../engine/animation/compile/keySampling";
 import type { ClipCompileResult } from "../compile/service";
 import type { ClipReport } from "../compile/compiler";
 import type { CompiledClipRequest } from "../../runtime/features/clipSources";
@@ -278,26 +279,6 @@ export interface PoseMatch {
   readonly matches: boolean;
 }
 
-/** A linear key list sampled at `t` (clamped to its ends; quaternions nlerp on the short arc). */
-function sample(keys: readonly (readonly number[])[], t: number, quat: boolean): number[] {
-  const first = keys[0];
-  if (t <= first[0]) return first.slice(1);
-  const last = keys[keys.length - 1];
-  if (t >= last[0]) return last.slice(1);
-  let i = 0;
-  while (keys[i + 1][0] <= t) i++;
-  const k0 = keys[i];
-  const k1 = keys[i + 1];
-  const u = k1[0] > k0[0] ? (t - k0[0]) / (k1[0] - k0[0]) : 0;
-  const a = k0.slice(1);
-  let b = k1.slice(1);
-  if (quat && a.reduce((s, v, n) => s + v * b[n], 0) < 0) b = b.map((v) => -v);
-  const v = a.map((x, n) => x + (b[n] - x) * u);
-  if (!quat) return v;
-  const len = Math.hypot(...v) || 1;
-  return v.map((x) => x / len);
-}
-
 /**
  * Compare the pose of `take`'s bone tracks at `from` and at `to` (null: the take's end): the loop seam of a clip cut
  * `from`..`to`. `rootMotion` leaves out the extracted channels of its bone (its translation when an x, y or z axis is
@@ -318,16 +299,16 @@ export function poseMatch(take: ImportedTake, from: number, to: number | null, r
     let compared = false;
     let score = 0;
     if (t.translation.length && !(root && root.axes.some((x) => x !== "yaw"))) {
-      const p = sample(t.translation as readonly Vec3Key[], from, false);
-      const q = sample(t.translation as readonly Vec3Key[], end, false);
+      const p = sampleVec(t.translation, from);
+      const q = sampleVec(t.translation, end);
       const d = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
       translation = Math.max(translation, d);
       score = Math.max(score, d / LOOP_TOLERANCE.translation);
       compared = true;
     }
     if (t.rotation.length && !(root && root.axes.includes("yaw"))) {
-      const p = sample(t.rotation as readonly QuatKey[], from, true);
-      const q = sample(t.rotation as readonly QuatKey[], end, true);
+      const p = sampleQuat(t.rotation, from, "nlerp");
+      const q = sampleQuat(t.rotation, end, "nlerp");
       const dot = Math.min(1, Math.abs(p[0] * q[0] + p[1] * q[1] + p[2] * q[2] + p[3] * q[3]));
       const deg = (2 * Math.acos(dot) * 180) / Math.PI;
       rotationDeg = Math.max(rotationDeg, deg);
@@ -335,8 +316,8 @@ export function poseMatch(take: ImportedTake, from: number, to: number | null, r
       compared = true;
     }
     if (t.scale.length) {
-      const p = sample(t.scale as readonly Vec3Key[], from, false);
-      const q = sample(t.scale as readonly Vec3Key[], end, false);
+      const p = sampleVec(t.scale, from);
+      const q = sampleVec(t.scale, end);
       const d = Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2]));
       scale = Math.max(scale, d);
       score = Math.max(score, d / LOOP_TOLERANCE.scale);
