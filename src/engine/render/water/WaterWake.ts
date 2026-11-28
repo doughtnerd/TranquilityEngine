@@ -1,5 +1,5 @@
 /**
- * Wakes on water (ADR 0451): a `WaterWake` on a moving node (a boat) makes the World's water surfaces
+ * Wakes on water (ADR 0459): a `WaterWake` on a moving node (a boat) makes the World's water surfaces
  * draw its wake in their own shader, as strong as the node is fast. The surface's `wakeMode` picks how:
  * a foam trail with Kelvin ripples along the path the stern took ("trail"), or a simulated wave height
  * field the hull presses into ("field"). Engine-native and renderer-neutral: the state is `wakes.ts`'s.

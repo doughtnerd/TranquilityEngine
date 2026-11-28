@@ -25,6 +25,7 @@ import { AutoTarget, MAX_BINDINGS, TimeParam, timeParam, type Binding, type Para
 import { QuantLane } from "./quantizedLanes";
 import type { GenCurve } from "./liveNode";
 import type { CurveBy } from "../../../../engine/audio/curveBy";
+import { dbToGain, semitonesToRatio } from "../../../../engine/audio/decibels";
 import type { LiveSlice } from "./byCurves";
 
 /** The core target of each voice curve target. */
@@ -72,8 +73,6 @@ const TIME_INPUTS = { voiceTime: TimeParam.Voice, clipTime: TimeParam.Clip, sequ
 
 const resampled = new WeakMap<Curve, { gain?: Curve; pitch?: Curve }>();
 
-const dbToGain = (db: number): number => Math.pow(10, db / 20);
-const stToRatio = (st: number): number => Math.pow(2, st / 12);
 
 /** A dB curve as linear gain, or a semitone curve as a ratio, in linear keys (each segment subdivided to keep its shape). */
 export function toCoreCurve(curve: Curve, target: "gain" | "pitch"): Curve {
@@ -81,7 +80,7 @@ export function toCoreCurve(curve: Curve, target: "gain" | "pitch"): Curve {
   if (!c) resampled.set(curve, (c = {}));
   const hit = c[target];
   if (hit) return hit;
-  const map = target === "gain" ? dbToGain : stToRatio;
+  const map = target === "gain" ? dbToGain : semitonesToRatio;
   const keys: CurveKey[] = [];
   const n = curve.length;
   if (n <= 1) keys.push([n === 1 ? curve[0]![0] : 0, map(n === 1 ? curve[0]![1] : 0)]);
@@ -223,7 +222,7 @@ export function evalTimeCurves(curves: readonly TimeCurve[], t: number): { gain:
   for (const c of curves) {
     const y = evalCurve(c.live?.curve ?? c.curve, t + (c.offset ?? 0));
     if (c.target === "gain") gain *= dbToGain(y);
-    else if (c.target === "pitch") pitch *= stToRatio(y);
+    else if (c.target === "pitch") pitch *= semitonesToRatio(y);
     else if (c.target === "lowpass") lowpass = lowpass === null ? y : Math.min(lowpass, y);
   }
   return { gain, pitch, lowpass };

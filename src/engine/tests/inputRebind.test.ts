@@ -165,6 +165,12 @@ describe("chord rebinding (ADR 0337)", () => {
     up("alt", "b");
   });
 
+  it("refuses a part the mapping doesn't have, rather than saving an override that changes nothing (ADR 0458)", () => {
+    expect(() => p0().rebind("dash", { device: "keyboard", part: "modifier" })).toThrow(/no "modifier" part; its parts are modifier0, control/);
+    expect(() => p0().rebind("dash", { device: "keyboard", part: "modifier1" })).toThrow(/no "modifier1" part/);
+    expect(() => p0().rebind("jump", { device: "keyboard", part: "up" })).toThrow(/single mapping has no "up" part/);
+  });
+
   it("rebinds only a chord's main key with chord: false", async () => {
     const pending = p0().rebind("dash", { device: "keyboard", chord: false });
     down("g");

@@ -5,19 +5,21 @@ use crate::geom::{fmax, fmin, normalize_or, swing_twist, unit_clamp, DEGENERATE_
 use crate::grounder::MAX_FEET;
 use crate::pose::{gather, write_chain, ChainJoint, RigPose};
 use crate::two_bone::{two_bone, Pole, TipRotation, TwoBone, TwoBoneGoal};
+use anim_format::frames::FrameClock;
 use anim_math::trig::atan2;
 use anim_math::{AosQuat, AosTransform, AosVec3};
 
 // ---------------------------------------------------------------------------------------------
 // Distance warping
 
-/// A clip's cumulative root travel, sampled uniformly: `distance[i]` is the distance the root has
-/// covered by `i·sample_dt` (non-decreasing, usually starting at 0). [`cumulative_distance`]
-/// builds one from root positions.
+/// A clip's cumulative root travel per frame: `distance[i]` is the distance the root has covered
+/// by frame `i`'s time (non-decreasing, usually starting at 0), the frames placed by `clock` (the
+/// clip's, so a last frame at the clip's duration is honoured; [`FrameClock::uniform`] for a
+/// uniform grid). [`cumulative_distance`] builds one from root positions.
 #[derive(Clone, Copy, Debug)]
 pub struct DistanceCurve<'a> {
     pub distance: &'a [f32],
-    pub sample_dt: f32,
+    pub clock: FrameClock,
 }
 
 /// Fills `out[i]` with the root's travel up to sample `i`: the sum of `|pₖ − pₖ₋₁|` with each
@@ -40,7 +42,8 @@ pub fn cumulative_distance(positions: &[AosVec3], up: AosVec3, out: &mut [f32]) 
 impl DistanceCurve<'_> {
     /// The time of the last sample.
     pub fn duration(&self) -> f32 {
-        self.distance.len().saturating_sub(1) as f32 * self.sample_dt
+        self.clock
+            .time(self.distance.len().saturating_sub(1) as f32)
     }
 
     /// The travel at time `t` (linear between samples, clamped to the ends).
@@ -50,14 +53,9 @@ impl DistanceCurve<'_> {
         if n == 1 || !(t > 0.0) {
             return self.distance[0];
         }
-        let x = t / self.sample_dt;
-        let i = x.floor();
-        if i >= (n - 1) as f32 {
-            return self.distance[n - 1];
-        }
-        let k = i as usize;
-        let f = x - i;
-        self.distance[k] + (self.distance[k + 1] - self.distance[k]) * f
+        let p = self.clock.pos(t);
+        let (a, b) = ((p.f0 as usize).min(n - 1), (p.f1 as usize).min(n - 1));
+        self.distance[a] + (self.distance[b] - self.distance[a]) * p.alpha
     }
 
     /// The earliest time the travel reaches `d` (the inverse of [`distance_at`](Self::distance_at)):
@@ -76,7 +74,7 @@ impl DistanceCurve<'_> {
             while k > 0 && s[k - 1] >= s[n - 1] {
                 k -= 1;
             }
-            return k as f32 * self.sample_dt;
+            return self.clock.time(k as f32);
         }
         // First index with s[i] >= d (i ≥ 1).
         let (mut lo, mut hi) = (0usize, n - 1);
@@ -90,7 +88,7 @@ impl DistanceCurve<'_> {
         }
         let seg = s[hi] - s[lo];
         let f = if seg > 0.0 { (d - s[lo]) / seg } else { 0.0 };
-        (lo as f32 + f) * self.sample_dt
+        self.clock.time(lo as f32 + f)
     }
 
     /// The playback rate that makes the clip's root travel `travel` over the next `dt` from time
@@ -285,12 +283,12 @@ pub fn orientation_warp(pose: &mut RigPose, w: &OrientationWarp, scratch: &mut [
 // ---------------------------------------------------------------------------------------------
 // Motion warping
 
-/// A clip's root transform sampled uniformly (`samples[i]` at `i·sample_dt`), in the clip's
-/// space. Scale is ignored.
+/// A clip's root transform per frame (`samples[i]` at frame `i`'s time, placed by `clock`), in
+/// the clip's space. Scale is ignored.
 #[derive(Clone, Copy, Debug)]
 pub struct RootCurve<'a> {
     pub samples: &'a [AosTransform],
-    pub sample_dt: f32,
+    pub clock: FrameClock,
 }
 
 impl RootCurve<'_> {
@@ -302,14 +300,12 @@ impl RootCurve<'_> {
         if n == 1 || !(t > 0.0) {
             return self.samples[0];
         }
-        let x = t / self.sample_dt;
-        let i = x.floor();
-        if i >= (n - 1) as f32 {
-            return self.samples[n - 1];
-        }
-        let k = i as usize;
-        let f = x - i;
-        let (a, b) = (self.samples[k], self.samples[k + 1]);
+        let p = self.clock.pos(t);
+        let f = p.alpha;
+        let (a, b) = (
+            self.samples[(p.f0 as usize).min(n - 1)],
+            self.samples[(p.f1 as usize).min(n - 1)],
+        );
         AosTransform::new(
             a.translation.lerp(b.translation, f),
             a.rotation.nlerp(b.rotation, f),

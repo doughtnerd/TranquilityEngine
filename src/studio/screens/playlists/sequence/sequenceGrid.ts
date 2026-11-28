@@ -3,6 +3,7 @@
 // off), snapping a time to the nearest edge within 0.8 % of the visible span else to the grid, and tap tempo.
 // Snapping is editing only: the runtime never quantises. Pure.
 import type { SequenceSettings } from "../../../../engine/audio/playlist/types";
+import { meterParts } from "../../../../engine/audio/meter";
 import { tidy } from "./sequenceModel";
 
 /** The rate of the samples display and the samples grid (the core's rate). */
@@ -44,8 +45,7 @@ export const beatSeconds = (tempo: SequenceSettings["tempo"]): number => (tempo 
 
 /** Beats in a bar: the meter's numerator (4 without a tempo). */
 export function beatsPerBar(tempo: SequenceSettings["tempo"]): number {
-  const n = Number((tempo?.meter ?? "4/4").split("/")[0]);
-  return Number.isInteger(n) && n > 0 ? n : 4;
+  return meterParts(tempo?.meter).beatsPerBar;
 }
 
 /** The grid step of `snap` in seconds, or 0 when snapping to the grid is off. */

@@ -3,6 +3,7 @@
 // makes a new track), the visible span (fit, zoom about a time, scroll, the scrollbar's thumb dragged or stretched),
 // time ↔ x, and the edges snapping looks for. Pure.
 import type { SequenceSettings, Track } from "../../../../engine/audio/playlist/types";
+import { meterParts } from "../../../../engine/audio/meter";
 import type { TimeSpan } from "../../../components/timeRulerModel";
 import { clampTimeline, followView, MIN_SPAN, pxToTime, scrollTimeline, thumbOf, timeToPx, viewFromThumb, zoomPercentOf, zoomTimeline } from "../../../components/timelineView";
 import { allClips, clipLength, type SourceOf } from "./sequenceModel";
@@ -109,7 +110,7 @@ export function rulerMarks(view: TimeSpan, width: number, format: "timecode" | "
   const pick = (steps: readonly number[], unit: number) => steps.find((s) => span / (s * unit) <= want) ?? steps[steps.length - 1]!;
   const out: { t: number; label: string }[] = [];
   if (format === "bars" && ctx.bpm) {
-    const bar = (60 / ctx.bpm) * (Number((ctx.meter ?? "4/4").split("/")[0]) || 4);
+    const bar = (60 / ctx.bpm) * meterParts(ctx.meter).beatsPerBar;
     const step = pick(BAR_STEPS, bar);
     for (let b = Math.ceil(view.start / (bar * step)) * step; b * bar <= view.end + 1e-9; b += step) out.push({ t: b * bar, label: String(b + 1) });
     return out;

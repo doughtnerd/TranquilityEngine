@@ -4,7 +4,7 @@
 // - Skeleton2D: its skeleton comes from a slice's `skin.bones`; an Animator on its node plays bone tracks on it; skinned
 //   slices (two sharing the skeleton) are deformed by the kernel's JavaScript executor and handed to quad batches
 //   (`SkinnedSprites` over a fake `QuadBatchHost`, as the renderer's feature uses it). The bone clip is a raw clip
-//   written by `writeRawClip` with the skeleton's bones, served as a data URL.
+//   written by `compileRawClip` with the skeleton's bones, served as a data URL.
 // Time comes from `engine.step(dt)` only. Positions are compared to 4 decimals (5e-5): the pose (core) and the kernel
 // are f32, on values near 1.
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -15,7 +15,7 @@ import { memoryQuadHost, type MemoryQuadBatch } from "../../../../engine/tests/m
 import { drawPlace } from "../../../../engine/render/sortOrder";
 import { instanceForSkeleton } from "../skeletonInstances";
 import { claimsSkinnedSprite, SkinnedSprites } from "./sprites2d/skinnedSprites";
-import { writeRawClip } from "./timeline/rawClip";
+import { compileRawClip, importedClipSkeleton } from "../../../../engine/animation/compile/rawClip";
 
 let engine: Engine;
 /** The project's sorting layers: `Units` is y-sorted (ADR 0440), `Default` isn't. */
@@ -64,7 +64,7 @@ const RIG = {
 function bendClip(): string {
   const model = skeleton2D(BONES.map((b) => ({ name: b.name, parent: b.parent ?? null, position: b.position as [number, number], rotation: 0, length: b.length })), sliceFrame({ rect: [0, 0, 32, 16], pivot: [0, 0] }, 16, 100));
   const s = Math.SQRT1_2;
-  const { bytes } = writeRawClip({ name: "bend", rate: 30, duration: 1, loop: true, tracks: [{ kind: "bone", bone: "arm", translation: [], rotation: [[0, 0, 0, s, s]], scale: [] }], skeleton: model.skeleton });
+  const { bytes } = compileRawClip({ name: "bend", rate: 30, duration: 1, loop: true, tracks: [{ kind: "bone", bone: "arm", translation: [], rotation: [[0, 0, 0, s, s]], scale: [] }] }, importedClipSkeleton(model.skeleton));
   return `data:application/octet-stream;base64,${Buffer.from(bytes).toString("base64")}`;
 }
 

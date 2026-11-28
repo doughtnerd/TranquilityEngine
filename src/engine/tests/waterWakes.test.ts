@@ -1,4 +1,4 @@
-// ADR 0451: wakes on water. The trail recorder and the height field are plain maths, driven directly;
+// ADR 0459: wakes on water. The trail recorder and the height field are plain maths, driven directly;
 // the World's wakes through `updateWakes` (what the water's renderer calls each frame); the wake shader
 // through its JavaScript output (ADR 0250), reading the very texels `updateWakes` packs.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ import { WAKE_SHADER } from "../render/water/wakeShader";
 import { WakePath, wakeStrength } from "../render/water/wakeTrail";
 import { MAX_WAKES, TRAIL_HEADER, TRAIL_TEXELS, updateWakes, type WakeFrame } from "../render/water/wakes";
 
-describe("wake trails (ADR 0451)", () => {
+describe("wake trails (ADR 0459)", () => {
   it("wakeStrength is 0 at rest, rises above it and levels at full speed", () => {
     expect(wakeStrength(0.3, 6)).toBe(0);
     expect(wakeStrength(1, 6)).toBeGreaterThan(0);
@@ -29,7 +29,7 @@ describe("wake trails (ADR 0451)", () => {
   });
 });
 
-describe("the wake height field (ADR 0451)", () => {
+describe("the wake height field (ADR 0459)", () => {
   /** A hull sailing +X at `speed` for `seconds`, the field centred on it each step. */
   function sail(speed: number, seconds: number): { field: WakeField; x: number } {
     const field = new WakeField(256, 96);
@@ -116,7 +116,7 @@ describe("the wake height field (ADR 0451)", () => {
   });
 });
 
-describe("a World's wakes and the wake shader (ADR 0451)", () => {
+describe("a World's wakes and the wake shader (ADR 0459)", () => {
   let engine: Engine;
   beforeEach(async () => {
     Assets.clearSources();

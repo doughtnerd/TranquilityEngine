@@ -2,7 +2,7 @@
 // World for its backdrop ships), never on the server: they're only for the eye. (Rain rings the water
 // in its own effect, effects/rain.particles.json: drops die where they meet the scene's depth, and
 // some deaths spawn a flat ring there.)
-// - Wakes are the water's own (ADR 0451): each ship carries a WaterWake, and the sea's shader draws
+// - Wakes are the water's own (ADR 0459): each ship carries a WaterWake, and the sea's shader draws
 //   its bow wave and stern wake as strongly as the ship is fast. This script only hides a ship's
 //   wake while this client can't see the ship (inside someone else's fog cloud) or it has sunk.
 // - Bow spray: two particle emitters at the stem (effects/bowspray.particles.json) throw water up and

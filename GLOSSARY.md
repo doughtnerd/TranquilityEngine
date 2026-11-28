@@ -154,6 +154,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Build session:** the Studio's one object per connected build (`studio/runtime/buildSession.ts`, ADR 0417): it owns the audio link client, the take recorder, the live take, the capture follow and the recording clock, and gives the screens one recording state and the take on show. _Avoid:_ an effect on `studioBuild` per feature.
 - **Take ownership:** the build's one answer to who starts, stops and saves its takes (`capture/takeOwnership.ts`, ADR 0417): start or stop for a tool, whether saving is handed off, and the backup policy.
 - **Take assembler:** what builds a `Take` from start facts, decoded take records and an optional end section by `readTakeMeta`'s rules, for file and live takes alike (`engine/audio/take/assembler.ts`, ADR 0417).
+- **Silence floor:** −60 dB (`SILENCE_DB`); an authored level at or below it plays at gain 0. Meter displays show −∞ instead. _Avoid:_ "min dB" for anything but the fader's range.
 
 ## Animation (ADR 0370–0376)
 
@@ -179,6 +180,8 @@ User-facing guide: [docs/wiki/guide/animation.md](docs/wiki/guide/animation.md).
 - **Fuel:** the instruction budget a third-party wasm graph node gets per evaluation (`animationNodes[].budget`); a node that exhausts it faults and passes its input pose through.
 - **Take:** in import, an animation stack of a model file that clip settings cut into clips. A recorded run of what the game asked of animation (`ANIM_*` records) is designed (ADR 0373) and not built.
 - **Debug link:** the versioned connection by which a running build is inspected from the editor (ADR 0376): topics, pulled subscriptions, commands applied at the next frame start.
+- **Binding path:** a track's or tween's target: a node path (child names joined by "/", first match per step, "" the root) relative to the Animator's or director's node, plus a field path (a field, an optional dotted sub-path, or "material.<name>" / "materials[N].<name>" on a MeshRenderer). Owned by engine/animation/bindingPath.ts (ADR 0452).
+- **Frame clock:** a clip's time-to-frame mapping (`anim_format::frames`, TS `compile/frames.ts`; ADR 0451): frame i sits at min(i / rate, duration), so a clip whose duration isn't a whole number of frames ends on a last frame placed at its duration.
 
 ## Tilemaps (ADR 0103)
 
@@ -210,6 +213,8 @@ User-facing guide: [docs/wiki/guide/animation.md](docs/wiki/guide/animation.md).
 - **Behaviour message:** a hook with an argument (`onCollisionEnter`, `onTriggerStay`, `onJointBreak`, `onControllerColliderHit`, the music hooks), sent by a plugin to the active GameBehaviors of some nodes through `World._sendMessage` (ADR 0303). The sender picks the nodes and the argument; the World delivers to each node once, with lifecycle hooks' edit-mode, error and async rules. _Avoid:_ looping over a node's components to call a hook.
 - **Device snapshot:** the Engine's one keyboard and pointer (`devices` in `input/devices.ts`, ADR 0310): device events in from an adapter (the DOM listener, `listenToDom`), one snapshot per Engine frame, then the **routing step**, where the UI core is handed the frame's `PointerFrame` and answers its `InputClaim` (pointer, keyboard); `Input`'s getters read what the game sees after it. _Avoid:_ injecting input around the adapter (test-only `simulate` members) or reaching into the snapshot from the UI.
 - **Project context:** the process globals a project registers while something runs it (`acquireProjectContext` in `core/projectContext.ts`, ADR 0319): asset sources, the storage backend, the mixer's buses and the graphics tiers, applied by one acquire and undone by its `release()`. An Engine holds one from create to dispose; `launchGame`, the editor's open project and the exporter hold one for their asset sources. Nested contexts: sources go with their owner, storage returns to the newest live context's, mixer and graphics stay. _Avoid:_ `Assets.addSource`/`Storage.use` by hand in hosts, `Assets.clearSources` to reset.
+- **Mapping part:** one control slot of a mapping, named for rebinds, profile overrides and prompts: `control`; `up`/`down`/`left`/`right`; `negative`/`positive`; a chord's `modifier0`… then `control` (the asset keeps a chord's modifiers in one `modifier` field). ADR 0458.
+- **Node key:** a node of the open scene named as its document path joined with "/" (`id`, or `instanceId/innerId…` inside a prefab instance); read only through `editor/nodeKey.ts` (ADR 0453).
 
 ## UI (ADR 0076, 0271)
 
@@ -239,6 +244,7 @@ User-facing guide: [docs/wiki/guide/animation.md](docs/wiki/guide/animation.md).
 - **Tick history:** values by tick for the newest ticks, kept by tick number whatever order they were written in (`TickHistory`, `net/tickHistory.ts`): a client's sent inputs, a predicted ghost's states.
 - **Predicted plan:** a ghost layout's predicted values in one order, layout order (`PredictedPlan`, ADR 0312), for picking them from a received state, reading and writing the node and comparing a prediction with the server's (rotations by angle). _Avoid:_ restating the order of predicted values outside the plan.
 - **Command (scene document):** one edit of a scene document (`src/editor/document/commands.ts`, ADR 0026, 0321): a label, an `apply` that edits the document in place and returns its `Change`s for the Editor World, and optional text file writes. It never undoes itself: `CommandStack.execute` runs it and the stack undoes, redoes and jumps by patch (ADR 0027). _Avoid:_ an `undo` method or undo bookkeeping on a command; calling `apply` outside a stack.
+- **Message catalogue:** the process's list of net message kinds and RPC types (`net/catalogue.ts`, ADR 0457); a connection's handshake lists and numbers what it holds when the connection starts.
 
 ## Browser tests (ADR 0023, 0330)
 

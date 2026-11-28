@@ -5,7 +5,7 @@ import { useContext } from "preact/hooks";
 import { Panel, usePanelValue } from "./panel/Panel";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { addAssets, whyNotAddAssets } from "../addAssets";
-import { fileName, folderOf } from "../assetBrowser";
+import { fileName, folderOf, parentFolder } from "../projectPath";
 import {
   assetCommandLabel,
   assetCreateItems,
@@ -26,6 +26,7 @@ import {
 import { entryKind, entryName, entryPath, fileEntries, folderEntry, isFolderEntry, isSliceEntry, splitSliceEntry } from "../assetEntry";
 import { canAddToScene, hasSlices, kindLabel, type AssetKind } from "../assetKindLookup";
 import { assetDrag, startAssetDrag } from "../assetDrag";
+import { isDragDistance, startPointerDrag, type ClientPoint } from "../pointerDrag";
 import { assetClipboard, renameAsset, splitExtension } from "../assetOps";
 import {
   arrowSelection,
@@ -36,7 +37,6 @@ import {
   AssetBrowserView,
   defaultAssetBrowser,
   lastAssetBrowser,
-  parentFolder,
   renamingAsset,
   selectedAssets,
   type Modifiers,
@@ -49,7 +49,6 @@ import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { currentProject, docVersion, openScene, sceneCamera, scriptsVersion, selection, status } from "../state";
 import { TileThumbnail } from "./AssetPreview";
-import { ownerWindowOf } from "../windows/dom";
 import { PanelMenu } from "./PanelMenu";
 import type { MenuEntry } from "../menuBar";
 import { RenameField } from "./RenameField";
@@ -414,44 +413,28 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
     if (e.button !== 0 || (e.target as HTMLElement).closest(".asset-item")) return;
     const el = list.current!;
     el.focus();
-    // The window the list is in: a detached Assets window (ADR 0174) gets its own pointer events.
-    const win = ownerWindowOf(el);
     const before = selectedAssets.value.filter((x) => entries.includes(x));
     const mods: Modifiers = { shift: e.shiftKey, toggle: toggleKey(e) };
     const x0 = e.clientX, y0 = e.clientY;
-    let moved = false;
-    const move = (m: PointerEvent) => {
-      if (!moved && Math.hypot(m.clientX - x0, m.clientY - y0) < 4) return;
-      moved = true;
-      const r = { left: Math.min(x0, m.clientX), right: Math.max(x0, m.clientX), top: Math.min(y0, m.clientY), bottom: Math.max(y0, m.clientY) };
-      box.value = { x0, y0, x1: m.clientX, y1: m.clientY };
-      const hits = [...el.querySelectorAll<HTMLElement>(".asset-item")]
-        .filter((item) => {
-          const b = item.getBoundingClientRect();
-          return b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
-        })
-        .map((item) => item.dataset.entry!);
-      previewAssets(boxSelection(before, hits, mods)); // the Inspector follows once the box is let go
-    };
-    const finish = (keep: boolean) => {
-      win.removeEventListener("pointermove", move);
-      win.removeEventListener("pointerup", up);
-      win.removeEventListener("keydown", key, true);
-      box.value = null;
-      if (!keep) previewAssets(before);
-      else if (!moved && !mods.shift && !mods.toggle) selectAssets([]);
-      else if (moved) selectAssets(selectedAssets.peek());
-    };
-    const up = () => finish(true);
-    const key = (k: KeyboardEvent) => {
-      if (k.key !== "Escape") return;
-      k.preventDefault();
-      k.stopPropagation();
-      finish(false);
-    };
-    win.addEventListener("pointermove", move);
-    win.addEventListener("pointerup", up);
-    win.addEventListener("keydown", key, true);
+    startPointerDrag(e, {
+      move: (m) => {
+        const r = { left: Math.min(x0, m.clientX), right: Math.max(x0, m.clientX), top: Math.min(y0, m.clientY), bottom: Math.max(y0, m.clientY) };
+        box.value = { x0, y0, x1: m.clientX, y1: m.clientY };
+        const hits = [...el.querySelectorAll<HTMLElement>(".asset-item")]
+          .filter((item) => {
+            const b = item.getBoundingClientRect();
+            return b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
+          })
+          .map((item) => item.dataset.entry!);
+        previewAssets(boxSelection(before, hits, mods)); // the Inspector follows once the box is let go
+      },
+      end: (how) => {
+        box.value = null;
+        if (how === "cancel") previewAssets(before);
+        else if (how === "drop") selectAssets(selectedAssets.peek());
+        else if (!mods.shift && !mods.toggle) selectAssets([]); // a click on empty space
+      },
+    });
   };
 
   const b = box.value;
@@ -522,7 +505,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
   const addable = !isFolderEntry(entry) && canAddToScene(entry);
   const whyNotAdd = addable ? whyNotAddAssets([entry]) : null;
   const canAdd = addable && whyNotAdd === null;
-  const press = useRef<{ x: number; y: number } | null>(null);
+  const press = useRef<ClientPoint | null>(null);
   const list = assetsView.mode.value === "list";
   const opens = whyNotAsset("open", { project, entries: [entry] }) === null;
   return (
@@ -535,7 +518,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
       title={`${path}${opens ? " (double-click to open)" : ""}${addable ? "; drag into the viewport or hierarchy to add" : ""}`}
       tabIndex={selected || (assetCursor.value === entry) ? 0 : -1}
       onPointerDown={(e) => {
-        press.current = { x: e.clientX, y: e.clientY };
+        press.current = { clientX: e.clientX, clientY: e.clientY };
         const sel = selectedAssets.value.filter((x) => entries.includes(x));
         if (e.button === 2) {
           if (!sel.includes(entry)) selectAssets([entry]);
@@ -549,7 +532,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
       }}
       onClick={(e) => {
         const start = press.current;
-        if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) >= 5) return; // a drag, not a click
+        if (start && isDragDistance(start, e)) return; // a drag, not a click
         const sel = selectedAssets.value.filter((x) => entries.includes(x));
         const mods = { shift: e.shiftKey, toggle: toggleKey(e) };
         const next = clickSelection(entries, sel, assetAnchor.value, entry, mods);

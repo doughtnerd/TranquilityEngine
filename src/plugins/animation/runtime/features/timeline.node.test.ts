@@ -29,6 +29,8 @@ const ASSETS: Record<string, unknown> = {
     { kind: "vec3", target: { nodePath: "B", component: "engine.Transform", field: "position" }, curves: [[[0, 0], [2, 4]], [[0, 1]], [[0, 0]]] },
   ]),
   "tl/ramp.timeline.json": timeline(1, [light("A", [[0, 0], [1, 1]])]),
+  // 1.01 s isn't a whole number of 30 Hz frames: its last frame sits at 1.01 s, a third of a frame after 1.0 s.
+  "tl/tail.timeline.json": timeline(1.01, [light("A", [[0, 0], [1.01, 1.01]])]),
   // Two entries on one subclip track, overlapping from 1 to 2 s: the first blends out, the second in.
   "tl/one.timeline.json": timeline(2, [light("A", [[0, 1]])]),
   "tl/three.timeline.json": timeline(2, [light("A", [[0, 3]])]),
@@ -113,6 +115,18 @@ describe("TimelineDirector", () => {
     expect(dir.playhead).toBe(1);
     steps(2);
     expect(a.intensity).toBeCloseTo(1, TOL);
+  });
+
+  it("ends on the last key when the duration isn't a whole number of frames (ADR 0451)", async () => {
+    const { dir, a } = await rig("tl/tail.timeline.json", { playOnStart: false });
+    dir.playhead = 1.005; // halfway between the frames at 1.0 s and 1.01 s
+    steps(1);
+    expect(a.intensity).toBeCloseTo(1.005, TOL);
+    const played = dir.play();
+    steps(1);
+    await expect(played).resolves.toEqual({ reason: "finished" });
+    expect(dir.playhead).toBeCloseTo(1.01, 6);
+    expect(a.intensity).toBeCloseTo(1.01, TOL);
   });
 
   it("loops with wrapMode loop", async () => {

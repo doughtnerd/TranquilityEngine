@@ -3,6 +3,8 @@ import { Engine, GameObject, Input } from "../engine";
 import { deleteSelected } from "./deleteSelection";
 import { AddNode } from "./document";
 import { deleteNodes } from "./hierarchyEdit";
+import { innerAt, liveKeys } from "./nodeKey";
+import { writeRemoveNode } from "./overrideWriter";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
@@ -171,6 +173,22 @@ describe("with the demo scene open", () => {
     expect(deleteNodes(scene, ["bird", "ceiling"]).map((r) => `${r.path[0]}.${r.field}`)).toContain("game.bird");
     scene.stack.undo();
     expect(scene.doc.fieldValue("game", "game.GameManager", "bird")).toEqual({ $node: "bird" });
+  });
+
+  it("leaves selected inner nodes alone once they're gone from the instance", async () => {
+    const scene = openScene.value!;
+    select(["pipe/top"]);
+    scene.stack.execute(writeRemoveNode(scene.doc, ["pipe", "top"])); // removed another way (an undo, a prefab edit): the key stays selected
+    const before = structuredClone(scene.doc.overrides("pipe"));
+    expect(await deleteSelected()).toBe(false);
+    expect(scene.doc.overrides("pipe")).toEqual(before); // no second removeNode for a node that isn't there
+  });
+
+  it("tells live keys from stale ones, inner nodes included", () => {
+    const { doc } = openScene.value!;
+    expect(liveKeys(doc, ["bird", "nope", "pipe", "pipe/top", "pipe/nope", "bird/top"])).toEqual(["bird", "pipe", "pipe/top"]);
+    expect(innerAt(doc, "pipe/top")).toMatchObject({ node: { name: "Top" }, ancestors: [], parent: "pipe" });
+    expect(innerAt(doc, "pipe")).toBeNull();
   });
 
   it("refuses to delete when a selected node is inside a prefab instance", async () => {

@@ -1,5 +1,5 @@
 /**
- * The wakes of a World (ADR 0451): each `WaterWake`'s measured speed and trail, the simulated height
+ * The wakes of a World (ADR 0459): each `WaterWake`'s measured speed and trail, the simulated height
  * field, and the texels the water's renderer uploads for its shader. Renderer-neutral: the water's
  * render feature calls `updateWakes` once a frame with the point the camera looks at, and binds what
  * it returns. Only Worlds that draw water ever call it, so servers keep no wake state.

@@ -15,6 +15,11 @@
  * `f32` fields are delta-encoded: the varint carries the difference from the baseline (wrapping
  * at 32 bits for `i32`), which is small for the usual small per-tick changes. Full-precision `f32`
  * and `u8` fields are sent whole: their difference isn't smaller in bits.
+ *
+ * The codec is the one owner of how a field type travels (ADR 0457): callers that need a value as
+ * the receiver will see it (`coerce`), whether two values encode the same (`sameAt`), or a schema's
+ * on-wire description for the handshake (`signature`, `schemaSignature`) ask it instead of
+ * repeating the rules.
  */
 import type { Schema } from "../core/data";
 import { BitReaderImpl, BitWriterImpl } from "./bits";
@@ -62,6 +67,42 @@ export interface RecordCodec<S extends Schema = Schema> {
   write(writer: BitWriter, values: Readonly<Record<keyof S, number>>, baseline?: Readonly<Record<keyof S, number>>): void;
   /** Read what `write` wrote, given the same baseline. */
   read(reader: BitReader, baseline?: Readonly<Record<keyof S, number>>): Record<keyof S, number>;
+  /**
+   * The schema and its encoding as the handshake compares them (`schemaSignature`): `x:f32~0.01,jump:u8`.
+   * Equal signatures, compatible codecs.
+   */
+  readonly signature: string;
+  /** Field `i`'s quantize step, or 0 for none. */
+  quantizeAt(i: number): number;
+  /** `values` as the receiver reads them: each field coerced as `coerceAt` does. */
+  coerce(values: Readonly<Record<keyof S, number>>): Record<keyof S, number>;
+  /**
+   * Field `i`'s value as it travels and the receiver reads it: `Math.fround` (and rounded to the step
+   * when quantized), `| 0` or `& 0xff`. Throws, as `write` would, if a quantized value's step count
+   * is out of range.
+   */
+  coerceAt(i: number, value: number): number;
+  /**
+   * Whether two values of field `i` encode the same: a delta write sends no change for it. Quantized
+   * fields compare step counts (and throw, as `write` would, when out of range).
+   */
+  sameAt(i: number, a: number, b: number): boolean;
+}
+
+/** How one field travels, as the handshake names it: `f32`, `f32~0.01` (quantized), `i32`, `u8`, or `str` (an RPC's string field). */
+export function fieldSignature(kind: string, quantize = 0): string {
+  return quantize ? `${kind}~${quantize}` : kind;
+}
+
+/**
+ * A schema's fields and how each travels, in schema order: `name:kind[~step]`, comma-separated
+ * (`x:f32~0.01,y:i32,name:str`). RPC and input descriptors in the handshake are built from it, so
+ * its format is part of the wire: change it only with `NET_PROTOCOL_VERSION`.
+ */
+export function schemaSignature(schema: Readonly<Record<string, { readonly kind: string }>>, encoding: Readonly<Record<string, FieldEncoding | undefined>> = {}): string {
+  return Object.keys(schema)
+    .map((f) => `${f}:${fieldSignature(schema[f].kind, encoding[f]?.quantize)}`)
+    .join(",");
 }
 
 export function createBitWriter(): BitWriter {
@@ -157,23 +198,33 @@ export function recordCodec<S extends Schema>(schema: S, encoding: Partial<Recor
     }
   }
 
-  /** An unchanged field reads as the baseline, coerced as if it had been sent. */
-  function unchangedValue(i: number, base: number): number {
+  /** An unchanged field reads as the baseline, coerced as if it had been sent (`coerceAt`). */
+  function coerceAt(i: number, v: number): number {
     switch (kinds[i]) {
       case F32:
-        return Math.fround(base);
+        return Math.fround(v);
       case F32Q:
-        return Math.fround(stepCount(i, base) * steps[i]);
+        return Math.fround(stepCount(i, v) * steps[i]);
       case I32:
-        return base | 0;
+        return v | 0;
       default:
-        return base & 0xff;
+        return v & 0xff;
     }
   }
 
   return {
     schema,
     fields,
+    signature: schemaSignature(schema, encoding as Record<string, FieldEncoding | undefined>),
+    quantizeAt: (i) => steps[i],
+    coerceAt,
+    sameAt: same,
+    coerce(values) {
+      const v = values as Record<string, number>;
+      const out: Record<string, number> = {};
+      for (let i = 0; i < count; i++) out[fields[i]] = coerceAt(i, v[fields[i]]);
+      return out as Record<keyof S, number>;
+    },
     write(writer, values, baseline) {
       const v = values as Record<string, number>;
       if (!baseline) {
@@ -200,7 +251,7 @@ export function recordCodec<S extends Schema>(schema: S, encoding: Partial<Recor
       for (let i = 0; i < count; i++) changed[i] = reader.readBits(1);
       for (let i = 0; i < count; i++) {
         const name = fields[i];
-        out[name] = changed[i] ? readField(reader, i, b[name]) : unchangedValue(i, b[name]);
+        out[name] = changed[i] ? readField(reader, i, b[name]) : coerceAt(i, b[name]);
       }
       return out as Record<keyof S, number>;
     },

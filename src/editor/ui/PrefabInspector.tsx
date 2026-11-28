@@ -1,6 +1,6 @@
 // A prefab in the Inspector (ADR 0061): the core `prefab` kind's `inspector` (ADR 0143). No settings
 // to edit here, just a look at it.
-import { fileName } from "../assetBrowser";
+import { fileName } from "../projectPath";
 import { LargePreview } from "./AssetPreview";
 import "./assetInspector.css";
 

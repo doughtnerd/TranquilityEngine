@@ -4,6 +4,7 @@
 // the evaluator's own (`inputContextProblems` in the editor SDK), so the editor says what Play would log.
 import type { InputContextSpec, MappingSpec, ModifierSpec, TriggerSpec, TriggerType } from "../engine/input/contextTypes";
 import type { ActionKind } from "../engine/input/actions";
+import { MAPPING_FIELDS, controlPaths, shapeFields, type MappingShape } from "../engine/input/mappingShape";
 import { inputControlInfo, inputControlPaths, type InputActionSetInfo } from "../engine/editor";
 import type { AssetFormat, AssetProblem } from "./sdk/contributions";
 
@@ -39,17 +40,15 @@ export const inputContextFormat: AssetFormat<InputContextSpec> = {
 
 // --- composites ----------------------------------------------------------------------------------
 
-export type CompositeKind = "single" | "dpad" | "axis" | "modifier";
+export type CompositeKind = MappingShape;
 
-/** Each composite's label and the parts it reads, in the order the form shows them. */
+/** Each composite's label and the asset fields it reads (a chord's modifiers are one `modifier` field), in the order the form shows them. */
 export const COMPOSITES: Record<CompositeKind, { readonly label: string; readonly parts: readonly string[] }> = {
-  single: { label: "Single control", parts: ["control"] },
-  dpad: { label: "D-pad (four buttons to a vec2)", parts: ["up", "down", "left", "right"] },
-  axis: { label: "Axis (two buttons to an axis)", parts: ["negative", "positive"] },
-  modifier: { label: "Chord (held modifier + control)", parts: ["modifier", "control"] },
+  single: { label: "Single control", parts: shapeFields("single") },
+  dpad: { label: "D-pad (four buttons to a vec2)", parts: shapeFields("dpad") },
+  axis: { label: "Axis (two buttons to an axis)", parts: shapeFields("axis") },
+  modifier: { label: "Chord (held modifier + control)", parts: shapeFields("modifier") },
 };
-
-const PART_FIELDS = ["control", "up", "down", "left", "right", "negative", "positive", "modifier"] as const;
 
 export const compositeOf = (m: MappingSpec): CompositeKind => m.composite ?? "single";
 
@@ -57,7 +56,7 @@ export const compositeOf = (m: MappingSpec): CompositeKind => m.composite ?? "si
 export function setComposite(m: MappingSpec, kind: CompositeKind): MappingSpec {
   if (kind === compositeOf(m)) return m;
   const out: Record<string, unknown> = { ...m };
-  for (const f of PART_FIELDS) delete out[f];
+  for (const f of MAPPING_FIELDS) delete out[f];
   delete out.composite;
   if (kind !== "single") out.composite = kind;
   for (const part of COMPOSITES[kind].parts) out[part] = part === "control" ? (m.control ?? "") : "";
@@ -444,10 +443,8 @@ export function mapMappingRefs(m: MappingSpec, rename: (ref: string) => string):
 
 // --- controls and action types (ADR 0433) --------------------------------------------------------
 
-/** A mapping's control paths, in its composite's part order, without the empty ones. */
-export function mappingControls(m: MappingSpec): string[] {
-  return COMPOSITES[compositeOf(m)].parts.map((p) => partValue(m, p)).filter(Boolean);
-}
+/** A mapping's control paths, in its composite's part order (each of a chord's modifiers on its own), without the empty ones. */
+export const mappingControls = (m: MappingSpec): string[] => controlPaths(m);
 
 /** The type an action made for a control should have: a stick or delta is a vec2, gyro a vec3, a stick's X an axis, anything else a button. */
 export function typeForControl(path: string): ActionKind {
@@ -511,7 +508,7 @@ export function convertMapping(m: MappingSpec, from: ActionKind, to: ActionKind)
   const composite = compositeOf(m);
   const without = (mapping: MappingSpec): Record<string, unknown> => {
     const out: Record<string, unknown> = { ...mapping };
-    for (const f of PART_FIELDS) delete out[f];
+    for (const f of MAPPING_FIELDS) delete out[f];
     delete out.composite;
     return out;
   };

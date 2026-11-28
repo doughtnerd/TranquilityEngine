@@ -76,7 +76,8 @@ import type { FadeShape } from "../../../../engine/audio/playlist/types";
 import { linkedPlaylist, loadPlaylist } from "./loader";
 import type { MusicalBoundary, MusicalPosition, MusicalSource } from "./musical";
 import { notePick, resolveBody } from "./nodes";
-import { meterOf, sampleFacts, tempoGrid, type FactMarker, type SampleFacts } from "./sampleFacts";
+import { meterParts } from "../../../../engine/audio/meter";
+import { sampleFacts, tempoGrid, type FactMarker, type SampleFacts } from "./sampleFacts";
 import { Playhead, type PlayheadLoop, type PlayheadMove } from "./sequencePlayhead";
 import { positionOn } from "./voiceMusical";
 
@@ -221,10 +222,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     const s = body.sequence ?? { length: 0, tempo: null, tracks: [], loops: [], markers: [] };
     this.settings = s;
     this.body = body;
-    if (s.tempo) {
-      const [bpb, unit] = meterOf(s.tempo.meter);
-      this.grid = tempoGrid({ bpm: s.tempo.bpm, meter: `${bpb}/${unit}` }, undefined, this.ctx.where);
-    } else this.grid = null;
+    this.grid = s.tempo ? tempoGrid({ bpm: s.tempo.bpm, meter: s.tempo.meter }, undefined, this.ctx.where) : null;
     const anySolo = s.tracks.some((t) => t.solo && t.enabled);
     this.clips = [];
     let index = 0; // every clip in file order, track by track (the capture's pick choice)
@@ -853,8 +851,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     const s = body.sequence;
     let sameTempo = !oldGrid && !s?.tempo;
     if (oldGrid && s?.tempo) {
-      const [bpb, unit] = meterOf(s.tempo.meter);
-      sameTempo = sameTempoMap(oldGrid, compileTempoMap([{ at: "1:1:0", bpm: s.tempo.bpm, beatsPerBar: bpb, beatUnit: unit }], 0));
+      sameTempo = sameTempoMap(oldGrid, compileTempoMap([{ at: "1:1:0", bpm: s.tempo.bpm, ...meterParts(s.tempo.meter) }], 0));
     }
     this.endAt = Number.NaN;
     // The same sequence time when the tempo is unchanged (and the time is inside the new version), else its start.

@@ -175,8 +175,8 @@ export const Obstacle = defineComponent("pirates.Obstacle", { radius: f32 });
 export type ObstacleView = DataView<typeof Obstacle.schema>;
 
 /**
- * Each client's per-tick helm: the point on the water the mouse is over (`steer` 0 when the mouse
- * isn't over the game), the chosen battery, and the fire button.
+ * Each client's per-tick helm: the point on the water the mouse is over (`steer` 0 when it points
+ * off the sea or the leave dialog is open), the chosen battery, and the fire button.
  */
 export const Helm = defineInput("pirates.Helm", { x: f32, z: f32, steer: u8, battery: u8, fire: u8, drop: u8 });
 

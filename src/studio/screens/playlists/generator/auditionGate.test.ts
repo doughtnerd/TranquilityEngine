@@ -1,7 +1,7 @@
 // The audition gate (ADR 0360 §9) through its interface: a held source starts one voice and keys it off when let go,
 // auto-repeat starts nothing, several keys play several notes, and the DAW key layout.
 import { describe, expect, it } from "vitest";
-import { EMPTY_GATE, gateOpen, gatePress, gateRelease, gateReleaseAll, keyPitchText, keySource, noteOfKey, octaveKeys, pitchRatio } from "./auditionGate";
+import { EMPTY_GATE, gateOpen, gatePress, gateRelease, gateReleaseAll, keyPitchText, keySource, noteOfKey, octaveKeys } from "./auditionGate";
 
 describe("the audition gate", () => {
   it("starts on press and releases on let go", () => {
@@ -39,7 +39,7 @@ describe("the audition gate", () => {
     const keys = octaveKeys();
     expect(keys).toHaveLength(13);
     expect(keys.filter((k) => k.black).map((k) => k.key)).toEqual(["W", "E", "T", "Y", "U"]);
-    expect(pitchRatio(12)).toBe(2);
+    expect(gatePress(EMPTY_GATE, "note:12", 12).commands[0]).toMatchObject({ kind: "start", pitch: 2 });
     expect(keyPitchText(12, 440)).toBe("+12 st · 880 Hz");
     expect(keyPitchText(0, null)).toBe("root");
   });

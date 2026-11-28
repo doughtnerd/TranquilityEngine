@@ -3,6 +3,7 @@
 // `browser`/`module`/`main` fields, extension and index probing, nested node_modules, and a package's
 // own subpath imports (`#internal`, its `imports` map). No file access of its own: callers give a
 // `PackageFiles`. The game UI bundle (ADR 0425) resolves Svelte's runtime through it too.
+import { folderOf } from "./projectPath";
 import { imports as resolveImports, resolve as resolveExports } from "resolve.exports";
 
 /** Read access to the project folder, by project-relative "/"-separated path; null when there's no such file. */
@@ -22,7 +23,6 @@ const NODE_BUILTINS = new Set(
 );
 export const isNodeBuiltin = (specifier: string) => specifier.startsWith("node:") || NODE_BUILTINS.has(specifier.split("/")[0]);
 
-export const dirname = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 /** `path` with `.` and `..` segments folded. */
 function normalize(path: string): string {
@@ -80,7 +80,7 @@ export class PackageResolver {
 
   /** The folder of package `name` seen from `fromDir`: the nearest `node_modules/<name>` walking up. */
   async packageDir(name: string, fromDir: string): Promise<string | null> {
-    for (let dir = fromDir; ; dir = dirname(dir)) {
+    for (let dir = fromDir; ; dir = folderOf(dir)) {
       if (!dir.endsWith("/node_modules") && dir !== "node_modules") {
         const candidate = join(dir, `node_modules/${name}`);
         if (await this.read(`${candidate}/package.json`)) return candidate;
@@ -137,7 +137,7 @@ export class PackageResolver {
 
   /** Resolve `specifier` imported from `importer` (a project path; "" for the project itself). */
   async resolve(specifier: string, importer: string): Promise<Resolved> {
-    const fromDir = dirname(importer);
+    const fromDir = folderOf(importer);
     const owner = importer ? this.owningPackage(importer) : null;
     if (specifier.startsWith("./") || specifier.startsWith("../") || specifier.startsWith("/")) {
       let target = specifier.startsWith("/") ? normalize(specifier) : join(fromDir, specifier);

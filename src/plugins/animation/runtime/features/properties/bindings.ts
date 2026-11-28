@@ -9,7 +9,7 @@
 //   runs; a plain object's sub-path (`drive.targetRotation`, D91 stores `{x, y, z, w}`) is written in place and the
 //   field assigned back. A field already holding the value isn't written, so setters with side effects (a collider
 //   rebuild) don't run every frame. Data components write their typed-array column directly. `engine.Transform`'s
-//   `position`, `rotation` and `scale` go through the Transform. `material.<name>` on a MeshRenderer is a per-renderer
+//   `position`, `rotation` and `scale` go through the Transform. `material.<name>` on a MeshRenderer (field paths are read by `engine/animation/bindingPath.ts`, ADR 0452) is a per-renderer
 //   material property override (`setMaterialProperty`: Unity's animated material properties through its property
 //   blocks), so animating it never changes the shared material asset. `materials[1].<name>` (the form model imports
 //   emit, T14) is the same override for material slot 1 only (`setMaterialProperty(name, value, 1)`; T24's render
@@ -21,6 +21,7 @@
 //   count; child count where a child was missing) and every data component it read or missed. `valid` compares them
 //   each frame (integer and reference compares, no lookups); any change (a component added or removed, a node renamed,
 //   moved or destroyed) rebuilds the table.
+import { parseFieldPath, resolveNodePath } from "../../../../../engine/animation/bindingPath";
 import type { Component } from "../../../../../engine/core/Component";
 import { getDataComponentDef, type DataComponentDef, type DataStore } from "../../../../../engine/core/data";
 import { Color, Quaternion, Vector2, Vector3 } from "../../../../../engine/core/math";
@@ -122,19 +123,8 @@ class Resolution {
 
 /** The node at `path` below `root` ("" is `root`), watching each node on the way; null (children watched) when missing. */
 function resolveNode(r: Resolution, root: GameObject, path: string): GameObject | null {
-  let node = root;
-  r.watch(node);
-  for (const part of path.split("/")) {
-    if (!part) continue;
-    const next = node.children.find((c) => c.name === part);
-    if (!next) {
-      r.watchChildren(node);
-      return null;
-    }
-    node = next;
-    r.watch(node);
-  }
-  return node;
+  r.watch(root);
+  return resolveNodePath(root, path, (parent, _part, child) => (child ? r.watch(child) : r.watchChildren(parent)));
 }
 
 /** The first component of `type` on `node` or its component nodes (ADR 0009), watching where it was looked for. */
@@ -201,17 +191,15 @@ function resolveTrack(r: Resolution, root: GameObject, track: ClipTrack, kind: n
 
 /** The write for `field` (a path) of the component `c` of class `type`, or why it can't bind. */
 function componentWrite(world: World, c: Component, type: ComponentClass<Component>, field: string, kind: number, width: number, subtype: number, strings: ClipTracks): Write | string {
-  if (c instanceof MeshRenderer && field.startsWith("material.")) return materialWrite(c, field.slice(9), kind, subtype, strings);
-  const slotted = c instanceof MeshRenderer ? SLOT_PROPERTY.exec(field) : null;
-  if (slotted) return materialWrite(c as MeshRenderer, slotted[2]!, kind, subtype, strings, Number(slotted[1]));
+  const path = parseFieldPath(field);
+  if (c instanceof MeshRenderer && path.material) return materialWrite(c, path.material.name, kind, subtype, strings, path.material.slot);
   if (!isFieldAnimatable(type, field)) return "not an animatable field";
-  const dot = field.indexOf(".");
-  const head = dot < 0 ? field : field.slice(0, dot);
+  const head = path.head;
   const fields = getFields(type);
   let info: FieldInfo | undefined;
   for (let i = fields.length - 1; i >= 0 && !info; i--) if (fields[i]!.name === head) info = fields[i];
   if (!info) return "not an animatable field";
-  if (dot >= 0) return info.type === PlainObject ? subPathWrite(c, head, field.slice(dot + 1).split("."), kind, subtype, strings) : "not an animatable field";
+  if (path.sub.length) return info.type === PlainObject ? subPathWrite(c, head, path.sub, kind, subtype, strings) : "not an animatable field";
   return fieldWrite(world, c, info, kind, width, subtype, strings);
 }
 
@@ -425,9 +413,6 @@ function transformWrite(node: GameObject, field: string, kind: number): Write | 
   };
   return field === "position" || field === "rotation" || field === "scale" ? mismatch(kind, `Transform.${field}`) : "not an animatable field";
 }
-
-/** `materials[1].roughness`: one material slot's property (T14's pointer tracks, ADR 0371): group 1 the slot, group 2 the property. */
-const SLOT_PROPERTY = /^materials\[(\d+)\]\.(.+)$/;
 
 /**
  * A MeshRenderer's material property override (`material.color` → `setMaterialProperty("color", …)`), or with a `slot`

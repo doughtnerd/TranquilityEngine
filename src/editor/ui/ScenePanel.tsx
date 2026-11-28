@@ -1,3 +1,4 @@
+import { sceneDisplayName } from "../projectPath";
 import { backFromPrefab, prefabOrigin } from "../prefabTabs";
 import { Panel } from "./panel/Panel";
 import { effect } from "@preact/signals";
@@ -35,7 +36,7 @@ function PrefabBar() {
   const from = prefabOrigin();
   const scene = openScene.value;
   if (!from || !scene) return null;
-  const name = from.split("/").pop()!.replace(/\.(scene|prefab)\.json$/i, "");
+  const name = sceneDisplayName(from);
   return (
     <div class="prefab-bar" role="status">
       <button class="prefab-back" onClick={() => void backFromPrefab()} title={`Back to ${from}`}>

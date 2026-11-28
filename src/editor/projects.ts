@@ -4,6 +4,7 @@
 //
 // A project's own scripts (`scripts/**/*.ts`, ADR 0030) are read here and loaded by the session
 // (scriptLoader.ts). No game code is compiled into the editor.
+import { folderOf } from "./projectPath";
 import { Assets, type AssetSource, type ProjectSettingsInput } from "../engine";
 import { acquireProjectContext, type ProjectContext } from "../engine/core/projectContext";
 import type { FileSystem } from "../engine/platform/FileSystem";
@@ -133,7 +134,6 @@ const MIME: Record<string, string> = {
   woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf",
 };
 
-export const isScenePath = (path: string) => /\.(scene|prefab)\.json$/.test(path);
 
 /** An object URL serving a binary asset's bytes. */
 const blobUrl = (path: string, bytes: Uint8Array) =>
@@ -252,7 +252,7 @@ class MapProject implements EditorProject {
 
   async writeBinary(path: string, bytes: Uint8Array): Promise<void> {
     const { fs, root } = this.disk();
-    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    const folder = folderOf(path);
     if (folder && !(await fs.exists(joinPath(root, folder)))) await fs.mkdir(joinPath(root, folder));
     await fs.writeBinary(joinPath(root, path), bytes);
     const old = this.values.get(path);

@@ -1,3 +1,4 @@
+import { sceneDisplayName } from "../projectPath";
 import { createContext } from "preact";
 import { useContext } from "preact/hooks";
 import { computed, signal, type Signal } from "@preact/signals";
@@ -9,7 +10,7 @@ import { assetDrag } from "../assetDrag";
 import { filterHierarchy } from "../hierarchyFilter";
 import { nodeDrag, startNodeDrag } from "../nodeDrag";
 import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisibility";
-import { instanceInnerNodes, type InnerNode } from "../prefabs";
+import { instanceInnerNodes, isInnerKey, parseKey, type InnerNode } from "../nodeKey";
 import { openPrefabFrom } from "../prefabTabs";
 import { ancestorKeys, combineSelection, rangeBetween } from "../selectionModel";
 import { inspectorTarget, select, selectBone, selectUIElement, showSceneSettings } from "../inspectorTarget";
@@ -73,7 +74,7 @@ function setMember(set: Signal<ReadonlySet<string>>, key: string, member: boolea
 
 /** True if a selected node is strictly inside the node at `key` (so its ancestors open up). */
 const selectionInside = (key: string) =>
-  selectedKeys.value.some((k) => k.startsWith(`${key}/`) || (k.includes("/") && !!openScene.value && ancestorKeys(openScene.value.doc, k).includes(key))) || uiSelectionUnder(key) || boneSelectionUnder(key);
+  selectedKeys.value.some((k) => k.startsWith(`${key}/`) || (isInnerKey(k) && !!openScene.value && ancestorKeys(openScene.value.doc, k).includes(key))) || uiSelectionUnder(key) || boneSelectionUnder(key);
 
 /** True if the selected bone (ADR 0373) is on the node at `key` or below it. */
 function boneSelectionUnder(key: string): boolean {
@@ -226,7 +227,7 @@ function sceneNodeRow(view: HierarchyView, scene: OpenScene, id: string): TreeRo
       expandable: inner.length > 0 || ui.length > 0,
       open: view.expanded.value.has(id) || selectionInside(id) || (!!view.filter.value && inner.some((n) => view.shown(pathKey(n.path)))),
       openSet: view.expanded,
-      badge: { text: prefabName(node.prefab), title: `${node.prefab}${overrides ? ` · ${overrides} override${overrides === 1 ? "" : "s"}` : ""}`, modified: overrides > 0 },
+      badge: { text: sceneDisplayName(node.prefab), title: `${node.prefab}${overrides ? ` · ${overrides} override${overrides === 1 ? "" : "s"}` : ""}`, modified: overrides > 0 },
       children: () => [...inner.flatMap((n) => innerNodeRow(view, scene, n) ?? []), ...uiElementRows(view, ui)],
     });
   }
@@ -257,7 +258,7 @@ function innerNodeRow(view: HierarchyView, scene: OpenScene, node: InnerNode): T
     expandable: node.children.length > 0 || ui.length > 0 || bones.length > 0,
     open: (node.prefab ? view.expanded.value.has(key) : !view.collapsed.value.has(key)) || selectionInside(key) || (!!view.filter.value && node.children.some((c) => view.shown(pathKey(c.path)))),
     ...(node.prefab ? { openSet: view.expanded } : { collapseSet: view.collapsed }),
-    badge: node.prefab ? { text: prefabName(node.prefab), title: node.prefab, modified: false } : undefined,
+    badge: node.prefab ? { text: sceneDisplayName(node.prefab), title: node.prefab, modified: false } : undefined,
     children: () => [...bones, ...node.children.flatMap((c) => innerNodeRow(view, scene, c) ?? []), ...uiElementRows(view, ui)],
   });
 }
@@ -271,7 +272,7 @@ const BONE_ROW = "bone:";
  */
 function boneRows(view: HierarchyView, scene: OpenScene, key: string): TreeRow[] {
   if (view.filter.value) return [];
-  const path = key.split("/");
+  const path = parseKey(key);
   return skeletonBones.list().flatMap((c) => c.bones(scene, path).map((b) => boneRow(view, scene, c, path, `${BONE_ROW}${c.id}:${key}`, b)));
 }
 
@@ -348,7 +349,7 @@ function nodeRow(view: HierarchyView, scene: OpenScene, spec: NodeRowSpec): Tree
             title={`${badge.title} · double-click to open the prefab`}
             onDblClick={(e) => {
               e.stopPropagation();
-              void openPrefabFrom(key.split("/"));
+              void openPrefabFrom(parseKey(key));
             }}
           >
             {badge.text}
@@ -376,7 +377,7 @@ function nodeRow(view: HierarchyView, scene: OpenScene, spec: NodeRowSpec): Tree
           value: name,
           label: "Node name",
           commit: (value) => {
-            if (value.trim() !== "" && openScene.peek() === scene) renameNode(scene, key.split("/"), value);
+            if (value.trim() !== "" && openScene.peek() === scene) renameNode(scene, parseKey(key), value);
           },
         },
     remove: () => void deleteSelected(),
@@ -462,7 +463,6 @@ function UIElementDragGhost() {
   );
 }
 
-const prefabName = (path: string) => path.split("/").pop()!.replace(/\.(prefab|scene)\.json$/, "");
 
 /** How a dragged asset would land relative to the row `key` (null: the scene itself), if it's the target. */
 function dropMode(key: string | null): "into" | "before" | "after" | "root" | null {

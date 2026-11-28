@@ -72,10 +72,10 @@ export function startUIViewElementDrag(e: PointerEvent, ref: UIViewRef, key: str
       }
       uiElementDrag.value = { key, label, x: m.clientX, y: m.clientY, ...drop };
     },
-    end: (apply) => {
+    end: (how) => {
       const state = uiElementDrag.value;
       uiElementDrag.value = null;
-      if (apply && state?.target) moveUIViewElement(ref, state.target.parent as UIViewRef | UIViewAt, state.target.index);
+      if (how === "drop" && state?.target) moveUIViewElement(ref, state.target.parent as UIViewRef | UIViewAt, state.target.index);
     },
   });
 }

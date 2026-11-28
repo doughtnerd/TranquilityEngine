@@ -50,10 +50,14 @@ export function heldHelm(helm: HelmInput, dialogOpen: boolean): HelmInput {
   return dialogOpen ? { ...helm, steer: 0, fire: 0, drop: 0 } : helm;
 }
 
-/** Where the mouse points on the water, or null when it's over the UI or off the sea. */
+/**
+ * Where the mouse points on the water, or null when it's off the sea. The HUD doesn't block it:
+ * steering is by pointing, so the ship keeps turning while the mouse is over a HUD panel or button
+ * (clicks there still go to the UI, not `fire`). The leave dialog holds the course (`heldHelm`).
+ */
 function mouseAim(): { x: number; z: number } | null {
   const camera = Camera.main;
-  if (!camera || Input.pointerOverUI) return null;
+  if (!camera) return null;
   const ray = camera.screenPointToRay(Input.mousePosition);
   const t = WATER_PLANE.raycast(ray);
   if (t === null) return null;

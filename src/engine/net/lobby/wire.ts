@@ -2,12 +2,12 @@
  * The lobby's message kinds (ADR 0068): registered with the network session at module level, so
  * every engine build that has lobbies defines them and handshakes agree. See `protocol.ts`.
  */
-import { registerNetMessage } from "../session";
+import { defineMessage } from "../catalogue";
 
 /** Lobby client World to lobby server World. */
-export const LOBBY_C2S = registerNetMessage("lobby.c2s");
+export const LOBBY_C2S = defineMessage("lobby.c2s");
 /** Lobby server World to lobby client World. */
-export const LOBBY_S2C = registerNetMessage("lobby.s2c");
+export const LOBBY_S2C = defineMessage("lobby.s2c");
 
 /** A random string of `bytes` bytes, as hex. */
 export function randomHex(bytes: number): string {

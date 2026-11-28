@@ -13,12 +13,12 @@
  */
 import { World } from "../core/World";
 import type { Schema } from "../core/data";
-import { _isReplacingRegistrations } from "../core/registry";
-import { createBitReader, createBitWriter, recordCodec } from "./codec";
+import { _isReplacingRegistrations, _recordRegistration } from "../core/registry";
+import { checkMessageId, defineRpcEntry, forgetRpc, hasRpc } from "./catalogue";
+import { createBitReader, createBitWriter, recordCodec, schemaSignature } from "./codec";
 import { MAX_STR_BYTES, type RpcDef, type RpcRow, type RpcSchema, type RpcTarget } from "./messages";
-import { netSession, registerRpc } from "./session";
+import { netSession } from "./session";
 
-const defined = new Set<string>();
 const encoder = new TextEncoder();
 
 /**
@@ -32,8 +32,8 @@ const encoder = new TextEncoder();
  * ```
  */
 export function defineRpc<S extends RpcSchema>(id: string, schema: S): RpcDef<S> {
-  if (typeof id !== "string" || id.trim() === "" || /[()]/.test(id)) throw new Error(`defineRpc: the id must be a non-empty string without parentheses (got ${JSON.stringify(id)}).`);
-  if (defined.has(id) && !_isReplacingRegistrations()) throw new Error(`RPC "${id}" is already defined.`);
+  checkMessageId("defineRpc", id);
+  if (hasRpc(id) && !_isReplacingRegistrations()) throw new Error(`RPC "${id}" is already defined.`);
   if ("connection" in schema) throw new Error(`defineRpc("${id}"): a field can't be named "connection"; received rows use it for the connection node.`);
   const all = Object.keys(schema);
   const strings = all.filter((f) => schema[f].kind === "str");
@@ -41,8 +41,7 @@ export function defineRpc<S extends RpcSchema>(id: string, schema: S): RpcDef<S>
   for (const f of all) if (schema[f].kind !== "str") numeric[f] = schema[f] as Schema[string];
   const codec = recordCodec(numeric);
   const numbers = codec.fields;
-  const descriptor = `${id}(${all.map((f) => `${f}:${schema[f].kind}`).join(",")})`;
-  defined.add(id);
+  const descriptor = `${id}(${schemaSignature(schema)})`;
   const entry = {
     id,
     descriptor,
@@ -57,7 +56,8 @@ export function defineRpc<S extends RpcSchema>(id: string, schema: S): RpcDef<S>
       return values;
     },
   };
-  registerRpc(entry);
+  defineRpcEntry(entry);
+  _recordRegistration("rpcs", id);
 
   return {
     id,
@@ -86,4 +86,12 @@ export function defineRpc<S extends RpcSchema>(id: string, schema: S): RpcDef<S>
       return (netSession(World.require())?.readRpc(id) ?? []) as unknown as RpcRow<S>[];
     },
   };
+}
+
+/**
+ * @internal Editor: forget an RPC type a project script defined (the script was deleted, or another
+ * project opened). It leaves the handshake (ADR 0457); connections open now keep its number.
+ */
+export function _undefineRpc(id: string): void {
+  forgetRpc(id);
 }

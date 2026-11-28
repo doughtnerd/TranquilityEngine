@@ -14,7 +14,7 @@
  * - fragment: ripple normals after `pbrBlockNormalFinal`, deep/shallow/foam colour at
  *   CUSTOM_FRAGMENT_UPDATE_ALPHA, roughness (rougher under foam) into `reflectivityBlock`.
  *
- * Wakes (ADR 0451): `wakes.ts` packs the World's `WaterWake`s once a frame, as trails or as a
+ * Wakes (ADR 0459): `wakes.ts` packs the World's `WaterWake`s once a frame, as trails or as a
  * simulated height field around the view camera's focus on the water; two float textures carry them
  * (`mycoWakeTrail`, `mycoWakeField`) and `WAKE_SHADER` reads them: the slope bends the normal after the
  * ripples, the foam joins the crest foam, its height lightens crests as the waves' own does, and in
@@ -333,7 +333,7 @@ const IDENTITY = Matrix.Identity();
 
 export class BabylonWater {
   private readonly entries = new Map<WaterSurface, WaterEntry>();
-  /** The wake textures (ADR 0451): a 1×1 stand-in bound while a mode's texture isn't in use, and the uploaded version. */
+  /** The wake textures (ADR 0459): a 1×1 stand-in bound while a mode's texture isn't in use, and the uploaded version. */
   private wakeBlank: RawTexture | null = null;
   private wakeTrail: RawTexture | null = null;
   private wakeField: RawTexture | null = null;
@@ -379,7 +379,7 @@ export class BabylonWater {
   }
 
   /**
-   * The World's wakes for this frame (ADR 0451), in the first surface's `wakeMode` (every surface draws
+   * The World's wakes for this frame (ADR 0459), in the first surface's `wakeMode` (every surface draws
    * them that way), uploaded to the wake textures when they changed.
    */
   private syncWakes(world: World, surface: WaterSurface, camera: TargetCamera | null): WakeFrame {

@@ -5,6 +5,7 @@
 // project or on disk) or dropped twice get " (1)", " (2)"… (a dropped folder is renamed as a whole,
 // so its contents never merge into another folder); an import settings sidecar dropped beside its
 // file follows the file's new name. An import never writes over a file.
+import { folderOf } from "./projectPath";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { isSidecarPath, sidecarAsset, sidecarPath } from "../engine/scene/importSettings";
 import { whyNotValidName } from "./assetOps";
@@ -117,7 +118,7 @@ export async function importFiles(project: EditorProject, folder: string, incomi
   for (const [i, f] of valid.entries()) {
     const to = plan[i]!;
     try {
-      await ensureFolders(project, to.includes("/") ? to.slice(0, to.lastIndexOf("/")) : "");
+      await ensureFolders(project, folderOf(to));
       const bytes = await f.read();
       if (isScriptPath(to)) {
         await project.writeScript(to, decoder.decode(bytes));

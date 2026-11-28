@@ -3,6 +3,7 @@
 // matching folders by path, always with the top level first; the folder the items are in ("here now") and a moved
 // folder with everything inside it are disabled, with why (`moveToModel.ts`). A click on an allowed folder moves
 // there (so do Enter, a double-click, or Move); Escape, ×, Cancel or a click outside cancels.
+import { fileName } from "../projectPath";
 import { useMemo, useState } from "preact/hooks";
 import { KitDialog } from "./KitDialog";
 import { folderTree, isCurrentFolder, searchFolders, whyNotMoveTo, type FolderNode, type MovingItem } from "./moveToModel";
@@ -28,7 +29,6 @@ export interface MoveToDialogProps {
   onCancel(): void;
 }
 
-const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 export function MoveToDialog(props: MoveToDialogProps) {
   const { items, folders, onMove, onCancel } = props;
@@ -43,7 +43,7 @@ export function MoveToDialog(props: MoveToDialogProps) {
     if (path !== null && why(path) === null) onMove(path);
   };
   const noun = props.noun ?? "item";
-  const title = props.title ?? (items.length === 1 ? `Move “${props.itemName ?? nameOf(items[0].path)}” to` : `Move ${items.length} ${noun}s to`);
+  const title = props.title ?? (items.length === 1 ? `Move “${props.itemName ?? fileName(items[0].path)}” to` : `Move ${items.length} ${noun}s to`);
   const here = (path: string) => (isCurrentFolder(path, items) ? <span class="kit-move-here">here now</span> : undefined);
 
   const row = (node: FolderNode): TreeRow => {

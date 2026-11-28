@@ -26,10 +26,11 @@ import type { GameObject } from "../../scene/GameObject";
 import type { BitReader } from "../codec";
 import { MAX_STR_BYTES } from "../messages";
 import type { Replicated } from "../Replicated";
-import { registerNetMessage, type NetPeer, type NetSession } from "../session";
+import { defineMessage } from "../catalogue";
+import type { NetPeer, NetSession } from "../session";
 
 /** The message kind carrying changed string fields. */
-export const GHOST_STRINGS = registerNetMessage("net.ghostStrings");
+export const GHOST_STRINGS = defineMessage("net.ghostStrings");
 
 const fieldCache = new Map<ComponentClass, readonly string[]>();
 const encoder = new TextEncoder();

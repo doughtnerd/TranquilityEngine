@@ -232,7 +232,7 @@ describe("the King of Pirates sample", () => {
     const mine = seen.filter((s) => s.rep.isOwnedLocally);
     expect(mine).toHaveLength(1);
     expect(mine[0].rep.isPredictedLocally).toBe(true);
-    // Ships churn the water on the client: each carries a WaterWake the sea's shader draws (ADR 0451), shown
+    // Ships churn the water on the client: each carries a WaterWake the sea's shader draws (ADR 0459), shown
     // while it's afloat and seen (the wakes are only for the eye: the server World has none).
     expect(server._componentsOfType(WaterWake)).toEqual([]);
     const wakes = client._componentsOfType(WaterWake);

@@ -11,6 +11,7 @@
 //   timeline opened from a file (no director) has nothing to preview on.
 import { computed, signal } from "@preact/signals";
 import { parseAnimSource } from "../../../../engine/animation/animSource";
+import { snapToFrame } from "../../../../engine/animation/compile/frames";
 import { parseTimeline, type Timeline } from "../../../../engine/animation/timeline";
 import type { Binding } from "../../../../engine/animation/tracks";
 import { Assets } from "../../../../engine/scene/Assets";
@@ -148,7 +149,7 @@ class TimelineSession {
     const tl = this.document.peek()?.value.peek();
     const rate = tl?.rate ?? 30;
     if (tl) this.playhead.setTiming({ duration: tl.duration, looping: this.loop.peek(), known: true });
-    this.playhead.seek(Math.round(t * rate) / rate);
+    this.playhead.seek(snapToFrame(t, rate, tl?.duration));
   }
 
   /** Show the timeline at the playhead on the bound director (preview on). */

@@ -1,4 +1,4 @@
-# 0451. Water surfaces draw wakes in their own shader, from WaterWake components on moving nodes
+# 0459. Water surfaces draw wakes in their own shader, from WaterWake components on moving nodes
 
 - **Status:** Proposed (two ways of drawing wakes are built, switchable, for the owner to compare; one stays)
 - **Date:** 2026-11-28

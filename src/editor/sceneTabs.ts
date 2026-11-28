@@ -9,6 +9,7 @@ import { batch, type ReadonlySignal } from "@preact/signals";
 import { Assets, Camera, DEG2RAD, GameObject, type Engine } from "../engine";
 import type { World } from "../engine/core/World";
 import { CommandStack, SceneDocument, WorldSync, type SceneFile } from "./document";
+import { liveKeys } from "./nodeKey";
 import { persistHistory, sceneHistory, type HistoryLocation, type HistoryOutcome, type PersistedHistory } from "./historyPersistence";
 import { errorStatus } from "./messages";
 import type { ViewMode } from "./OrbitCamera";
@@ -168,7 +169,7 @@ function bringBack(tabs: readonly OpenScene[], scene: OpenScene): void {
   }
   show(tabs, scene);
   const view = tabViews.get(scene);
-  select((view?.selection ?? []).filter((k) => scene.doc.has(k.split("/")[0])));
+  select(liveKeys(scene.doc, view?.selection ?? []));
   const orbit = sceneCamera.peek();
   if (view?.camera && orbit) {
     setViewMode(view.camera.mode);

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "preact/hooks";
 import type { ImportSettings } from "../../engine/scene/importSettings";
-import { fileName } from "../assetBrowser";
+import { fileName } from "../projectPath";
 import { assetKind, kindImportSections, kindImportSettings, kindInspector, kindLabel } from "../assetKindLookup";
 import type { ImportSettingsContribution, ImportSettingsSectionContribution, ImportSettingsViewProps, LoadComponent } from "../sdk/contributions";
 import { lazyComponent, type LazyComponent } from "./lazy";

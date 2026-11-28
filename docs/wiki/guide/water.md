@@ -86,7 +86,7 @@ Put a `WaterWake` on a moving node, such as a boat, and the water draws its wake
 | `bow`, `stern` | Where the stem and the stern are along the node's +Z (m; the stern is usually negative). |
 | `foam`, `ripples` | 0–1: how white the wake is, and how strongly its waves bend the surface. |
 
-The surface's `wakeMode` picks how wakes are drawn (ADR 0451 compares the two; one will stay):
+The surface's `wakeMode` picks how wakes are drawn (ADR 0459 compares the two; one will stay):
 - `"trail"`: foam, Kelvin ripples and a bow wave worked out per pixel along the path each stern took (up to 16 wakes, the nearest to the camera). Cheap on the CPU.
 - `"field"`: a simulated wave height field, 96 m across, around the point the camera looks at. Hulls press into it, and heap a ridge along each side of the bow (at the bow's flare) that rises and travels out as a V. The waves spread, cross and fade on their own. It also raises and lowers the surface. It costs about 1 ms of CPU a frame.
 

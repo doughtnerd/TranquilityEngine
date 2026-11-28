@@ -1,5 +1,5 @@
 /**
- * The simulated wake height field (ADR 0451, the "field" wake mode): a square grid of water heights
+ * The simulated wake height field (ADR 0459, the "field" wake mode): a square grid of water heights
  * around the camera, stepped by the damped 2D wave equation, that moving hulls press into. The waves
  * they make spread, interfere and fade on their own, so a fast hull leaves a V (its half-angle is
  * asin(wave speed / hull speed)), a turning hull a curved one, and two hulls' wakes cross. A foam

@@ -3,22 +3,22 @@
  * The layouts of a snapshot part and a ghost lifecycle message are at the top of `server.ts`.
  */
 import type { BitReader, BitWriter } from "../codec";
-import { registerNetMessage } from "../session";
+import { defineMessage } from "../catalogue";
 import type { FieldShape, LayoutSpec } from "./layout";
 
 /** Server → client, unreliable: one or more parts per peer per sent tick (ADR 0334), ghost states only (ADR 0402). */
-export const SNAPSHOT = registerNetMessage("net.snapshot");
+export const SNAPSHOT = defineMessage("net.snapshot");
 /**
  * Server → client, reliable and in order (ADR 0402): a sent tick's ghost lifecycle events for one
  * connection (despawns, leaves, relayouts, structure changes and spawns, each spawn and relayout with
  * the ghost's full state), when it has any.
  */
-export const GHOSTS = registerNetMessage("net.ghosts");
+export const GHOSTS = defineMessage("net.ghosts");
 /**
  * Client → server, unreliable: the newest lifecycle tick applied (ADR 0402), then the newest snapshot
  * tick read and which of its parts (ADR 0334).
  */
-export const ACK = registerNetMessage("net.snapshotAck");
+export const ACK = defineMessage("net.snapshotAck");
 
 /** Parts an ack may name at most (a tick has at most `maxSnapshotBytes` / the datagram size). */
 export const MAX_SNAPSHOT_PARTS = 1024;

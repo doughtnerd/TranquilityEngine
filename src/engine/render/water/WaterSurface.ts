@@ -61,7 +61,7 @@ export class WaterSurface extends Component {
   /** Strength of the Fresnel reflection of the environment (0–1). */
   @field(Number) reflectivity = 0.5;
   /**
-   * How the surface draws the wakes of `WaterWake` nodes on it (ADR 0451): "trail" (foam and Kelvin
+   * How the surface draws the wakes of `WaterWake` nodes on it (ADR 0459): "trail" (foam and Kelvin
    * ripples along each stern's path, shaded per pixel), "field" (a simulated wave height field around
    * the camera that hulls press into; it also raises the surface) or "off".
    */

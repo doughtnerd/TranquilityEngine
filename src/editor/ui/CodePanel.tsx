@@ -3,7 +3,7 @@ import { Panel } from "./panel/Panel";
 import { effect } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type * as Monaco from "monaco-editor";
-import { fileName } from "../assetBrowser";
+import { fileName } from "../projectPath";
 import { activeScript, bufferRewrites, bufferTexts, closeScript, codeFilePath, codeFiles, dirtyScripts, editBuffer, openScripts, revealAt, saveBuffer, showScript } from "../code/codeBuffers";
 import { loadMonaco } from "../code/codeState";
 import { openScriptExternally, saveCodeFile } from "../session";

@@ -1,6 +1,7 @@
 // Deleting the selected nodes from the open scene, asking first when other nodes reference them
 // (unless the user chose not to be asked again).
-import { deleteNodes, isInsidePrefab, describeReference, referencesInto, whyNotDeletable } from "./hierarchyEdit";
+import { deleteNodes, describeReference, referencesInto, whyNotDeletable } from "./hierarchyEdit";
+import { isInnerKey, liveKeys, parseKey } from "./nodeKey";
 import { askBeforeClearingReferences } from "./preferences";
 import { topmostKeys } from "./selectionModel";
 import { writeRemoveNode } from "./overrideWriter";
@@ -19,11 +20,13 @@ export async function deleteSelected(): Promise<boolean> {
   if (!openScene.value || selectedKeys.value.length === 0) return false;
   const scene = editableNow({ kind: "scene" }, "delete nodes"); // not while playing (ADR 0247)
   if (!scene) return false;
-  const keys = topmostKeys(scene.doc, selectedKeys.value); // children go with their parents
-  if (keys.length > 0 && keys.every(isInsidePrefab)) {
+  // Only nodes still in the scene (an undo or a prefab edit can take selected inner nodes away); children go with their parents.
+  const keys = topmostKeys(scene.doc, liveKeys(scene.doc, selectedKeys.value));
+  if (keys.length === 0) return false;
+  if (keys.every(isInnerKey)) {
     // Nodes inside prefab instances go as `removeNode` overrides (ADR 0086).
     undoStep(scene.stack, keys.length === 1 ? "Remove node" : `Remove ${keys.length} nodes`, () => {
-      for (const key of keys) scene.stack.execute(writeRemoveNode(scene.doc, key.split("/")));
+      for (const key of keys) scene.stack.execute(writeRemoveNode(scene.doc, parseKey(key)));
     });
     select([]);
     status.value = { kind: "info", text: `Removed ${keys.length === 1 ? "the node" : `${keys.length} nodes`} from the prefab instance. Undo restores them.` };
@@ -54,7 +57,7 @@ export async function deleteSelected(): Promise<boolean> {
   // The scene may have changed while the dialog was open.
   if (openScene.value !== scene || !keys.every((k) => scene.doc.has(k))) return false;
   deleteNodes(scene, keys);
-  select(selectedKeys.peek().filter((k) => scene.doc.has(k.split("/")[0])));
+  select(liveKeys(scene.doc, selectedKeys.peek()));
   status.value =
     refs.length === 0
       ? { kind: "info", text: `Deleted ${name}.` }

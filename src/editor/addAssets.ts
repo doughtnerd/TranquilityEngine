@@ -4,7 +4,7 @@
 // node insertion (ADR 0246, which asks each asset's kind whether it can be added and mints ids and names), logs
 // what their kinds have to say about the add, and returns the new nodes' keys and the status message. Kinds
 // supply their refusals (`addToScene.whyNot`) and notes (`addToScene.note`); nothing here knows a kind by name.
-import { fileName } from "./assetBrowser";
+import { fileName } from "./projectPath";
 import { sceneNodesAt } from "./assetKindLookup";
 import { logMessage } from "./messages";
 import { insertNodes, whyNotInsert, type InsertPlace, type InsertSource } from "./nodeInsertion";

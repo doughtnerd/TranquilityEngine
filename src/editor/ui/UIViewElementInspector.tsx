@@ -1,3 +1,4 @@
+import { fileName } from "../projectPath";
 import { currentProject, openScene, playState } from "../state";
 import { openScript } from "../code/codeBuffers";
 import { editorTextFiles } from "../textFiles";
@@ -10,7 +11,6 @@ import { UIViewLocalise } from "./localisation/UIViewLocalise";
 import "./ui-element-inspector.css";
 import { EmptyState } from "./EmptyState";
 
-const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /** What a field's editor starts with: the literal attribute (or style declaration) as written, the text, or the current value. */
 function rawText(row: FieldSourceRow, text: string | null): string {

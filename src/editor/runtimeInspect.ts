@@ -5,13 +5,14 @@
 // and, on Stop, writes them into the edited document as one undoable step: as plain field values on
 // scene nodes, as overrides on prefab instances and the nodes inside them. Only nodes that came from
 // the scene being edited map back to the document (`docPathFor` says why others don't).
+import { sceneDisplayName } from "./projectPath";
 import { signal } from "@preact/signals";
 import { Connection, GameObject, Replicated, type Engine } from "../engine";
 import type { World } from "../engine/core/World";
 import { type ComponentInfo, engineWorld, instantiatedPrefabOf, listComponents, listNodes, sceneSourceOf, viewport } from "../engine/editor";
 import { SetField, pathKey, type NodePath, type SceneDocument } from "./document";
 import { fieldKind, type NodeIds } from "./fields/kinds";
-import { findInner } from "./prefabs";
+import { findInner } from "./nodeKey";
 import { playState, type OpenScene } from "./state";
 import { undoStep } from "./undoStep";
 
@@ -67,7 +68,6 @@ export interface LiveRow {
   readonly detail: string | null;
 }
 
-const fileName = (path: string) => path.split("/").pop()!.replace(/\.(prefab|scene)\.json$|\.json$/, "");
 
 /** Every node of `world` below its root, parents first, with what it is. Nodes inside a collapsed node (by entity) are left out. */
 export function liveRows(world: World, collapsed: ReadonlySet<number> = new Set()): LiveRow[] {
@@ -94,11 +94,11 @@ export function liveRows(world: World, collapsed: ReadonlySet<number> = new Set(
       badge = "connection";
     } else if (source && node.parent === world.root) {
       kind = "scene";
-      badge = fileName(source);
+      badge = sceneDisplayName(source);
       detail = source;
     } else if (prefab) {
       kind = "instance";
-      badge = fileName(prefab);
+      badge = sceneDisplayName(prefab);
       detail = `Instantiated at runtime from ${prefab}`;
     }
     rows.push({ node, depth, name: info.name, children: info.children.length, inactive: !info.activeInHierarchy, kind, badge, detail });

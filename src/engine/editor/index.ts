@@ -23,6 +23,7 @@ import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, _instantiatedPrefabOf, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 import type { Schema } from "../core/data";
 import { _undefineInput, _writeSyntheticInput, definedInputs } from "../net/input";
+import { _undefineRpc } from "../net/rpc";
 import { clientReplication } from "../net/replication/client";
 import { predictionStats, type PredictionStats } from "../net/prediction";
 import { serverReplication } from "../net/replication/server";
@@ -578,6 +579,7 @@ export function unregisterScripts(registrations: ScriptRegistrations): void {
   for (const id of registrations.data) _undefineComponent(id);
   for (const name of registrations.systems) _undefineSystem(name);
   for (const id of registrations.inputs) _undefineInput(id);
+  for (const id of registrations.rpcs) _undefineRpc(id);
 }
 
 /** The component classes and data component definitions scripts had registered, by id: taken before a reload during play (ADR 0125). */

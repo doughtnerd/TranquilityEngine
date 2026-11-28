@@ -118,6 +118,18 @@ describe("tween()", () => {
     expect(mr.getMaterialProperty("metalness")).toBeCloseTo(0.25, TOL);
   });
 
+  it("drives one material slot's override (materials[N].<name>, the form property tracks bind)", () => {
+    const node = GameObject.create("Box");
+    made.push(node);
+    const mr = node.addComponent(MeshRenderer);
+    mr.setMaterialProperty("metalness", 0, 1);
+    const t = tween(mr, "materials[1].metalness", 1, { duration: 1, ease: "linear" });
+    expect(t.isPlaying).toBe(true);
+    engine.step(0.25);
+    expect(mr.getMaterialProperty("metalness", 1)).toBeCloseTo(0.25, TOL);
+    expect(mr.getMaterialProperty("metalness")).toBeUndefined(); // slot 1 only, not the whole renderer
+  });
+
   it("waits out its delay", () => {
     const { light } = lamp();
     light.intensity = 0;
