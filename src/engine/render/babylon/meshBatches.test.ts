@@ -13,7 +13,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import { attachLods } from "../../scene/lod/meshLods";
 import { meshOf } from "./materials";
-import { BATCH_RETAIN_SECONDS, CASTERS_PASS, MeshBatches, type DrawKey, type Drawable } from "./meshBatches";
+import type { InstancedMesh } from "@babylonjs/core/Meshes/instancedMesh.js";
+import { LOD_FADE_ATTRIBUTE } from "./lodFade";
+import { BATCH_RETAIN_SECONDS, CASTERS_PASS, MeshBatches, drawKey, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
 
 /** The built-in sphere with one more level: its first half of triangles (indices of its own, LOD0's vertices). */
 function sphereWithLevel(): ModelMesh {
@@ -225,5 +227,87 @@ describe("mesh batches (ADR 0108, 0446)", () => {
     expect(batches.expand(casters[0], 1, 2, away, empty)).toBe(true);
     expect(empty).toHaveLength(0);
     expect(batches.expand(near.source, 1, 0, planesOf(10), [])).toBe(false);
+  });
+
+  describe("fade batches (ADR 0446 §4)", () => {
+    const fadeKey = (src: ModelMesh, mode: DrawKey["mode"] = "auto"): DrawKey => ({ ...key(src, mode), fade: true });
+
+    it("routes a fade key to a batch of its own, whose material gets the crossfade plugin", () => {
+      const src = sphereWithLevel();
+      expect(sameDraw(key(src), fadeKey(src))).toBe(false);
+      expect(sameDraw(fadeKey(src), fadeKey(src))).toBe(true);
+      expect(sameDraw(key(src), { ...key(src), fade: false })).toBe(true);
+      expect(drawKey(key(src))).not.toBe(drawKey(fadeKey(src)));
+      expect(material.pluginManager?.getPlugin("MycoLodFade") ?? null).toBeNull();
+      const steady = batches.acquire(key(src), "s");
+      const fading = batches.acquire(fadeKey(src), "f");
+      expect(fading.source).not.toBe(steady.source);
+      expect(batches.acquire(fadeKey(src), "g").source).toBe(fading.source);
+      expect(material.pluginManager?.getPlugin("MycoLodFade")).toBeTruthy();
+      // Each instance carries its own value; steady instances have none.
+      fading.setFade(-0.25);
+      expect((fading.mesh as InstancedMesh).instancedBuffers[LOD_FADE_ATTRIBUTE]).toBe(-0.25);
+      steady.setFade(0.5);
+      expect((steady.mesh as InstancedMesh).instancedBuffers?.[LOD_FADE_ATTRIBUTE]).toBeUndefined();
+    });
+
+    it("gives a thin fade batch's pass sources each instance's value beside its matrix, and never draws its own source", () => {
+      const src = sphereWithLevel();
+      const [a, b] = [0, 1].map((i) => batches.acquire(fadeKey(src, "thin"), `t${i}`));
+      at(a, 0);
+      at(b, 10);
+      a.setFade(-0.25);
+      b.setFade(0.25);
+      batches.flush();
+      expect(a.source.isEnabled()).toBe(false); // outside pass mode too
+      batches.setPassMode(true);
+      batches.beginPasses();
+      batches.add(a, "A", []);
+      batches.add(b, "A", []);
+      batches.endPasses();
+      const out: AbstractMesh[] = [];
+      batches.passMeshes("A", out);
+      const pass = out[0] as Mesh;
+      expect(pass.thinInstanceCount).toBe(2);
+      expect([...(pass.getVertexBuffer(LOD_FADE_ATTRIBUTE)!.getData() as Float32Array).slice(0, 2)]).toEqual([-0.25, 0.25]);
+      // Values change per frame, and grow with the instances.
+      const more = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map((i) => {
+        const d = batches.acquire(fadeKey(src, "thin"), `m${i}`);
+        d.setFade(i / 100);
+        return d;
+      });
+      a.setFade(-0.5);
+      batches.beginPasses();
+      for (const d of [a, b, ...more]) batches.add(d, "A", []);
+      batches.endPasses();
+      const values = pass.getVertexBuffer(LOD_FADE_ATTRIBUTE)!.getData() as Float32Array;
+      expect(pass.thinInstanceCount).toBe(19);
+      expect(values[0]).toBe(-0.5);
+      expect(values[18]).toBeCloseTo(0.18, 6);
+    });
+
+    it("keeps a reserved batch, empty, until it's unreserved and its retention runs out", () => {
+      const src = sphereWithLevel();
+      const before = scene.meshes.length;
+      batches.reserve(fadeKey(src));
+      batches.reserve(fadeKey(src));
+      expect(scene.meshes.length).toBe(before + 1); // made now, once
+      const made = new Set(scene.meshes);
+      batches.setTime(0);
+      const d = batches.acquire(fadeKey(src), "f");
+      expect(made.has(d.source)).toBe(true); // the first fade finds it there
+      batches.release(d);
+      batches.setTime(BATCH_RETAIN_SECONDS * 3);
+      batches.flush();
+      expect(d.source.isDisposed()).toBe(false);
+      batches.unreserve(fadeKey(src));
+      batches.unreserve(fadeKey(src));
+      batches.setTime(BATCH_RETAIN_SECONDS * 3 + 0.5);
+      batches.flush();
+      expect(d.source.isDisposed()).toBe(false); // retained a few seconds more
+      batches.setTime(BATCH_RETAIN_SECONDS * 4 + 1);
+      batches.flush();
+      expect(d.source.isDisposed()).toBe(true);
+    });
   });
 });

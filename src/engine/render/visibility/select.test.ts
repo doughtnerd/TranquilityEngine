@@ -1,7 +1,7 @@
 // LOD selection (ADR 0446 §2–3): screen-relative heights, bias, first level, forced levels, hysteresis, culling,
 // automatic heights, shadow casters and the frustum test, through `selectLevels` and `automaticHeights`.
 import { describe, expect, it } from "vitest";
-import { AUTOMATIC_CULL_HEIGHT, SelectionState, automaticHeights, selectLevels, type SelectionGroups, type SelectionOut, type SelectionTier } from "./select";
+import { AUTOMATIC_CULL_HEIGHT, SelectionState, automaticHeights, fadeIn, fadeOut, outgoingOf, selectLevels, type SelectionGroups, type SelectionOut, type SelectionTier } from "./select";
 import { LOD_CULLED, type VisibilityView } from "./types";
 import { makeView } from "./views";
 
@@ -183,10 +183,168 @@ describe("selectLevels", () => {
     expect([...o.casterLevels.subarray(0, 4)]).toEqual([1, 2, LOD_CULLED, 0]);
   });
 
-  it("writes 0 fade values (crossfade comes later)", () => {
+  it("writes 0 fade values without crossfade", () => {
     const o = out();
     selectLevels(view(), groups([{ heights: HEIGHTS }, { heights: [0] }]), TIER, new SelectionState(), o);
     expect([...o.fade.subarray(0, 2)]).toEqual([0, 0]);
+  });
+
+  describe("crossfade (ADR 0446 §4)", () => {
+    // heights [0.2, 0.05], size 1, 0.3 s fades: level 0 at h = 0.3, level 1 at h = 0.1, culled at h = 0.02.
+    const FADE_TIER: SelectionTier = { ...TIER, lodCrossfade: true };
+    const at = (h: number) => 1 / (2 * h);
+    interface Step {
+      level: number;
+      fade: number;
+      from: number;
+      caster: number;
+    }
+    /** One group selected at each (time, h); `duration` 0 is `fade: "none"`. */
+    function run(steps: [number, number][], options: { duration?: number; tier?: SelectionTier; persistent?: boolean; fadeDuration?: boolean } = {}): Step[] {
+      const state = new SelectionState();
+      const v = view({ persistent: options.persistent ?? true });
+      return steps.map(([time, h]) => {
+        const g = groups([{ at: [0, 0, at(h)], heights: [0.2, 0.05] }]);
+        const withFade = options.fadeDuration === false ? g : { ...g, fadeDuration: new Float32Array([options.duration ?? 0.3]) };
+        const o = { ...out(), fadeFrom: new Uint8Array(8) };
+        selectLevels(v, withFade, options.tier ?? FADE_TIER, state, o, time);
+        return { level: o.levels[0], fade: o.fade[0], from: o.fadeFrom[0], caster: o.casterLevels[0] };
+      });
+    }
+    const steady = (level: number): Step => ({ level, fade: 0, from: LOD_CULLED, caster: level });
+
+    it("starts a fade on a level change: the incoming level at a tiny negative, the outgoing one named, casters on the old level", () => {
+      const [first, start] = run([
+        [0, 0.3],
+        [1, 0.1],
+      ]);
+      expect(first).toEqual(steady(0));
+      expect(start.level).toBe(1);
+      expect(start.from).toBe(0);
+      expect(start.fade).toBeLessThan(0); // not -0: the incoming level must draw nothing yet
+      expect(Math.round(Math.abs(start.fade) * 16)).toBe(0);
+      expect(start.caster).toBe(0);
+    });
+
+    it("advances by the engine's clock, switches casters at the midpoint, and ends steady after fadeDuration", () => {
+      const steps = run([
+        [0, 0.3],
+        [1, 0.1],
+        [1.075, 0.1], // t = 0.25
+        [1.16, 0.1], // t ≈ 0.53: past the midpoint
+        [1.225, 0.1], // t = 0.75
+        [1.31, 0.1], // past 0.3 s: done
+        [1.4, 0.1],
+      ]);
+      expect(steps[2].fade).toBeCloseTo(-0.25, 5);
+      expect(steps[2].caster).toBe(0);
+      expect(steps[3].fade).toBeCloseTo(-0.16 / 0.3, 5);
+      expect(steps[3].caster).toBe(1);
+      expect(steps[4].fade).toBeCloseTo(-0.75, 5);
+      expect(steps[4].from).toBe(0);
+      expect(steps[5]).toEqual(steady(1));
+      expect(steps[6]).toEqual(steady(1));
+    });
+
+    it("runs a reversed fade back from its progress", () => {
+      const steps = run([
+        [0, 0.3],
+        [1, 0.1],
+        [1.06, 0.3], // t = 0.2, then back to level 0: from 1 at 0.8
+        [1.09, 0.3], // 0.9
+        [1.2, 0.3],
+      ]);
+      expect(steps[2].level).toBe(0);
+      expect(steps[2].from).toBe(1);
+      expect(steps[2].fade).toBeCloseTo(-0.8, 5);
+      expect(steps[2].caster).toBe(0); // level 0 shows more
+      expect(steps[3].fade).toBeCloseTo(-0.9, 5);
+      expect(steps[4]).toEqual(steady(0));
+    });
+
+    it("fades to a third level from the one that showed more", () => {
+      const groupsAt = (h: number) => ({ ...groups([{ at: [0, 0, at(h)], heights: [0.5, 0.2, 0.05] }]), fadeDuration: new Float32Array([0.3]) });
+      const state = new SelectionState();
+      const v = view();
+      const sel = (time: number, h: number) => {
+        const o = { ...out(), fadeFrom: new Uint8Array(8) };
+        selectLevels(v, groupsAt(h), FADE_TIER, state, o, time);
+        return [o.levels[0], o.fadeFrom[0], o.fade[0]];
+      };
+      sel(0, 0.6); // level 0
+      sel(1, 0.3); // fading 0 → 1
+      expect(sel(1.03, 0.1)).toEqual([2, 0, expect.closeTo(-1e-6, 9)]); // t = 0.1: level 0 showed more
+      sel(1.2, 0.1); // t ≈ 0.57 into 0 → 2
+      expect(sel(1.2, 0.3)).toEqual([1, 2, expect.closeTo(-1e-6, 9)]); // level 2 showed more
+    });
+
+    it("fades in from culled and out to culled; a culled side casts by the culled rule", () => {
+      const steps = run([
+        [0, 0.1],
+        [1, 0.02], // to culled: level 1 fades out
+        [1.2, 0.02],
+        [2, 0.02],
+        [3, 0.1], // from culled
+      ]);
+      expect(steps[1]).toMatchObject({ level: LOD_CULLED, from: 1, caster: 1 });
+      expect(steps[2].caster).toBe(1); // culled within shadowDistance: its coarsest level (1)
+      expect(steps[3]).toEqual({ level: LOD_CULLED, fade: 0, from: LOD_CULLED, caster: 1 });
+      expect(steps[4]).toMatchObject({ level: 1, from: LOD_CULLED });
+      expect(steps[4].fade).toBeLessThan(0);
+    });
+
+    it("snaps where it can't fade: fade none, the tier's lodCrossfade off, no durations, views that don't persist", () => {
+      const change: [number, number][] = [
+        [0, 0.3],
+        [1, 0.1],
+      ];
+      expect(run(change, { duration: 0 })[1]).toEqual(steady(1));
+      expect(run(change, { tier: TIER })[1]).toEqual(steady(1));
+      expect(run(change, { tier: { ...FADE_TIER, lodCrossfade: false } })[1]).toEqual(steady(1));
+      expect(run(change, { fadeDuration: false })[1]).toEqual(steady(1));
+      expect(run(change, { persistent: false })[1]).toEqual(steady(1));
+    });
+
+    it("ends a fade at once when the tier stops crossfading, and keeps fades per view key", () => {
+      const state = new SelectionState();
+      const sel = (key: string, time: number, h: number, tier = FADE_TIER) => {
+        const o = { ...out(), fadeFrom: new Uint8Array(8) };
+        selectLevels(view({ key }), { ...groups([{ at: [0, 0, at(h)], heights: [0.2, 0.05] }]), fadeDuration: new Float32Array([0.3]) }, tier, state, o, time);
+        return o.fade[0];
+      };
+      sel("a", 0, 0.3);
+      sel("b", 0, 0.1);
+      expect(sel("a", 1, 0.1)).toBeLessThan(0); // a fades
+      expect(sel("b", 1, 0.1)).toBe(0); // b was at level 1 already
+      expect(sel("a", 1.1, 0.1, TIER)).toBe(0);
+      state.forget(0);
+      expect(sel("b", 1.2, 0.3)).toBe(0); // no history: chosen afresh
+    });
+  });
+});
+
+describe("fade value encoding (ADR 0446 §4)", () => {
+  /** What the shader keeps of a 4×4 tile for fade value f: ranks ≥ round(16|f|) for f ≥ 0, below it for f < 0. */
+  const kept = (f: number) => {
+    const t = Math.floor(Math.abs(f) * 16 + 0.5);
+    return Array.from({ length: 16 }, (_, rank) => (f < 0 ? rank < t : rank >= t));
+  };
+
+  it("gives the incoming level the complement of the outgoing one, so every pixel is drawn once", () => {
+    for (const t of [0, 1 / 16, 0.1, 0.3, 0.5, 0.75, 15 / 16, 1]) {
+      const a = kept(fadeOut(t)), b = kept(fadeIn(t));
+      expect(a.every((x, i) => x !== b[i])).toBe(true);
+      expect(outgoingOf(fadeIn(t))).toBeCloseTo(fadeOut(t), 5);
+    }
+  });
+
+  it("encodes an incoming level at t = 0 as a tiny negative: -0 isn't below 0 and would draw it whole", () => {
+    expect(Object.is(fadeIn(0), -0)).toBe(false);
+    expect(fadeIn(0)).toBeLessThan(0);
+    expect(kept(fadeIn(0)).some(Boolean)).toBe(false);
+    expect(kept(-0).every(Boolean)).toBe(true); // the trap
+    expect(kept(fadeOut(0)).every(Boolean)).toBe(true);
+    expect(fadeIn(0.25)).toBe(-0.25);
   });
 });
 

@@ -19,6 +19,11 @@
  * the batch's vertex buffers (`meshOf`, §1), each with its own `Geometry`, index buffer and matrix buffer holding
  * only what that pass draws (`beginPasses`, `add`, `endPasses`; cascades fill on demand through `expandCascade`).
  * The batch's own source then draws nothing (it keeps its slots for when levels stop being applied).
+ *
+ * **Fade batches (ADR 0446 §4).** A key with `fade` names a batch of its own whose sources compile the crossfade
+ * variant (`lodFade.ts`): fading instances draw there, so steady ones never pay for a shader `discard`. Each drawable
+ * carries a fade value (`setFade`), as an instanced buffer (auto) or a second thin-instance buffer beside each pass's
+ * matrices (thin). `reserve` makes a fade batch ahead of its first fade and keeps it while reserved.
  */
 import type { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
 import { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
@@ -32,6 +37,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { MaterialInstancing } from "../../scene/material";
 import type { ModelMesh } from "../../scene/models";
 import { meshBounds, transformAabb } from "../visibility/bounds";
+import { addLodFade, LOD_FADE_ATTRIBUTE, markFadeSource } from "./lodFade";
 import { meshOf, modelSubMeshes } from "./materials";
 import { aabbInPlanes, type CascadeExpander } from "./shadowCulling";
 
@@ -44,6 +50,8 @@ export interface DrawKey {
   castShadows: boolean;
   mode: MaterialInstancing;
   applyFog: boolean;
+  /** A fade batch (ADR 0446 §4): its sources draw the crossfade variant. Absent: steady. Not for `off`. */
+  fade?: boolean;
 }
 
 /** One renderer mesh in a batch. */
@@ -60,6 +68,8 @@ export interface Drawable {
   setMatrix(m: Matrix): void;
   setEnabled(on: boolean): void;
   readonly enabled: boolean;
+  /** In a fade batch: its fade value (ADR 0446 §4 sign convention); ignored elsewhere. */
+  setFade(value: number): void;
 }
 
 /** A pass a thin batch draws in (ADR 0446 §3): a view's key, `CASTERS_PASS`, a probe capture's key. */
@@ -83,16 +93,18 @@ const idOf = (o: object): number => {
 
 /** Whether two keys name the same batch (as `drawKey` would, without allocating). */
 export const sameDraw = (a: DrawKey, b: DrawKey): boolean =>
-  a.mode === b.mode && a.src.data === b.src.data && a.material === b.material && a.receiveShadows === b.receiveShadows && a.applyFog === b.applyFog && (a.mode !== "thin" || a.castShadows === b.castShadows);
+  a.mode === b.mode && a.src.data === b.src.data && a.material === b.material && a.receiveShadows === b.receiveShadows && a.applyFog === b.applyFog && (a.mode !== "thin" || a.castShadows === b.castShadows) && !a.fade === !b.fade;
 
 /** A drawable's batch key. */
-export const drawKey = (k: DrawKey): string => `${k.mode}|${idOf(k.src.data)}|${k.material.uniqueId}|${k.receiveShadows ? 1 : 0}|${k.mode === "thin" && k.castShadows ? 1 : 0}|${k.applyFog ? 1 : 0}`;
+export const drawKey = (k: DrawKey): string => `${k.mode}|${idOf(k.src.data)}|${k.material.uniqueId}|${k.receiveShadows ? 1 : 0}|${k.mode === "thin" && k.castShadows ? 1 : 0}|${k.applyFog ? 1 : 0}${k.fade ? "|fade" : ""}`;
 
 interface InstanceBatch {
   kind: "auto";
   key: string;
   source: Mesh;
   members: number;
+  /** `reserve` calls not yet undone: a reserved batch isn't disposed while empty. */
+  reserved: number;
   /** When its last drawable went with `retain` (seconds), or -1 while it has drawables. */
   emptySince: number;
 }
@@ -101,6 +113,8 @@ interface InstanceBatch {
 interface ThinPass {
   readonly source: Mesh;
   buffer: Float32Array;
+  /** Its fade values, one per instance, in a fade batch (ADR 0446 §4); else null. */
+  fades: Float32Array | null;
   /** What it draws this frame. */
   readonly list: ThinDrawable[];
   /** Instances uploaded. */
@@ -117,6 +131,7 @@ interface ThinBatch {
   draw: DrawKey;
   source: Mesh;
   members: number;
+  reserved: number;
   emptySince: number;
   /** Enabled slots, packed at the front of `buffer` in this order. */
   slots: ThinDrawable[];
@@ -134,6 +149,8 @@ class ThinDrawable implements Drawable {
   readonly matrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   /** Its world AABB, for per-cascade compaction. */
   readonly box = new Float32Array(6);
+  /** Its fade value in a fade batch (written into each pass's fade buffer). */
+  fade = 0;
   constructor(
     readonly key: string,
     readonly draw: DrawKey,
@@ -146,6 +163,9 @@ class ThinDrawable implements Drawable {
   }
   get enabled(): boolean {
     return this.index >= 0;
+  }
+  setFade(value: number): void {
+    this.fade = value;
   }
   setMatrix(m: Matrix): void {
     m.copyToArray(this.matrix);
@@ -191,9 +211,14 @@ class MeshDrawable implements Drawable {
     readonly mesh: AbstractMesh,
     readonly source: Mesh,
     private readonly matrix = new Matrix(),
-  ) {}
+  ) {
+    if (draw.fade && mode === "auto") mesh.instancedBuffers[LOD_FADE_ATTRIBUTE] = 0;
+  }
   get enabled(): boolean {
     return this.on;
+  }
+  setFade(value: number): void {
+    if (this.draw.fade && this.mode === "auto") this.mesh.instancedBuffers[LOD_FADE_ATTRIBUTE] = value;
   }
   setMatrix(m: Matrix): void {
     // Babylon keeps the matrix it's given: each drawable keeps one, refilled when the node moves.
@@ -257,27 +282,10 @@ export class MeshBatches implements CascadeExpander {
   acquire(k: DrawKey, name: string): Drawable {
     const key = drawKey(k);
     if (k.mode === "off") {
-      const mesh = this.makeSource(k, `mesh:${name}`);
-      return new MeshDrawable("off", key, { ...k }, mesh, mesh);
+      const mesh = this.makeSource({ ...k, fade: false }, `mesh:${name}`);
+      return new MeshDrawable("off", key, { ...k, fade: false }, mesh, mesh);
     }
-    let batch = this.batches.get(key);
-    if (!batch) {
-      const source = this.makeSource(k, `batch:${k.src.name}`);
-      if (k.mode === "thin") {
-        source.freezeWorldMatrix(IDENTITY.clone());
-        source.alwaysSelectAsActiveMesh = false;
-        const buffer = new Float32Array(16 * 16);
-        source.thinInstanceSetBuffer("matrix", buffer, 16, false);
-        source.thinInstanceCount = 0;
-        source.setEnabled(false);
-        batch = { kind: "thin", key, draw: { ...k }, source, members: 0, emptySince: -1, slots: [], buffer, dirty: true, castShadows: k.castShadows, passes: new Map() };
-      } else {
-        source.isVisible = false; // only its instances draw
-        source.isPickable = false;
-        batch = { kind: "auto", key, source, members: 0, emptySince: -1 };
-      }
-      this.batches.set(key, batch);
-    }
+    const batch = this.batchFor(k, key);
     batch.members++;
     batch.emptySince = -1;
     if (batch.kind === "thin") {
@@ -288,6 +296,48 @@ export class MeshBatches implements CascadeExpander {
     const instance = batch.source.createInstance(`mesh:${name}`);
     this.made.add(instance);
     return new MeshDrawable("auto", key, { ...k }, instance, batch.source);
+  }
+
+  /**
+   * Make the batch `k` names now, before anything draws in it, and keep it while reserved (ADR 0446 §3: fade batches
+   * exist before a first fade, so it doesn't make Babylon meshes). Undo with `unreserve`; `off` keys have no batch.
+   */
+  reserve(k: DrawKey): void {
+    if (k.mode === "off") return;
+    const b = this.batchFor(k, drawKey(k));
+    b.reserved++;
+    b.emptySince = -1;
+  }
+
+  /** Undo one `reserve` of `k`: an empty batch is then kept `BATCH_RETAIN_SECONDS` before it goes. */
+  unreserve(k: DrawKey): void {
+    const b = k.mode === "off" ? undefined : this.batches.get(drawKey(k));
+    if (!b || b.reserved <= 0) return;
+    if (--b.reserved === 0 && b.members === 0) b.emptySince = this.now;
+  }
+
+  /** The batch for `key`, made empty on first use. */
+  private batchFor(k: DrawKey, key: string): InstanceBatch | ThinBatch {
+    let batch = this.batches.get(key);
+    if (!batch) {
+      const source = this.makeSource(k, `batch:${k.src.name}`);
+      if (k.mode === "thin") {
+        source.freezeWorldMatrix(IDENTITY.clone());
+        source.alwaysSelectAsActiveMesh = false;
+        const buffer = new Float32Array(16 * 16);
+        source.thinInstanceSetBuffer("matrix", buffer, 16, false);
+        source.thinInstanceCount = 0;
+        source.setEnabled(false);
+        batch = { kind: "thin", key, draw: { ...k }, source, members: 0, reserved: 0, emptySince: -1, slots: [], buffer, dirty: true, castShadows: k.castShadows, passes: new Map() };
+      } else {
+        source.isVisible = false; // only its instances draw
+        source.isPickable = false;
+        if (k.fade) markFadeSource(source);
+        batch = { kind: "auto", key, source, members: 0, reserved: 0, emptySince: -1 };
+      }
+      this.batches.set(key, batch);
+    }
+    return batch;
   }
 
   /**
@@ -304,7 +354,7 @@ export class MeshBatches implements CascadeExpander {
     else d.mesh?.dispose();
     if (!batch) return;
     if (--batch.members > 0) return;
-    if (retain) {
+    if (retain || batch.reserved > 0) {
       batch.emptySince = this.now;
       return;
     }
@@ -314,14 +364,15 @@ export class MeshBatches implements CascadeExpander {
   /** After syncing: dispose batches empty past their time, upload changed thin-instance buffers and refresh their bounds. */
   flush(): void {
     for (const b of [...this.batches.values()]) {
-      if (b.members === 0 && b.emptySince >= 0 && this.now - b.emptySince > BATCH_RETAIN_SECONDS) this.disposeBatch(b);
+      if (b.members === 0 && b.reserved === 0 && b.emptySince >= 0 && this.now - b.emptySince > BATCH_RETAIN_SECONDS) this.disposeBatch(b);
     }
     for (const b of this.batches.values()) {
       if (b.kind !== "thin" || !b.dirty) continue;
       b.dirty = false;
       const n = b.slots.length;
       // With per-pass sources the batch's own draws nothing; its slots are kept for when they stop.
-      b.source.setEnabled(n > 0 && !this.passMode);
+      // A fade batch draws only through its pass sources, which carry the fade values.
+      b.source.setEnabled(n > 0 && !this.passMode && !b.draw.fade);
       b.source.thinInstanceCount = n;
       if (n === 0) continue;
       b.source.thinInstanceBufferUpdated("matrix");
@@ -331,7 +382,7 @@ export class MeshBatches implements CascadeExpander {
 
   /** Thin batches whose meshes cast shadows (the casters list takes their meshes), without per-pass sources. */
   *thinCasters(): Iterable<Mesh> {
-    for (const b of this.batches.values()) if (b.kind === "thin" && b.castShadows && b.slots.length) yield b.source;
+    for (const b of this.batches.values()) if (b.kind === "thin" && b.castShadows && !b.draw.fade && b.slots.length) yield b.source;
   }
 
   // --- Per-pass thin sources (ADR 0446 §3) ----------------------------------------------------------------------
@@ -416,9 +467,12 @@ export class MeshBatches implements CascadeExpander {
     source.isPickable = false;
     const buffer = new Float32Array(16 * 16);
     source.thinInstanceSetBuffer("matrix", buffer, 16, false);
+    // A fade batch's pass sources draw the crossfade variant, each instance's value beside its matrix.
+    const fades = b.draw.fade ? new Float32Array(16) : null;
+    if (fades) markFadeSource(source, fades);
     source.thinInstanceCount = 0;
     source.setEnabled(false);
-    p = { source, buffer, list: [], count: 0, used: this.now, deferred };
+    p = { source, buffer, fades, list: [], count: 0, used: this.now, deferred };
     b.passes.set(key, p);
     this.passOwner.set(source, b);
     if (key === CASTERS_PASS) this.casterOwner.set(source, b);
@@ -441,12 +495,21 @@ export class MeshBatches implements CascadeExpander {
       let size = p.buffer.length;
       while (size < n * 16) size *= 2;
       p.buffer = new Float32Array(size);
+      if (p.fades) p.fades = new Float32Array(size / 16);
       grown = true;
     }
     for (let i = 0; i < n; i++) p.buffer.set(list[i].matrix, i * 16);
-    if (grown) p.source.thinInstanceSetBuffer("matrix", p.buffer, 16, false);
+    const fades = p.fades;
+    if (fades) for (let i = 0; i < n; i++) fades[i] = list[i].fade;
+    if (grown) {
+      p.source.thinInstanceSetBuffer("matrix", p.buffer, 16, false);
+      if (fades) p.source.thinInstanceSetBuffer(LOD_FADE_ATTRIBUTE, fades, 1, false);
+    }
     p.source.thinInstanceCount = n;
-    if (!grown) p.source.thinInstanceBufferUpdated("matrix");
+    if (!grown) {
+      p.source.thinInstanceBufferUpdated("matrix");
+      if (fades) p.source.thinInstanceBufferUpdated(LOD_FADE_ATTRIBUTE);
+    }
     if (p.count === 0) p.source.setEnabled(true);
     p.count = n;
   }
@@ -468,6 +531,8 @@ export class MeshBatches implements CascadeExpander {
 
   private makeSource(k: DrawKey, name: string): Mesh {
     const mesh = meshOf(this.scene, name, k.src);
+    // The first fade batch drawing a material gives it the crossfade plugin (ADR 0446 §4).
+    if (k.fade) addLodFade(k.material);
     mesh.material = k.material;
     if (k.material instanceof MultiMaterial) modelSubMeshes(k.src, mesh);
     mesh.receiveShadows = k.receiveShadows;

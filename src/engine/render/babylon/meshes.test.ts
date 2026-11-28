@@ -10,7 +10,7 @@ import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import { Scene as BabylonScene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { _startWorldService } from "../../core/worldServices";
-import { Assets, Engine, GameObject, Material, SceneManager } from "../../index";
+import { Assets, Engine, GameObject, Graphics, Material, SceneManager } from "../../index";
 import { loadMeshes, type ModelMesh } from "../../scene/models";
 import { memoryLodCache, setLodHost } from "../../scene/lod/cache";
 import { generateLods } from "../../scene/lod/generate";
@@ -23,6 +23,7 @@ import type { FeatureView } from "./feature";
 import { BabylonMaterialLibrary } from "./materialLibrary";
 import { BabylonMeshes, POOL_SECONDS } from "./meshes";
 import { BATCH_RETAIN_SECONDS } from "./meshBatches";
+import { LOD_FADE_ATTRIBUTE } from "./lodFade";
 
 /** A bumpy sphere as an OBJ (latitude-longitude grid with normals and UVs). */
 function bumpyObj(rows = 16, columns = 24): string {
@@ -49,6 +50,7 @@ function bumpyObj(rows = 16, columns = 24): string {
 
 const ROCK = "asset:models/rock.obj";
 const THIN = "asset:materials/thin.material.json";
+const OFF = "asset:materials/off.material.json";
 
 describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
   let engine: Engine;
@@ -67,6 +69,7 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
         "models/rock.obj": `data:text/plain;base64,${Buffer.from(bumpyObj()).toString("base64")}`,
         "models/rock.obj.meta.json": { format: "myco.import@1", lod: DEFAULT_LOD_SETTINGS },
         "materials/thin.material.json": { format: "myco.material@1", color: "#00ff00", instancing: "thin" },
+        "materials/off.material.json": { format: "myco.material@1", color: "#ff0000", instancing: "off" },
       }),
     );
     engine = await Engine.create({ headless: true });
@@ -187,6 +190,7 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
   it("keeps a level's drawable a second after the views stop drawing it, and its empty batch a few seconds more", async () => {
     const camera = eye();
     const { group: g } = group("rock", 4);
+    g.fade = "none"; // hard switches: the pooling of the levels themselves (crossfades: below)
     const s = await service();
     const prepare = () => feature.prepareViews([featureView(s, cameraView(camera, 1080, 1080))], s.main)!;
     frame();
@@ -249,5 +253,92 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
     feature.casters(casters);
     expect(counts(casters)).toEqual(counts(listOf(drawing, 0)));
     for (const m of casters) expect(mainSources.has(m)).toBe(false);
+  });
+
+  describe("crossfades (ADR 0446 §4)", () => {
+    beforeEach(() => {
+      Graphics.quality = "High"; // lodCrossfade on
+    });
+    afterEach(() => {
+      Graphics.quality = Graphics.defaultQuality;
+    });
+    const fadeOf = (m: AbstractMesh) => (m as InstancedMesh).instancedBuffers?.[LOD_FADE_ATTRIBUTE] as number | undefined;
+    /** A view's instances, finest level first: [triangles, fade value (undefined: a steady batch)]. */
+    const fades = (list: readonly AbstractMesh[]) => list.map((m) => [drawnTriangles([m])[0], fadeOf(m)] as const).sort((a, b) => b[0] - a[0]);
+
+    it("draws both levels in reserved fade batches for fadeDuration, casters switching at the midpoint, then one steady level", async () => {
+      const camera = eye();
+      const { group: g } = group("rock", 4); // level 2
+      const s = await service();
+      const prepare = (...more: VisibilityView[]) => feature.prepareViews([featureView(s, cameraView(camera, 1080, 1080)), ...more.map((v) => featureView(s, v))], s.main)!;
+      frame();
+      const [steady2] = listOf(prepare(), 0) as InstancedMesh[];
+      expect(fades([steady2])).toEqual([[tris(2), undefined]]);
+      const made = new Set(scene.meshes); // the fade batches are reserved by now
+      const casterTris = () => {
+        const out: AbstractMesh[] = [];
+        feature.casters(out);
+        return drawnTriangles(out);
+      };
+      // Level 1 now: a 0.3 s fade starts in the camera; a probe-like view that doesn't persist snaps.
+      g.node.transform!.position.set(0, 0, 2);
+      frame();
+      const snap = makeView({ key: "probe/0", kind: "probe", position: [0, 0, 0], right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1], projection: "perspective", fovY: Math.PI / 2, orthoHalfHeight: 0, near: 0.1, far: 1000, widthPx: 1080, heightPx: 1080, persistent: false, occlusion: false });
+      let drawing = prepare(snap);
+      const start = listOf(drawing, 0) as InstancedMesh[];
+      const [inT, inF] = fades(start)[0], [outT, outF] = fades(start)[1];
+      expect([inT, outT]).toEqual([tris(1), tris(2)]);
+      expect(inF).toBeLessThan(0); // incoming, drawing nothing yet
+      expect(Object.is(inF, -0)).toBe(false);
+      expect(outF).toBeGreaterThanOrEqual(0);
+      for (const m of start) {
+        expect(made.has(m.sourceMesh)).toBe(true); // reserved before the fade
+        expect(m.sourceMesh).not.toBe(steady2.sourceMesh);
+        expect(m.isEnabled()).toBe(true);
+      }
+      expect(start).not.toContain(steady2); // the view draws no steady drawable meanwhile
+      expect(fades(listOf(drawing, 1))).toEqual([[tris(1), undefined]]);
+      expect(casterTris()).toEqual([tris(2)]);
+      const casting: AbstractMesh[] = [];
+      feature.casters(casting);
+      expect(casting).toEqual([steady2]); // casters draw steady batches
+      expect(feature.diagnostics()).toEqual({ lod: { groups: 1, perLevel: [0, 1], culled: 0, fading: 1 } });
+      // Past the midpoint (the engine's clock): the values follow, casters take the new level.
+      frame(0.2);
+      drawing = prepare();
+      const mid = fades(listOf(drawing, 0));
+      expect(mid.map((x) => x[0])).toEqual([tris(1), tris(2)]);
+      expect(mid[0][1]).toBeCloseTo(-0.2 / 0.3, 3);
+      expect(mid[1][1]).toBeCloseTo(0.2 / 0.3, 3);
+      expect(listOf(drawing, 0)).toEqual(expect.arrayContaining(start)); // the same fade drawables
+      expect(casterTris()).toEqual([tris(1)]);
+      // Done: one steady level, the fade drawables kept a while, disabled.
+      frame(0.2);
+      drawing = prepare();
+      expect(fades(listOf(drawing, 0))).toEqual([[tris(1), undefined]]);
+      for (const m of start) expect(m.isEnabled() || m.isDisposed()).toBe(false);
+      expect(feature.diagnostics()).toMatchObject({ lod: { fading: 0 } });
+    });
+
+    it("snaps with fade none, and shows the level showing more where the batch can't fade (instancing off)", async () => {
+      const camera = eye();
+      const { group: g } = group("rock", 4);
+      g.fade = "none";
+      const off = group("plain", 4, OFF);
+      const s = await service();
+      const prepare = () => feature.prepareViews([featureView(s, cameraView(camera, 1080, 1080))], s.main)!;
+      frame();
+      prepare();
+      g.node.transform!.position.set(0, 0, 2);
+      off.group.node.transform!.position.set(0, 0, 2);
+      frame();
+      const both = prepare();
+      expect(fades(listOf(both, 0))).toEqual([
+        [tris(1), undefined], // the rock snapped
+        [tris(2), undefined], // the plain one still shows level 2 (t < 0.5)
+      ]);
+      frame(0.2);
+      expect(drawnTriangles(listOf(prepare(), 0))).toEqual([tris(1), tris(1)]);
+    });
   });
 });

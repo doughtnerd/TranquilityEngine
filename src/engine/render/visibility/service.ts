@@ -10,6 +10,11 @@
  * any group draws LOD0 and is hidden only when off-screen. A member's level byte is its group's level: each of its
  * meshes draws min(level, its last level) (ADR 0446 §2).
  *
+ * **Crossfades (ADR 0446 §4).** Persistent views fade a group with `fade: "crossfade"` between levels over its
+ * `fadeDuration`, on the World's real time (a 60th of a second per gather where it stands still, as in an edit-mode
+ * World). During a fade a result's `levels` holds the incoming level and `fade` its value (`fadeIn`), and `fadeLevels`
+ * gives the outgoing one, which draws with `outgoingOf(fade)`.
+ *
  * Groups: a member belongs to the nearest `LODGroup` on its node or an ancestor (one on a component node counts for the
  * node it acts for); a disabled group stops the search, so its members draw as if ungrouped.
  */
@@ -58,6 +63,8 @@ interface GroupEntry {
 /** One view's buffers. */
 interface ViewEntry {
   result: VisibilityResult;
+  /** Per slot during a fade: the outgoing level (`LOD_CULLED` when fading in from culled, or steady). */
+  fadeLevels: Uint8Array;
   groupOut: SelectionOut;
   stats: VisibilityStats;
   /** The gather generation it was last selected with. */
@@ -79,7 +86,7 @@ export class VisibilityService {
   private groupCount = 0;
   private readonly entries: (GroupEntry | null)[] = [];
   private readonly state = new SelectionState();
-  private input: { count: number; sphere: Float32Array; size: Float32Array; heights: Float32Array; heightStart: Uint32Array; heightCount: Uint8Array; forceLevel: Int16Array } = {
+  private input: { count: number; sphere: Float32Array; size: Float32Array; heights: Float32Array; heightStart: Uint32Array; heightCount: Uint8Array; forceLevel: Int16Array; fadeDuration: Float32Array } = {
     count: 0,
     sphere: new Float32Array(0),
     size: new Float32Array(0),
@@ -87,7 +94,14 @@ export class VisibilityService {
     heightStart: new Uint32Array(0),
     heightCount: new Uint8Array(0),
     forceLevel: new Int16Array(0),
+    fadeDuration: new Float32Array(0),
   };
+  /** The fade clock in seconds (`tick`), and the World's real time it last read. */
+  private now = 0;
+  private lastRealtime = -1;
+  /** The World's frame count at the last tick, and whether a renderer selected a view since (`select`). */
+  private lastFrame = -1;
+  private rendered = false;
   private readonly views = new Map<ViewKey, ViewEntry>();
   private generation = 0;
   private mainEntry: ViewEntry | null = null;
@@ -123,11 +137,31 @@ export class VisibilityService {
    */
   select(view: VisibilityView): VisibilityResult {
     const main = this.mainEntry;
-    if (main && main.generation === this.generation && sameView(main.result.view, view)) return main.result;
+    if (main && main.generation === this.generation && sameView(main.result.view, view)) {
+      this.rendered = true;
+      return main.result;
+    }
     // A renderer selects each view once a frame: a view selected again with no gather since is a new frame (an
     // edit-mode World that isn't stepped), so gather first.
     if (this.generation === 0 || this.views.get(view.key)?.generation === this.generation) this.gather();
+    this.rendered = true;
     return this.run(view).result;
+  }
+
+  /**
+   * The outgoing level per slot of a result this service gave (`LOD_CULLED` where it doesn't fade, or fades in from
+   * culled), or null for a result it no longer holds. A slot fades while its `fade` value isn't 0.
+   */
+  fadeLevels(result: VisibilityResult): Uint8Array | null {
+    const v = this.views.get(result.view.key);
+    return v && v.result === result ? v.fadeLevels : null;
+  }
+
+  /** Whether a member's group crossfades level changes now (its `fade` is `"crossfade"` and the tier allows it). */
+  crossfades(member: LodMember): boolean {
+    const m = this.members.get(member as Member);
+    if (!m || !m.group || !Graphics.tier.lodCrossfade) return false;
+    return (this.input.fadeDuration[m.group.index] ?? 0) > 0;
   }
 
   /** A member's renderer slot, or -1 while it has none (disabled, or not seen since it was enabled). */
@@ -181,6 +215,7 @@ export class VisibilityService {
 
   private gather(): void {
     const frame = ++this.generation;
+    this.tick();
     const world = this.world;
     // Owner entity → its LODGroup, or null for a disabled one (which stops the search).
     const owners = new Map<number, LODGroup | null>();
@@ -228,6 +263,20 @@ export class VisibilityService {
     this.fillInput();
   }
 
+  /** Advance the fade clock: by the World's real time, or a 60th of a second where it doesn't advance. */
+  private tick(): void {
+    const time = this.world.time;
+    const real = time.realtimeSinceStartup;
+    const delta = this.lastRealtime >= 0 ? real - this.lastRealtime : 0;
+    this.lastRealtime = real;
+    const frame = time.frameCount;
+    if (delta > 0) this.now += delta;
+    else if (frame === this.lastFrame && this.rendered) this.now += 1 / 60; // a World that isn't stepped, drawn again
+    // Otherwise the same frame again (the animation gather's `update`, then the one after propagation): no advance.
+    this.lastFrame = frame;
+    this.rendered = false;
+  }
+
   /** The group entry for an `LODGroup`, or for a lone member (its own key); made on first sight, members reset once a frame. */
   private groupEntry(key: LODGroup | Member, frame: number): GroupEntry {
     let g = this.groups.get(key);
@@ -253,14 +302,15 @@ export class VisibilityService {
     if (i.size.length >= count) return;
     const n = Math.max(count, i.size.length * 2, 16);
     const sphere = new Float32Array(n * 4), size = new Float32Array(n), heights = new Float32Array(n * MAX_LOD_LEVELS);
-    const heightStart = new Uint32Array(n), heightCount = new Uint8Array(n), forceLevel = new Int16Array(n);
+    const heightStart = new Uint32Array(n), heightCount = new Uint8Array(n), forceLevel = new Int16Array(n), fadeDuration = new Float32Array(n);
     sphere.set(i.sphere);
+    fadeDuration.set(i.fadeDuration);
     size.set(i.size);
     heights.set(i.heights);
     heightCount.set(i.heightCount);
     forceLevel.set(i.forceLevel);
     for (let g = 0; g < n; g++) heightStart[g] = g * MAX_LOD_LEVELS;
-    this.input = { count: i.count, sphere, size, heights, heightStart, heightCount, forceLevel };
+    this.input = { count: i.count, sphere, size, heights, heightStart, heightCount, forceLevel, fadeDuration };
   }
 
   /** Bounds, sizes, heights and forced levels into the selection input. */
@@ -278,6 +328,7 @@ export class VisibilityService {
         input.heightCount[index] = 1;
         input.heights[index * MAX_LOD_LEVELS] = 0;
         input.forceLevel[index] = -1;
+        input.fadeDuration[index] = 0;
         continue;
       }
       const membership = g.members.length !== g.previous.length || g.members.some((m, i) => m !== g.previous[i]);
@@ -302,6 +353,7 @@ export class VisibilityService {
         input.sphere.set(g.bounds.sphere, index * 4);
         input.size[index] = owner.size > 0 ? owner.size : g.bounds.size;
         input.forceLevel[index] = Number.isInteger(owner.forceLevel) && owner.forceLevel >= 0 ? Math.min(owner.forceLevel, 254) : -1;
+        input.fadeDuration[index] = owner.fade === "crossfade" && Number.isFinite(owner.fadeDuration) ? Math.max(0, owner.fadeDuration) : 0;
         this.fillHeights(g, owner, meshesChanged);
       } else {
         const b = g.members[0]?.bounds;
@@ -310,6 +362,7 @@ export class VisibilityService {
         input.heightCount[index] = 1;
         input.heights[index * MAX_LOD_LEVELS] = 0;
         input.forceLevel[index] = -1;
+        input.fadeDuration[index] = 0;
       }
     }
   }
@@ -345,7 +398,8 @@ export class VisibilityService {
       const gn = Math.max(groups, 16), sn = Math.max(slots, 16);
       v = {
         result: { view, levels: new Uint8Array(sn), casterLevels: new Uint8Array(sn), hidden: new Uint8Array(sn), fade: new Float32Array(sn) },
-        groupOut: { levels: new Uint8Array(gn), casterLevels: new Uint8Array(gn), hidden: new Uint8Array(gn), fade: new Float32Array(gn) },
+        fadeLevels: new Uint8Array(sn),
+        groupOut: { levels: new Uint8Array(gn), casterLevels: new Uint8Array(gn), hidden: new Uint8Array(gn), fade: new Float32Array(gn), fadeFrom: new Uint8Array(gn) },
         stats: { groups: 0, perLevel: [], lodCulled: 0, fading: 0, occlusion: null },
         generation: 0,
       };
@@ -354,30 +408,35 @@ export class VisibilityService {
     v.generation = this.generation;
     const tier: Readonly<QualityTier> = Graphics.tier;
     const out = v.groupOut;
-    selectLevels(view, this.input as SelectionGroups, tier, this.state, out);
+    selectLevels(view, this.input as SelectionGroups, tier, this.state, out, this.now);
     const r = v.result;
     const levels = r.levels as Uint8Array, casters = r.casterLevels as Uint8Array, hidden = r.hidden as Uint8Array, fade = r.fade as Float32Array;
+    const fadeLevels = v.fadeLevels, fadeFrom = out.fadeFrom!;
     levels.fill(LOD_CULLED);
     casters.fill(LOD_CULLED);
     hidden.fill(1);
     fade.fill(0);
+    fadeLevels.fill(LOD_CULLED);
     for (const m of this.members.values()) {
       const g = m.group!.index;
       levels[m.slot] = out.levels[g];
       hidden[m.slot] = out.hidden[g];
       casters[m.slot] = castsShadows(m.member) ? out.casterLevels[g] : LOD_CULLED;
+      fade[m.slot] = out.fade[g];
+      fadeLevels[m.slot] = fadeFrom[g];
     }
-    let count = 0, lodCulled = 0;
+    let count = 0, lodCulled = 0, fading = 0;
     const perLevel: number[] = [];
     for (const g of this.groups.values()) {
       if (!g.owner) continue;
       count++;
       const level = out.levels[g.index];
+      if (out.fade[g.index] !== 0) fading++;
       if (level === LOD_CULLED) lodCulled++;
       else if (!out.hidden[g.index]) perLevel[level] = (perLevel[level] ?? 0) + 1;
     }
     for (let i = 0; i < perLevel.length; i++) perLevel[i] ??= 0;
-    v.stats = { groups: count, perLevel, lodCulled, fading: 0, occlusion: null };
+    v.stats = { groups: count, perLevel, lodCulled, fading, occlusion: null };
     return v;
   }
 }
