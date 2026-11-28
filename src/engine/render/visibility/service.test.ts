@@ -5,13 +5,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Component } from "../../core/Component";
 import { component } from "../../core/registry";
 import { _startWorldService } from "../../core/worldServices";
-import { Engine, GameObject, Graphics, Quaternion } from "../../index";
+import { Assets, Engine, GameObject, Graphics, Quaternion } from "../../index";
 import type { ModelMesh } from "../../scene/models";
 import { Camera, LODGroup, MeshRenderer } from "../components";
 import { registerLodMemberType } from "./lodMember";
 import { VISIBILITY_SERVICE_ID, visibilityService, type VisibilityService } from "./service";
 import { LOD_CULLED, type LodMember, type OcclusionRole } from "./types";
 import { cameraView, makeView } from "./views";
+import { loadOcclusionCore } from "./occlusion/core";
 
 const engines: Engine[] = [];
 afterEach(() => {
@@ -356,3 +357,109 @@ const WITH_LEVELS = [
   { ...WITHOUT[0], lods: { levels: [0, err(0.3), err(0.1)].map((error) => ({ mesh: WITHOUT[0], error, triangles: 1 })), occluder: null, bounds: [-0.5, -0.5, -0.5, 0.5, 0.5, 0.5], pixelError: 1 } } as ModelMesh,
 ];
 registerLodMemberType(LevelsProbe);
+
+describe("occlusion in the visibility service (ADR 0447)", () => {
+  afterEach(() => {
+    Graphics.quality = Graphics.defaultQuality;
+  });
+  /** A wall of built-in cube (12 triangles: it occludes with itself) at z, 20 wide and high. */
+  const wall = (z: number) => {
+    const w = GameObject.create("wall").addComponent(MeshRenderer);
+    w.node.transform!.scale.set(20, 20, 0.5);
+    place(w, 0, 0, z);
+    return w;
+  };
+  /** Step until the occlusion core has loaded (it loads lazily, the first time a view asks), then once more. */
+  const stepLoaded = async (engine: Engine) => {
+    engine.step(1 / 60);
+    await loadOcclusionCore(256, 128);
+    await Promise.resolve();
+    engine.step(1 / 60);
+  };
+
+  it("hides a group behind an opaque wall in the main camera, says why, and keeps its shadow caster", async () => {
+    Graphics.quality = "High"; // a 256×128 buffer
+    const { engine, service, group, renderer } = await setup();
+    place(group, 0, 0, 8); // level 2, behind the wall
+    wall(4);
+    await stepLoaded(engine);
+    expect(group.visibility).toBe("occluded");
+    expect(service.main!.hidden[service.slotOf(renderer)]).not.toBe(0);
+    const stats = service.stats(service.main!.view.key)!.occlusion!;
+    expect(stats.occluders).toBeGreaterThanOrEqual(1); // the wall, and the group's own cube (wide enough on screen)
+    expect(stats.culled).toBe(1);
+    // Casters are never occlusion-culled: an object hidden from the camera can still cast a visible shadow.
+    expect(service.main!.casterLevels[service.slotOf(renderer)]).not.toBe(LOD_CULLED);
+  });
+
+  it("draws what each role, the camera and the tier say it may not hide", async () => {
+    Graphics.quality = "High";
+    const { engine, camera, group, renderer } = await setup();
+    place(group, 0, 0, 5); // near enough to stay drawn on the Low tier (its LOD bias)
+    const w = wall(3);
+    await stepLoaded(engine);
+    expect(group.visibility).toBe("occluded");
+    w.occlusion = "occludee"; // hides nothing
+    engine.step(1 / 60);
+    expect(group.visibility).toBe("drawn");
+    w.occlusion = "occluder";
+    engine.step(1 / 60);
+    expect(group.visibility).toBe("occluded");
+    renderer.occlusion = "none"; // never hidden
+    engine.step(1 / 60);
+    expect(group.visibility).toBe("drawn");
+    renderer.occlusion = "occludee";
+    engine.step(1 / 60);
+    expect(group.visibility).toBe("occluded");
+    camera.occlusionCulling = false;
+    engine.step(1 / 60);
+    expect(group.visibility).toBe("drawn");
+    camera.occlusionCulling = true;
+    Graphics.quality = "Low"; // no buffer
+    engine.step(1 / 60);
+    expect(group.visibility).toBe("drawn");
+  });
+
+  it("doesn't occlude with a see-through material, or with an auto occluder too narrow on screen", async () => {
+    Graphics.quality = "High";
+    const { engine, group } = await setup();
+    place(group, 0, 0, 8);
+    Assets.addSource(Assets.fromObject({ "glass.material.json": { format: "myco.material@1", color: "#ffffff80" } }));
+    const w = wall(4);
+    w.material = "glass.material.json";
+    await stepLoaded(engine);
+    expect(group.visibility).toBe("drawn");
+    w.material = "";
+    w.node.transform!.scale.set(20, 20, 0.001); // 0.001 deep: under 2 buffer pixels at any distance
+    engine.step(1 / 60);
+    expect(group.visibility).toBe("drawn");
+    w.occlusion = "occluder"; // an explicit occluder skips the width test
+    engine.step(1 / 60);
+    expect(group.visibility).toBe("occluded");
+  });
+
+  it("backs off where it culls little: after 60 frames under 10 % it pauses for 60, then retries", async () => {
+    Graphics.quality = "High";
+    const { engine, service, group } = await setup();
+    place(group, 0, 0, 8);
+    wall(-4); // behind the camera: occludes nothing
+    await stepLoaded(engine);
+    const key = service.main!.view.key;
+    let ran = 1; // the frame after loading ran
+    for (let i = 0; i < 58; i++) {
+      engine.step(1 / 60);
+      if (service.stats(key)!.occlusion) ran++;
+    }
+    expect(ran).toBe(59);
+    engine.step(1 / 60); // the 60th low frame: runs, then pauses
+    expect(service.stats(key)!.occlusion).not.toBeNull();
+    for (let i = 0; i < 60; i++) {
+      engine.step(1 / 60);
+      expect(service.stats(key)!.occlusion).toBeNull();
+    }
+    engine.step(1 / 60);
+    expect(service.stats(key)!.occlusion).not.toBeNull(); // the retry
+    engine.step(1 / 60);
+    expect(service.stats(key)!.occlusion).toBeNull(); // still low: paused again
+  });
+});

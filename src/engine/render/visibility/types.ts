@@ -38,6 +38,12 @@ export interface VisibilityView {
   readonly persistent: boolean;
   /** Whether occlusion runs for this view (ADR 0447 §4). */
   readonly occlusion: boolean;
+  /** Near and far distances. */
+  readonly near: number;
+  readonly far: number;
+  /** The projection's x and y scale: a world size at distance 1 in half-viewports (perspective), or per world unit (orthographic). */
+  readonly sx: number;
+  readonly sy: number;
 }
 
 /** Why a group or renderer isn't drawn, or that it is (`LODGroup.visibility`, ADR 0446 §2). */

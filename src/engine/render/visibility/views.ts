@@ -92,6 +92,10 @@ export function makeView(spec: ViewSpec): VisibilityView {
     heightPx: spec.heightPx,
     persistent: spec.persistent,
     occlusion: spec.occlusion,
+    near,
+    far,
+    sx,
+    sy,
   };
 }
 

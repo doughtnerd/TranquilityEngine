@@ -339,7 +339,7 @@ export class BabylonMeshes implements BabylonFeature {
   diagnostics(): unknown {
     const s = this.stats;
     if (!s) return undefined;
-    return { lod: { groups: s.groups, perLevel: [...s.perLevel], culled: s.lodCulled, fading: s.fading } };
+    return { lod: { groups: s.groups, perLevel: [...s.perLevel], culled: s.lodCulled, fading: s.fading }, ...(s.occlusion ? { occlusion: { ...s.occlusion } } : {}) };
   }
 
   /** The renderer that owns a drawn mesh or batch source (`describe`, for the variant report), or null. */

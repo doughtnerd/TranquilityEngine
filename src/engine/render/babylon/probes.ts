@@ -60,6 +60,10 @@ export function probeView(c: ProbeCapture): VisibilityView {
     heightPx: c.resolution,
     persistent: false,
     occlusion: false,
+    near: 0.1,
+    far: 1e6,
+    sx: 1,
+    sy: 1,
   };
 }
 

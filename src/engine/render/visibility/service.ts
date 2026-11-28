@@ -24,12 +24,14 @@ import type { World } from "../../core/World";
 import { _registerWorldService, _worldServiceOf } from "../../core/worldServices";
 import { beginMeshLookups, endMeshLookups, type ModelMesh } from "../../scene/models";
 import { Graphics } from "../Graphics";
-import { Camera, LODGroup } from "../components";
+import { Camera, LODGroup, MeshRenderer } from "../components";
 import { RendererBounds, computeGroupBounds, newGroupBounds, type GroupBounds } from "./bounds";
 import { lodMemberTypes } from "./lodMember";
 import { SelectionState, automaticHeights, screenHeightOf, selectLevels, type MeshLevelErrors, type SelectionGroups, type SelectionOut } from "./select";
 import { LOD_CULLED, type LodMember, type LodVisibility, type ViewKey, type VisibilityResult, type VisibilityStats, type VisibilityView } from "./types";
 import { cameraView } from "./views";
+import { loadOcclusionCore, type OcclusionCoreLoader, type WasmOcclusionCore } from "./occlusion/core";
+import { occluderGeometry, opaqueMaterial, worldOccluder, type OccluderGeometry, type WorldOccluder } from "./occlusion/occluders";
 
 /** The service's id (ADR 0135). */
 export const VISIBILITY_SERVICE_ID = "myco.visibility";
@@ -49,6 +51,8 @@ interface MemberEntry {
   /** That node's `tVersion` and the meshes its bounds were last brought up to date for (-1, undefined: never). */
   tv: number;
   meshes: readonly ModelMesh[] | null | undefined;
+  /** Its occluder triangles in world space (ADR 0447), for the `tVersion` and meshes they were made at. */
+  occluder: { tv: number; meshes: readonly ModelMesh[]; world: WorldOccluder } | null;
 }
 
 interface GroupEntry {
@@ -77,6 +81,9 @@ interface ViewEntry {
   stats: VisibilityStats;
   /** The gather generation it was last selected with. */
   generation: number;
+  /** Occlusion's back-off (ADR 0447 §4): frames in a row that culled under 10 %, and frames left paused. */
+  lowFrames: number;
+  pausedFrames: number;
 }
 
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
@@ -119,10 +126,21 @@ export class VisibilityService {
   private generation = 0;
   private mainEntry: ViewEntry | null = null;
   private readonly removeHook: () => void;
+  /** The occlusion core once loaded (ADR 0447 §2): loading starts the first time a view asks for it. */
+  private occlusionCore: WasmOcclusionCore | null = null;
+  private occlusionLoad: Promise<unknown> | null = null;
+  /** Views occlusion ran for in the gather generation `occlusionGeneration` (the tier's `occlusionViews`). */
+  private occlusionViewsRun = 0;
+  private occlusionGeneration = -1;
+  /** Scratch for one view's occluders and occludees, grown as needed. */
+  private occ = { triangles: new Float32Array(0), errors: new Float32Array(0), neighbors: new Uint32Array(0), boxes: new Float32Array(0), hidden: new Uint8Array(0), groups: [] as number[] };
   /** The editor's level preview (ADR 0446 §7): applied to scene views only. */
   private lodPreview: { group: LODGroup; level: number } | null = null;
 
-  constructor(private readonly world: World) {
+  constructor(
+    private readonly world: World,
+    private readonly loadCore: OcclusionCoreLoader = loadOcclusionCore,
+  ) {
     this.removeHook = world._afterPropagation(() => this.update());
   }
 
@@ -203,7 +221,9 @@ export class VisibilityService {
     const e = this.groups.get(group);
     const main = this.mainEntry;
     if (!e || !main || e.index >= main.groupOut.levels.length) return "drawn";
-    if (main.groupOut.hidden[e.index]) return "offScreen";
+    const hidden = main.groupOut.hidden[e.index];
+    if (hidden === 2) return "occluded";
+    if (hidden) return "offScreen";
     return main.groupOut.levels[e.index] === LOD_CULLED ? "lodCulled" : "drawn";
   }
 
@@ -293,7 +313,7 @@ export class VisibilityService {
         let m = this.members.get(c);
         if (!m) {
           const slot = this.freeSlots.pop() ?? this.slotCount++;
-          this.members.set(c, (m = { member: c, slot, bounds: new RendererBounds(), group: null, seen: 0, entity: -1, tv: -1, meshes: undefined }));
+          this.members.set(c, (m = { member: c, slot, bounds: new RendererBounds(), group: null, seen: 0, entity: -1, tv: -1, meshes: undefined, occluder: null }));
         }
         m.seen = frame;
         const at = c.gameObject.transform ? c.gameObject : c.owner;
@@ -486,6 +506,8 @@ export class VisibilityService {
         groupOut: { levels: new Uint8Array(gn), casterLevels: new Uint8Array(gn), hidden: new Uint8Array(gn), fade: new Float32Array(gn), fadeFrom: new Uint8Array(gn) },
         stats: { groups: 0, perLevel: [], lodCulled: 0, fading: 0, occlusion: null },
         generation: 0,
+        lowFrames: 0,
+        pausedFrames: 0,
       };
       this.views.set(view.key, v);
     } else v.result = { ...v.result, view };
@@ -494,6 +516,7 @@ export class VisibilityService {
     const out = v.groupOut;
     const preview = view.kind === "sceneView" && this.lodPreview ? this.previewOf(this.lodPreview) : null;
     selectLevels(view, this.input as SelectionGroups, tier, this.state, out, this.now, preview);
+    const occlusion = this.occlude(view, v, tier);
     const r = v.result;
     const levels = r.levels as Uint8Array, casters = r.casterLevels as Uint8Array, hidden = r.hidden as Uint8Array, fade = r.fade as Float32Array;
     const fadeLevels = v.fadeLevels, fadeFrom = out.fadeFrom!;
@@ -521,10 +544,160 @@ export class VisibilityService {
       else if (!out.hidden[g.index]) perLevel[level] = (perLevel[level] ?? 0) + 1;
     }
     for (let i = 0; i < perLevel.length; i++) perLevel[i] ??= 0;
-    v.stats = { groups: count, perLevel, lodCulled, fading, occlusion: null };
+    v.stats = { groups: count, perLevel, lodCulled, fading, occlusion };
     return v;
   }
+
+  // --- occlusion (ADR 0447) ----------------------------------------------------------------------------------
+
+  /**
+   * Occlusion for one view after selection: marks groups the buffer proves hidden with 2 in `groupOut.hidden` (1 is
+   * off-screen). Runs for perspective views that ask for it, on tiers with a buffer, for at most the tier's
+   * `occlusionViews` views per frame (the main camera's selection comes first), unless backed off; until the core has
+   * loaded (lazily, here) the view draws unculled. Returns its statistics, or null when it didn't run.
+   */
+  private occlude(view: VisibilityView, v: ViewEntry, tier: Readonly<QualityTier>): VisibilityStats["occlusion"] {
+    if (!view.occlusion || view.projection !== "perspective" || tier.occlusionBuffer === "off" || tier.occluderBudget <= 0) return null;
+    if (this.occlusionGeneration !== this.generation) {
+      this.occlusionGeneration = this.generation;
+      this.occlusionViewsRun = 0;
+    }
+    if (this.occlusionViewsRun >= tier.occlusionViews) return null;
+    const [width, height] = tier.occlusionBuffer === "high" ? [320, 180] : [256, 128];
+    const core = this.occlusionCore;
+    if (!core) {
+      this.occlusionLoad ??= this.loadCore(width, height).then((load) => {
+        if (load.status === "ready") this.occlusionCore = load.core;
+      });
+      return null;
+    }
+    if (v.pausedFrames > 0) {
+      v.pausedFrames--;
+      return null;
+    }
+    this.occlusionViewsRun++;
+    core.resize(width, height);
+    const start = performance.now();
+    const out = v.groupOut;
+    const world = this.world;
+    const ex = view.position[0], ey = view.position[1], ez = view.position[2];
+    const halfHeight = height / 2;
+    // 1–2. Occluders: in the frustum and drawn, opaque, with geometry; "auto" ones only while at least 2 buffer pixels
+    // wide; biggest on screen first, up to the tier's triangle budget.
+    const candidates: { m: MemberEntry; size: number; geometries: OccluderGeometry[]; triangles: number }[] = [];
+    for (const m of this.memberList) {
+      const role = m.member.occlusion;
+      if ((role !== "auto" && role !== "occluder") || !(m.member instanceof MeshRenderer)) continue;
+      const g = m.group!.index;
+      if (out.hidden[g] || out.levels[g] === LOD_CULLED || !m.meshes || !m.bounds.hasLocal) continue;
+      const geometries: OccluderGeometry[] = [];
+      let triangles = 0;
+      for (const mesh of m.meshes) {
+        const geo = occluderGeometry(mesh);
+        if (geo) {
+          geometries.push(geo);
+          triangles += geo.indices.length / 3;
+        }
+      }
+      if (!geometries.length) continue;
+      const r = m.member as MeshRenderer;
+      if (!opaqueMaterial(r.materials[0] || r.material, m.meshes)) continue;
+      const s = m.bounds.sphere, w = m.bounds.world;
+      const d = Math.max(Math.hypot(s[0] - ex, s[1] - ey, s[2] - ez) - s[3], view.near);
+      if (role === "auto") {
+        const narrowest = Math.min(w[3] - w[0], w[4] - w[1], w[5] - w[2]);
+        if ((narrowest / d) * view.sy * halfHeight < 2) continue;
+      }
+      candidates.push({ m, size: s[3] / d, geometries, triangles });
+    }
+    candidates.sort((a, b) => b.size - a.size);
+    const scratch = this.occ;
+    let budget = tier.occluderBudget, n = 0, occluders = 0;
+    for (const c of candidates) {
+      if (c.triangles > budget) continue;
+      budget -= c.triangles;
+      const m = c.m;
+      const tv = m.entity >= 0 ? world.tVersion[m.entity] : 0;
+      if (!m.occluder || m.occluder.tv !== tv || m.occluder.meshes !== m.meshes) {
+        const mat = m.entity >= 0 ? world.worldMatrix(m.entity) : IDENTITY;
+        m.occluder = { tv, meshes: m.meshes!, world: worldOccluder(c.geometries, mat, m.entity >= 0 ? m.entity * 16 : 0) };
+      }
+      const wo = m.occluder.world;
+      this.growOccluders(n + wo.count);
+      scratch.triangles.set(wo.triangles, n * 9);
+      scratch.errors.set(wo.errors, n);
+      for (let i = 0; i < wo.count * 3; i++) {
+        const nb = wo.neighbors[i];
+        scratch.neighbors[n * 3 + i] = nb === 0xffffffff ? nb : nb + n;
+      }
+      n += wo.count;
+      occluders++;
+    }
+    // 5. Occludees: each drawn group once with its bounds (a lone renderer with its own), unless a member is "none".
+    const groups = scratch.groups;
+    groups.length = 0;
+    for (const g of this.groupList) {
+      const i = g.index;
+      if (out.hidden[i] || out.levels[i] === LOD_CULLED || !g.members.length) continue;
+      let testable = true, any = false;
+      for (const m of g.members) {
+        if (m.member.occlusion === "none") testable = false;
+        if (m.bounds.hasLocal) any = true;
+      }
+      if (!testable || !any) continue;
+      groups.push(i);
+    }
+    this.growBoxes(groups.length);
+    for (let k = 0; k < groups.length; k++) {
+      const g = this.entries[groups[k]]!;
+      scratch.boxes.set(g.owner ? g.bounds.world : g.members[0].bounds.world, k * 6);
+    }
+    const hidden = scratch.hidden.subarray(0, groups.length);
+    hidden.fill(0);
+    let culled = 0, tested = 0;
+    if (n > 0 && groups.length > 0) {
+      const run = core.occlude(view, { near: view.near, far: view.far, sx: view.sx, sy: view.sy, eye: view.position }, scratch.triangles.subarray(0, n * 9), scratch.errors.subarray(0, n), scratch.neighbors.subarray(0, n * 3), scratch.boxes.subarray(0, groups.length * 6), hidden);
+      tested = run.tested;
+      for (let k = 0; k < groups.length; k++) {
+        if (!hidden[k]) continue;
+        out.hidden[groups[k]] = 2;
+        culled++;
+      }
+    }
+    // Back-off: under 10 % culled for 60 frames in a row pauses it for 60, then it retries for one frame.
+    if (culled < 0.1 * Math.max(1, groups.length)) {
+      if (++v.lowFrames >= BACKOFF_FRAMES) {
+        v.pausedFrames = BACKOFF_FRAMES;
+        v.lowFrames = BACKOFF_FRAMES - 1;
+      }
+    } else v.lowFrames = 0;
+    return { occluders, triangles: n, tested, culled, ms: performance.now() - start };
+  }
+
+  private growOccluders(n: number): void {
+    const s = this.occ;
+    if (s.errors.length >= n) return;
+    const size = Math.max(n, s.errors.length * 2, 1024);
+    const t = new Float32Array(size * 9), e = new Float32Array(size), nb = new Uint32Array(size * 3);
+    t.set(s.triangles);
+    e.set(s.errors);
+    nb.set(s.neighbors);
+    s.triangles = t;
+    s.errors = e;
+    s.neighbors = nb;
+  }
+
+  private growBoxes(m: number): void {
+    const s = this.occ;
+    if (s.hidden.length >= m) return;
+    const size = Math.max(m, s.hidden.length * 2, 256);
+    s.boxes = new Float32Array(size * 6);
+    s.hidden = new Uint8Array(size);
+  }
 }
+
+/** Frames of low culling before occlusion pauses, and frames it pauses for (ADR 0447 §4). */
+const BACKOFF_FRAMES = 60;
 
 /** The World's main camera: the enabled `Camera` with the lowest depth (the first such, as `Camera.main`). */
 function mainCamera(world: World): Camera | null {
