@@ -1,0 +1,1 @@
+core kinds 14; after all halves 49; panels 7; errors: none

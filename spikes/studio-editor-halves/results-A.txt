@@ -1,0 +1,18 @@
+myco.particles	ok	AssetKindx3 Panelx1 InspectorSectionx1 HierarchyCreateEntryx1 ViewportToolx1 PanelExtensionx1 SceneOpenMigrationx1
+myco.materials	ok	AssetKindx4 Panelx1
+myco.sky	ok	AssetKindx1 Panelx1
+myco.audio	ok	NameReferencesx1 PlayStatsCounterx1 AssetKindx5 ViewportToolx4 SceneToolbarItemx1 InspectorSectionx4
+myco.navigation	ok	AssetKindx1 ProjectSettingsSectionx1 PlayStatsCounterx1 PanelExtensionx1 InspectorSectionx8 ViewportToolx2 SceneToolbarItemx1
+myco.tilemaps	ok	AssetKindx4 Panelx1 ViewportToolx1 InspectorSectionx1 NameReferencesx1 HierarchyCreateEntryx1 AssetActionx2
+myco.physics	ok	ProjectSettingsSectionx1 ComponentNotex1 ViewportToolx2 ComponentWireframex1 IdlePrefetchx1
+myco.meshes	ok	AssetKindx2 FieldChoicesx1
+myco.environment	ok	AssetKindx2
+myco.lights2d	ok	ViewportToolx1 InspectorSectionx1 ProjectSettingsSectionx1 NameReferencesx1 SpriteEditorToolx2 ImportSettingsSectionx1 HierarchyCreateEntryx6
+myco.post-processing	ok	AssetKindx1
+myco.camera-shake	ok	ViewportToolx1 InspectorSectionx2
+myco.ui	ok	AssetKindx2
+myco.lines	ok	ViewportToolx1 InspectorSectionx2 HierarchyCreateEntryx4
+myco.decals	ok	ViewportToolx1 InspectorSectionx1 HierarchyCreateEntryx2
+myco.subtitles	ok	PlayToolbarItemx1
+myco.animation	ok	AssetKindx10 AssetNodesAugmentx1 NodeAssetDropx1 InspectorSectionx1 SkeletonBonesx1 ViewportToolx3 ProjectSettingsSectionx1 Panelx3 FieldAdornmentx1 FieldWriteInterceptorx1 ComponentHeaderActionx2 ImportSettingsSectionx4 AssetActionx1 SpriteEditorToolx2 PlayStatsTablex1
+myco.ragdoll	ok	InspectorSectionx1 ViewportToolx1

@@ -1,0 +1,39 @@
+studio main.tsx static closure: 1729 modules, 14977 KiB
+editor/sdk/index.ts static closure: 481 modules, 4948 KiB; editor/state.ts in it: true
+
+half | static mods | KiB | new vs Studio (mods/KiB) | +dynamic mods | flags (static / dyn) | ext pkgs (static)
+animation | 621 | 5895 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/animation/editor/index.ts -> src/plugins/animation/editor/animationWindow/register.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+audio | 623 | 6765 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | babylon,three,svelte
+   state.ts chain: src/plugins/audio/editor/index.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+camera-shake | 488 | 4962 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/camera-shake/editor/index.ts -> src/plugins/camera-shake/editor/shakeGizmo.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+decals | 488 | 4975 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/decals/editor/index.ts -> src/plugins/decals/editor/decalGizmo.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+environment | 2 | 1 | 0/0 | 1638 | editor/state.ts(dyn),layout/store(dyn),editor shell UI (ui|panels|views|shell)(dyn),css(dyn),svelte(dyn) | -
+lights2d | 487 | 4975 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/lights2d/editor/index.ts -> src/plugins/lights2d/editor/lights2dTool.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+lines | 490 | 4975 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/lines/editor/index.ts -> src/plugins/lines/editor/linePointsTool.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+materials | 487 | 4958 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/materials/editor/index.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+meshes | 486 | 4965 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/meshes/editor/index.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+navigation | 501 | 5137 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/navigation/editor/index.ts -> src/plugins/navigation/editor/navSettingsModel.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+particles | 497 | 5189 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/particles/editor/index.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+physics | 516 | 5154 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/physics/editor/index.ts -> src/plugins/physics/editor/colliderGizmo.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+post-processing | 2 | 1 | 0/0 | 2 | - | -
+ragdoll | 688 | 6067 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/ragdoll/editor/index.ts -> src/plugins/ragdoll/editor/builder/register.ts -> src/plugins/ragdoll/editor/builder/ragdollGizmo.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+sky | 4 | 16 | 0/0 | 1638 | editor/state.ts(dyn),layout/store(dyn),editor shell UI (ui|panels|views|shell)(dyn),css(dyn),svelte(dyn) | -
+subtitles | 3 | 2 | 0/0 | 1638 | editor/state.ts(dyn),layout/store(dyn),editor shell UI (ui|panels|views|shell)(dyn),css(dyn),svelte(dyn) | -
+tilemaps | 508 | 5174 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/tilemaps/editor/index.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+ui | 485 | 4952 | 0/0 | 1638 | editor/state.ts,layout/store,editor shell UI (ui|panels|views|shell),css,svelte(dyn) | three,svelte
+   state.ts chain: src/plugins/ui/editor/index.ts -> src/plugins/ui/editor/svelteAssets.ts -> src/editor/sdk/index.ts -> src/editor/assetDocuments.ts -> src/editor/state.ts
+
+UNION of all halves: new static modules vs studio main: 0 (0 KiB); incl. dynamic: 457 (5256 KiB)
+union static closure of all halves alone: 1019 modules, 9124 KiB
