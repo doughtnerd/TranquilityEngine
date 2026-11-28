@@ -6,7 +6,7 @@ import { World } from "../core/World";
 import { UICore } from "../ui/UICore";
 import { Assets } from "../scene/Assets";
 import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
-import { UIPointer } from "./uiPointer";
+import { UIPointer, pointerTargetAt } from "./uiPointer";
 
 // ADR 0422 wave 1: layout on Yoga. Per-side padding, margin and border widths with CSS shorthands, min/max sizes,
 // wrapping, align-self/-content, flex-shrink/-basis, aspect-ratio, overflow: hidden (clipping drawing order, hits,
@@ -205,9 +205,9 @@ describe("overflow: hidden (ADR 0422)", () => {
     const { clip, inside } = clipped();
     const core = await laidOut();
     expect(box(core, inside)).toEqual([10, 10, 150, 150]); // laid out as before: clipping doesn't change layout
-    expect(core.hitTest(50, 50)).toBe(inside);
-    expect(core.hitTest(95, 50)).toBe(clip); // on the border: outside the padding box
-    expect(core.hitTest(130, 130)).toBeNull(); // in the button's box, but clipped away
+    expect(pointerTargetAt(core, 50, 50)).toBe(inside);
+    expect(pointerTargetAt(core, 95, 50)).toBe(clip); // on the border: outside the padding box
+    expect(pointerTargetAt(core, 130, 130)).toBeNull(); // in the button's box, but clipped away
     expect(core.pickAll(130, 130)).toEqual([]);
     expect(core.pickAll(50, 50)).toEqual([inside, clip]);
   });
@@ -230,8 +230,8 @@ describe("overflow: hidden (ADR 0422)", () => {
     const core = await laidOut();
     const b = byId(doc, "b", UIButton);
     expect(core.elements().find((e) => e.comp === b)!.clip).toEqual({ x: 50, y: 50, width: 50, height: 50 });
-    expect(core.hitTest(120, 120)).toBeNull();
-    expect(core.hitTest(75, 75)).toBe(b);
+    expect(pointerTargetAt(core, 120, 120)).toBeNull();
+    expect(pointerTargetAt(core, 75, 75)).toBe(b);
   });
 
   it("takes an element clipped away out of keyboard navigation, and searches the drawn part of the rest", async () => {
@@ -264,17 +264,17 @@ describe("z-index (ADR 0422)", () => {
     const doc = buildUI(`<Canvas><button id="a" position="absolute" width="100" height="100" padding="0"/><button id="b" position="absolute" width="100" height="100" padding="0"/></Canvas>`);
     const [a, b] = ["a", "b"].map((id) => byId(doc, id, UIButton));
     const core = await laidOut();
-    expect(core.hitTest(50, 50)).toBe(b); // the later sibling is on top
+    expect(pointerTargetAt(core, 50, 50)).toBe(b); // the later sibling is on top
     a.zIndex = 1;
     core.sync(World.require(), 1280, 720, DT);
-    expect(core.hitTest(50, 50)).toBe(a);
+    expect(pointerTargetAt(core, 50, 50)).toBe(a);
     const order = (c: UIComponentType) => core.elements().find((e) => e.comp === c)!.order;
     expect(order(a)).toBeGreaterThan(order(b));
     expect(core.elements().map((e) => e.comp)).toEqual([a, b]); // elements() stays in tree order
     a.zIndex = 0;
     b.zIndex = -1;
     core.sync(World.require(), 1280, 720, DT);
-    expect(core.hitTest(50, 50)).toBe(a);
+    expect(pointerTargetAt(core, 50, 50)).toBe(a);
     expect(core.pickAll(50, 50)).toEqual([a, b]);
   });
 
@@ -300,7 +300,7 @@ describe("z-index (ADR 0422)", () => {
     const core = await laidOut();
     const orders = new Map(core.elements().map((e) => [e.comp, e.order]));
     expect([orders.get(clip), orders.get(inner), orders.get(after)]).toEqual([0, 1, 2]);
-    expect(core.hitTest(50, 50)).toBe(after);
+    expect(pointerTargetAt(core, 50, 50)).toBe(after);
   });
 });
 

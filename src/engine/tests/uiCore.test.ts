@@ -6,7 +6,7 @@ import { UICore, canvasScale, uiLength } from "../ui/UICore";
 import { LayoutNode } from "../ui/taffy/layoutTree";
 import type { TextMeasureRequest } from "../ui/uiCoreTypes";
 import { Assets } from "../scene/Assets";
-import { FakeInput, fakeDocument, stubDocument } from "./uiPointer";
+import { FakeInput, fakeDocument, stubDocument, pointerTargetAt } from "./uiPointer";
 import { DomInput, FakeCanvas } from "./domInput";
 import { loadUITestSupport, uiElement } from "./uiMarkup";
 import { UI_FONT_FAMILY, fontEpoch, fontFamilyOf, loadBundledFont, onFontLoaded } from "../ui/fonts";
@@ -217,20 +217,20 @@ describe("UICore layout", () => {
     const c = await core();
     sync(c);
     expect(c.rectOf(b)!.x).toBe(100);
-    expect(c.hitTest(10, 5)).toBe(inA);
+    expect(pointerTargetAt(c, 10, 5)).toBe(inA);
     a.display = "none";
     sync(c);
     expect(c.rectOf(b)!.x).toBe(0); // takes no space
     const els = c.elements();
     expect(els.find((e) => e.comp === a)!.visible).toBe(false);
     expect(els.find((e) => e.comp === inA)!.visible).toBe(false); // nor its children
-    expect(c.hitTest(10, 5)).toBeNull();
+    expect(pointerTargetAt(c, 10, 5)).toBeNull();
     expect(c.pickAll(10, 5)).not.toContain(inA);
     expect(a.node.activeInHierarchy && inA.isActiveAndEnabled).toBe(true);
     a.display = "flex";
     sync(c);
     expect(c.rectOf(b)!.x).toBe(100);
-    expect(c.hitTest(10, 5)).toBe(inA);
+    expect(pointerTargetAt(c, 10, 5)).toBe(inA);
   });
 
   it("reports visibility and opacity down the tree, and draw order parents first", async () => {
@@ -588,8 +588,8 @@ describe("UICore world canvases", () => {
     const { cam, canvas, button } = setup();
     const c = await core({ interactive: true, host: { viewCamera: () => cam } });
     sync(c);
-    expect(c.hitTest(640, 360)).toBe(button);
-    expect(c.hitTest(20, 20)).toBeNull(); // the panel covers only the middle of the view
+    expect(pointerTargetAt(c, 640, 360)).toBe(button);
+    expect(pointerTargetAt(c, 20, 20)).toBeNull(); // the panel covers only the middle of the view
 
     mouse("down", 640, 360);
     mouse("up", 640, 360);
@@ -598,7 +598,7 @@ describe("UICore world canvases", () => {
     canvas.node.transform!.position.set(10, 0, 5); // moved out of view
     engine.step(DT);
     sync(c);
-    expect(c.hitTest(640, 360)).toBeNull();
+    expect(pointerTargetAt(c, 640, 360)).toBeNull();
   });
 
   it("picks the nearest of two world canvases, and nothing without a camera", async () => {
@@ -609,11 +609,11 @@ describe("UICore world canvases", () => {
     engine.step(DT);
     const c = await core({ interactive: true, host: { viewCamera: () => cam } });
     sync(c);
-    expect(c.hitTest(640, 360)).toBe(nearButton);
+    expect(pointerTargetAt(c, 640, 360)).toBe(nearButton);
     expect(button).not.toBe(nearButton);
     const noCamera = await core();
     sync(noCamera);
-    expect(noCamera.hitTest(640, 360)).toBeNull();
+    expect(pointerTargetAt(noCamera, 640, 360)).toBeNull();
   });
 });
 
@@ -657,8 +657,8 @@ describe("UICore pointer routing", () => {
     const { play } = menu();
     const c = await core();
     sync(c, 640, 360); // scale 0.5: Play is at CSS (10, 10)-(110, 35)
-    expect(c.hitTest(50, 20)).toBe(play);
-    expect(c.hitTest(150, 20)).toBeNull();
+    expect(pointerTargetAt(c, 50, 20)).toBe(play);
+    expect(pointerTargetAt(c, 150, 20)).toBeNull();
     mouse("down", 50, 20);
     mouse("up", 50, 20);
     expect(play.clicked).toBe(true);
@@ -783,7 +783,7 @@ describe("UICore pointer routing", () => {
     sync(c);
     DomInput.attach().moveTo(100, 40);
     engine.step(DT);
-    expect(c.hitTest(100, 40)).toBeNull();
+    expect(pointerTargetAt(c, 100, 40)).toBeNull();
     expect(Input.pointerOverUI).toBe(false);
   });
 
@@ -794,11 +794,11 @@ describe("UICore pointer routing", () => {
     const frontButton = node("FrontButton", front.node, UIButton, { width: 100, height: 100 } as Partial<UIButton>);
     const c = await core();
     sync(c);
-    expect(c.hitTest(50, 50)).toBe(frontButton);
-    expect(c.hitTest(300, 300)).toBe(backButton);
+    expect(pointerTargetAt(c, 50, 50)).toBe(frontButton);
+    expect(pointerTargetAt(c, 300, 300)).toBe(backButton);
     front.sortOrder = -1;
     sync(c);
-    expect(c.hitTest(50, 50)).toBe(backButton);
+    expect(pointerTargetAt(c, 50, 50)).toBe(backButton);
   });
 
   it("picks the topmost of overlapping siblings (later in node order)", async () => {
@@ -807,8 +807,8 @@ describe("UICore pointer routing", () => {
     const over = node("Over", canvas.node, UIButton, { width: 100, height: 100, positionType: "absolute", left: 50, top: 0 } as Partial<UIButton>);
     const c = await core();
     sync(c);
-    expect(c.hitTest(25, 50)).toBe(under);
-    expect(c.hitTest(75, 50)).toBe(over);
+    expect(pointerTargetAt(c, 25, 50)).toBe(under);
+    expect(pointerTargetAt(c, 75, 50)).toBe(over);
   });
 
   it("routes only in a World that takes input, and not when non-interactive (the editor's World)", async () => {
@@ -874,12 +874,12 @@ describe("UICore raycast targets (ADR 0385, Unity's Graphic.raycastTarget)", () 
     expect([panel.raycastTarget, text.raycastTarget, image.raycastTarget, box.raycastTarget]).toEqual([true, true, true, true]);
     const c = await core();
     sync(c);
-    expect(c.hitTest(100, centres.panel)).toBe(panel);
-    expect(c.hitTest(100, centres.text)).toBe(text);
-    expect(c.hitTest(100, centres.image)).toBe(image);
+    expect(pointerTargetAt(c, 100, centres.panel)).toBe(panel);
+    expect(pointerTargetAt(c, 100, centres.text)).toBe(text);
+    expect(pointerTargetAt(c, 100, centres.image)).toBe(image);
     for (const y of Object.values(centres)) expect(press(y)).toEqual({ over: true, down: false });
     // The column itself has no background or border: a layout box, which the pointer passes (Unity's empty RectTransform).
-    expect(c.hitTest(600, 400)).toBeNull();
+    expect(pointerTargetAt(c, 600, 400)).toBeNull();
     expect(press(400)).toEqual({ over: false, down: true });
   });
 
@@ -888,14 +888,14 @@ describe("UICore raycast targets (ADR 0385, Unity's Graphic.raycastTarget)", () 
     const c = await core();
     panel.backgroundColor = null;
     sync(c);
-    expect(c.hitTest(100, centres.panel)).toBeNull();
+    expect(pointerTargetAt(c, 100, centres.panel)).toBeNull();
     panel.borderWidth = 2;
     sync(c);
-    expect(c.hitTest(100, centres.panel)).toBe(panel);
+    expect(pointerTargetAt(c, 100, centres.panel)).toBe(panel);
     panel.borderWidth = 0;
     panel.backgroundColor = new Color(0, 0, 0, 0); // Unity's invisible blocker
     sync(c);
-    expect(c.hitTest(100, centres.panel)).toBe(panel);
+    expect(pointerTargetAt(c, 100, centres.panel)).toBe(panel);
   });
 
   it("raycastTarget = false lets the pointer through to the game", async () => {
@@ -904,7 +904,7 @@ describe("UICore raycast targets (ADR 0385, Unity's Graphic.raycastTarget)", () 
     const c = await core();
     sync(c);
     for (const y of Object.values(centres)) {
-      expect(c.hitTest(100, y)).toBeNull();
+      expect(pointerTargetAt(c, 100, y)).toBeNull();
       expect(press(y)).toEqual({ over: false, down: true });
     }
   });
@@ -915,14 +915,14 @@ describe("UICore raycast targets (ADR 0385, Unity's Graphic.raycastTarget)", () 
     const cover = node("Cover", canvas.node, UIPanel, { width: 200, height: 100, positionType: "absolute", left: 0, top: 0, backgroundColor: new Color(0, 0, 0, 0.3) } as Partial<UIPanel>);
     const c = await core();
     sync(c);
-    expect(c.hitTest(100, 50)).toBe(cover);
+    expect(pointerTargetAt(c, 100, 50)).toBe(cover);
     mouse("down", 100, 50);
     mouse("up", 100, 50);
     expect(button.clicked).toBe(false);
     expect(Input.getMouseButtonUp(0)).toBe(false);
     cover.raycastTarget = false;
     sync(c);
-    expect(c.hitTest(100, 50)).toBe(button);
+    expect(pointerTargetAt(c, 100, 50)).toBe(button);
     mouse("down", 100, 50);
     mouse("up", 100, 50);
     expect(button.clicked).toBe(true);
@@ -934,7 +934,7 @@ describe("UICore raycast targets (ADR 0385, Unity's Graphic.raycastTarget)", () 
     const label = node("Label", button.node, UIText, { text: "Play", width: "100%", height: "100%" } as Partial<UIText>);
     const c = await core();
     sync(c);
-    expect(c.hitTest(100, 50)).toBe(button); // the label is the target; the button takes it
+    expect(pointerTargetAt(c, 100, 50)).toBe(button); // the label is the target; the button takes it
     mouse("down", 100, 50);
     expect(button.pressed).toBe(true);
     mouse("up", 100, 50);
@@ -949,7 +949,7 @@ describe("UICore raycast targets (ADR 0385, Unity's Graphic.raycastTarget)", () 
     // Neither: the pointer passes to the game.
     label.raycastTarget = false;
     sync(c);
-    expect(c.hitTest(100, 50)).toBeNull();
+    expect(pointerTargetAt(c, 100, 50)).toBeNull();
     mouse("down", 100, 50);
     expect(Input.getMouseButtonDown(0)).toBe(true);
     expect(button.pressed).toBe(false);
@@ -964,7 +964,7 @@ describe("UICore raycast targets (ADR 0385, Unity's Graphic.raycastTarget)", () 
     mouse("down", 50, 20);
     mouse("up", 50, 20);
     expect(field.focused).toBe(true);
-    expect(c.hitTest(100, 60)).toBe(note);
+    expect(pointerTargetAt(c, 100, 60)).toBe(note);
     mouse("down", 100, 60);
     expect(field.focused).toBe(false);
     expect(Input.getMouseButtonDown(0)).toBe(false);
@@ -978,10 +978,10 @@ describe("UICore raycast targets (ADR 0385, Unity's Graphic.raycastTarget)", () 
     engine.step(DT);
     const c = await core({ interactive: true, host: { viewCamera: () => cam } });
     sync(c);
-    expect(c.hitTest(640, 360)).toBe(sign);
+    expect(pointerTargetAt(c, 640, 360)).toBe(sign);
     sign.raycastTarget = false;
     sync(c);
-    expect(c.hitTest(640, 360)).toBeNull();
+    expect(pointerTargetAt(c, 640, 360)).toBeNull();
   });
 });
 
