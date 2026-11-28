@@ -1,0 +1,4 @@
+{
+  "name": "Animation",
+  "description": "The animation plugin in four stations and a 2D page: a skinned sprout driven by an animation graph (a state machine, a blend space on a speed parameter and a requested hop with a landing notify), a property clip with events, tweens in sequence and in parallel, a timeline on a director, and sprite flipbooks. Up/Down change the sprout's speed, Space hops, 2 opens the sprites page."
+}

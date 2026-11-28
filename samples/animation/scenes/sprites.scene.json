@@ -1,0 +1,228 @@
+{
+  "format": "myco.scene@5",
+  "settings": {
+    "physics": "2d"
+  },
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              -10
+            ]
+          }
+        },
+        {
+          "type": "engine.Camera",
+          "data": {
+            "projection": "orthographic",
+            "orthographicSize": 4,
+            "backgroundColor": "#87bfe8"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ground",
+      "name": "Ground",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              -3,
+              0
+            ],
+            "scale": [
+              20,
+              2,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.SpriteRenderer",
+          "data": {
+            "sprite": "asset:images/critter.png#ground"
+          }
+        }
+      ]
+    },
+    {
+      "id": "critter",
+      "name": "Critter",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -4,
+              -1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.SpriteRenderer",
+          "data": {
+            "sprite": "asset:images/critter.png#walk0"
+          }
+        },
+        {
+          "type": "engine.Animator",
+          "data": {
+            "defaultClip": "asset:images/critter.png#Flip/walk"
+          }
+        },
+        {
+          "type": "demo.Walker",
+          "data": {
+            "from": -4,
+            "to": 4
+          }
+        }
+      ]
+    },
+    {
+      "id": "coin-0",
+      "name": "Coin 1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -3,
+              1.2,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.SpriteRenderer",
+          "data": {
+            "sprite": "asset:images/critter.png#coin0"
+          }
+        },
+        {
+          "type": "engine.Animator",
+          "data": {
+            "defaultClip": "asset:images/critter.png#Flip/spin"
+          }
+        },
+        {
+          "type": "demo.Bob",
+          "data": {
+            "height": 0.5,
+            "period": 1.6,
+            "delay": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "coin-1",
+      "name": "Coin 2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.2,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.SpriteRenderer",
+          "data": {
+            "sprite": "asset:images/critter.png#coin0"
+          }
+        },
+        {
+          "type": "engine.Animator",
+          "data": {
+            "defaultClip": "asset:images/critter.png#Flip/spin"
+          }
+        },
+        {
+          "type": "demo.Bob",
+          "data": {
+            "height": 0.5,
+            "period": 1.6,
+            "delay": 0.3
+          }
+        }
+      ]
+    },
+    {
+      "id": "coin-2",
+      "name": "Coin 3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              3,
+              1.2,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.SpriteRenderer",
+          "data": {
+            "sprite": "asset:images/critter.png#coin0"
+          }
+        },
+        {
+          "type": "engine.Animator",
+          "data": {
+            "defaultClip": "asset:images/critter.png#Flip/spin"
+          }
+        },
+        {
+          "type": "demo.Bob",
+          "data": {
+            "height": 0.5,
+            "period": 1.6,
+            "delay": 0.6
+          }
+        }
+      ]
+    },
+    {
+      "id": "hud",
+      "name": "HUD",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.UIView",
+          "data": {
+            "component": "asset:ui/SpritesHud.svelte"
+          }
+        },
+        {
+          "type": "demo.SceneKeys",
+          "data": {}
+        }
+      ]
+    }
+  ]
+}
