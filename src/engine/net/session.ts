@@ -94,7 +94,7 @@
  * each other:
  * - **who owns a node**: `owns(peer, ownerId)` is the one ownership rule (the id names an open
  *   connection); `ownerPeer(ownerId)` and `ownsLocally(ownerId)` build on it. Input streams map a
- *   ghost to its owner's connection with it, `Replicated.isOwnedLocally` and server relevancy use it;
+ *   node to the connection it stands for with `connectionOf(node)` (ADR 0471), `Replicated.isOwnedLocally` and server relevancy use it;
  * - **which tick is simulated**: prediction runs catch-up and re-simulated ticks inside
  *   `replay(tick, …)`; `replayTick` and `simulatedTick` answer input streams and `predictedTick()`.
  *   Prediction reports each fixed step's pass (`reportPredictedPass`), and the scheduler asks
@@ -111,6 +111,7 @@ import { createBitReader, createBitWriter, type BitReader, type BitWriter } from
 import { Connection, ConnectionState } from "./connection";
 import { createWorldTransport, transportCanListen, type Channel, type Transport, type TransportConnection, type TransportEvent } from "./Transport";
 import { listenTarget, type ListenTarget } from "./listenTarget";
+import { Replicated } from "./Replicated";
 import type { NetworkTime } from "./time";
 // The built-in transports register themselves; links and `WorldHandle.connect` find them by name.
 import "./transport/loopback";
@@ -437,6 +438,14 @@ export class NetSession implements WorldNet {
     if (this.role === "server") return this.openPeer(ownerId);
     const peer = this.serverPeer;
     return peer && this.owns(peer, ownerId) ? peer : null;
+  }
+
+  /**
+   * The connection `node` stands for (ADR 0471): its own if it is a connection node (`peerOf`), else the one that owns
+   * it by its `Replicated.ownerId` (`ownerPeer`). Null for a node owned by the server, or one no connection owns.
+   */
+  connectionOf(node: GameObject): NetPeer | null {
+    return this.peerOf(node) ?? this.ownerPeer((node.isValid && node.getBehavior(Replicated)?.ownerId) || 0);
   }
 
   /** Whether this World owns what carries `ownerId`: a server owns 0, a client its connection's id, a World with no role yet everything. */

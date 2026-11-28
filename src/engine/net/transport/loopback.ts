@@ -16,6 +16,7 @@ import {
   type TransportConnection,
   type TransportEvent,
 } from "../Transport";
+import { UnreliableSequence } from "./sequence";
 
 export interface LoopbackOptions extends LinkConditions {
   /** Milliseconds clock. Defaults to `performance.now()`. Inject one for deterministic tests. */
@@ -62,9 +63,8 @@ class LoopbackConnection implements TransportConnection {
   private ownConditions: LinkConditions | undefined;
   /** @internal Delivery time of the last reliable message sent, which later ones wait behind. */
   private lastReliableAt = -Infinity;
-  private unreliableSent = 0;
-  /** @internal Newest unreliable sequence number delivered to this end. */
-  newestUnreliable = -1;
+  /** @internal The numbers of the unreliable messages this end sends, and the newest delivered to it (ADR 0471). */
+  readonly sequence = new UnreliableSequence();
 
   constructor(readonly transport: LoopbackTransport, id: number, remote: string, initiator: boolean) {
     this.id = id;
@@ -104,7 +104,7 @@ class LoopbackConnection implements TransportConnection {
       this.lastReliableAt = at;
       peer.transport.enqueue({ at, seq: nextSequence++, connection: peer, event: { kind: "data", connection: peer, channel, data: copy } });
     } else {
-      const unreliableSeq = this.unreliableSent++;
+      const unreliableSeq = this.sequence.next();
       if (random() < loss) return;
       at = Math.max(at, peer.openAt);
       peer.transport.enqueue({ at, seq: nextSequence++, connection: peer, event: { kind: "data", connection: peer, channel, data: copy }, unreliableSeq });
@@ -218,8 +218,7 @@ class LoopbackTransport implements Transport {
       } else if (c.seen !== "open" || c.localClosed) {
         continue;
       } else if (p.unreliableSeq !== undefined) {
-        if (p.unreliableSeq <= c.newestUnreliable) continue; // Stale: something newer already arrived.
-        c.newestUnreliable = p.unreliableSeq;
+        if (!c.sequence.accept(p.unreliableSeq)) continue; // Stale: something newer already arrived.
       }
       events.push(p.event);
     }

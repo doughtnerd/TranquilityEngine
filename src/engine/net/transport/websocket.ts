@@ -28,6 +28,7 @@
  */
 import { registerTransport, type Channel, type ConnectionState, type Transport, type TransportConnection, type TransportEvent } from "../Transport";
 import { DatagramLane, parseSignal, type LaneSetup, type PeerConnectionConstructor, type SignalMessage } from "./datagramLane";
+import { readSeq, SEQUENCE_BYTES, UnreliableSequence, withSeq, writeSeq } from "./sequence";
 
 const UNRELIABLE_BIT = 0x01;
 /** A signal frame: the payload is a JSON `SignalMessage` for the datagram lane (ADR 0333). */
@@ -82,8 +83,6 @@ export interface WebRtcOptions {
 
 export const DEFAULT_MAX_DATAGRAM_BYTES = 1100;
 const DEFAULT_RTC_CONNECT_TIMEOUT_MS = 5000;
-/** Bytes of a sequence number. */
-const SEQUENCE_BYTES = 4;
 
 /** The `webrtc` option, or null when it's `false`. Throws for a malformed one. */
 export function webRtcOptions(options: Record<string, unknown> = {}): (WebRtcOptions & Record<string, unknown>) | null {
@@ -141,17 +140,9 @@ function encodeFrame(channel: Channel, data: Uint8Array, seq?: number): Uint8Arr
   const extra = seq === undefined ? 0 : SEQUENCE_BYTES;
   const frame = new Uint8Array(data.byteLength + 1 + extra);
   frame[0] = channel === "unreliable" ? UNRELIABLE_BIT | (seq === undefined ? 0 : SEQUENCE_BIT) : 0;
-  if (seq !== undefined) new DataView(frame.buffer).setUint32(1, seq);
+  if (seq !== undefined) writeSeq(frame, 1, seq);
   frame.set(data, 1 + extra);
   return frame;
-}
-
-/** `data` after a 4-byte sequence number: a data channel message. */
-function encodeDatagram(data: Uint8Array, seq: number): Uint8Array {
-  const out = new Uint8Array(data.byteLength + SEQUENCE_BYTES);
-  new DataView(out.buffer).setUint32(0, seq);
-  out.set(data, SEQUENCE_BYTES);
-  return out;
 }
 
 type DecodedFrame = { kind: "data"; channel: Channel; seq?: number; data: Uint8Array } | { kind: "signal"; message: SignalMessage };
@@ -169,28 +160,9 @@ function decodeFrame(frame: Uint8Array): DecodedFrame | string {
   if (header & SEQUENCE_BIT) {
     if (!(header & UNRELIABLE_BIT)) return "sequenced reliable frame";
     if (frame.byteLength < 1 + SEQUENCE_BYTES) return "short sequenced frame";
-    const seq = new DataView(frame.buffer, frame.byteOffset, frame.byteLength).getUint32(1);
-    return { kind: "data", channel: "unreliable", seq, data: frame.subarray(1 + SEQUENCE_BYTES) };
+    return { kind: "data", channel: "unreliable", seq: readSeq(frame, 1), data: frame.subarray(1 + SEQUENCE_BYTES) };
   }
   return { kind: "data", channel: header & UNRELIABLE_BIT ? "unreliable" : "reliable", data: frame.subarray(1) };
-}
-
-/** Whether sequence number `a` is newer than `b`, across the 32-bit wrap (serial number arithmetic). */
-function newer(a: number, b: number): boolean {
-  return ((a - b) | 0) > 0;
-}
-
-/** One path's unreliable sequence numbers (ADR 0398): the next to send, the newest delivered. */
-interface PathSequence {
-  next: number;
-  newest: number | null;
-}
-
-/** Take `path`'s next sequence number to send. */
-function nextSeq(path: PathSequence): number {
-  const seq = path.next;
-  path.next = (seq + 1) >>> 0;
-  return seq;
 }
 
 /** A WebSocket close reason is at most 123 bytes of UTF-8; longer ones make `close()` throw. */
@@ -232,8 +204,8 @@ class WebSocketConnection implements TransportConnection {
    * Each path's sequence (ADR 0398): the next number to send on it, and the newest delivered from
    * it (null before the first). TCP keeps the socket's in order; datagrams can be lost or reordered.
    */
-  private readonly socketSeq: PathSequence = { next: 0, newest: null };
-  private readonly datagramSeq: PathSequence = { next: 0, newest: null };
+  private readonly socketSeq = new UnreliableSequence();
+  private readonly datagramSeq = new UnreliableSequence();
   /** Signalling that arrived while the lane's peer connection was loading; null otherwise. */
   private laneSignals: SignalMessage[] | null = null;
 
@@ -257,7 +229,7 @@ class WebSocketConnection implements TransportConnection {
     if (this.state === "closed") throw new Error(`Can't send on closed connection ${this.id} (${this.remote}).`);
     const sequenced = channel === "unreliable" && this.negotiated;
     if (this.state === "connecting") {
-      this.pending.push(encodeFrame(channel, data, sequenced ? nextSeq(this.socketSeq) : undefined));
+      this.pending.push(encodeFrame(channel, data, sequenced ? this.socketSeq.next() : undefined));
       return;
     }
     // A datagram that fits one packet goes over the data channel, unless its send buffer is backed
@@ -269,8 +241,8 @@ class WebSocketConnection implements TransportConnection {
         return;
       }
       // The number is taken only once the datagram goes, so a dropped one leaves no gap.
-      if (lane.send(encodeDatagram(data, this.datagramSeq.next))) {
-        nextSeq(this.datagramSeq);
+      if (lane.send(withSeq(this.datagramSeq.peek(), data))) {
+        this.datagramSeq.next();
         return;
       }
     }
@@ -283,7 +255,7 @@ class WebSocketConnection implements TransportConnection {
       return;
     }
     if (backlog > this.limits.maxBacklogBytes) return this.close(`too slow: ${backlog} bytes waiting to send`);
-    this.socket.send(encodeFrame(channel, data, sequenced ? nextSeq(this.socketSeq) : undefined));
+    this.socket.send(encodeFrame(channel, data, sequenced ? this.socketSeq.next() : undefined));
   }
 
   close(reason = "closed", code = CLOSE_NORMAL): void {
@@ -394,14 +366,12 @@ class WebSocketConnection implements TransportConnection {
     if (this.state !== "open") return;
     if (datagram.byteLength < SEQUENCE_BYTES || datagram.byteLength - SEQUENCE_BYTES > this.limits.maxMessageBytes) return; // malformed: dropped like a lost one
     if (!this.account(datagram.byteLength)) return;
-    const seq = new DataView(datagram.buffer, datagram.byteOffset, datagram.byteLength).getUint32(0);
-    this.deliverSequenced(this.datagramSeq, seq, datagram.subarray(SEQUENCE_BYTES));
+    this.deliverSequenced(this.datagramSeq, readSeq(datagram, 0), datagram.subarray(SEQUENCE_BYTES));
   }
 
   /** Deliver an unreliable payload unless something newer came by the same path already (ADR 0398). */
-  private deliverSequenced(path: PathSequence, seq: number, data: Uint8Array): void {
-    if (path.newest !== null && !newer(seq, path.newest)) return; // stale
-    path.newest = seq;
+  private deliverSequenced(path: UnreliableSequence, seq: number, data: Uint8Array): void {
+    if (!path.accept(seq)) return; // stale
     this.events.push({ kind: "data", connection: this, channel: "unreliable", data });
   }
 

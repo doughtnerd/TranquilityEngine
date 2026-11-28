@@ -13,17 +13,9 @@ import { curveKeyFloats } from "../animation/compile/curveKeys";
 import { supportsSimd128 } from "../wasm/simd";
 import { encodeRecord, getRecord } from "../wasm/wireRecords";
 import { encodeSequence, type SequenceBlock, type SequenceChange, type SequenceInfo, type TweenBackend, type TweenChange, type TweenRows } from "./backend";
-import {
-  CHANGE_DESTROYED as SEQUENCE_DESTROYED,
-  CHANGE_FINISHED,
-  CHANGE_KILLED as SEQUENCE_KILLED,
-  OP_KILL as SEQUENCE_KILL,
-  TIMELINE_BLOCK,
-  TIMELINE_CHANGE,
-  TIMELINE_CONTROL,
-  TIMELINE_INFO,
-} from "./wasm/wire/sequence";
-import { CHANGE_COMPLETED, CHANGE_DESTROYED, CHANGE_KILLED, DEFAULT_MAX_TWEENS, OP_KILL, TWEEN_CHANGE, TWEEN_CONTROL, TWEEN_CREATE } from "./wasm/wire/tween";
+import { LiveHandles } from "./liveHandles";
+import { OP_KILL as SEQUENCE_KILL, TIMELINE_BLOCK, TIMELINE_CHANGE, TIMELINE_CONTROL, TIMELINE_INFO } from "./wasm/wire/sequence";
+import { DEFAULT_MAX_TWEENS, OP_KILL, TWEEN_CHANGE, TWEEN_CONTROL, TWEEN_CREATE } from "./wasm/wire/tween";
 
 /** @internal The sequences the standalone module holds (the animation core's default timeline table). */
 export const STANDALONE_MAX_SEQUENCES = 256;
@@ -93,9 +85,7 @@ class StandaloneTweenBackend implements TweenBackend {
   readonly kind = "standalone";
   private readonly world: number;
   private closed = false;
-  private readonly tweens = new Set<number>();
-  private readonly sequences = new Set<number>();
-  private readonly curves = new Set<number>();
+  private readonly held = new LiveHandles();
   private views: { buffer: ArrayBuffer; data: DataView } | null = null;
   private readonly tweenChange = {} as TweenChange;
   private readonly seqChange = {} as SequenceChange;
@@ -120,22 +110,18 @@ class StandaloneTweenBackend implements TweenBackend {
 
   loadCurve(curve: Curve): number {
     if (this.closed) return 0;
-    const h = this.calls.load_curve(curveKeyFloats(curve));
-    if (h !== 0) this.curves.add(h);
-    return h;
+    return this.held.curve(this.calls.load_curve(curveKeyFloats(curve)));
   }
 
   releaseCurve(handle: number): boolean {
-    if (!this.curves.delete(handle)) return false;
+    if (!this.held.freeCurve(handle)) return false;
     this.calls.release_curve(handle);
     return true;
   }
 
   create(spec: Parameters<TweenBackend["create"]>[0]): number {
     if (this.closed) return 0;
-    const h = this.calls.tween_create(encodeRecord(TWEEN_CREATE, { ...spec, world: this.world }));
-    if (h !== 0) this.tweens.add(h);
-    return h;
+    return this.held.tween(this.calls.tween_create(encodeRecord(TWEEN_CREATE, { ...spec, world: this.world })));
   }
 
   control(handle: number, op: number): number {
@@ -144,9 +130,7 @@ class StandaloneTweenBackend implements TweenBackend {
 
   createSequence(head: Parameters<TweenBackend["createSequence"]>[0], members: Parameters<TweenBackend["createSequence"]>[1]): number {
     if (this.closed) return 0;
-    const h = this.calls.timeline_create_sequence(encodeSequence(this.world, head, members));
-    if (h !== 0) this.sequences.add(h);
-    return h;
+    return this.held.sequence(this.calls.timeline_create_sequence(encodeSequence(this.world, head, members)));
   }
 
   controlSequence(handle: number, op: number, value = 0): number {
@@ -170,16 +154,9 @@ class StandaloneTweenBackend implements TweenBackend {
     if (this.closed) return;
     this.calls.begin_frame();
     this.calls.update(this.world, pass, dtScaled, dtUnscaled);
-    // What ended leaves the sets, so they hold only what `dispose` must kill.
-    for (let i = 0, n = this.calls.tween_changes_count(); i < n; i++) {
-      const c = this.change(i, this.tweenChange);
-      if (c.kind === CHANGE_COMPLETED || c.kind === CHANGE_KILLED || c.kind === CHANGE_DESTROYED) this.tweens.delete(c.handle);
-    }
-    for (let i = 0, n = this.calls.timeline_changes_count(); i < n; i++) {
-      const c = this.sequenceChange(i, this.seqChange);
-      const ended = c.kind === SEQUENCE_KILLED || c.kind === SEQUENCE_DESTROYED || (c.kind === CHANGE_FINISHED && !this.sequenceInfo(c.instance));
-      if (ended) this.sequences.delete(c.instance);
-    }
+    // What ended is forgotten, so `held` keeps only what `dispose` must end.
+    for (let i = 0, n = this.calls.tween_changes_count(); i < n; i++) this.held.tweenChanged(this.change(i, this.tweenChange));
+    for (let i = 0, n = this.calls.timeline_changes_count(); i < n; i++) this.held.sequenceChanged(this.sequenceChange(i, this.seqChange), (h) => !!this.sequenceInfo(h));
   }
 
   rows(): TweenRows {
@@ -222,12 +199,11 @@ class StandaloneTweenBackend implements TweenBackend {
   dispose(): void {
     if (this.closed) return;
     this.closed = true;
-    for (const h of this.tweens) this.control(h, OP_KILL);
-    this.tweens.clear();
-    for (const h of this.sequences) this.controlSequence(h, SEQUENCE_KILL);
-    this.sequences.clear();
-    for (const h of this.curves) this.calls.release_curve(h);
-    this.curves.clear();
+    this.held.endAll({
+      killTween: (h) => this.control(h, OP_KILL),
+      killSequence: (h) => this.controlSequence(h, SEQUENCE_KILL),
+      releaseCurve: (h) => this.calls.release_curve(h),
+    });
     this.module.closeWorld(this.world);
   }
 }

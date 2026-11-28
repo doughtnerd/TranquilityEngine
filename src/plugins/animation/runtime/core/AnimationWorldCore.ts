@@ -6,6 +6,7 @@
 import type { Curve } from "../../../../engine/core/curve";
 import type { World } from "../../../../engine/core/World";
 import { Assets, fetchAssetBytes } from "../../../../engine/scene/Assets";
+import { CurveCache } from "../../../../engine/tween/curveCache";
 import { PASS_FIXED, PASS_NORMAL, STATUS_STALE_HANDLE } from "../wasm/wire/core";
 import { OP_KILL as TIMELINE_KILL, type TIMELINE_CREATE } from "../wasm/wire/timeline";
 import { OP_KILL as TWEEN_KILL, type TWEEN_CREATE } from "../wasm/wire/tween";
@@ -48,8 +49,7 @@ export class AnimationWorldCore {
   /** Asset handle → references this World holds. */
   private readonly refs = new Map<number, number>();
   /** Curve assets this World holds (T70): by content, with their references, and the content of each handle. */
-  private readonly curves = new Map<string, { readonly handle: number; refs: number }>();
-  private readonly curveByHandle = new Map<number, string>();
+  private readonly curves: CurveCache;
   private readonly sink: CommandSink;
   private readonly frame: { world: World; core: AnimationWorldCore; dt: number; unscaledDt: number; fixed: boolean; pass: number };
   private closed = false;
@@ -65,6 +65,7 @@ export class AnimationWorldCore {
     readonly core: AnimationCore,
   ) {
     this.id = core.openWorld();
+    this.curves = new CurveCache(core);
     this.sink = {
       memory: () => core.buffer(),
       commandsPtr: () => core.commandsPtr(),
@@ -209,29 +210,12 @@ export class AnimationWorldCore {
    * number) or this World closed. Give it back with `releaseCurve`.
    */
   acquireCurve(curve: Curve): number {
-    if (this.closed) return 0;
-    const key = JSON.stringify(curve);
-    const known = this.curves.get(key);
-    if (known) {
-      known.refs++;
-      return known.handle;
-    }
-    const handle = this.core.loadCurve(curve);
-    if (handle === 0) return 0;
-    const entry = { handle, refs: 1 };
-    this.curves.set(key, entry);
-    this.curveByHandle.set(handle, key);
-    return handle;
+    return this.closed ? 0 : this.curves.acquire(curve);
   }
 
   /** Drops one reference to a curve `acquireCurve` gave; the core's asset is freed with the last. */
   releaseCurve(handle: number): void {
-    const key = this.curveByHandle.get(handle);
-    const entry = key === undefined ? undefined : this.curves.get(key);
-    if (key === undefined || !entry || --entry.refs > 0) return;
-    this.curves.delete(key);
-    this.curveByHandle.delete(handle);
-    this.core.releaseCurve(handle);
+    this.curves.release(handle);
   }
 
   /** Forgets a tween or timeline handle that has ended (its change record was read). */
@@ -284,9 +268,7 @@ export class AnimationWorldCore {
     this.timelines.clear();
     for (const [handle, n] of this.refs) for (let i = 0; i < n; i++) this.core.release(handle);
     this.refs.clear();
-    for (const { handle } of this.curves.values()) this.core.releaseCurve(handle);
-    this.curves.clear();
-    this.curveByHandle.clear();
+    this.curves.releaseAll();
     this.commands.clear();
     this.core.closeWorld(this.id);
   }

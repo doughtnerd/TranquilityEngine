@@ -20,17 +20,16 @@ import {
   type TweenRows,
   type TweenSpec,
 } from "../../../../engine/tween/backend";
-import { CHANGE_DESTROYED as SEQUENCE_DESTROYED, CHANGE_FINISHED, CHANGE_KILLED as SEQUENCE_KILLED, OP_KILL as SEQUENCE_KILL } from "../wasm/wire/timeline";
-import { CHANGE_COMPLETED, CHANGE_DESTROYED, CHANGE_KILLED, OP_KILL } from "../wasm/wire/tween";
+import { LiveHandles } from "../../../../engine/tween/liveHandles";
+import { OP_KILL as SEQUENCE_KILL } from "../wasm/wire/timeline";
+import { OP_KILL } from "../wasm/wire/tween";
 import type { AnimationCore } from "./AnimationCore";
 
 class CoreTweenBackend implements TweenBackend {
   readonly kind = "core";
   private readonly world: number;
   private closed = false;
-  private readonly tweens = new Set<number>();
-  private readonly sequences = new Set<number>();
-  private readonly curves = new Set<number>();
+  private readonly held = new LiveHandles();
   private readonly tweenChange = {} as TweenChange;
   private readonly seqChange = {} as SequenceChange;
 
@@ -44,21 +43,17 @@ class CoreTweenBackend implements TweenBackend {
 
   loadCurve(curve: Curve): number {
     if (this.closed) return 0;
-    const h = this.core.loadCurve(curve);
-    if (h !== 0) this.curves.add(h);
-    return h;
+    return this.held.curve(this.core.loadCurve(curve));
   }
 
   releaseCurve(handle: number): boolean {
-    if (!this.curves.delete(handle)) return false;
+    if (!this.held.freeCurve(handle)) return false;
     return this.core.releaseCurve(handle);
   }
 
   create(spec: TweenSpec): number {
     if (this.closed) return 0;
-    const h = this.core.tweenCreate({ ...spec, world: this.world });
-    if (h !== 0) this.tweens.add(h);
-    return h;
+    return this.held.tween(this.core.tweenCreate({ ...spec, world: this.world }));
   }
 
   control(handle: number, op: number): number {
@@ -67,9 +62,7 @@ class CoreTweenBackend implements TweenBackend {
 
   createSequence(head: SequenceHead, members: readonly SequenceMember[]): number {
     if (this.closed) return 0;
-    const h = this.core.timelineCreateSequence(encodeSequence(this.world, head, members));
-    if (h !== 0) this.sequences.add(h);
-    return h;
+    return this.held.sequence(this.core.timelineCreateSequence(encodeSequence(this.world, head, members)));
   }
 
   controlSequence(handle: number, op: number, value = 0): number {
@@ -88,16 +81,9 @@ class CoreTweenBackend implements TweenBackend {
     if (this.closed) return;
     this.core.writeInputs(0);
     this.core.evaluate(this.world, pass, dtScaled, dtUnscaled);
-    // What ended leaves the sets, so they hold only what `dispose` must kill.
-    for (let i = 0, n = this.core.tweenChangeCount(); i < n; i++) {
-      const c = this.core.tweenChange(i, this.tweenChange);
-      if (c.kind === CHANGE_COMPLETED || c.kind === CHANGE_KILLED || c.kind === CHANGE_DESTROYED) this.tweens.delete(c.handle);
-    }
-    for (let i = 0, n = this.core.timelineChangeCount(); i < n; i++) {
-      const c = this.core.timelineChange(i, this.seqChange);
-      const ended = c.kind === SEQUENCE_KILLED || c.kind === SEQUENCE_DESTROYED || (c.kind === CHANGE_FINISHED && !this.core.timelineInfo(c.instance));
-      if (ended) this.sequences.delete(c.instance);
-    }
+    // What ended is forgotten, so `held` keeps only what `dispose` must end.
+    for (let i = 0, n = this.core.tweenChangeCount(); i < n; i++) this.held.tweenChanged(this.core.tweenChange(i, this.tweenChange));
+    for (let i = 0, n = this.core.timelineChangeCount(); i < n; i++) this.held.sequenceChanged(this.core.timelineChange(i, this.seqChange), (h) => !!this.core.timelineInfo(h));
   }
 
   rows(): TweenRows {
@@ -131,12 +117,11 @@ class CoreTweenBackend implements TweenBackend {
   dispose(): void {
     if (this.closed) return;
     this.closed = true;
-    for (const h of this.tweens) this.core.tweenControl(h, OP_KILL);
-    this.tweens.clear();
-    for (const h of this.sequences) this.core.timelineControl(h, SEQUENCE_KILL);
-    this.sequences.clear();
-    for (const h of this.curves) this.core.releaseCurve(h);
-    this.curves.clear();
+    this.held.endAll({
+      killTween: (h) => this.core.tweenControl(h, OP_KILL),
+      killSequence: (h) => this.core.timelineControl(h, SEQUENCE_KILL),
+      releaseCurve: (h) => this.core.releaseCurve(h),
+    });
     this.core.closeWorld(this.world);
   }
 }

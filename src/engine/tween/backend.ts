@@ -95,11 +95,20 @@ export interface TweenBackend {
   dispose(): void;
 }
 
-/** @internal `SEQ_CREATE` for `world` followed by its `SEQ_MEMBER` records, as both modules take them. */
+/** The latest member offset a sequence takes: the largest finite f32 (rounded down), so after an endless member is far off but finite. */
+const MAX_OFFSET = 3.4e38;
+
+/**
+ * @internal `SEQ_CREATE` for `world` followed by its `SEQ_MEMBER` records, as both modules take them (every backend and
+ * the animation plugin's tween groups encode sequences here, ADR 0470). A member's `offset` is clamped to the largest
+ * finite f32, so one placed after an endless member (offset `Infinity`) is accepted, starting never.
+ */
 export function encodeSequence(world: number, head: SequenceHead, members: readonly SequenceMember[]): Uint8Array {
   const out = new Uint8Array(SEQ_CREATE_LAYOUT.stride + members.length * SEQ_MEMBER_LAYOUT.stride);
   out.set(encodeRecord(SEQ_CREATE_LAYOUT, { ...head, world, members: members.length }), 0);
-  members.forEach((m, i) => out.set(encodeRecord(SEQ_MEMBER_LAYOUT, m), SEQ_CREATE_LAYOUT.stride + i * SEQ_MEMBER_LAYOUT.stride));
+  members.forEach((m, i) =>
+    out.set(encodeRecord(SEQ_MEMBER_LAYOUT, m.offset === undefined ? m : { ...m, offset: Math.min(m.offset, MAX_OFFSET) }), SEQ_CREATE_LAYOUT.stride + i * SEQ_MEMBER_LAYOUT.stride),
+  );
   return out;
 }
 
