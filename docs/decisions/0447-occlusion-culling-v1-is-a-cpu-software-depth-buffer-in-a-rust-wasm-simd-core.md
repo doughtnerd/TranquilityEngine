@@ -128,6 +128,14 @@ The spike's −38/−44 % savings were measured against a baseline without LOD a
   - **A tolerant setting keeps far more.** Silhouette-only shrink, trimming, the per-triangle near rule and errors doubled leave coarsest-level stand-ins with 6 false occlusions, all under 16 pixels, keeping 39.5 % of culls (walls scene 80 %, terrain 65 %).
   - **Import cost:** Hausdorff measurement takes 45–360 ms per stand-in, and the per-triangle trim 1–3.8 s per building in Node.
   - **Open:** whether v1 accepts rare false occlusions below a pixel threshold, or requires zero. This is decision 3 in "Owner decisions still open". The occlusion build (§0's gate) waits for it; the LOD build doesn't.
+- **Conservativeness rules (decided, owner 2026-11-28).** These replace the rules above where they differ, as measured in `spikes/occlusion-safety/` ("PROPOSED, errors x2": 6 false occlusions on coarsest-level stand-ins, all under 16 pixels, 39.5 % of culls kept):
+  - **Stand-ins:** the coarsest generated level only (no sloppy stand-ins).
+  - **Trimming at import:** stand-in triangles whose own error exceeds 0.5 % of the diagonal are dropped, so closed doorways and windows reopen. Each remaining triangle carries its own error.
+  - **Errors doubled:** each triangle's error is doubled for every rule below, to cover grazing silhouettes such as terrain.
+  - **Near rule per triangle:** a triangle within max(near, 2 × error) of the camera is skipped. Whole occluders are not skipped by bounds, as that disabled terrain entirely.
+  - **Shrink at silhouettes only:** the coverage shrink applies at silhouette edges only, by max(0.5 pixel, the projected error).
+  - **Depth push:** each triangle's depth is pushed back by its error.
+- **The safety gate is a tolerance.** On `spikes/occlusion-safety/`'s adversarial scenes, kept as the regression scenes, no false occlusion may be 16 pixels or larger at 1080p.
 - **Groups test once.** An `LODGroup` (0446) is tested once with its group bounds. If it is hidden, LOD selection skips it.
 
 ### 4. Per frame, per view
@@ -203,7 +211,7 @@ Five reviewers all approved with changes. Every point and its resolution is in `
 The owner accepted the direction. These choices are still open, and stand as provisional:
 1. **LOD generation default:** opt-in per model, with one click (provisional, as recommended), until the owner chooses. The alternative is a project-wide default for new models of at least 2,000 triangles, which would also touch the frozen navigation sample unless its `project.json` opts out.
 2. **Real-hardware measurements** (a desktop GPU, and the owner's Pixel 8 emulator) need the owner's machines. Runners will be provided, and the records' GPU and Android figures stay estimates until then.
-3. **How safe occlusion must be** (first-wave result in §3): strictly zero false occlusions (about 13 % of culls kept in the close-range adversarial scenes), or rare false occlusions smaller than 16 pixels at 1080p (about 40 % kept). Until it's answered, the occlusion build doesn't start.
+3. **How safe occlusion must be: decided (owner, 2026-11-28): tolerant.** Rare false occlusions smaller than 16 pixels at 1080p are accepted; none at or above 16 pixels. The rules and gate this sets are in §3, "Conservativeness rules (decided)".
 
 ## Alternatives considered
 
