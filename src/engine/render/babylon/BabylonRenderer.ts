@@ -50,7 +50,11 @@ import type { Color } from "../../core/math";
 import type { GraphShared } from "./graphMaterial";
 import { Camera, Light, PostProcessing, ReflectionProbe } from "../components";
 import type { UICore } from "../../ui/UICore";
-import { BabylonProbes } from "./probes";
+import { BabylonProbes, probeView } from "./probes";
+import { visibilityService } from "../visibility/service";
+import { cameraView as visibilityViewOf } from "../visibility/views";
+import type { ViewKind, VisibilityResult } from "../visibility/types";
+import { ViewObjectLists, cascadesOf } from "./viewObjects";
 import { BabylonRenderTextures } from "./renderTextures";
 import type { DrawnMaterial, PixelGrid, RenderDiagnostics, RenderFeatureDiagnostics } from "../RenderSurface";
 import { Graphics } from "../Graphics";
@@ -65,7 +69,7 @@ import { authoredSize } from "../../scene/importSettings";
 import { Assets } from "../../scene/Assets";
 import { BabylonMaterialLibrary } from "./materialLibrary";
 import { BabylonMaterials2D } from "./materials2D";
-import { describeDrawn, eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext } from "./feature";
+import { describeDrawn, eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext, type FeatureView, type ViewDrawing } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonQuadBatches } from "./quadBatches";
 import { BabylonDecals } from "./decals";
@@ -204,6 +208,12 @@ export class BabylonRenderer {
   private cameraPreviewDrawn = false;
   /** What reflection probes capture: the scene's meshes minus editor-only ones, refilled each frame. */
   private readonly probeMeshes: AbstractMesh[] = [];
+  /** ADR 0446 §3: this frame's views with their visibility, by the frame-graph view they belong to (`fitView`). */
+  private readonly featureViews = new Map<CameraView, FeatureView>();
+  /** ADR 0446 §3: each view's object list, rebuilt each frame while a feature chooses drawables per view. */
+  private readonly viewObjects = new ViewObjectLists();
+  /** ADR 0446 §3: each probe capture's render list this frame, by its key. */
+  private readonly probeLists = new Map<string, AbstractMesh[]>();
 
   /** Creates the engine (the engine factory: WebGPU, else, or when it can't start, WebGL2; ADR 0244) and the scene. */
   static async create(canvas: HTMLCanvasElement, settings: ProjectSettings): Promise<BabylonRenderer> {
@@ -228,9 +238,16 @@ export class BabylonRenderer {
     this.lighting = new BabylonLighting(scene, thumbnail ? { studio: thumbnail.studio } : {});
     this.graphShared.mainLight = this.lighting.mainLight;
     this.frame = new BabylonFrame(scene);
-    this.frame.beforeView = (camera) => {
+    this.frame.beforeView = (camera, view) => {
       this.lighting.fit(camera);
-      for (const slot of this.slots) slot.feature?.fit?.(camera); // the sky's box (ADR 0112)
+      const visibility = view ? this.featureViews.get(view) : undefined;
+      for (const slot of this.slots) {
+        const feature = slot.feature;
+        if (!feature) continue;
+        // ADR 0446 §3: a feature that follows views by key gets the view; the rest (the sky's box, ADR 0112) the camera.
+        if (feature.fitView && visibility) feature.fitView(visibility);
+        else feature.fit?.(camera);
+      }
     };
     this.probes = new BabylonProbes(scene);
     this.renderTextures = new BabylonRenderTextures(scene);
@@ -551,11 +568,13 @@ export class BabylonRenderer {
     });
     this.lastPlan = plan;
     const views: CameraView[] = [];
+    const planned: PlannedView[] = [];
     let previewShown = false, composedCameras = 0;
     for (const v of plan) {
       const view = this.cameraView(v);
       if (!view) continue;
       views.push(view);
+      planned.push(v);
       if (v.output.kind === "preview") previewShown = true;
       if (v.output.kind === "canvas" && view.effects) composedCameras++;
     }
@@ -563,7 +582,9 @@ export class BabylonRenderer {
     this.lastPost = first ? { composed: !!first.effects, toneMapping: first.toneMapping, effects: first.effects, composedCameras } : null;
     this.cameraPreviewDrawn = previewShown && this.frame.ready;
     for (const slot of this.slots) slot.feature?.beforeFrame?.(); // the sky's bake: before the frame graph runs, like probe captures
-    if (views.length) this.probes.capture(views[0].camera); // before the frame graph runs
+    // ADR 0446 §3: each view's (and probe capture's) drawables from its visibility result, before anything draws.
+    const probeList = this.applyVisibility(world, planned, views);
+    if (views.length) this.probes.capture(views[0].camera, probeList); // before the frame graph runs
     const readiness = this.readiness;
     readiness?.beforeFrame(views[0]?.camera ?? null, this.casters);
     let held = false;
@@ -580,6 +601,57 @@ export class BabylonRenderer {
     if (!views.length || !this.frame.ready || held) engine.clear(this.clearColor, true, true, true);
     engine.endFrame();
     if (views.length && this.frame.ready) readiness?.afterFrame();
+  }
+
+  /**
+   * ADR 0446 §3: this frame's views as the visibility stage sees them (a `ViewKey` from the camera's node and output
+   * kind, its frustum and device-pixel height) and, while the World runs the stage, each one's selection, plus one per
+   * probe capture. Features that choose drawables per view (`prepareViews`) then give each view its object list, the
+   * shadow casters and the cascades' expander; without any, every view draws the scene's meshes as before. Returns
+   * the probe captures' render lists by key, or undefined to capture the scene's meshes.
+   */
+  private applyVisibility(world: World, planned: readonly PlannedView[], views: CameraView[]): ((key: string) => AbstractMesh[] | null) | undefined {
+    this.featureViews.clear();
+    this.frame.cascades = null;
+    for (const v of views) v.objects = undefined;
+    const service = visibilityService(world);
+    const select = (view: FeatureView["visibility"]): VisibilityResult | null => (service ? service.select(view) : null);
+    const engine = this.engine;
+    const fviews: FeatureView[] = planned.map((p, i) => {
+      const v = views[i];
+      const out = p.output;
+      const kind: ViewKind = out.kind === "texture" ? "texture" : out.kind === "preview" ? "preview" : this.policy.sceneView && p.editorContent ? "sceneView" : "camera";
+      const width = v.target ? v.target.width : Math.max(1, Math.round(v.viewport.width * engine.getRenderWidth()));
+      const height = v.target ? v.target.height : Math.max(1, Math.round(v.viewport.height * engine.getRenderHeight()));
+      const visibility = visibilityViewOf(p.camera, width, height, { kind });
+      return { camera: v.camera, visibility, result: select(visibility) };
+    });
+    views.forEach((v, i) => this.featureViews.set(v, fviews[i]));
+    if (!service) return undefined;
+    const captures = this.probes.captures();
+    for (const c of captures) {
+      const visibility = probeView(c);
+      fviews.push({ camera: null, visibility, result: select(visibility) });
+    }
+    const casters = service.main ?? fviews[0]?.result ?? null;
+    const drawings: ViewDrawing[] = [];
+    for (const slot of this.slots) {
+      const d = slot.feature?.prepareViews?.(fviews, casters);
+      if (d) drawings.push(d);
+    }
+    if (!drawings.length) return undefined;
+    // Probes capture what they always did (no editor-only meshes), with the drawables chosen for them.
+    const editorOnly = (m: AbstractMesh) => (m.layerMask & EDITOR_LAYER_MASK) !== 0;
+    const lists = this.viewObjects.build(this.scene.meshes, drawings, fviews.length, (i) => (i >= views.length ? editorOnly : null));
+    views.forEach((v, i) => (v.objects = lists[i]));
+    this.probeLists.clear();
+    captures.forEach((c, k) => this.probeLists.set(c.key, lists[views.length + k] as AbstractMesh[]));
+    this.frame.cascades = cascadesOf(drawings);
+    // The casters the features chose for this frame (ADR 0276 `casters`, after `prepareViews`).
+    this.casters.length = 0;
+    for (const slot of this.slots) slot.feature?.casters?.(this.casters);
+    this.dynamicMeshes.casters(this.casters);
+    return (key) => this.probeLists.get(key) ?? null;
   }
 
   /** A planned view as a frame-graph camera view (ADR 0129), or null when its render texture isn't ready. */

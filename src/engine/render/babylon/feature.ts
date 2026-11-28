@@ -35,6 +35,30 @@ import type { LightingContributions } from "./lighting";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import type { BabylonMaterials2D } from "./materials2D";
 import type { ProbeHit } from "./probes";
+import type { CascadeExpander } from "./shadowCulling";
+import type { VisibilityResult, VisibilityView } from "../visibility/types";
+
+/**
+ * @internal A view the frame draws (ADR 0446 §3): a planned camera view (ADR 0129) or a probe capture, with its
+ * visibility-stage view (its `ViewKey`, frustum and pixel height) and that view's selection.
+ */
+export interface FeatureView {
+  /** The Babylon camera that draws it; null for a probe capture. */
+  readonly camera: TargetCamera | null;
+  readonly visibility: VisibilityView;
+  /** Its visibility result, or null when the World runs no visibility stage (no `LODGroup`). */
+  readonly result: VisibilityResult | null;
+}
+
+/** @internal What a feature draws in each view this frame (ADR 0446 §3 `prepareViews`). */
+export interface ViewDrawing {
+  /** Whether a scene mesh is one it places in views itself: left out of every view's list unless `meshes` adds it. */
+  owns(mesh: AbstractMesh): boolean;
+  /** Append what view `i` (in the order `prepareViews` got them) draws. */
+  meshes(i: number, out: AbstractMesh[]): void;
+  /** Casters that stand for many, compacted per shadow cascade (`shadowCulling.ts`), or null. */
+  readonly cascades: CascadeExpander | null;
+}
 
 /** @internal What the renderer worked out before a feature's phase (ADR 0130). */
 export interface FeatureSyncContext {
@@ -159,8 +183,17 @@ export interface BabylonFeature {
   loaded?(): boolean;
   /** ADR 0154: the UI layout and routing core it runs (the editor's UI queries), or null. */
   uiCore?(): UICore | null;
-  /** Before each view is drawn: follow its camera (the sky's box around it). */
+  /** Before each view is drawn: follow its camera (the sky's box around it). A feature with `fitView` gets that instead. */
   fit?(camera: TargetCamera): void;
+  /** ADR 0446 §3: before each view is drawn, follow it (`fit` with the view's key and visibility). */
+  fitView?(view: FeatureView): void;
+  /**
+   * ADR 0446 §3: once a frame, before the probes capture and the frame graph runs, choose what it draws in each view
+   * from the views' visibility results (levels, hidden) and its shadow casters from `casters` (the main view's result,
+   * its `casterLevels`). Null when it draws as it always did (no visibility stage), so every view lists the scene's
+   * meshes. Its `casters` hook reports the casters chosen here.
+   */
+  prepareViews?(views: readonly FeatureView[], casters: VisibilityResult | null): ViewDrawing | null;
   /** Once a frame, before the frame graph runs (the sky's bake, like probe captures). */
   beforeFrame?(): void;
   /**

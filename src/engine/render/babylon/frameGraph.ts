@@ -17,6 +17,8 @@
  * marked `overlay`, straight onto the canvas without post-processing, so a camera preview inset drawn
  * after it covers it.
  *
+ * Each view culls its own object list (ADR 0446 §3: the levels and visibility chosen for it), by default every mesh.
+ *
  * Each camera's tasks follow its pass plan (`render/passPlan.ts`, ADR 0274). The graph is rebuilt only
  * when its layout changes (cameras, their sizes and pass plan keys, shadow lights, MSAA); every value,
  * the finish pass's uniforms included, is updated in place each frame.
@@ -59,7 +61,7 @@ import { AO_SETTINGS, type PostEffects, type ToneMappingName } from "../postEffe
 import { planCameraPasses, type CameraPassPlan } from "../passPlan";
 import { FINISH_SAMPLERS, FINISH_SHADER, FINISH_UNIFORMS, TONE_MAPPING_CODE } from "./finishShader";
 import { reclusterForNextCamera } from "./lighting";
-import { cascadeCasterList, type CustomRenderList } from "./shadowCulling";
+import { cascadeCasterList, type CascadeExpander, type CustomRenderList } from "./shadowCulling";
 import type { RenderTarget } from "./renderTextures";
 import { BabylonLuts } from "./lutTextures";
 import type { BabylonLights2D } from "./lights2D";
@@ -91,6 +93,11 @@ export interface CameraView {
    * camera clears to transparent and the finish pass puts this behind what it drew.
    */
   backdrop?: Color4;
+  /**
+   * ADR 0446 §3: the meshes this view draws (its cull task's object list, so its geometry pass and render pass draw the
+   * same set), or absent for every mesh in the scene.
+   */
+  objects?: readonly AbstractMesh[];
 }
 
 /**
@@ -288,6 +295,8 @@ class FrameGraphLights2DTask extends FrameGraphTask {
 
 interface ViewTasks {
   render: FrameGraphObjectRendererTask;
+  /** The object list its cull task reads (ADR 0446 §3). */
+  objects: FrameGraphObjectList;
   /** The camera's 2D light textures (ADR 0399), or null without the pass. */
   lights2D: ViewLights2D | null;
   geometry: FrameGraphGeometryRendererTask | null;
@@ -355,6 +364,9 @@ export class BabylonFrame {
   /** Disposed: a graph whose build finishes now is freed, not installed. */
   private disposed = false;
   private views: ViewTasks[] = [];
+  /** The views of the frame being drawn (`beforeView` hands each its own). */
+  private current: CameraView[] = [];
+  private readonly expander = (): CascadeExpander | null => this.cascades;
   private shadowTasks: FrameGraphShadowGeneratorTask[] = [];
   private overlayTask: FrameGraphOverlayTask | null = null;
   /** The editor's overlay, drawn after the camera marked `overlay` (stage 8). */
@@ -366,10 +378,13 @@ export class BabylonFrame {
   ui: (() => Layer | null) | null = null;
   /** Editor: the game's screen UI laid out for the camera preview inset, drawn after the view marked `previewUI`. */
   previewUI: (() => Layer | null) | null = null;
-  /** Called just before each camera draws its objects (the renderer fits the skybox to it). */
-  beforeView: ((camera: TargetCamera) => void) | null = null;
-  /** Every mesh in the scene, drawn by each camera (the scene's own list, so new meshes join at once). */
-  private readonly objects = new FrameGraphObjectList();
+  /** Called just before each camera draws its objects (the renderer fits the skybox to it), with its view when in a frame. */
+  beforeView: ((camera: TargetCamera, view?: CameraView) => void) | null = null;
+  /**
+   * ADR 0446 §3: casters that stand for many (thin batches' casters), compacted per shadow cascade, or null. Read
+   * while the shadow maps draw.
+   */
+  cascades: CascadeExpander | null = null;
   /** The meshes that cast shadows, refilled each frame. */
   private readonly casterList = new FrameGraphObjectList();
   private readonly casterMeshes: AbstractMesh[] = [];
@@ -381,8 +396,6 @@ export class BabylonFrame {
   private lights2D: BabylonLights2D | null = null;
 
   constructor(private readonly scene: Scene) {
-    this.objects.meshes = scene.meshes;
-    this.objects.particleSystems = scene.particleSystems;
     this.casterList.meshes = this.casterMeshes;
     this.casterList.particleSystems = [];
     frames.set(scene, this);
@@ -593,9 +606,14 @@ export class BabylonFrame {
 
     // Frustum culling: Babylon's frame graph object renderer draws every mesh in its list, so without
     // this every mesh in the scene was drawn (and readied) by every camera, on screen or not.
+    // ADR 0446 §3: each view culls its own object list (`CameraView.objects`, set each frame in `update`); by default
+    // every mesh in the scene (the scene's own list, so new meshes join at once).
+    const objects = new FrameGraphObjectList();
+    objects.meshes = this.scene.meshes;
+    objects.particleSystems = this.scene.particleSystems;
     const cull = new FrameGraphCullObjectsTask(`cull${i}`, graph, this.scene);
     cull.camera = v.camera;
-    cull.objectList = this.objects;
+    cull.objectList = objects;
     graph.addTask(cull);
 
     // The geometry pass first (view depth and normals): ambient occlusion and depth of field read it after
@@ -642,7 +660,7 @@ export class BabylonFrame {
     const render = new FrameGraphObjectRendererTask(`render${i}`, graph, this.scene, { enableClusteredLights: true });
     render.objectRenderer.onInitRenderingObservable.add(() => reclusterForNextCamera(this.scene), undefined, true);
     render.objectRenderer.onBeforeRenderObservable.add(() => {
-      this.beforeView?.(v.camera);
+      this.beforeView?.(v.camera, this.current[i]);
       // The frame graph doesn't raise the scene's before-camera-render observable, which scene.render() without one
       // does for each camera: raise it here, before this camera draws (ADR 0444: quad batches' per-camera matrices).
       this.scene.onBeforeCameraRenderObservable.notifyObservers(v.camera);
@@ -738,21 +756,23 @@ export class BabylonFrame {
       if (!v.target) finish.viewport = viewport;
       graph.addTask(finish);
     }
-    return { render, lights2D, geometry, ao, dof, bloom, ca, finish, fxaa, clear, finishValues, depth: null, lutPath: null };
+    return { render, objects, lights2D, geometry, ao, dof, bloom, ca, finish, fxaa, clear, finishValues, depth: null, lutPath: null };
   }
 
   /** Values that change without changing the graph's layout. */
   private update(views: CameraView[], shadows: ShadowRequest[]): void {
+    this.current = views;
     shadows.forEach((s, i) => {
       const task = this.shadowTasks[i];
       if (task instanceof FrameGraphCascadedShadowGeneratorTask) {
         task.shadowMaxZ = s.shadowMaxZ;
-        cullCascades(task);
+        cullCascades(task, this.expander);
       }
     });
     views.forEach((v, i) => {
       const t = this.views[i];
       if (!t) return;
+      t.objects.meshes = (v.objects as AbstractMesh[] | undefined) ?? this.scene.meshes;
       if (v.overlay && this.overlayTask) this.overlayTask.view = v;
       const transparent = { r: 0, g: 0, b: 0, a: 0 };
       t.clear.color.copyFrom(v.backdrop ? (transparent as Color4) : (v.clear ?? (transparent as Color4)));
@@ -807,11 +827,11 @@ const cascadeLists = new WeakMap<CascadedShadowGenerator, CustomRenderList>();
  * Draw into each cascade only the casters that reach it. The task makes its generator when built and
  * may make a new one when its settings change, so this checks every frame (a map lookup).
  */
-function cullCascades(task: FrameGraphCascadedShadowGeneratorTask): void {
+function cullCascades(task: FrameGraphCascadedShadowGeneratorTask, expander: () => CascadeExpander | null): void {
   const generator = (task as unknown as { _shadowGenerator?: CascadedShadowGenerator })._shadowGenerator;
   const map = generator?.getShadowMap();
   if (!generator || !map) return;
   let list = cascadeLists.get(generator);
-  if (!list) cascadeLists.set(generator, (list = cascadeCasterList((layer) => generator.getCascadeTransformMatrix(layer))));
+  if (!list) cascadeLists.set(generator, (list = cascadeCasterList((layer) => generator.getCascadeTransformMatrix(layer), expander)));
   if (map.getCustomRenderList !== list) map.getCustomRenderList = list as typeof map.getCustomRenderList;
 }

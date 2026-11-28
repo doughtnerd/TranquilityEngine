@@ -12,6 +12,9 @@
  * `boundingBoxSize` and `boundingBoxPosition`), use a capture baked in the editor (a prefiltered `.env`
  * file) instead of capturing, and blend with a neighbour near its box's faces (`lookup`'s `blend`,
  * drawn by `probeBlend.ts`).
+ *
+ * ADR 0446 §3: a capture draws what a selection for the probe's own view chose (`captures`, `probeView`, and the
+ * lists `capture` takes): levels by distance from the probe at its face resolution, nothing hidden, no crossfade.
  */
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
@@ -27,6 +30,38 @@ import { ReflectionProbe } from "../components";
 import { Graphics } from "../Graphics";
 import { Assets } from "../../scene/Assets";
 import { blendProbes, PROBE_RESOLUTION, type BlendBox } from "../probeBoxes";
+import type { VisibilityView } from "../visibility/types";
+
+/** A capture this frame (ADR 0446 §3): its view's key, the probe's position and its face resolution. */
+export interface ProbeCapture {
+  readonly key: string;
+  readonly position: readonly [number, number, number];
+  readonly resolution: number;
+}
+
+/** Inside every plane (0·p + 1 ≥ 0): a cube capture sees all round, so nothing is off-screen. */
+const ALL_ROUND = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]);
+const NO_PROJECTION = new Float32Array(16);
+
+/**
+ * @internal A probe capture's visibility view (ADR 0446 §3): at the probe's position, a 90° face of its resolution, so
+ * levels follow distance as a cube face sees them; every direction inside; not persistent (no hysteresis), no occlusion.
+ */
+export function probeView(c: ProbeCapture): VisibilityView {
+  return {
+    key: c.key,
+    kind: "probe",
+    position: c.position,
+    viewProjection: NO_PROJECTION,
+    planes: ALL_ROUND,
+    projection: "perspective",
+    fovY: Math.PI / 2,
+    orthoHalfHeight: 0,
+    heightPx: c.resolution,
+    persistent: false,
+    occlusion: false,
+  };
+}
 
 interface ProbeEntry {
   probe: BabylonReflectionProbe | null;
@@ -204,12 +239,32 @@ export class BabylonProbes {
     return CreateEnvTextureAsync(texture, { imageType: "image/png" });
   }
 
-  /** Render this frame's captures; call before the frame graph runs, with the camera that draws the view. */
-  capture(camera: Camera | null): void {
+  /** The captures this frame renders (after `sync`), for their selections (ADR 0446 §3). */
+  captures(): ProbeCapture[] {
+    const out: ProbeCapture[] = [];
+    for (const e of this.entries.values()) {
+      if (!e.probe || !this.toRender.includes(e.probe)) continue;
+      const c = e.box.center;
+      out.push({ key: `probe:${e.box.id}`, position: [c.x, c.y, c.z], resolution: e.resolution });
+    }
+    return out;
+  }
+
+  /**
+   * Render this frame's captures; call before the frame graph runs, with the camera that draws the view. `lists`
+   * gives a capture's own render list by its key (ADR 0446 §3), or null for the scene's meshes `sync` was given.
+   */
+  capture(camera: Camera | null, lists?: (key: string) => AbstractMesh[] | null): void {
     if (!this.toRender.length) return;
     const previous = this.scene.activeCamera;
     if (camera) this.scene.activeCamera = camera; // render targets read the scene's camera for culling and LOD
-    for (const probe of this.toRender) probe.cubeTexture.render();
+    for (const e of this.entries.values()) {
+      const probe = e.probe;
+      if (!probe || !this.toRender.includes(probe)) continue;
+      const own = lists?.(`probe:${e.box.id}`);
+      if (own) probe.renderList = own;
+      probe.cubeTexture.render();
+    }
     this.scene.activeCamera = previous;
   }
 

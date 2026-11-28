@@ -1,6 +1,6 @@
 /**
  * Babylon materials and meshes built from the engine's renderer-neutral data (ADR 0043, 0044, 0075):
- * material assets as PBR materials, model geometry as vertex data, model surfaces as PBR materials.
+ * material assets as PBR materials, model geometry as shared vertex buffers (ADR 0446 §1), model surfaces as PBR materials.
  * Shared by the World renderer (`BabylonRenderer.ts`) and the editor's preview renderers
  * (`previews/`), so a material looks the same in the scene, the Inspector and a thumbnail.
  */
@@ -11,6 +11,9 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3 } from "@babylonjs/core/Maths/math.color.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
+import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
+import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
+import type { IndicesArray } from "@babylonjs/core/types.js";
 import { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Color as EngineColor, type Color } from "../../core/math";
@@ -62,28 +65,73 @@ export function linear(c: Color): Color3 {
   return new Color3(c.r, c.g, c.b).toLinearSpace();
 }
 
-/** Vertex data made from each model geometry, shared by every mesh drawing it. */
-const vertexDatas = new WeakMap<object, VertexData>();
+/**
+ * One model mesh's vertex streams on the GPU (ADR 0446 §1): one Babylon `VertexBuffer` per stream, shared by every
+ * Babylon mesh drawing the model mesh or one of its levels (the levels share LOD0's vertex arrays), each mesh with
+ * its own `Geometry` and index buffer. Never one `Geometry` across meshes: thin instances attach their matrices to
+ * the `Geometry`, so every source would draw the last one's (`spikes/lod-apply/` §2.4).
+ *
+ * Babylon counts the buffer's users (each `Geometry.setVerticesBuffer` adds one, each geometry's disposal drops
+ * one); this set keeps the creation reference and its own count of meshes, and drops the creation reference with
+ * its last mesh, which frees the GPU buffers.
+ */
+interface SharedVertices {
+  readonly buffers: readonly VertexBuffer[];
+  readonly vertices: number;
+  users: number;
+}
 
-/** A model mesh's vertices (its renderer-neutral data) as Babylon vertex data, made once per mesh. */
-function vertexDataOf(src: ModelMesh): VertexData {
-  let data = vertexDatas.get(src.data);
-  if (data) return data;
+/** Per engine (vertex buffers belong to one), per vertex-position array (LOD0's, shared by its levels). */
+const sharedVertices = new WeakMap<AbstractEngine, WeakMap<object, SharedVertices>>();
+
+/** Normals computed for model meshes without them, per position array (so the levels share them too). */
+const computedNormals = new WeakMap<object, number[]>();
+
+/** The shared vertex buffers of a model mesh (made on first use per engine), with one more user counted. */
+function acquireVertices(scene: Scene, src: ModelMesh): SharedVertices {
+  const engine = scene.getEngine();
+  let byData = sharedVertices.get(engine);
+  if (!byData) sharedVertices.set(engine, (byData = new WeakMap()));
   const d = src.data;
-  data = new VertexData();
-  data.positions = d.positions;
-  data.indices = d.indices;
-  if (d.uvs) data.uvs = d.uvs;
-  if (d.uvs2) data.uvs2 = d.uvs2;
-  if (d.colors) data.colors = d.colors;
-  if (d.normals) data.normals = d.normals;
-  else {
-    const normals: number[] = [];
-    VertexData.ComputeNormals(d.positions, d.indices, normals);
-    data.normals = normals;
+  const key = d.positions as object;
+  let shared = byData.get(key);
+  if (!shared) {
+    let normals = d.normals as ArrayLike<number> | null | undefined;
+    if (!normals) {
+      let made = computedNormals.get(key);
+      if (!made) {
+        made = [];
+        VertexData.ComputeNormals(d.positions, d.indices, made);
+        computedNormals.set(key, made);
+      }
+      normals = made;
+    }
+    // Kind, data and components per vertex (colours are RGBA, as the importers pack them).
+    const streams: [string, ArrayLike<number> | null | undefined, number][] = [
+      [VertexBuffer.PositionKind, d.positions, 3],
+      [VertexBuffer.NormalKind, normals, 3],
+      [VertexBuffer.UVKind, d.uvs, 2],
+      [VertexBuffer.UV2Kind, d.uvs2, 2],
+      [VertexBuffer.ColorKind, d.colors, 4],
+    ];
+    const buffers: VertexBuffer[] = [];
+    for (const [kind, data, stride] of streams) {
+      if (!data || !data.length) continue;
+      buffers.push(new VertexBuffer(engine, data as Float32Array, kind, false, false, stride));
+    }
+    shared = { buffers, vertices: d.positions.length / 3, users: 0 };
+    byData.set(key, shared);
   }
-  vertexDatas.set(src.data, data);
-  return data;
+  shared.users++;
+  return shared;
+}
+
+/** A mesh drawing `shared` was disposed: with the last one, free the buffers. */
+function releaseVertices(scene: Scene, src: ModelMesh, shared: SharedVertices): void {
+  if (--shared.users > 0) return;
+  const byData = sharedVertices.get(scene.getEngine());
+  if (byData?.get(src.data.positions as object) === shared) byData.delete(src.data.positions as object);
+  for (const b of shared.buffers) b.dispose();
 }
 
 let bufferTextures = 0;
@@ -403,7 +451,11 @@ export function modelSubMeshes(src: ModelMesh, mesh: Mesh): void {
 /** A Babylon mesh of a model mesh's renderer-neutral geometry (no material yet). */
 export function meshOf(scene: Scene, name: string, src: ModelMesh): Mesh {
   const mesh = new Mesh(name, scene);
-  vertexDataOf(src).applyToMesh(mesh, false);
+  // The model mesh's shared vertex buffers (ADR 0446 §1) and an index buffer of its own, in a `Geometry` of its own.
+  const shared = acquireVertices(scene, src);
+  for (const b of shared.buffers) mesh.setVerticesBuffer(b, false, shared.vertices);
+  mesh.setIndices(src.data.indices as IndicesArray, shared.vertices, false);
+  mesh.onDisposeObservable.addOnce(() => releaseVertices(scene, src, shared));
   return mesh;
 }
 

@@ -2,6 +2,15 @@
  * MeshRenderer drawing for the Babylon backend (ADR 0108, 0130; the Meshes plugin registers it, ADR 0140): one `BabylonFeature` that mirrors the
  * World's MeshRenderers into Babylon meshes, batched for GPU instancing. It takes what it shares with
  * the renderer (the material library, the probe lookup, the reflection counter) as `BabylonMeshHost`.
+ *
+ * **Levels per view (ADR 0446 §3).** While the World runs the visibility stage (it has an `LODGroup`), the renderer
+ * calls `prepareViews` each frame with every view's visibility result, and each view draws exactly the drawables
+ * chosen for it: per renderer mesh, the drawable of the level its result gives (none when hidden or LOD-culled),
+ * acquired on first use. A level's derived `ModelMesh` is its batch key, so batches split per level; thin batches
+ * draw through per-pass sources (`meshBatches.ts`). Shadow casters follow the main view's `casterLevels`. Drawables
+ * of levels above 0 are kept while any view drew them in the last `POOL_SECONDS`, and batches they leave empty a few
+ * seconds more, so a moving camera doesn't make and dispose Babylon meshes. Without the visibility stage (or before
+ * its first frame, or in a thumbnail, which only syncs) every renderer draws LOD0 as it always did.
  */
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
@@ -14,10 +23,12 @@ import type { MaterialInstancing } from "../../scene/material";
 import { drawnVariant, materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import { MeshRenderer } from "../components";
 import type { DrawnMaterial } from "../RenderSurface";
-import { PICK_ORDER, type BabylonFeature, type DrawnDescription, type DrawnNode, type FeatureSyncContext } from "./feature";
+import { visibilityService } from "../visibility/service";
+import { LOD_CULLED, type VisibilityResult, type VisibilityStats } from "../visibility/types";
+import { PICK_ORDER, type BabylonFeature, type DrawnDescription, type DrawnNode, type FeatureSyncContext, type FeatureView, type ViewDrawing } from "./feature";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import { matrixChanged } from "../changeDetection";
-import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
+import { CASTERS_PASS, MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
 import type { ProbeHit } from "./probes";
 
 /** @internal What the mesh feature takes from the renderer. */
@@ -35,14 +46,30 @@ export interface BabylonMeshHost {
   reflected?(): void;
 }
 
+/** Seconds a level's drawable is kept after the last view drew it (ADR 0446 §3). */
+export const POOL_SECONDS = 1;
+
+/** One drawable of a renderer mesh at one level. */
+interface LevelDrawable {
+  readonly d: Drawable;
+  /** When a view (or the casters) last drew it, in the feature's seconds. */
+  used: number;
+  /** The `prepareViews` frame it was last drawn in. */
+  frame: number;
+}
 
 interface MeshEntry {
-  /** The renderer's own Babylon meshes (instances, or whole meshes with instancing off); none in a thin batch. */
+  /**
+   * The renderer's own Babylon meshes drawn now (instances, or whole meshes with instancing off; none in a thin
+   * batch): LOD0's, or with levels per view those the first view draws.
+   */
   meshes: AbstractMesh[];
-  /** One per model mesh: where it draws (ADR 0108). */
-  drawables: Drawable[];
-  /** Drawables that haven't had a matrix yet. */
-  pending: boolean[];
+  /** The drawables `meshes` and the materials report come from. */
+  shown: Drawable[];
+  /** Per model mesh, its drawables by level (ADR 0108, 0446). */
+  levels: (LevelDrawable | undefined)[][];
+  /** Per model mesh, the batch it wants at LOD0 (a copy; a level's swaps in the level's mesh). */
+  keys: DrawKey[];
   sources: readonly ModelMesh[] | null;
   material: BabylonMaterial | null;
   /** Its meshes' material slots (ADR 0089). */
@@ -62,29 +89,128 @@ function drawnMaterial(m: BabylonMaterial): DrawnMaterial {
   return { unlit: !!(lit.unlit ?? lit.disableLighting), clearcoat: 0, transmission: 0 };
 }
 
-/** @internal Draws every MeshRenderer, batched for GPU instancing (ADR 0108). */
+/** The level a model mesh draws for a group level: min(level, its last), 0 without levels (ADR 0446 §2). */
+function meshLevel(src: ModelMesh, level: number): number {
+  const n = src.lods?.levels.length ?? 1;
+  return level < n ? level : n - 1;
+}
+
+/** @internal Draws every MeshRenderer, batched for GPU instancing (ADR 0108), with levels chosen per view (ADR 0446). */
 export class BabylonMeshes implements BabylonFeature {
   private readonly meshRenderers = new Map<MeshRenderer, MeshEntry>();
   /** MeshRenderer meshes batched for GPU instancing (ADR 0108). */
   private readonly batches: MeshBatches;
+  private world: World | null = null;
+  /** The feature's clock in seconds: the World's real time, or a 60th of a second per sync where it stands still. */
+  private now = 0;
+  private lastRealtime = -1;
+  /** Syncs so far, and the sync count when `prepareViews` last ran (levels per view while it ran since the last sync). */
+  private syncs = 0;
+  private preparedAt = -1;
+  /** Levels per view this frame (`prepareViews` ran since the previous sync). */
+  private perView = false;
+  /** What each view drew at the last `prepareViews`, and the casters. */
+  private readonly viewLists: AbstractMesh[][] = [];
+  private readonly casterMeshes: AbstractMesh[] = [];
+  /** The first view's visibility statistics at the last `prepareViews` (the `lod` diagnostics). */
+  private stats: VisibilityStats | null = null;
+  private readonly drawing: ViewDrawing;
 
   constructor(private readonly host: BabylonMeshHost) {
     this.batches = new MeshBatches(host.scene);
+    this.drawing = {
+      owns: (mesh) => this.batches.owns(mesh),
+      meshes: (i, out) => {
+        const list = this.viewLists[i];
+        if (list) for (const m of list) out.push(m);
+      },
+      cascades: this.batches,
+    };
   }
 
   /** Every MeshRenderer, then the script Material instances no renderer drew any more (ADR 0107). */
   sync(world: World, _ctx?: FeatureSyncContext): void {
+    this.world = world;
+    this.tick(world);
+    this.perView = this.preparedAt === this.syncs;
+    this.syncs++;
+    this.batches.setPassMode(this.perView);
+    if (!this.perView) this.stats = null;
     this.host.materials.beginSync();
     for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
     this.host.materials.endSync();
+    this.expire();
     this.batches.flush();
+  }
+
+  /**
+   * ADR 0446 §3: each view's drawables from its visibility result, the casters from `casters`' `casterLevels`. Null
+   * (every view lists the scene's meshes, LOD0 as always) when the World runs no visibility stage.
+   */
+  prepareViews(views: readonly FeatureView[], casters: VisibilityResult | null): ViewDrawing | null {
+    const service = this.world ? visibilityService(this.world) : null;
+    if (!service || !views.some((v) => v.result)) return null;
+    const frame = this.syncs;
+    this.preparedAt = frame;
+    this.perView = true;
+    this.batches.setPassMode(true);
+    this.batches.beginPasses();
+    const lists = this.viewLists;
+    lists.length = views.length;
+    for (let k = 0; k < views.length; k++) (lists[k] ??= []).length = 0;
+    const casterMeshes = this.casterMeshes;
+    casterMeshes.length = 0;
+    const use = (r: MeshRenderer, e: MeshEntry, i: number, level: number): Drawable => {
+      const ld = this.levelDrawable(r, e, i, meshLevel(e.sources![i], level));
+      ld.used = this.now;
+      ld.frame = frame;
+      return ld.d;
+    };
+    for (const [r, e] of this.meshRenderers) {
+      e.shown = [];
+      const n = e.sources?.length ?? 0;
+      if (!n || !r.isActiveAndEnabled) continue;
+      const slot = service.slotOf(r);
+      for (let k = 0; k < views.length; k++) {
+        const result = views[k].result;
+        let level = 0;
+        if (result && slot >= 0 && slot < result.levels.length) {
+          if (result.hidden[slot]) continue;
+          level = result.levels[slot];
+          if (level === LOD_CULLED) continue;
+        }
+        for (let i = 0; i < n; i++) {
+          const d = use(r, e, i, level);
+          this.batches.add(d, views[k].visibility.key, lists[k]);
+          if (k === 0) e.shown.push(d);
+        }
+      }
+      // Casters: the main view's caster levels (LOD-culled groups cast at their coarsest level within the tier's
+      // shadow distance; hidden ones still cast); a renderer without a slot casts LOD0, as its views draw it.
+      let casterLevel = r.castShadows ? 0 : LOD_CULLED;
+      if (casters && slot >= 0 && slot < casters.casterLevels.length) casterLevel = casters.casterLevels[slot];
+      if (casterLevel !== LOD_CULLED) for (let i = 0; i < n; i++) this.batches.add(use(r, e, i, casterLevel), CASTERS_PASS, casterMeshes);
+    }
+    // Every drawable a pass drew stays enabled (a cull task drops disabled meshes); the rest of the pool is disabled,
+    // so nothing that draws the scene's meshes as a whole draws them.
+    for (const [r, e] of this.meshRenderers) {
+      const active = r.isActiveAndEnabled;
+      for (const part of e.levels) for (const ld of part) ld?.d.setEnabled(active && ld.frame === frame);
+      e.meshes = e.shown.flatMap((d) => (d.mesh ? [d.mesh] : []));
+    }
+    this.batches.endPasses();
+    views.forEach((v, k) => this.batches.passMeshes(v.visibility.key, lists[k]));
+    this.batches.passMeshes(CASTERS_PASS, casterMeshes);
+    const first = views[0]?.visibility.key;
+    this.stats = first !== undefined ? service.stats(first) : null;
+    return this.drawing;
   }
 
   release(c: Component): void {
     if (!(c instanceof MeshRenderer)) return;
     const e = this.meshRenderers.get(c);
     if (e) {
-      for (const d of e.drawables) this.batches.release(d);
+      this.releaseAll(e);
       this.meshRenderers.delete(c);
     }
     this.host.materials.release(c);
@@ -95,8 +221,15 @@ export class BabylonMeshes implements BabylonFeature {
     this.meshRenderers.clear();
   }
 
-  /** ADR 0276: appends the meshes that cast shadows: enabled renderers' with castShadows, and thin batches' sources. */
+  /**
+   * ADR 0276: appends the meshes that cast shadows: enabled renderers' with castShadows, and thin batches' sources;
+   * with levels per view, the casters `prepareViews` chose (ADR 0446 §3).
+   */
   casters(out: AbstractMesh[]): void {
+    if (this.perView) {
+      for (const m of this.casterMeshes) out.push(m);
+      return;
+    }
     for (const [r, e] of this.meshRenderers) if (r.castShadows && r.isActiveAndEnabled) out.push(...e.meshes);
     for (const m of this.batches.thinCasters()) out.push(m);
   }
@@ -107,10 +240,19 @@ export class BabylonMeshes implements BabylonFeature {
     return true;
   }
 
+  /** ADR 0154, 0446 §3: the main view's level statistics while levels are applied per view, else nothing. */
+  diagnostics(): unknown {
+    const s = this.stats;
+    if (!s) return undefined;
+    return { lod: { groups: s.groups, perLevel: [...s.perLevel], culled: s.lodCulled, fading: 0 } };
+  }
+
   /** The renderer that owns a drawn mesh or batch source (`describe`, for the variant report), or null. */
   private ownerOf(drawn: unknown): MeshRenderer | null {
+    const batch = this.batches.keyOf(drawn as AbstractMesh);
     for (const [r, e] of this.meshRenderers) {
-      if (e.meshes.includes(drawn as AbstractMesh) || e.drawables.some((d) => d.source === drawn)) return r;
+      if (e.meshes.includes(drawn as AbstractMesh)) return r;
+      for (const part of e.levels) for (const ld of part) if (ld && (ld.d.source === drawn || ld.d.mesh === drawn || ld.d.key === batch)) return r;
     }
     return null;
   }
@@ -124,20 +266,69 @@ export class BabylonMeshes implements BabylonFeature {
   /**
    * ADR 0276: each renderer drawn now (an enabled drawable): its own meshes (none in a thin batch, which
    * draws instances of a shared source), depth-tested, with its drawn materials (the diagnostics, ADR 0128).
+   * With levels per view, what the first view drew (the editor's scene view, the game's main camera).
    */
   *drawn(): Iterable<DrawnNode> {
     for (const [component, e] of this.meshRenderers) {
-      const shown = e.drawables.filter((d) => d.enabled);
+      const shown = e.shown.filter((d) => d.enabled);
       if (!shown.length) continue;
       yield { component, shape: { kind: "meshes", meshes: e.meshes }, order: PICK_ORDER.depthTested, materials: shown.map((d) => drawnMaterial(d.draw.material)) };
     }
+  }
+
+  /** Advance the clock: by the World's real time, or a 60th of a second where it doesn't advance (an edit-mode World). */
+  private tick(world: World): void {
+    const real = world.time.realtimeSinceStartup;
+    const delta = this.lastRealtime >= 0 ? real - this.lastRealtime : 0;
+    this.lastRealtime = real;
+    this.now += delta > 0 ? delta : 1 / 60;
+    this.batches.setTime(this.now);
+  }
+
+  /** Give back the drawables of levels above 0 no view drew for `POOL_SECONDS`; their batches are kept a little longer. */
+  private expire(): void {
+    for (const e of this.meshRenderers.values()) {
+      for (const part of e.levels) {
+        for (let level = 1; level < part.length; level++) {
+          const ld = part[level];
+          if (!ld || this.now - ld.used <= POOL_SECONDS) continue;
+          this.batches.release(ld.d, true);
+          part[level] = undefined;
+        }
+      }
+    }
+  }
+
+  private releaseAll(e: MeshEntry): void {
+    for (const part of e.levels) for (const ld of part) if (ld) this.batches.release(ld.d);
+    e.levels = [];
+    e.keys = [];
+    e.shown = [];
+    e.meshes = [];
+  }
+
+  /** A renderer mesh's drawable at `level` (of its model mesh), acquired on first use at its matrix. */
+  private levelDrawable(r: MeshRenderer, e: MeshEntry, i: number, level: number): LevelDrawable {
+    const part = (e.levels[i] ??= []);
+    let ld = part[level];
+    if (ld) return ld;
+    const src = e.sources![i];
+    const key = { ...e.keys[i] };
+    if (level > 0) key.src = src.lods!.levels[level].mesh;
+    const d = this.batches.acquire(key, level > 0 ? `${r.node.name}:${src.name}:lod${level}` : `${r.node.name}:${src.name}`);
+    if (e.matrix) {
+      Matrix.FromArrayToRef(e.matrix as unknown as number[], 0, tmpMatrix);
+      d.setMatrix(tmpMatrix);
+    }
+    part[level] = ld = { d, used: this.now, frame: -1 };
+    return ld;
   }
 
   private syncMesh(world: World, r: MeshRenderer): void {
     const { materials, probes } = this.host;
     let entry = this.meshRenderers.get(r);
     if (!entry) {
-      entry = { meshes: [], drawables: [], pending: [], sources: null, material: null, slotList: [], matrix: null };
+      entry = { meshes: [], shown: [], levels: [], keys: [], sources: null, material: null, slotList: [], matrix: null };
       this.meshRenderers.set(r, entry);
     }
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
@@ -148,9 +339,7 @@ export class BabylonMeshes implements BabylonFeature {
     const drawnBy = materials.meshMaterials(r, slots, variant);
     const material = drawnBy.material;
     if (!same) {
-      for (const d of entry.drawables) this.batches.release(d);
-      entry.drawables = [];
-      entry.pending = [];
+      this.releaseAll(entry);
       entry.sources = sources;
       entry.slotList = slots;
       entry.matrix = null;
@@ -178,22 +367,34 @@ export class BabylonMeshes implements BabylonFeature {
       key.castShadows = r.castShadows;
       key.mode = mode;
       key.applyFog = !materials.fogless(base);
-      let d = entry!.drawables[i];
-      if (!d || !sameDraw(d.draw, key)) {
-        if (d) this.batches.release(d);
-        d = this.batches.acquire(key, `${r.node.name}:${src.name}`);
-        entry!.drawables[i] = d;
-        entry!.pending[i] = true;
+      const had = entry!.keys[i];
+      if (!had || !sameDraw(had, key)) {
+        // Another batch: every level's drawable goes, and comes back on first use in it.
+        for (const ld of entry!.levels[i] ?? []) if (ld) this.batches.release(ld.d);
+        entry!.levels[i] = [];
+        entry!.keys[i] = { ...key };
         changed = true;
       }
-      d.setEnabled(visible);
-      if (visible && (moved || entry!.pending[i]) && entry!.matrix) {
+      const part = entry!.levels[i]!;
+      if (moved && entry!.matrix) {
         Matrix.FromArrayToRef(entry!.matrix as unknown as number[], 0, tmpMatrix);
-        d.setMatrix(tmpMatrix);
-        entry!.pending[i] = false;
+        for (const ld of part) ld?.d.setMatrix(tmpMatrix);
       }
+      if (this.perView) {
+        // Views enable what they draw (`prepareViews`); a renderer turned off draws in none.
+        if (!visible) for (const ld of part) ld?.d.setEnabled(false);
+        return;
+      }
+      // LOD0 for every view, as without levels; any other level's drawable waits, disabled, to be given back.
+      const ld0 = this.levelDrawable(r, entry!, i, 0);
+      ld0.used = this.now;
+      ld0.d.setEnabled(visible);
+      for (let level = 1; level < part.length; level++) part[level]?.d.setEnabled(false);
     });
-    if (changed) entry.meshes = entry.drawables.flatMap((d) => (d.mesh ? [d.mesh] : []));
+    if (!this.perView && (changed || entry.shown.length !== (sources?.length ?? 0) || entry.shown.some((d, i) => entry!.levels[i]?.[0]?.d !== d))) {
+      entry.shown = entry.levels.map((part) => part[0]!.d);
+      entry.meshes = entry.shown.flatMap((d) => (d.mesh ? [d.mesh] : []));
+    }
   }
 
   /** How a renderer's meshes batch (ADR 0108): its slot 0 material asset's `instancing`. */
