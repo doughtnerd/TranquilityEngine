@@ -1,10 +1,10 @@
-// Stand-in generation (meshoptimizer 1.3.0) and the import-time error measurement ADR 0447 §3 asks for.
+// Stand-in generation (meshoptimizer 1.3.0) and the import-time error measurement ADR 0460 §3 asks for.
 import { MeshoptSimplifier as S } from 'meshoptimizer';
 import { Bvh, sampleSurface, oneSided } from '../../lod-simplify/lib/metrics.mjs';
 import { bboxOf } from '../../lod-simplify/lib/mesh.mjs';
 
 export const TYPES = ['orig', 'simp12', 'simp5', 'sloppy5'];
-export const EXEMPT_TRIS = 512; // 0447: a mesh with at most 512 triangles occludes with itself
+export const EXEMPT_TRIS = 512; // 0460: a mesh with at most 512 triangles occludes with itself
 
 export async function ready() { await S.ready; if (!S.supported) throw new Error('meshoptimizer simplifier unsupported'); }
 
@@ -16,7 +16,7 @@ function simplify(positions, indices, ratioOfOrig, nOrig) {
   return out;
 }
 
-/** Two-way Hausdorff over samples, as ADR 0446 §1 specifies: the max of the two one-sided maxima, in world units. */
+/** Two-way Hausdorff over samples, as ADR 0459 §1 specifies: the max of the two one-sided maxima, in world units. */
 function measure(O, bvhO, Sm, nSamples) {
   const t0 = now();
   const bvhS = new Bvh(Sm.positions, Sm.indices);

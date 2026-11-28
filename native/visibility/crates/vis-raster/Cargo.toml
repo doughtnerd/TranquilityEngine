@@ -1,6 +1,6 @@
 [package]
 name = "vis-raster"
-description = "Myco occlusion core (ADR 0447): the software depth buffer, clipping, simd128 rasteriser with its scalar reference, coarse min level, occludee test and the conservativeness rules. no_std + alloc."
+description = "Myco occlusion core (ADR 0460): the software depth buffer, clipping, simd128 rasteriser with its scalar reference, coarse min level, occludee test and the conservativeness rules. no_std + alloc."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

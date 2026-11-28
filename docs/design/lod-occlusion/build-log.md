@@ -1,4 +1,4 @@
-# Build log: mesh LOD (0446) and occlusion culling (0447)
+# Build log: mesh LOD (0459) and occlusion culling (0460)
 
 Coordinator's log of merges, checks and findings. Newest last.
 
@@ -7,7 +7,7 @@ Coordinator's log of merges, checks and findings. Newest last.
 - **Owner decisions:** accepted both records; decision 1 opt-in LOD generation; decision 2 the owner runs real-hardware
   measurements later; decision 3 tolerant occlusion (false occlusions under 16 px at 1080p accepted).
 - **First wave:** `spikes/lod-apply/` (per-view object lists 0.055 ms/view at 10k instances; shared vertex buffers 1.13x),
-  `spikes/occlusion-safety/` (the rules as first written failed; sloppy stand-ins dropped; decided rules in 0447 §3).
+  `spikes/occlusion-safety/` (the rules as first written failed; sloppy stand-ins dropped; decided rules in 0460 §3).
 - **Wave 1 merged:** T1 import pipeline (946b858e), T2 visibility core and `LODGroup` (7b47b980), T4 benchmark and
   triangle stats (80f54ceb). Merge fixes: triangles report the last finished frame (a slow frame read early showed 0);
   `.mycomesh` v5 in two older tests; the editor installs the LOD host; `LodMember.castShadows` added to the contract.
@@ -52,7 +52,7 @@ Coordinator's log of merges, checks and findings. Newest last.
 - **Benchmark:** forest-auto didn't start play within 10 min on software GL under load (a forest frame takes ~47 s);
   limits raised to 30 min, forest variants to be re-run on an idle machine.
 - **CPU against no LOD (2026-11-28).** The first same-conditions run (occlusion-gate harness, `-base` projects without
-  `LODGroup`s, 3 runs) showed LOD costing JS CPU, against 0446's target "JS CPU ≤ baseline with LODs on": forest static
+  `LODGroup`s, 3 runs) showed LOD costing JS CPU, against 0459's target "JS CPU ≤ baseline with LODs on": forest static
   67 → 90 ms, fly 69 → 143 ms; city static 41 → 42, fly 41 → 53. Profiling (`spikes/occlusion-gate/profile.mjs`) found:
   - **Dead Babylon instances.** Pooled drawables never expired at level 0, so every renderer kept a disabled LOD0
     instance; the scene walks all meshes each frame (16,350 meshes for 10k renderers static, 36,626 flying, against
@@ -74,7 +74,7 @@ Coordinator's log of merges, checks and findings. Newest last.
 
   City static now meets the target. Forest static is 9 % over; both fly paths are over, forest by about 2×. What remains
   is the per-renderer `InstancedMesh` design under LOD: Babylon's per-mesh walk, frustum and caster tests on each
-  instance, level-switch churn, and the engine's per-member gather. 0446's own spike measured thin batches at about half
+  instance, level-switch churn, and the engine's per-member gather. 0459's own spike measured thin batches at about half
   the JS CPU of auto. Proposed next (owner decision): draw auto batches through per-pass thin sources while levels are
   applied, as thin batches already do.
 - **Visibility stage on the core's change signals (2026-11-28).** Membership is rebuilt only when the new internal
@@ -92,8 +92,8 @@ Coordinator's log of merges, checks and findings. Newest last.
   | fly | 51.0, 44.0, 48.3 | 88.7, 86.6, 80.9 | 47.8 → 85.4 |
 
   Static now meets "JS CPU ≤ baseline" within the noise (LOD lower in two rounds of three), with 4× fewer triangles.
-  The fly-through is still 1.8×: level-switch churn and Babylon's per-instance work, which ADR 0448 (Proposed) targets.
-- **ADR 0448 built (stage 1 of 0449).** Auto batches draw through per-pass thin buffers while levels apply, outside
+  The fly-through is still 1.8×: level-switch churn and Babylon's per-instance work, which ADR 0461 (Proposed) targets.
+- **ADR 0461 built (stage 1 of 0462).** Auto batches draw through per-pass thin buffers while levels apply, outside
   the editor's picking. Interleaved, forest (ms p50 per round, SwiftShader):
 
   | Path | No LOD | LOD | Mean no LOD → LOD |
@@ -101,8 +101,8 @@ Coordinator's log of merges, checks and findings. Newest last.
   | static | 35.9, 38.5, 38.5 | 28.3, 22.5, 23.7 | 37.6 → **24.8** (−34 %) |
   | fly | 37.8, 39.0, 34.9 | 31.9, 34.8, 31.0 | 37.2 → **32.6** (−12 %) |
 
-  LOD p99 on the fly-through: 45–61 ms (no LOD 60–72; before 0448, LOD 190–235). Triangles: static 61.4M → 15.2M,
-  fly 48.1M → 16.4M. 0446's target "JS CPU ≤ baseline with LODs on" now holds on both forest paths.
-- **City, interleaved, after 0448** (ms p50 per round): fly no LOD 21.1, 22.3, 20.8 against LOD 17.9, 16.2, 16.6
+  LOD p99 on the fly-through: 45–61 ms (no LOD 60–72; before 0461, LOD 190–235). Triangles: static 61.4M → 15.2M,
+  fly 48.1M → 16.4M. 0459's target "JS CPU ≤ baseline with LODs on" now holds on both forest paths.
+- **City, interleaved, after 0461** (ms p50 per round): fly no LOD 21.1, 22.3, 20.8 against LOD 17.9, 16.2, 16.6
   (mean 21.4 → **16.9**, −21 %); static 22.4, 20.8, 23.1 against 15.3, 14.9, 15.1 (22.1 → **15.1**, −32 %).
   Triangles: fly 6.9M → 1.4M, static 10.3M → 1.8M. All four gate paths now meet "JS CPU ≤ baseline".

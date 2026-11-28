@@ -7,6 +7,7 @@ import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { controlById, type Control, type DeviceFamily } from "./controls";
 import { playerTable, resolveAction, type CompiledMapping } from "./evaluate";
+import { partsOf } from "./mappingShape";
 import { InputPlayer, familyName } from "./players";
 
 /** What a prompt shows. */
@@ -28,15 +29,6 @@ export interface InputPrompt {
   readonly parts: readonly string[];
   /** The context whose mapping it shows (`RebindOptions.context`). */
   readonly context: string;
-}
-
-/** The rebind part names of a compiled mapping's controls, in `controls` order. */
-function partsOf(m: CompiledMapping): string[] {
-  const s = m.source;
-  if (s.kind === "dpad") return ["up", "down", "left", "right"];
-  if (s.kind === "axis") return ["negative", "positive"];
-  if (s.kind === "modifier") return [...s.modifiers.map((_, i) => `modifier${i}`), "control"];
-  return ["control"];
 }
 
 const PAD_LABELS: Record<"xbox" | "playstation" | "switch" | "generic", Record<string, string>> = {
@@ -119,7 +111,7 @@ export function promptFor(world: World, player: GameObject, action: string, fami
         labels,
         label: labels.join(m.source.kind === "modifier" ? "+" : "/"),
         icons: controls.map((c) => controlIcon(c, fam)),
-        parts: partsOf(m),
+        parts: partsOf(m.spec),
         context: m.context,
       };
     }

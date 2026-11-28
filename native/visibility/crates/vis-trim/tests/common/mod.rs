@@ -1282,7 +1282,7 @@ fn visible_px(buf: &DepthBuf, t: &Tri) -> u32 {
     n
 }
 
-/// The width test the engine's selection step applies (ADR 0447 section 3): the occluder's projected minimum width, in
+/// The width test the engine's selection step applies (ADR 0460 section 3): the occluder's projected minimum width, in
 /// buffer pixels (a corner behind the near plane counts as wide).
 pub fn projected_min_width(view: &View, w: usize, h: usize, mn: V3, mx: V3) -> f32 {
     let (mut x0, mut x1, mut y0, mut y1) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);

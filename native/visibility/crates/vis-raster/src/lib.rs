@@ -1,10 +1,10 @@
-//! The occlusion core (ADR 0447): a CPU depth buffer that coarse occluder triangles are drawn into each frame, and a test
+//! The occlusion core (ADR 0460): a CPU depth buffer that coarse occluder triangles are drawn into each frame, and a test
 //! of occludee boxes against it.
 //!
 //! Depth convention ("reverse-W"): a pixel stores `1/w`; LARGER = NEARER and 0 = nothing drawn. Occluders write `max`.
 //! An occludee is hidden when its nearest depth is smaller than the smallest stored value over its dilated screen rect.
 //!
-//! The conservativeness rules of ADR 0447 section 3 live in [`frame`]: depth pushed back by the triangle's error, a
+//! The conservativeness rules of ADR 0460 section 3 live in [`frame`]: depth pushed back by the triangle's error, a
 //! coverage shrink at silhouette edges only, a per-triangle near rule, and rejection of NaN and degenerate input. Layers:
 //! [`buffer`] (the buffer, the rasterisers, the coarse level), [`view`] (the camera), [`setup`] (clip, project, edge
 //! setup), [`frame`] (a whole view), [`geom`] (small vector maths).

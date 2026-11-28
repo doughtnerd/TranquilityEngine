@@ -1,4 +1,4 @@
-// ADR 0446 §1: the sidecar's `lod` and `occluder`, model loading with and without a generation host (the editor and a
+// ADR 0459 §1: the sidecar's `lod` and `occluder`, model loading with and without a generation host (the editor and a
 // game), and `.mycomesh` version 5, driven through the sidecar parser, `loadMeshes`, `bakeModelFile` and
 // `decodeBakedModel`.
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +10,7 @@ import { DEFAULT_LOD_SETTINGS } from "./types";
 import { memoryLodCache, setLodHost } from "./cache";
 import { generateLods } from "./generate";
 
-describe("the sidecar's lod and occluder (ADR 0446 §1, 0447 §3)", () => {
+describe("the sidecar's lod and occluder (ADR 0459 §1, 0460 §3)", () => {
   it("defaults to no levels and an automatic occluder, and an old sidecar writes back unchanged", () => {
     expect(defaultImportSettings().lod).toBeNull();
     expect(defaultImportSettings().occluder).toBe("auto");

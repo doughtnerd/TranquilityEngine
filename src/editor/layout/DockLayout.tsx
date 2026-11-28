@@ -36,9 +36,8 @@ import { editorDockHost } from "./editorDockHost";
 import { PanelHeader } from "./PanelHeader";
 import { PanelInstanceContext, type PanelInstance } from "../ui/panel/Panel";
 import { usePopover } from "../ui/popover";
+import { startPointerDrag } from "../pointerDrag";
 
-/** Pointer travel (CSS px) before pressing a panel header becomes a drag. */
-const DRAG_THRESHOLD = 5;
 /** Pointer travel on a dock's border before it resizes, so a double-click never nudges it. */
 const RESIZE_THRESHOLD = 3;
 
@@ -454,58 +453,38 @@ function ResizeHandle(props: { rect: Rect; axis: "x" | "y"; label: string; grip?
 
 /**
  * Press on a header tab (or an overflow menu item): a click shows that tab, expanding its dock if
- * it's collapsed; moving past the threshold starts dragging the panel. While dragging, the drop
+ * it's collapsed; moving past the drag threshold (`pointerDrag.ts`) starts dragging the panel. While dragging, the drop
  * target under the pointer is previewed (with an insertion mark over a header's tabs, ADR 0381);
  * releasing applies it (or nothing, over an invalid spot); Escape cancels. `done` runs when the press ends either way.
  */
 function startDrag(scope: DockScope, e: PointerEvent, panel: PanelId, root: Root, done?: () => void): void {
   if (e.button !== 0 || !root.current) return;
   const { size, drag } = scope;
-  const win = root.current.ownerDocument.defaultView ?? window;
   e.preventDefault();
-  const startX = e.clientX, startY = e.clientY;
-  let active = false;
   let tabs: Record<string, TabSpan[]> = {};
 
   const local = (m: PointerEvent) => {
     const r = root.current!.getBoundingClientRect();
     return { x: m.clientX - r.left, y: m.clientY - r.top };
   };
-  const track = (m: PointerEvent) => {
-    if (!active && Math.hypot(m.clientX - startX, m.clientY - startY) < DRAG_THRESHOLD) return;
-    if (!active) tabs = drawnTabs(root.current!); // the tabs don't move while dragging
-    active = true;
-    const { x, y } = local(m);
-    const view = scope.get();
-    const geo = computeGeometry(view, { x: 0, y: 0, ...size.value }, headerHeight(root.current!.ownerDocument));
-    drag.value = { panel, x, y, hit: hitTest(view, geo, panel, x, y, tabs) };
-  };
-  const finish = (apply: boolean) => {
-    win.removeEventListener("pointermove", track);
-    win.removeEventListener("pointerup", up);
-    win.removeEventListener("pointercancel", cancel);
-    win.removeEventListener("keydown", key, true);
-    const hit = drag.value?.hit;
-    drag.value = null;
-    if (!active) scope.set(activatePanel(scope.get(), panel, catalogOf(scope))); // a click: show this tab
-    else if (apply && hit) scope.set(movePanel(scope.get(), panel, hit.target));
-    done?.();
-  };
-  const up = (m: PointerEvent) => {
-    if (active) track(m);
-    finish(true);
-  };
-  const cancel = () => finish(false);
-  const key = (k: KeyboardEvent) => {
-    if (k.key !== "Escape" || !active) return;
-    k.preventDefault();
-    k.stopPropagation();
-    finish(false);
-  };
-  win.addEventListener("pointermove", track);
-  win.addEventListener("pointerup", up);
-  win.addEventListener("pointercancel", cancel);
-  win.addEventListener("keydown", key, true);
+  startPointerDrag(e, {
+    begin: () => {
+      tabs = drawnTabs(root.current!); // the tabs don't move while dragging
+    },
+    move: (m) => {
+      const { x, y } = local(m);
+      const view = scope.get();
+      const geo = computeGeometry(view, { x: 0, y: 0, ...size.value }, headerHeight(root.current!.ownerDocument));
+      drag.value = { panel, x, y, hit: hitTest(view, geo, panel, x, y, tabs) };
+    },
+    end: (how) => {
+      const hit = drag.value?.hit;
+      drag.value = null;
+      if (how === "click") scope.set(activatePanel(scope.get(), panel, catalogOf(scope))); // show this tab
+      else if (how === "drop" && hit) scope.set(movePanel(scope.get(), panel, hit.target));
+      done?.();
+    },
+  });
 }
 
 /**

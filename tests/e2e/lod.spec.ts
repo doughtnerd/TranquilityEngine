@@ -3,7 +3,7 @@ import { inLiveWorld } from "./liveWorld";
 import { noise3, orientOutward, sphereForTris, toObj } from "./render-bench/geom";
 import { captureView, pixelsChanged, steadyView, type ViewCapture } from "./viewCapture";
 
-// Mesh LODs in the editor (ADR 0446): the import panel's "Generate LODs", the LODGroup a placed model gets, the LOD bar, and
+// Mesh LODs in the editor (ADR 0459): the import panel's "Generate LODs", the LODGroup a placed model gets, the LOD bar, and
 // the levels an LODGroup picks in play mode. Everything goes through the editor's UI, the saved files, captures and the public
 // `myco` API (an LODGroup's `currentLevel` and `visibility`, read through `inLiveWorld`); never the renderer's internals.
 //
@@ -26,7 +26,7 @@ function rockModel(): ProjectFiles {
 }
 
 const sidecar = (lod: unknown) => JSON.stringify({ format: "myco.import@1", lod });
-/** The import panel's defaults (ADR 0446 §1). */
+/** The import panel's defaults (ADR 0459 §1). */
 const DEFAULT_LOD = { levels: [{ ratio: 0.5, error: 0.01 }, { ratio: 0.25, error: 0.02 }, { ratio: 0.125, error: 0.04 }], attributes: true, permissive: false, lockBorders: false, pixelError: 1 };
 
 /** A rotation about +x by `pitch` degrees (the camera looks down for a positive angle), as a quaternion. */

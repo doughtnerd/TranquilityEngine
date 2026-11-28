@@ -13,7 +13,7 @@ import { applyAffine, compose, decompose, decomposeCss, interpolateAffine, inver
 import { uiAnimationReady } from "../ui/animation/UIAnimator";
 import { parseTransform, parseTransformOrigin, parseTranslate, parseScale, parseRotate } from "../ui/document/transformValues";
 import { buildUI, byId, classList, loadUITestSupport } from "./uiMarkup";
-import { UIPointer } from "./uiPointer";
+import { UIPointer, pointerTargetAt } from "./uiPointer";
 
 const DT = 1 / 60;
 let engine: Engine;
@@ -210,20 +210,20 @@ describe("hit-testing and picking transformed elements (ADR 0422 wave 3)", () =>
     const core = await laidOut();
     expect(core.rectOf(b)).toEqual({ x: 100, y: 100, width: 200, height: 50 }); // layout ignores the transform
     // Turned a quarter about its middle (200, 125): now 50 wide and 200 tall, from (175, 25) to (225, 225).
-    expect(core.hitTest(200, 40)).toBe(b);
-    expect(core.hitTest(200, 210)).toBe(b);
-    expect(core.hitTest(120, 125)).toBeNull(); // in the laid-out box, but not where it's drawn
-    expect(core.hitTest(280, 125)).toBeNull();
+    expect(pointerTargetAt(core, 200, 40)).toBe(b);
+    expect(pointerTargetAt(core, 200, 210)).toBe(b);
+    expect(pointerTargetAt(core, 120, 125)).toBeNull(); // in the laid-out box, but not where it's drawn
+    expect(pointerTargetAt(core, 280, 125)).toBeNull();
   });
 
   it("follows a scale about its origin and a translate in % of its own box", async () => {
     const b = button(`transform="translate(50%, 0) scale(0.5)" transform-origin="left top"`);
     const core = await laidOut();
     // Moved right by 100 (50% of 200), then half size from its top-left: (200, 100) to (300, 125).
-    expect(core.hitTest(210, 110)).toBe(b);
-    expect(core.hitTest(295, 120)).toBe(b);
-    expect(core.hitTest(150, 110)).toBeNull();
-    expect(core.hitTest(250, 140)).toBeNull();
+    expect(pointerTargetAt(core, 210, 110)).toBe(b);
+    expect(pointerTargetAt(core, 295, 120)).toBe(b);
+    expect(pointerTargetAt(core, 150, 110)).toBeNull();
+    expect(pointerTargetAt(core, 250, 140)).toBeNull();
     expect(core.pickAll(250, 110)).toEqual([b]);
   });
 
@@ -234,8 +234,8 @@ describe("hit-testing and picking transformed elements (ADR 0422 wave 3)", () =>
     const core = await laidOut();
     // The button doubles about its middle (25, 25): (-25, -25) to (75, 75), clipped by nothing; then the panel's half
     // turn about (100, 100) puts it at (125, 125) to (225, 225).
-    expect(core.hitTest(210, 210)).toBe(b);
-    expect(core.hitTest(20, 20)).toBe(p); // where the button was laid out: only the panel there now
+    expect(pointerTargetAt(core, 210, 210)).toBe(b);
+    expect(pointerTargetAt(core, 20, 20)).toBe(p); // where the button was laid out: only the panel there now
     expect(core.pickAll(130, 130)).toEqual([b, p]);
   });
 
@@ -261,10 +261,10 @@ describe("hit-testing and picking transformed elements (ADR 0422 wave 3)", () =>
     const core = await laidOut();
     // The clip (100, 100)-(300, 200) turns about (200, 150) to (150, 50)-(250, 250); the button reaches past it to the
     // right as laid out, which is downward once turned, and is cut at the clip's edge there.
-    expect(core.hitTest(200, 60)).toBe(b);
-    expect(core.hitTest(200, 240)).toBe(b);
-    expect(core.hitTest(200, 300)).toBeNull(); // the button is drawn here but clipped
-    expect(core.hitTest(310, 150)).toBeNull(); // where it was laid out (and would be unclipped) without the turn
+    expect(pointerTargetAt(core, 200, 60)).toBe(b);
+    expect(pointerTargetAt(core, 200, 240)).toBe(b);
+    expect(pointerTargetAt(core, 200, 300)).toBeNull(); // the button is drawn here but clipped
+    expect(pointerTargetAt(core, 310, 150)).toBeNull(); // where it was laid out (and would be unclipped) without the turn
     // The clip outline: the clip in the button's frame is a rectangle (both turned together).
     const clip = core.cornersOf(b)!.clip!;
     clip.forEach((pt, i) => near(pt, [[250, 50], [250, 250], [150, 250], [150, 50]][i]));
@@ -275,9 +275,9 @@ describe("hit-testing and picking transformed elements (ADR 0422 wave 3)", () =>
         <button id="b" position="absolute" left="0" top="0" width="100" height="100" padding="0" translate-x="80"/></div></Canvas>`);
     const b = byId(doc, "b", UIButton);
     const core = await laidOut();
-    expect(core.hitTest(90, 50)).toBe(b);
-    expect(core.hitTest(150, 50)).toBeNull(); // drawn there, outside the clip
-    expect(core.hitTest(50, 50)).toBeNull(); // laid out there, moved away
+    expect(pointerTargetAt(core, 90, 50)).toBe(b);
+    expect(pointerTargetAt(core, 150, 50)).toBeNull(); // drawn there, outside the clip
+    expect(pointerTargetAt(core, 50, 50)).toBeNull(); // laid out there, moved away
     const el = core.elements().find((e) => e.comp === b)!;
     expect(el.bounds).toEqual({ x: 80, y: 0, width: 20, height: 100 });
   });
@@ -285,7 +285,7 @@ describe("hit-testing and picking transformed elements (ADR 0422 wave 3)", () =>
   it("can't hit an element scaled to nothing", async () => {
     const b = button(`scale-x="0"`);
     const core = await laidOut();
-    expect(core.hitTest(200, 125)).toBeNull();
+    expect(pointerTargetAt(core, 200, 125)).toBeNull();
     expect(b.scaleX).toBe(0);
   });
 });
@@ -350,10 +350,10 @@ describe("matrix transforms with skew (ADR 0430)", () => {
     expect(b.transformMatrix).toBe("matrix(1, 0, 1, 1, 0, 0)");
     const core = await laidOut();
     // Its bottom edge moved 25 right and its top 25 left: (75..275) along the top, (125..325) along the bottom.
-    expect(core.hitTest(80, 102)).toBe(b);
-    expect(core.hitTest(320, 148)).toBe(b);
-    expect(core.hitTest(110, 148)).toBeNull(); // laid out there, drawn to the right now
-    expect(core.hitTest(290, 102)).toBeNull();
+    expect(pointerTargetAt(core, 80, 102)).toBe(b);
+    expect(pointerTargetAt(core, 320, 148)).toBe(b);
+    expect(pointerTargetAt(core, 110, 148)).toBeNull(); // laid out there, drawn to the right now
+    expect(pointerTargetAt(core, 290, 102)).toBeNull();
     const c = core.cornersOf(b)!;
     c.points.forEach((pt, i) => near(pt, [[75, 100], [275, 100], [325, 150], [125, 150]][i]));
   });

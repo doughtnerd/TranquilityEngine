@@ -36,7 +36,7 @@ import { FeedbackSkinRuns, JsSkinRuns, WebGpuSkinRuns, type SkinExecutor, type S
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 
 /**
- * @internal What a skinned draw adds over `SkinnedDraw` for its model mesh's LOD levels (ADR 0446 §6): each level is a
+ * @internal What a skinned draw adds over `SkinnedDraw` for its model mesh's LOD levels (ADR 0459 §6): each level is a
  * mesh of its own that shares the draw's skinned and static vertex buffers (so one dispatch skins every level), its
  * bounds and its world matrix. The animation plugin's sync reads it structurally (`SkinnedLevels` in its `sync.ts`).
  */
@@ -220,7 +220,7 @@ class BabylonSkinnedDraw implements SkinnedDraw<Mesh>, BabylonSkinnedLevels {
       if (kind === VertexBuffer.TangentKind && !source.geometry.tangents) continue; // the material derives tangents itself
       mesh.setVerticesBuffer(this.skinned.buffer.createVertexBuffer(kind, offset, size, SKIN_STRIDE, false, true), true, n);
     }
-    // Static streams are `VertexBuffer`s of their own, shared by this mesh and its levels' (ADR 0446 §1, §6).
+    // Static streams are `VertexBuffer`s of their own, shared by this mesh and its levels' (ADR 0459 §1, §6).
     const engine = scene.getEngine();
     for (const [kind, data, size] of [[VertexBuffer.UVKind, d.uvs, 2], [VertexBuffer.UV2Kind, d.uvs2, 2], [VertexBuffer.ColorKind, d.colors, 4]] as const) {
       if (!data || !data.length) continue;

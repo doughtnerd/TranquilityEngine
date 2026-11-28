@@ -78,7 +78,7 @@ export class Animator extends Component {
 
   /**
    * What update-rate LOD measures: nothing (every frame), distance to the camera, the share of the screen's height, or
-   * the enclosing `LODGroup`'s level for the main camera (ADR 0446 §6: level 0 updates every frame, level 1 every 2nd,
+   * the enclosing `LODGroup`'s level for the main camera (ADR 0459 §6: level 0 updates every frame, level 1 every 2nd,
    * level 2 and below every 4th; a group culled by LOD counts as not visible for `cullingMode`).
    */
   @field(String, { choices: ["off", "distance", "screenSize", "lodGroup"], animatable: false, description: "What update-rate LOD measures: distance, screen size, or the enclosing LODGroup's level." })

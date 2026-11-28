@@ -1,5 +1,5 @@
 /**
- * Visibility views (ADR 0446 §3): a view's inputs to selection and occlusion, built from a `Camera` component or from
+ * Visibility views (ADR 0459 §3): a view's inputs to selection and occlusion, built from a `Camera` component or from
  * a bare camera frame (the editor's scene view, a probe face), with no renderer types. Not public API.
  *
  * Conventions: left-handed, the view looks along its forward axis (a node's +Z, ADR 0164). The view-projection matrix is
@@ -116,7 +116,7 @@ export interface CameraViewOptions {
  * The view of a `Camera` drawing `widthPx` × `heightPx` device pixels: its node's world position and axes (scale
  * ignored), its projection, and a pixel-perfect camera's effective size. Kind `"texture"` when it draws into a render
  * texture, else `"camera"`; persistent; occlusion when `occlusionCulling` is on for a perspective camera drawing to the
- * canvas (render-texture cameras default off, ADR 0447 §4).
+ * canvas (render-texture cameras default off, ADR 0460 §4).
  */
 export function cameraView(camera: Camera, widthPx: number, heightPx: number, options: CameraViewOptions = {}): VisibilityView {
   const kind = options.kind ?? (camera.targetTexture ? "texture" : "camera");

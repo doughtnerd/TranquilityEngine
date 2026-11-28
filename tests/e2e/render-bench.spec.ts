@@ -4,7 +4,7 @@ import { expect, openEditor, test } from "./fixtures";
 import { inLiveWorld } from "./liveWorld";
 import { BENCH_SCENES } from "./render-bench/scenes";
 
-// The render benchmark (ADRs 0446 and 0447): each scene variant of `render-bench/scenes.ts` is opened, played, warmed up, then its
+// The render benchmark (ADRs 0459 and 0460): each scene variant of `render-bench/scenes.ts` is opened, played, warmed up, then its
 // play-mode Stats readout (draw calls, triangles, frame time) is sampled at fixed engine frame counts, and the p50 / p99 / max of
 // each go to `test-results/render-bench.json`. The targets of the two records are tripwires compared by hand against that file;
 // this spec only checks that the numbers are sane (the scene drew something). Frame counts, not waits, set the pace.

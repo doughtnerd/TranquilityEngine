@@ -1,4 +1,4 @@
-//! The occlusion core's source hash (ADR 0447, after the animation core's rule, ADR 0370 and audio 0157). Included by the
+//! The occlusion core's source hash (ADR 0460, after the animation core's rule, ADR 0370 and audio 0157). Included by the
 //! build scripts of `vis-wasm` and `vis-editor-wasm` (which embed the hash in their wasm) and by
 //! `tests/source_hash.rs`; `src/engine/render/visibility/occlusion/wasm/sourceHash.test.ts` recomputes the same hash in
 //! TypeScript, so the rule below must match it byte for byte.

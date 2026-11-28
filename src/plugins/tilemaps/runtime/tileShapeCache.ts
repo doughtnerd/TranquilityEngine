@@ -91,9 +91,9 @@ export class TileShapeCache {
    * rectangles and outlines out of the result (they are still merged and cached, so the slot serves both).
    */
   shapes(slot: string, layers: readonly ShapeLayer[], collisionOf: (id: number) => TileCollision | undefined, mode: TileCollisionMode, grid: TileGrid, context: string, withoutWholeCells = false): TileShapes {
-    const whole = !(withoutWholeCells && grid.shape === "square");
-    const space = mergeSpace(grid.shape === "square" ? null : grid);
-    const placed = grid.shape === "square" ? null : grid;
+    const whole = !(withoutWholeCells && grid.cellUnits);
+    const space = mergeSpace(grid.cellUnits ? null : grid);
+    const placed = grid.cellUnits ? null : grid;
     let st = this.slots.get(slot);
     if (!st) this.slots.set(slot, (st = { merges: new Map(), through: new Map(), groupOf: new Map(), groups: new Set() }));
     const old = st.merges;

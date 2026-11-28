@@ -11,7 +11,7 @@ const row = (scene, path, oracle) => rows.find((r) => r.scene === scene && r.pat
 const f1 = (v) => v.toFixed(1);
 const M = (v) => (v / 1e6).toFixed(3) + "M";
 const pc = (a, b) => (a === 0 ? "-" : `${((b / a - 1) * 100).toFixed(0)}%`);
-const OCC_COST = 1.2; // ms per view, ADR 0447 section 0 (Chromium wasm, measured)
+const OCC_COST = 1.2; // ms per view, ADR 0460 section 0 (Chromium wasm, measured)
 const THRESHOLD = 2 * OCC_COST;
 
 console.log(`profile ${JSON.stringify(meta.profile)}  commit ${meta.commit}  renderer ${meta.renderer}  load ${meta.machine.load.map((x) => x.toFixed(1)).join("/")}\n`);

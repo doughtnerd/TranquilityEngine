@@ -24,7 +24,7 @@ import type { ProjectSettings } from "../../core/settings";
 import type { UICore } from "../../ui/UICore";
 import type { DrawnMaterial, PixelGrid, RenderDiagnostics } from "../RenderSurface";
 import type { RenderPolicy } from "../renderPolicy";
-import type { QuadBatch, QuadBatchHost } from "../quadBatches";
+import type { QuadBatch } from "../quadBatches";
 import type { DecalHost } from "../decals";
 import type { DynamicMeshHost } from "../dynamicMeshes";
 import { specNeeded, type RenderFeatureSpec } from "../renderFeatures";
@@ -35,11 +35,12 @@ import type { LightingContributions } from "./lighting";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import type { BabylonMaterials2D } from "./materials2D";
 import type { ProbeHit } from "./probes";
+import type { BabylonQuadBatches } from "./quadBatches";
 import type { CascadeExpander } from "./shadowCulling";
 import type { VisibilityResult, VisibilityView } from "../visibility/types";
 
 /**
- * @internal A view the frame draws (ADR 0446 §3): a planned camera view (ADR 0129) or a probe capture, with its
+ * @internal A view the frame draws (ADR 0459 §3): a planned camera view (ADR 0129) or a probe capture, with its
  * visibility-stage view (its `ViewKey`, frustum and pixel height) and that view's selection.
  */
 export interface FeatureView {
@@ -50,7 +51,7 @@ export interface FeatureView {
   readonly result: VisibilityResult | null;
 }
 
-/** @internal What a feature draws in each view this frame (ADR 0446 §3 `prepareViews`). */
+/** @internal What a feature draws in each view this frame (ADR 0459 §3 `prepareViews`). */
 export interface ViewDrawing {
   /** Whether a scene mesh is one it places in views itself: left out of every view's list unless `meshes` adds it. */
   owns(mesh: AbstractMesh): boolean;
@@ -111,7 +112,8 @@ export function describeDrawn(features: Iterable<BabylonFeature | null>, drawn: 
  * - `meshes`: meshes of its own (a MeshRenderer's, a water surface's, a world-space UI canvas's plane):
  *   picked against their triangles, framed and outlined by their boxes.
  * - `quads`: quad batches it drew through the renderer's `QuadBatchHost` (a tile layer's chunks, ADR 0136):
- *   the renderer resolves them to its meshes, so a renderer-neutral feature names no Babylon type.
+ *   the renderer resolves them to its meshes, so a renderer-neutral feature names no Babylon type, and picks each
+ *   at the place the batch reports (ADR 0445).
  * - `box`: a box with no mesh of its own (a decal projector's volume, ADR 0395): `matrix` is the column-major
  *   world matrix of the unit cube (-0.5..0.5). Framed and outlined by it; a feature reports it `pickable: false`.
  * - `polyline`: a line through world-space `points` (xyz, `closed` joining the last to the first), `halfWidth`
@@ -132,13 +134,26 @@ export const PICK_ORDER = {
   depthTested: -1e12,
 } as const;
 
-/** @internal One node's drawing by a feature (ADR 0276). A node drawn by several Components or features has several. */
-export interface DrawnNode {
+/** A drawing as quad batches (`DrawnShape` `quads`). */
+export type DrawnQuads = Extract<DrawnShape, { kind: "quads" }>;
+
+/**
+ * @internal One node's drawing by a feature (ADR 0276). A node drawn by several Components or features has several.
+ * A drawing as quad batches carries no pick order: each batch reports its own place (`QuadBatch.place`, ADR 0445), so a
+ * tile layer's rows, at different heights in a y-sorted layer, pick as they draw.
+ */
+export type DrawnNode =
+  | (DrawnCommon & {
+      readonly shape: Exclude<DrawnShape, DrawnQuads> | null;
+      /** Pick order, higher on top: layered 2D content its draw place, else a {@link PICK_ORDER}. Equal orders go nearest first. */
+      readonly order: number;
+    })
+  | (DrawnCommon & { readonly shape: DrawnQuads; readonly order?: undefined });
+
+/** @internal What every drawing reports beside its shape and pick order (`DrawnNode`). */
+export interface DrawnCommon {
   /** The Component it drew (its node is the one picked, framed and outlined). */
   readonly component: Component;
-  readonly shape: DrawnShape | null;
-  /** Pick order, higher on top: layered 2D content its draw order, else a {@link PICK_ORDER}. Equal orders go nearest first. */
-  readonly order: number;
   /**
    * False when a scene-view click reaches it another way: the UI core picks UI canvases and elements, by
    * its own rules (ADR 0117). It is still framed, box-selected, outlined and reported. Default true.
@@ -185,10 +200,10 @@ export interface BabylonFeature {
   uiCore?(): UICore | null;
   /** Before each view is drawn: follow its camera (the sky's box around it). A feature with `fitView` gets that instead. */
   fit?(camera: TargetCamera): void;
-  /** ADR 0446 §3: before each view is drawn, follow it (`fit` with the view's key and visibility). */
+  /** ADR 0459 §3: before each view is drawn, follow it (`fit` with the view's key and visibility). */
   fitView?(view: FeatureView): void;
   /**
-   * ADR 0446 §3: once a frame, before the probes capture and the frame graph runs, choose what it draws in each view
+   * ADR 0459 §3: once a frame, before the probes capture and the frame graph runs, choose what it draws in each view
    * from the views' visibility results (levels, hidden) and its shadow casters from `casters` (the main view's result,
    * its `casterLevels`). Null when it draws as it always did (no visibility stage), so every view lists the scene's
    * meshes. Its `casters` hook reports the casters chosen here.
@@ -249,8 +264,11 @@ export interface BabylonFeatureHost {
   setScreenLayer(draw: (() => Layer | null) | null): void;
   /** Set (or clear) the layer it draws over the camera preview inset (`BabylonFrame.previewUI`); while set, the inset's overlay counts as built. */
   setPreviewLayer(draw: (() => Layer | null) | null): void;
-  /** Sorted, unlit textured quad batches (ADR 0136): what the Tilemaps plugin draws its tiles with. */
-  readonly quads: QuadBatchHost;
+  /**
+   * Sorted, textured quad batches (ADR 0136): what the Tilemaps plugin draws its tiles with, and lone sprites their
+   * mesh (ADR 0450). Also where every layered 2D draw gets its place (`place`, ADR 0450: batched sprites, 2D particles).
+   */
+  readonly quads: BabylonQuadBatches;
   /** Decal volumes (ADR 0395): what the Decals plugin draws 3D decals with. */
   readonly decals: DecalHost;
   /** Depth-tested meshes a feature rewrites, camera-facing ribbons included (ADR 0396): what the Lines plugin draws 3D lines and trails with. */

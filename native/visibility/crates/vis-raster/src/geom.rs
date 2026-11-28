@@ -11,7 +11,7 @@ pub fn dot(a: V3, b: V3) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 /// The outward normal of triangle (a, b, c) in the engine's winding, the one convention every engine mesh and native
-/// core uses (ADR 0450, `src/engine/scene/winding.ts`): a front face's right-hand normal (b - a) x (c - a) points inward,
+/// core uses (ADR 0463, `src/engine/scene/winding.ts`): a front face's right-hand normal (b - a) x (c - a) points inward,
 /// so the outward normal is (c - a) x (b - a). Unnormalised.
 #[inline(always)]
 pub fn front_normal(a: V3, b: V3, c: V3) -> V3 {

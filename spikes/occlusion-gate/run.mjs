@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Occlusion go/no-go gate runner (ADR 0447 section 0): one command, writes results.json next to this file.
+// Occlusion go/no-go gate runner (ADR 0460 section 0): one command, writes results.json next to this file.
 //
 //   node spikes/occlusion-gate/run.mjs                 # FULL: 12 configs x 3 runs (static 100 frames, fly 150) + pre-passes
 //   node spikes/occlusion-gate/run.mjs --profile smoke # 1 run x 30 frames per config (checks it all works)

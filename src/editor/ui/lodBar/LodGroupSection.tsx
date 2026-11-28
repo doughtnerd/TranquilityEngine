@@ -1,4 +1,4 @@
-// The Inspector section under an `LODGroup` (ADR 0446 §7, ADR 0131): the LOD bar. Dragging a divider writes `levels`
+// The Inspector section under an `LODGroup` (ADR 0459 §7, ADR 0131): the LOD bar. Dragging a divider writes `levels`
 // as one undo step (ADR 0026, through the field edits every Inspector field uses); the first drag of an automatic group
 // writes the automatic heights out, and "Reset to automatic" writes `[]` again.
 import { useEffect, useState } from "preact/hooks";

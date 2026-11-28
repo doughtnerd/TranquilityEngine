@@ -12,6 +12,8 @@
 //   of the scene (a gizmo drag, an Inspector scrub) becomes one undo step on the clip when the step closes.
 import { computed, signal } from "@preact/signals";
 import type { AnimSource } from "../../../../engine/animation/animSource";
+import { nodePathOf, parseFieldPath, resolveNodePath, trackBinding } from "../../../../engine/animation/bindingPath";
+import { snapToFrame } from "../../../../engine/animation/compile/frames";
 import type { Binding } from "../../../../engine/animation/tracks";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import {
@@ -41,16 +43,6 @@ export type WindowTarget =
   | { readonly kind: "none"; readonly why: string }
   | { readonly kind: "file"; readonly clip: string }
   | { readonly kind: "animator"; readonly scene: OpenScene; readonly path: NodePath; readonly node: GameObject; readonly animator: Animator; readonly clip: string | null };
-
-/** The node path of `node` relative to `root` ("" for `root`), or null when it isn't under it. */
-export function relativePath(root: GameObject, node: GameObject): string | null {
-  const names: string[] = [];
-  for (let n: GameObject | null = node; n; n = n.parent) {
-    if (n === root) return names.reverse().join("/");
-    names.push(n.name);
-  }
-  return null;
-}
 
 const clipPath = (ref: string) => ref.replace(/^asset:/, "");
 
@@ -122,7 +114,7 @@ class AnimationSession {
     const t = this.target.value;
     if (t.kind !== "animator" || t.scene !== scene) return null;
     const node = scene.sync.nodeFor(path);
-    const nodePath = node ? relativePath(t.node, node) : null;
+    const nodePath = node ? nodePathOf(t.node, node) : null;
     return nodePath === null ? null : { nodePath, component: type, field };
   }
 
@@ -131,7 +123,7 @@ class AnimationSession {
     const clip = this.document.peek()?.value.peek();
     const rate = clip?.rate ?? 30;
     if (clip) this.playhead.setTiming({ duration: clip.duration, looping: this.loop.peek(), known: true });
-    this.playhead.seek(Math.round(t * rate) / rate);
+    this.playhead.seek(snapToFrame(t, rate, clip?.duration));
   }
 
   /** Show the clip at the playhead on the bound Animator (preview on). */
@@ -165,7 +157,7 @@ class AnimationSession {
 /** Put the fields `clip` animates under the Animator back to what the scene holds (after a preview). */
 function restoreFields(t: Extract<WindowTarget, { kind: "animator" }>, clip: AnimSource | null): void {
   if (!clip) return;
-  restoreBindings(t.scene, t.node, clip.tracks.flatMap((track) => (track.kind === "bone" || track.kind === "marker" || track.kind === "curve" || !track.target.component ? [] : [track.target])));
+  restoreBindings(t.scene, t.node, clip.tracks.flatMap((track) => trackBinding(track) ?? []));
 }
 
 /**
@@ -175,25 +167,14 @@ function restoreFields(t: Extract<WindowTarget, { kind: "animator" }>, clip: Ani
 export function restoreBindings(scene: OpenScene, root: GameObject, bindings: readonly Binding[]): void {
   for (const b of bindings) {
     if (!b.component) continue;
-    const node = nodeAt(root, b.nodePath);
+    const node = resolveNodePath(root, b.nodePath);
     const path = node && scene.sync.pathOf(node);
     if (!node || !path) continue;
-    const field = b.field.split(".")[0]!;
+    const field = parseFieldPath(b.field).head;
     const [id, ...inner] = path;
     const stored = inner.length ? scene.doc.overrideValue(id!, inner, b.component, field) : scene.doc.fieldValue(id!, b.component, field);
     if (stored !== undefined) editor.scene.writeField({ node, type: b.component }, field, stored);
   }
-}
-
-/** The node at `path` under `root` ("" is `root`), or null. */
-export function nodeAt(root: GameObject, path: string): GameObject | null {
-  let node: GameObject | undefined = root;
-  for (const part of path.split("/")) {
-    if (!part) continue;
-    node = node?.children.find((c) => c.name === part);
-    if (!node) return null;
-  }
-  return node ?? null;
 }
 
 /** The page's one session. */

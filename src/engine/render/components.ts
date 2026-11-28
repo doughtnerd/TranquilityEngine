@@ -193,7 +193,7 @@ export class Camera extends Component {
    */
   @field(AssetRef, { kind: "rendertexture" }) targetTexture = "";
   /**
-   * Skip drawing objects hidden behind others (ADR 0447 §4). Takes effect for perspective cameras drawing to the canvas
+   * Skip drawing objects hidden behind others (ADR 0460 §4). Takes effect for perspective cameras drawing to the canvas
    * only: orthographic and render-texture cameras never occlusion-cull, and the quality tier can turn it off for every
    * camera (`occlusionBuffer`).
    */
@@ -376,7 +376,7 @@ export class MeshRenderer extends Component implements LodMember {
    */
   @field(String) variant = "";
   /**
-   * Its part in occlusion culling (ADR 0447 §3). Auto: hides what's behind it when it has occluder geometry, an opaque
+   * Its part in occlusion culling (ADR 0460 §3). Auto: hides what's behind it when it has occluder geometry, an opaque
    * material and is wide enough on screen, and is hidden when something covers it. Occluder: hides what's behind it
    * whatever its width. Occludee: never hides anything, is hidden when covered. None: never hides anything and is always
    * drawn. Scripts may change it every frame (a door that occludes when closed).
@@ -387,7 +387,7 @@ export class MeshRenderer extends Component implements LodMember {
   })
   occlusion: OcclusionRole = "auto";
 
-  /** @internal The LOD0 model meshes it draws (ADR 0446 §2: what an `LODGroup` controls), or null while its model loads. */
+  /** @internal The LOD0 model meshes it draws (ADR 0459 §2: what an `LODGroup` controls), or null while its model loads. */
   lodMeshes(): readonly ModelMesh[] | null {
     return meshesIfLoaded(this.mesh);
   }
@@ -574,11 +574,11 @@ export class MeshRenderer extends Component implements LodMember {
 
 registerLodMemberType(MeshRenderer);
 
-/** How an `LODGroup` changes level (ADR 0446 §4): at once, or with a dithered crossfade. */
+/** How an `LODGroup` changes level (ADR 0459 §4): at once, or with a dithered crossfade. */
 export type LodFade = "none" | "crossfade";
 
 /**
- * Draws its node's meshes in less detail as they get smaller on screen (ADR 0446 §2). It controls every `MeshRenderer`
+ * Draws its node's meshes in less detail as they get smaller on screen (ADR 0459 §2). It controls every `MeshRenderer`
  * (and the animation plugin's `SkinnedMeshRenderer`) on its node and below, stopping at a nested `LODGroup`: they switch
  * level together, each mesh drawing its own generated level (its last when it has fewer). Levels are chosen per camera
  * from the group's screen-relative height: its size as a share of the view's height, times the quality tier's

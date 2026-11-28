@@ -147,7 +147,7 @@ function boxToWorld(m: Mat, center: V3, size: V3): number[] {
 
 /**
  * Local triangles to world space: positions through `m`, in the engine's winding, which the nav core takes as it is
- * (`scene/winding.ts`, ADR 0450). Only a mirroring `m` (negative determinant) reverses the winding, so only its
+ * (`scene/winding.ts`, ADR 0463). Only a mirroring `m` (negative determinant) reverses the winding, so only its
  * triangles are rewound back.
  */
 function toWorld(m: Mat, vertices: ArrayLike<number>, indices: ArrayLike<number>): { positions: Float32Array; indices: Uint32Array } {

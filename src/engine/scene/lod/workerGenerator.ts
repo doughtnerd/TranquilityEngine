@@ -1,5 +1,5 @@
 /**
- * LOD generation in a Web Worker (ADR 0446 §1): the editor's model load hands each mesh to one worker (`worker.ts`) and
+ * LOD generation in a Web Worker (ADR 0459 §1): the editor's model load hands each mesh to one worker (`worker.ts`) and
  * awaits its levels, so meshoptimizer and the Hausdorff sampling stay off the main thread. Internal: not public API.
  *
  * The protocol is two ends of a message port: `lodGeneratorOver` (the editor's side) and `serveLodGeneration` (the

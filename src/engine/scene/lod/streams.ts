@@ -1,5 +1,5 @@
 /**
- * A model mesh's per-vertex streams as the LOD pipeline carries them (ADR 0446 §1): welding vertices whose every stream
+ * A model mesh's per-vertex streams as the LOD pipeline carries them (ADR 0459 §1): welding vertices whose every stream
  * is bit-identical, and remapping every stream with one table. Internal: not public API.
  *
  * Welding and reordering permute the vertices, so every stream (positions, normals, UVs, second UVs, colours, tangents,

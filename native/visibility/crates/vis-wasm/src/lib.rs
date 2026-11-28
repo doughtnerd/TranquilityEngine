@@ -1,4 +1,4 @@
-//! The occlusion core's WebAssembly boundary (ADR 0447 sections 1 and 2): setup calls through wasm-bindgen, per-frame
+//! The occlusion core's WebAssembly boundary (ADR 0460 sections 1 and 2): setup calls through wasm-bindgen, per-frame
 //! data through raw typed-array views over linear memory (no JavaScript objects cross).
 //!
 //! The module keeps one [`Core`] per page. `init` allocates every region once; the JavaScript side then asks for the

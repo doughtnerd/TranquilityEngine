@@ -227,7 +227,7 @@ impl TestBake {
     /// agent type).
     pub fn add_floor(&mut self, min: (f32, f32), max: (f32, f32), y: f32, walkable_for: &[Hash128]) {
         let positions = vec![v3(min.0, y, min.1), v3(max.0, y, min.1), v3(max.0, y, max.1), v3(min.0, y, max.1)];
-        // The engine's winding (ADR 0450): front normal +y.
+        // The engine's winding (ADR 0463): front normal +y.
         let mesh = BakeMesh::nav_mesh(positions, vec![0, 1, 2, 0, 2, 3]).with_walkable_for(walkable_for.to_vec());
         self.meshes.push(mesh);
     }

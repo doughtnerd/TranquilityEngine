@@ -1,4 +1,4 @@
-// Occluder geometry for the occlusion core (ADR 0447 §3): edge neighbours, world triangles in the core's winding with
+// Occluder geometry for the occlusion core (ADR 0460 §3): edge neighbours, world triangles in the core's winding with
 // neighbours reordered and errors in world units doubled, opacity rules, and the core's loader.
 import { describe, expect, it, vi } from "vitest";
 import { Assets } from "../../../scene/Assets";

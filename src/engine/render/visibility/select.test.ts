@@ -1,4 +1,4 @@
-// LOD selection (ADR 0446 §2–3): screen-relative heights, bias, first level, forced levels, hysteresis, culling,
+// LOD selection (ADR 0459 §2–3): screen-relative heights, bias, first level, forced levels, hysteresis, culling,
 // automatic heights, shadow casters and the frustum test, through `selectLevels` and `automaticHeights`.
 import { describe, expect, it } from "vitest";
 import { AUTOMATIC_CULL_HEIGHT, screenHeightOf, SelectionState, automaticHeights, fadeIn, fadeOut, outgoingOf, selectLevels, type SelectionGroups, type SelectionOut, type SelectionTier } from "./select";
@@ -189,7 +189,7 @@ describe("selectLevels", () => {
     expect([...o.fade.subarray(0, 2)]).toEqual([0, 0]);
   });
 
-  describe("crossfade (ADR 0446 §4)", () => {
+  describe("crossfade (ADR 0459 §4)", () => {
     // heights [0.2, 0.05], size 1, 0.3 s fades: level 0 at h = 0.3, level 1 at h = 0.1, culled at h = 0.02.
     const FADE_TIER: SelectionTier = { ...TIER, lodCrossfade: true };
     const at = (h: number) => 1 / (2 * h);
@@ -323,7 +323,7 @@ describe("selectLevels", () => {
   });
 });
 
-describe("fade value encoding (ADR 0446 §4)", () => {
+describe("fade value encoding (ADR 0459 §4)", () => {
   /** What the shader keeps of a 4×4 tile for fade value f: ranks ≥ round(16|f|) for f ≥ 0, below it for f < 0. */
   const kept = (f: number) => {
     const t = Math.floor(Math.abs(f) * 16 + 0.5);
@@ -388,7 +388,7 @@ describe("automaticHeights", () => {
   });
 });
 
-describe("level preview (the editor's scene view, ADR 0446 §7)", () => {
+describe("level preview (the editor's scene view, ADR 0459 §7)", () => {
   const two = groups([{ at: [0, 0, 2], heights: [0.5, 0.2, 0.05] }, { at: [0, 0, 2], heights: [0.5, 0.2, 0.05], force: 2 }]); // h = 0.25: level 1
 
   it("draws the previewed group at the previewed level and leaves the others alone", () => {

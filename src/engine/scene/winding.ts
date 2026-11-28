@@ -1,5 +1,5 @@
 /**
- * The engine's one triangle winding (ADR 0450). Every engine mesh, and every native core that reads engine triangles,
+ * The engine's one triangle winding (ADR 0463). Every engine mesh, and every native core that reads engine triangles,
  * uses it as it is; nothing flips triangles at a boundary.
  *
  * **A front face's right-hand normal `(b - a) × (c - a)` points inward**, so its outward normal is `(c - a) × (b - a)`

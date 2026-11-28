@@ -9,9 +9,10 @@ import { showAsset } from "../inspectorTarget";
 import { assetKind, type AssetKind } from "../assetKindLookup";
 import { freePath } from "../freePath";
 import { openScript } from "../code/codeBuffers";
-import { fileName, folderOf, listedFiles } from "../assetBrowser";
+import { listedFiles } from "../assetBrowser";
+import { fileName, folderOf, isSceneFile } from "../projectPath";
 import { joinPath } from "../projectPaths";
-import { isScenePath, type EditorProject } from "../projects";
+import type { EditorProject } from "../projects";
 import { currentProject, docVersion } from "../state";
 import { onSectionChanged, type SectionChange } from "../sectionChanged";
 import { projectSettings } from "../projectSettingsInstance";
@@ -190,7 +191,7 @@ export const assets: AssetsSurface = {
   fileName,
   folderOf,
   listed: listedFiles,
-  isScene: isScenePath,
+  isScene: isSceneFile,
   importSettings: readImportSettings,
   async writeImportSettings(project, path, settings) {
     await writeImportSettings(project, path, settings);

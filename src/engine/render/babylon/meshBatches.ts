@@ -11,16 +11,16 @@
  * - `off`: a mesh of its own (the material needs per-mesh state).
  *
  * Batches are made on first use. A batch whose last drawable goes is disposed at once, or, when the drawable was
- * given back with `retain` (a level no view drew for a while, ADR 0446 §3), kept a few seconds first, so a moving
+ * given back with `retain` (a level no view drew for a while, ADR 0459 §3), kept a few seconds first, so a moving
  * camera doesn't make and dispose Babylon meshes.
  *
- * **Per-pass thin sources (ADR 0446 §3).** With levels applied per view, a thin batch draws through one source mesh
+ * **Per-pass thin sources (ADR 0459 §3).** With levels applied per view, a thin batch draws through one source mesh
  * per pass: each view, the shadow casters, each cascade of a cascaded shadow map, each probe capture. They share
  * the batch's vertex buffers (`meshOf`, §1), each with its own `Geometry`, index buffer and matrix buffer holding
  * only what that pass draws (`beginPasses`, `add`, `endPasses`; cascades fill on demand through `expandCascade`).
  * The batch's own source then draws nothing (it keeps its slots for when levels stop being applied).
  *
- * **Fade batches (ADR 0446 §4).** A key with `fade` names a batch of its own whose sources compile the crossfade
+ * **Fade batches (ADR 0459 §4).** A key with `fade` names a batch of its own whose sources compile the crossfade
  * variant (`lodFade.ts`): fading instances draw there, so steady ones never pay for a shader `discard`. Each drawable
  * carries a fade value (`setFade`), as an instanced buffer (auto) or a second thin-instance buffer beside each pass's
  * matrices (thin). `reserve` makes a fade batch ahead of its first fade and keeps it while reserved.
@@ -50,7 +50,7 @@ export interface DrawKey {
   castShadows: boolean;
   mode: MaterialInstancing;
   applyFog: boolean;
-  /** A fade batch (ADR 0446 §4): its sources draw the crossfade variant. Absent: steady. Not for `off`. */
+  /** A fade batch (ADR 0459 §4): its sources draw the crossfade variant. Absent: steady. Not for `off`. */
   fade?: boolean;
 }
 
@@ -68,11 +68,11 @@ export interface Drawable {
   setMatrix(m: Matrix): void;
   setEnabled(on: boolean): void;
   readonly enabled: boolean;
-  /** In a fade batch: its fade value (ADR 0446 §4 sign convention); ignored elsewhere. */
+  /** In a fade batch: its fade value (ADR 0459 §4 sign convention); ignored elsewhere. */
   setFade(value: number): void;
 }
 
-/** A pass a thin batch draws in (ADR 0446 §3): a view's key, `CASTERS_PASS`, a probe capture's key. */
+/** A pass a thin batch draws in (ADR 0459 §3): a view's key, `CASTERS_PASS`, a probe capture's key. */
 export type PassKey = string;
 
 /** The pass shadow casters draw in: every shadow map's, before cascades compact it. */
@@ -122,7 +122,7 @@ interface InstanceBatch {
 interface ThinPass {
   readonly source: Mesh;
   buffer: Float32Array;
-  /** Its fade values, one per instance, in a fade batch (ADR 0446 §4); else null. */
+  /** Its fade values, one per instance, in a fade batch (ADR 0459 §4); else null. */
   fades: Float32Array | null;
   /** What it draws this frame. */
   readonly list: ThinDrawable[];
@@ -147,7 +147,7 @@ interface ThinBatch {
   buffer: Float32Array;
   dirty: boolean;
   castShadows: boolean;
-  /** Its per-pass sources (ADR 0446 §3). */
+  /** Its per-pass sources (ADR 0459 §3). */
   passes: Map<PassKey, ThinPass>;
 }
 
@@ -263,7 +263,7 @@ export class MeshBatches implements CascadeExpander {
   }
 
   /**
-   * Whether thin batches draw through per-pass sources (levels applied per view, ADR 0446 §3). Turning it off
+   * Whether thin batches draw through per-pass sources (levels applied per view, ADR 0459 §3). Turning it off
    * disposes every pass source, so the batches' own sources draw again for every view and shadow map.
    */
   setPassMode(on: boolean): void {
@@ -328,7 +328,7 @@ export class MeshBatches implements CascadeExpander {
   }
 
   /**
-   * Make the batch `k` names now, before anything draws in it, and keep it while reserved (ADR 0446 §3: fade batches
+   * Make the batch `k` names now, before anything draws in it, and keep it while reserved (ADR 0459 §3: fade batches
    * exist before a first fade, so it doesn't make Babylon meshes). Undo with `unreserve`; `off` keys have no batch.
    */
   reserve(k: DrawKey): void {
@@ -432,7 +432,7 @@ export class MeshBatches implements CascadeExpander {
     for (const b of this.batches.values()) if (b.kind === "thin" && b.castShadows && !b.draw.fade && b.slots.length) yield b.source;
   }
 
-  // --- Per-pass thin sources (ADR 0446 §3) ----------------------------------------------------------------------
+  // --- Per-pass thin sources (ADR 0459 §3) ----------------------------------------------------------------------
 
   /** Start a frame's passes: every pass draws nothing until `add` puts drawables in it. */
   beginPasses(): void {
@@ -578,7 +578,7 @@ export class MeshBatches implements CascadeExpander {
 
   private makeSource(k: DrawKey, name: string): Mesh {
     const mesh = meshOf(this.scene, name, k.src);
-    // The first fade batch drawing a material gives it the crossfade plugin (ADR 0446 §4).
+    // The first fade batch drawing a material gives it the crossfade plugin (ADR 0459 §4).
     if (k.fade) addLodFade(k.material);
     mesh.material = k.material;
     if (k.material instanceof MultiMaterial) modelSubMeshes(k.src, mesh);

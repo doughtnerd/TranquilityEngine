@@ -10,6 +10,7 @@
  * Pure; no plugin, no DOM.
  */
 import { DEFAULT_CROSSFADE_MS, SAMPLE_LIMITS } from "./format";
+import { DEFAULT_METER, isMeter, meterParts } from "../meter";
 import { midiToNoteName, noteNameToMidi } from "./noteNames";
 import type { LoopDirection, SampleEdits, SampleLoop, SampleMarker } from "./types";
 import type { WavCue, WavLoop, WavMetadata, WavMetadataEdit, WavRegion } from "./wavChunks";
@@ -64,9 +65,9 @@ export function sampleEditsFromWav(meta: WavMetadata): WavSampleParts {
   out.markers = markers.slice(0, SAMPLE_LIMITS.markers).map((m, i) => ({ ...m, id: `m${i + 1}` }));
 
   if (meta.tempo) {
-    const { meterNumerator: n, meterDenominator: d } = meta.tempo;
+    const fileMeter = `${meta.tempo.meterNumerator}/${meta.tempo.meterDenominator}`;
     const bpm = Math.min(SAMPLE_LIMITS.maxBpm, Math.max(SAMPLE_LIMITS.minBpm, meta.tempo.bpm));
-    out.tempo = { bpm: round6(bpm), meter: n > 0 && d > 0 && n < 100 && d < 100 ? `${n}/${d}` : "4/4", map: [], source: "file" };
+    out.tempo = { bpm: round6(bpm), meter: isMeter(fileMeter) ? fileMeter : DEFAULT_METER, map: [], source: "file" };
   }
   const midi = meta.root ? meta.root.midiNote : meta.tempo?.rootNote ?? null;
   const name = midi === null ? null : midiToNoteName(midi);
@@ -92,7 +93,7 @@ export function wavEditFromSample(edits: SampleEdits, sampleRate: number, frames
   const midi = edits.root ? noteNameToMidi(edits.root.note) : null;
   const out: WavMetadataEdit = { cues, regions, loops, root: midi === null ? null : { midiNote: midi, cents: edits.root!.cents } };
   if (edits.tempo) {
-    const [n, d] = edits.tempo.meter.split("/").map(Number);
+    const { beatsPerBar: n, beatUnit: d } = meterParts(edits.tempo.meter);
     const beats = frames !== undefined ? Math.round((frames / sampleRate) * (edits.tempo.bpm / 60)) : 0;
     out.tempo = { bpm: edits.tempo.bpm, beats, meterNumerator: n, meterDenominator: d, oneShot: edits.kind === "oneshot", rootNote: null };
   } else out.tempo = null;

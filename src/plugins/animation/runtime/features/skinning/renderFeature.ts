@@ -3,7 +3,7 @@
 // `myco` and games without SkinnedMeshRenderers never download it. Skinned meshes cast shadows through `casters` and are
 // picked, framed and outlined through `drawn` like MeshRenderers' (ADR 0276).
 //
-// Levels per view (ADR 0446 §6, as the Meshes feature does, §3): while the World runs the visibility stage the renderer
+// Levels per view (ADR 0459 §6, as the Meshes feature does, §3): while the World runs the visibility stage the renderer
 // calls `prepareViews` with every view's result, and each view draws, for each renderer, the level the result gives
 // (each model mesh draws min(level, its last level)), as meshes that share the draw's skinned vertex buffer and
 // skeleton. Hidden and LOD-culled renderers are left out of that view's list; casters follow the main view's
@@ -64,7 +64,7 @@ class SkinningFeature implements BabylonFeature {
   }
 
   /**
-   * ADR 0446 §3, §6: each view's meshes from its visibility result and the casters from `casters`' `casterLevels`.
+   * ADR 0459 §3, §6: each view's meshes from its visibility result and the casters from `casters`' `casterLevels`.
    * Null (every view lists the scene's meshes, level 0 as always) when the World runs no visibility stage.
    */
   prepareViews(views: readonly FeatureView[], casters: VisibilityResult | null): ViewDrawing | null {

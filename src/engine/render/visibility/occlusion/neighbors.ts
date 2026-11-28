@@ -1,5 +1,5 @@
 /**
- * Edge neighbours of a triangle list (ADR 0447 §3): for each triangle, the triangle across each of its edges a→b, b→c
+ * Edge neighbours of a triangle list (ADR 0460 §3): for each triangle, the triangle across each of its edges a→b, b→c
  * and c→a, or `NO_NEIGHBOR` at a boundary (and where more than two triangles share the edge). The occlusion core shrinks
  * coverage only at silhouette edges, which it finds from these. Positions are compared by index, so a mesh must be
  * welded (LOD output and built-in meshes are). Pure; the TypeScript twin of `vis-trim`'s table, for meshes that occlude

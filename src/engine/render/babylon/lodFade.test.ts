@@ -1,4 +1,4 @@
-// ADR 0446 §4: the dithered LOD crossfade plugin on Babylon's NullEngine, through `addLodFade`, `markFadeSource` and
+// ADR 0459 §4: the dithered LOD crossfade plugin on Babylon's NullEngine, through `addLodFade`, `markFadeSource` and
 // `canFade`: one material compiles the fade variant only for fade-batch source meshes (the define is per mesh), the
 // plugin goes on once and after the graph plugin, and only materials that can take it are faded.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
@@ -14,7 +14,7 @@ import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { addLodFade, canFade, LOD_FADE_ATTRIBUTE, markFadeSource, MycoLodFadePlugin } from "./lodFade";
 
-describe("the LOD crossfade plugin (ADR 0446 §4)", () => {
+describe("the LOD crossfade plugin (ADR 0459 §4)", () => {
   let engine: NullEngine;
   let scene: Scene;
   beforeEach(() => {

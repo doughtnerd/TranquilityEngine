@@ -334,7 +334,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
   /** @internal The 2D shape source signature: changes with the grid, the tileset and the colliding layers' cells and offsets. */
   collisionSignature(): string {
     const layers = this._layers().map((l) => `${l.version}:${l.meta.collision}:${offsetKey(l)}`).join(",");
-    const shape = this.gridShape === "square" || !this.gridShape ? [] : [this._gridKey()];
+    const shape = this._grid().cellUnits ? [] : [this._gridKey()];
     return [this.cellSize.x, this.cellSize.y, ...shape, this.tileset, this.tilesetAsset ? "ts" : "", layers].join("|");
   }
 
@@ -348,7 +348,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
   collisionShapes(merge: ShapeMerge2D, options?: CollisionShapeOptions2D): CollisionShapes2D | null {
     const ts = this.tilesetAsset;
     if (!ts) return null;
-    const withoutCells = !!options?.withoutCells && this._grid().shape === "square";
+    const withoutCells = !!options?.withoutCells && this._grid().cellUnits;
     const key = `${this.collisionSignature()}|${tilesetToken(ts)}`;
     const slot = withoutCells ? `${merge}|withoutCells` : merge;
     const cached = this.shapeResults.get(slot);
@@ -365,7 +365,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
    */
   collisionCells(): CollisionCells2D | null {
     const ts = this.tilesetAsset;
-    if (!ts || this._grid().shape !== "square") return null;
+    if (!ts || !this._grid().cellUnits) return null;
     const token = tilesetToken(ts);
     const key = `${this.collisionSignature()}|${token}`;
     if (this.cellResult?.key === key) return this.cellResult.cells;
@@ -454,8 +454,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D, Shadow
   /** Every `include`d layer's tiles merged (layers with the same offset together, through the per-chunk cache), each offset group moved by its offset. */
   private mergedShapes(purpose: string, mode: ShapeMerge2D, include: (l: RuntimeLayer) => boolean, collisionOf: (id: number) => TileCollision | undefined, ts: Tileset, withoutWholeCells = false): CollisionShapes2D {
     const grid = this._grid();
-    const square = grid.shape === "square";
-    const unit = square ? { x: this.cellSize.x, y: this.cellSize.y } : { x: 1, y: 1 };
+    const unit = grid.cellUnits ? { x: this.cellSize.x, y: this.cellSize.y } : { x: 1, y: 1 };
     const groups = new Map<string, { offset: [number, number]; layers: ShapeLayer[] }>();
     this._layers().forEach((l, i) => {
       if (!include(l)) return;

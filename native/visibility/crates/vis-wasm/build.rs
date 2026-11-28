@@ -1,6 +1,6 @@
 //! vis-wasm's build script: embeds the source hash (`source_hash.rs`) of `native/visibility/` as
 //! `$OUT_DIR/source_hash.bin`, read by `src/lib.rs`, so a committed wasm that no longer matches its sources fails
-//! `npm test` (ADR 0447, after 0370 and 0157).
+//! `npm test` (ADR 0460, after 0370 and 0157).
 
 #[path = "source_hash.rs"]
 mod source_hash;

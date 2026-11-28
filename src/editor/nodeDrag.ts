@@ -8,7 +8,8 @@ import { errorStatus } from "./messages";
 import { signal } from "@preact/signals";
 import type { SceneDocument } from "./document";
 import { dropRowName, hierarchyDropAt, type HierarchyDrop } from "./hierarchyDrop";
-import { isInsidePrefab, moveNodes, whyNotMovable } from "./hierarchyEdit";
+import { moveNodes, whyNotMovable } from "./hierarchyEdit";
+import { isInnerKey } from "./nodeKey";
 import { subtreeRoots } from "./nodeClipboard";
 import { openScene, selectedKeys, status } from "./state";
 import { whyNotEdit } from "./editGate";
@@ -44,7 +45,7 @@ function wouldMove(doc: SceneDocument, id: string, row: string | null, t: MoveSp
 
 /** Why dropping `key` (or all of `keys`) at `drop` isn't allowed, or null if it is. */
 function nodeDropProblem(doc: SceneDocument, key: string, drop: HierarchyDrop | null, keys: readonly string[] = [key]): string | null {
-  if (keys.some(isInsidePrefab)) return "nodes inside a prefab are moved in the prefab";
+  if (keys.some(isInnerKey)) return "nodes inside a prefab are moved in the prefab";
   if (!drop) return "drop it in the hierarchy";
   if ("reason" in drop.move) return drop.move.reason;
   const t = drop.move;
@@ -80,10 +81,10 @@ export function startNodeDrag(e: PointerEvent, key: string): void {
         (!scene ? "open a scene first" : nodeDropProblem(scene.doc, key, drop, keys));
       nodeDrag.value = { key, keys, x: m.clientX, y: m.clientY, target: problem ? null : drop, problem };
     },
-    end: (apply) => {
+    end: (how) => {
       const state = nodeDrag.value;
       nodeDrag.value = null;
-      if (!apply || !state?.target || "reason" in state.target.move) return;
+      if (how !== "drop" || !state?.target || "reason" in state.target.move) return;
       const scene = openScene.value!;
       try {
         moveNodes(scene, state.keys, state.target.move.parent, state.target.move.index);

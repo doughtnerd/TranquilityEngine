@@ -6,16 +6,9 @@
 // it and passes its text in), and its own name, identifier, window size and icon. No file access
 // here (node.ts writes the files), so the generated text is easy to test.
 import type { ProjectSettingsInput } from "../engine";
+import { buildSettingsProblems, type BuildSettings } from "../engine/core/buildSettings";
 
-/** Optional build settings in project.json under `build` (read by the exporter only). */
-export interface BuildSettings {
-  /** A square PNG or SVG in the project for the app icon; default: a neutral generated icon. */
-  icon?: string;
-  /** Reverse-DNS app identifier (where saves go, and the installer's id); default `com.myco.game.<name>`. */
-  identifier?: string;
-  /** App version, `x.y.z`; default 0.1.0. */
-  version?: string;
-}
+export type { BuildSettings };
 
 export interface DesktopOptions {
   /** The product name (project.json's `name`). */
@@ -117,11 +110,17 @@ export function slug(name: string): string {
   return /^[a-z]/.test(s) ? s : `game-${s || "app"}`;
 }
 
+/** Throws `build`'s problem with `field`, if it has one (ADR 0446: the rules the Project panel shows before export). */
+function refuseBad(build: BuildSettings | undefined, field: "identifier" | "version"): void {
+  const problem = buildSettingsProblems(build).find((p) => p.field === `build.${field}`);
+  if (problem) throw new Error(`project.json's build.${field} ${JSON.stringify(build?.[field])}: ${problem.message}`);
+}
+
 /** The app identifier: `build.identifier`, else `com.myco.game.<slug>`. */
 function appIdentifier(options: DesktopOptions): string {
   const given = options.settings.build?.identifier;
   if (given) {
-    if (!/^[A-Za-z][\w-]*(\.[A-Za-z][\w-]*)+$/.test(given)) throw new Error(`project.json's build.identifier "${given}" isn't a reverse-DNS name like com.example.mygame.`);
+    refuseBad(options.settings.build, "identifier");
     return given;
   }
   return `com.myco.game.${slug(options.name).replace(/-/g, "")}`;
@@ -131,7 +130,7 @@ function appIdentifier(options: DesktopOptions): string {
 export function appVersion(options: DesktopOptions): string {
   const v = options.settings.build?.version;
   if (v === undefined) return "0.1.0";
-  if (!/^\d+\.\d+\.\d+$/.test(v)) throw new Error(`project.json's build.version "${v}" must look like 1.2.3.`);
+  refuseBad(options.settings.build, "version");
   return v;
 }
 

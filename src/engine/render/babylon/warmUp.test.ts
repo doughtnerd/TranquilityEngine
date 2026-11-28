@@ -1,4 +1,4 @@
-// ADR 0080, 0446 §4: the pipeline warmer also draws a mesh with levels as a crossfade batch draws it (the fade plugin's
+// ADR 0080, 0459 §4: the pipeline warmer also draws a mesh with levels as a crossfade batch draws it (the fade plugin's
 // variant, per-instance fade values, not a caster) while the tier crossfades, through `PipelineWarmer` on Babylon's
 // NullEngine with a model whose levels come from the real import pipeline.
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
@@ -46,7 +46,7 @@ function sphereObj(rows = 16, columns = 24): string {
 const BALL = "asset:models/ball.obj";
 const warm = (mesh: string, castShadows = true): WarmMesh => ({ mesh, material: "", castShadows, receiveShadows: true, blended: false });
 
-describe("pipeline warm-up of the crossfade variant (ADR 0080, 0446 §4)", () => {
+describe("pipeline warm-up of the crossfade variant (ADR 0080, 0459 §4)", () => {
   let engine: Engine;
   let babylon: NullEngine;
   let scene: Scene;
@@ -132,7 +132,7 @@ describe("pipeline warm-up of the crossfade variant (ADR 0080, 0446 §4)", () =>
     expect(casters).not.toContain(fades[0]);
   });
 
-  it("warms auto materials as thin instances while the World applies levels, as its renderers then draw them (ADR 0448)", () => {
+  it("warms auto materials as thin instances while the World applies levels, as its renderers then draw them (ADR 0461)", () => {
     levelsApplied = true;
     const { plain, casters } = batch(warm(BALL));
     expect(plain).toHaveLength(1);

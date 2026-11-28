@@ -3,7 +3,7 @@ import { Assets, Engine, GameObject, Input } from "../../../engine/index";
 import { World } from "../../../engine/core/World";
 import { UIImage, UIText, type UIComponentType } from "../../../engine/ui/components";
 import type { UILaidOutElement } from "../../../engine/ui/uiCoreTypes";
-import { UIPointer, stubDocument } from "../../../engine/tests/uiPointer";
+import { UIPointer, pointerTargetAt, stubDocument } from "../../../engine/tests/uiPointer";
 import { UIView } from "./UIView";
 import * as RichTextModule from "./testComponents/RichText.svelte";
 
@@ -101,7 +101,7 @@ describe("UIView: inline runs (ADR 0429)", () => {
     const em = comp(v, "#em");
     const r = pointer!.core.rectOf(em)!;
     expect(r.width).toBeGreaterThan(0);
-    expect(pointer!.core.hitTest(r.x + r.width / 2, r.y + r.height / 2)).toBe(em);
+    expect(pointerTargetAt(pointer!.core, r.x + r.width / 2, r.y + r.height / 2)).toBe(em);
     pointer!.dom.moveTo(r.x + r.width / 2, r.y + r.height / 2);
     pointer!.dom.click();
     engine.step(DT);

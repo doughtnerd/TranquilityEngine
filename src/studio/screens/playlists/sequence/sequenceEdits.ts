@@ -4,6 +4,7 @@
 import type { Effect, EffectType } from "../../../../engine/audio/effects/types";
 import { wouldContain } from "../../../../engine/audio/playlist/references";
 import type { Automation, Clip, PlaylistBody, SequenceSettings, Track } from "../../../../engine/audio/playlist/types";
+import { isMeter } from "../../../../engine/audio/meter";
 import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
 import { clipPlan, clipToSource } from "./clipGeometry";
 import { cutCurve } from "./curveCut";
@@ -393,6 +394,6 @@ export function setTempo(s: SequenceSettings, bpm: number | null): R {
 
 /** "Meter": needs a tempo (it starts one at 120 BPM). */
 export function setMeter(s: SequenceSettings, meter: string): R {
-  if (!/^\d{1,2}\/\d{1,2}$/.test(meter) || meter.split("/").some((n) => Number(n) === 0)) return refuse(`"${meter}" isn't a meter like 4/4`);
+  if (!isMeter(meter)) return refuse(`"${meter}" isn't a meter like 4/4`);
   return accept({ ...s, tempo: { bpm: s.tempo?.bpm ?? 120, meter } });
 }

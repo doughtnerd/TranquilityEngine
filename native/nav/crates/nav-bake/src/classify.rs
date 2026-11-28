@@ -35,7 +35,7 @@ pub struct Normal {
 
 impl Normal {
     /// `FFMeshBlob.Build`'s face normal: the front normal in the engine's winding (`nav_math::winding::front_normal`,
-    /// ADR 0450) normalised, zero if its length is not above `1e-12`. Also returns that length (twice the area, the
+    /// ADR 0463) normalised, zero if its length is not above `1e-12`. Also returns that length (twice the area, the
     /// blob's `w`).
     pub fn from_triangle(a: Float3, b: Float3, c: Float3) -> (Self, f32) {
         let cross = nav_math::winding::front_normal(a, b, c);

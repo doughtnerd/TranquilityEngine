@@ -68,7 +68,7 @@ interface PaletteUse {
 }
 
 /**
- * @internal What a skinned draw adds when it draws its model mesh's LOD levels (ADR 0446 §6): the levels share its
+ * @internal What a skinned draw adds when it draws its model mesh's LOD levels (ADR 0459 §6): the levels share its
  * skinned vertex buffer, so one dispatch skins them all. A backend without it draws level 0 only.
  */
 export interface SkinnedLevels<M> {
@@ -84,7 +84,7 @@ export interface SkinnedLevels<M> {
 export interface LevelDraw<M> {
   /** Levels it has. */
   readonly levels: number;
-  /** The mesh that draws `level` (clamped to its last level, ADR 0446 §2). */
+  /** The mesh that draws `level` (clamped to its last level, ADR 0459 §2). */
   mesh(level: number): M;
   /** Enable exactly the levels in `mask` (bit i = level i), or only level 0 with null. */
   show(mask: number | null): void;

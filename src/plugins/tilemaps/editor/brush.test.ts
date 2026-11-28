@@ -299,9 +299,12 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
       .sort();
   };
 
-  const LATTICE_GRIDS = (["staggered", "hexagonal"] as const).flatMap((shape) =>
-    (["y", "x"] as const).flatMap((axis) => (["odd", "even"] as const).map((index) => ({ shape, axis, index }))),
-  );
+  // One staggered and one hexagonal map, between them both stagger axes and indices: that every grid variant's blocks keep
+  // their shape is the grid's own test (grids.test.ts, ADR 0448); this checks the brush places them as the grid says.
+  const LATTICE_GRIDS = [
+    { shape: "staggered", axis: "y", index: "even" },
+    { shape: "hexagonal", axis: "x", index: "odd" },
+  ] as const;
   for (const { shape, axis, index } of LATTICE_GRIDS) {
     it(`keeps a picked stamp's shape painted an odd number of rows or columns away on a ${shape} map (axis ${axis}, ${index}) (ADR 0444)`, () => {
       const { map } = newMap();

@@ -1,4 +1,4 @@
-// ADR 0446 §2: placing a model whose meshes have generated levels adds an automatic LODGroup on its root, through the
+// ADR 0459 §2: placing a model whose meshes have generated levels adds an automatic LODGroup on its root, through the
 // model kind's `addToScene` templates (the add's single undoable step builds nodes from them). Models without levels get none.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets } from "../../../engine/index";

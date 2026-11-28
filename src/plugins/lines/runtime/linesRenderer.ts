@@ -11,7 +11,6 @@ import { evalCurve, type Curve } from "../../../engine/core/curve";
 import { evaluateGradient, isGradient, type Gradient } from "../../../engine/core/gradient";
 import type { World } from "../../../engine/core/World";
 import { PICK_ORDER, type BabylonFeature, type BabylonFeatureFactory, type DrawnNode } from "../../../engine/render/babylon/feature";
-import { drawPlace, ySortWithin } from "../../../engine/render/sortOrder";
 import type { DynamicMesh, DynamicMeshHost } from "../../../engine/render/dynamicMeshes";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
 import { LineRenderer } from "./LineRenderer";
@@ -169,8 +168,7 @@ export class LinesRenderer implements BabylonFeature {
       e.mesh = null;
       // In a y-sorted layer its sort point is its node's world position (ADR 0440).
       const y = node[at + 13]!;
-      order = drawPlace(world.settings.render, c.sortingLayer, c.orderInLayer, y);
-      this.draw2D(e, c, mesh, matrix, ySortWithin(world.settings.render, c.sortingLayer, y));
+      order = this.draw2D(e, c, mesh, matrix, y);
     } else {
       e.batch?.dispose();
       e.batch = null;
@@ -190,15 +188,17 @@ export class LinesRenderer implements BabylonFeature {
     e.mesh.setVisible(true);
   }
 
-  private draw2D(e: Entry, c: RibbonRenderer, mesh: RibbonMesh, matrix: ArrayLike<number>, within: number): void {
+  /** Draw a 2D ribbon as its quad batch, sorted by height `y` in a y-sorted layer; its place (what it picks at, ADR 0445). */
+  private draw2D(e: Entry, c: RibbonRenderer, mesh: RibbonMesh, matrix: ArrayLike<number>, y: number): number {
     if (!e.batch) e.batch = this.host.quads.createBatch(`${c instanceof TrailRenderer ? "trail" : "line"}2d:${c.node.name}`);
     // ADR 0399: lit by 2D lights unless its material is Sprite Unlit; normal maps follow the line (its U runs along it).
-    e.batch.setOrder(c.sortingLayer, c.orderInLayer, within);
+    e.batch.setOrder(c.sortingLayer, c.orderInLayer, { y });
     e.batch.setMaterial(c.material);
     e.batch.setTriangles(c.texture, mesh.positions, mesh.uvs, mesh.indices, mesh.colors);
     e.batch.setTint("#ffffff", 1);
     e.batch.setMatrix(matrix);
     e.batch.setVisible(true);
+    return e.batch.place;
   }
 }
 

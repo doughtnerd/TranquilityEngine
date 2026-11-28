@@ -187,7 +187,7 @@ describe("bake plan and inspector rules", () => {
     const layout = await surfaceBinLayout(s);
     if ("error" in layout) throw new Error(layout.error);
     expect(layout.bins[0].name).toBe("Floor");
-    // A floor and a wall facing +x, in the engine's winding (ADR 0450).
+    // A floor and a wall facing +x, in the engine's winding (ADR 0463).
     const tris = new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1, /* wall facing +x */ 0, 0, 0, 0, 0, 1, 0, 1, 0]);
     const bins = await classifySurfaceBins(s, tris);
     expect(bins[0]).toBe(0);

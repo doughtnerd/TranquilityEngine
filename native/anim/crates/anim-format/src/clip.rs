@@ -34,7 +34,7 @@
 //! |---|---|---|
 //! | 0 | f32 | duration, seconds (finite, ≥ 0) |
 //! | 4 | f32 | sample rate, Hz (finite, > 0; default 30) |
-//! | 8 | u32 | frame count: samples per sampled track (≥ 1; by convention `duration * rate + 1`) |
+//! | 8 | u32 | frame count: samples per sampled track (≥ 1; [`frame_count`](crate::frames::frame_count): `ceil(duration · rate − 1e-6) + 1`, frame `i` at `min(i / rate, duration)`, [`crate::frames`]) |
 //! | 12 | u32 | track count (= `TRACKS` count) |
 //! | 16 | u32 | clip name string id (or `NONE`) |
 //! | 20 | u32 | bone count of the skeleton the clip was made for (0: no skeleton; then no bone tracks) |
@@ -1478,6 +1478,10 @@ impl<'a> ClipView<'a> {
     /// Samples per sampled track.
     pub fn frame_count(&self) -> u32 {
         self.info[2]
+    }
+    /// The clip's time-to-frame mapping (its last frame at its duration, [`crate::frames`]).
+    pub fn frame_clock(&self) -> crate::frames::FrameClock {
+        crate::frames::FrameClock::new(self.duration(), self.sample_rate(), self.frame_count())
     }
     /// Name string id.
     pub fn name(&self) -> u32 {

@@ -4,18 +4,18 @@
 // - Skeleton2D: its skeleton comes from a slice's `skin.bones`; an Animator on its node plays bone tracks on it; skinned
 //   slices (two sharing the skeleton) are deformed by the kernel's JavaScript executor and handed to quad batches
 //   (`SkinnedSprites` over a fake `QuadBatchHost`, as the renderer's feature uses it). The bone clip is a raw clip
-//   written by `writeRawClip` with the skeleton's bones, served as a data URL.
+//   written by `compileRawClip` with the skeleton's bones, served as a data URL.
 // Time comes from `engine.step(dt)` only. Positions are compared to 4 decimals (5e-5): the pose (core) and the kernel
 // are f32, on values near 1.
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Animator, Assets, Engine, GameObject, Skeleton2D, SpriteRenderer } from "../../../../myco";
 import { isFieldAnimatable } from "../../../../engine/core/registry";
 import { skeleton2D, sliceFrame } from "../../../../engine/animation/sprites/skeleton2d";
-import type { QuadBatch, QuadBatchHost } from "../../../../engine/render/quadBatches";
-import { drawPlace, ySortFraction } from "../../../../engine/render/sortOrder";
+import { memoryQuadHost, type MemoryQuadBatch } from "../../../../engine/tests/memoryQuadHost";
+import { drawPlace } from "../../../../engine/render/sortOrder";
 import { instanceForSkeleton } from "../skeletonInstances";
 import { claimsSkinnedSprite, SkinnedSprites } from "./sprites2d/skinnedSprites";
-import { writeRawClip } from "./timeline/rawClip";
+import { compileRawClip, importedClipSkeleton } from "../../../../engine/animation/compile/rawClip";
 
 let engine: Engine;
 /** The project's sorting layers: `Units` is y-sorted (ADR 0440), `Default` isn't. */
@@ -64,7 +64,7 @@ const RIG = {
 function bendClip(): string {
   const model = skeleton2D(BONES.map((b) => ({ name: b.name, parent: b.parent ?? null, position: b.position as [number, number], rotation: 0, length: b.length })), sliceFrame({ rect: [0, 0, 32, 16], pivot: [0, 0] }, 16, 100));
   const s = Math.SQRT1_2;
-  const { bytes } = writeRawClip({ name: "bend", rate: 30, duration: 1, loop: true, tracks: [{ kind: "bone", bone: "arm", translation: [], rotation: [[0, 0, 0, s, s]], scale: [] }], skeleton: model.skeleton });
+  const { bytes } = compileRawClip({ name: "bend", rate: 30, duration: 1, loop: true, tracks: [{ kind: "bone", bone: "arm", translation: [], rotation: [[0, 0, 0, s, s]], scale: [] }] }, importedClipSkeleton(model.skeleton));
   return `data:application/octet-stream;base64,${Buffer.from(bytes).toString("base64")}`;
 }
 
@@ -138,44 +138,10 @@ describe("flipbooks (ADR 0371)", () => {
 
 // --- skinned sprites --------------------------------------------------------------------------------------------------
 
-interface FakeBatch extends QuadBatch {
-  /** The sorting layer, order in layer and `within` (ADR 0440) it was last given. */
-  order: [string, number, number | undefined];
-  positions: number[];
-  texture: string;
-  matrix: number[];
-  visible: boolean;
-  disposed: boolean;
-}
-
-function fakeHost() {
-  const batches: FakeBatch[] = [];
-  const host: QuadBatchHost = {
-    createBatch() {
-      const b: FakeBatch = {
-        order: ["", 0, undefined], positions: [], texture: "", matrix: [], visible: false, disposed: false,
-        setMaterial() {},
-        setBlend() {},
-        setQuads() {},
-        setTriangles(texture, positions) { b.texture = texture; b.positions = Array.from(positions); },
-        setMatrix(m, offset = 0) { b.matrix = Array.from(m).slice(offset, offset + 16); },
-        setOrder(layer, inLayer, within) { b.order = [layer, inLayer, within]; },
-        setTint() {},
-        setMask() {},
-        setVisible(v) { b.visible = v; },
-        dispose() { b.disposed = true; },
-      };
-      batches.push(b);
-      return b;
-    },
-    textureSize: () => [64, 32],
-    onCameraRender: () => () => {},
-  };
-  return { host, batches };
-}
+const fakeHost = () => memoryQuadHost();
 
 /** xy per vertex of a batch's positions (z checked 0). */
-function xy(b: FakeBatch): [number, number][] {
+function xy(b: MemoryQuadBatch): [number, number][] {
   const out: [number, number][] = [];
   for (let i = 0; i < b.positions.length; i += 3) {
     expect(b.positions[i + 2]).toBe(0);
@@ -228,7 +194,7 @@ describe("Skeleton2D and skinned sprites (ADR 0370, 0371)", () => {
     const sprites = new SkinnedSprites(host);
     sprites.sync(engine.world);
     expect(batches).toHaveLength(2);
-    const [body, arm] = batches as [FakeBatch, FakeBatch];
+    const [body, arm] = batches as [MemoryQuadBatch, MemoryQuadBatch];
     expect(body.texture).toBe("rig.png");
     expectPoints(xy(body), BODY_REST);
     expectPoints(xy(arm), ARM_REST);
@@ -249,15 +215,15 @@ describe("Skeleton2D and skinned sprites (ADR 0370, 0371)", () => {
     const { host, batches } = fakeHost();
     const sprites = new SkinnedSprites(host);
     sprites.sync(engine.world);
-    const [body, arm] = batches as [FakeBatch, FakeBatch];
+    const [body, arm] = batches as [MemoryQuadBatch, MemoryQuadBatch];
     expectPoints(xy(body), BODY_REST.map((p, i) => (i === 2 || i === 3 ? turn(p) : p)));
     expectPoints(xy(arm), ARM_REST.map(turn));
     expectPoints(sprites.deformedOutline(r.arm)![0]!, ARM_REST.map(turn)); // ADR 0415: the outline bends with the bone
 
     // An unchanged pose skins nothing; stopping returns to the bind pose.
-    body.positions = [];
+    const sets = body.sets;
     sprites.sync(engine.world);
-    expect(body.positions).toEqual([]);
+    expect(body.sets).toBe(sets);
     anim.stop();
     engine.step(1 / 30);
     sprites.sync(engine.world);
@@ -279,10 +245,10 @@ describe("Skeleton2D and skinned sprites (ADR 0370, 0371)", () => {
     const { host, batches } = fakeHost();
     const sprites = new SkinnedSprites(host);
     sprites.sync(engine.world);
-    const [body, arm] = batches as [FakeBatch, FakeBatch];
-    expect(body.order).toEqual(["Units", 4, ySortFraction(1)]);
-    expect(arm.order).toEqual(["Units", 4, ySortFraction(-2)]);
-    const order = () => new Map([...sprites.drawn()].map((d) => [d.renderer, d.order]));
+    const [body, arm] = batches as [MemoryQuadBatch, MemoryQuadBatch];
+    expect([body.sortingLayer, body.place]).toEqual(["Units", drawPlace(RENDER, "Units", 4, 1)]);
+    expect(arm.place).toBe(drawPlace(RENDER, "Units", 4, -2));
+    const order = () => new Map([...sprites.drawn()].map((d) => [d.renderer, d.batches[0]!.place])); // what picking ranks each by: its batch's place
     let drawn = order();
     expect(drawn.get(r.body)).toBe(drawPlace(RENDER, "Units", 4, 1));
     expect(drawn.get(r.arm)).toBe(drawPlace(RENDER, "Units", 4, -2));
@@ -292,7 +258,7 @@ describe("Skeleton2D and skinned sprites (ADR 0370, 0371)", () => {
     // The sort point is the sprite's node (not the skeleton's): moving the arm above the body puts it under.
     r.arm.node.transform!.position.y = 3;
     sprites.sync(engine.world);
-    expect(arm.order).toEqual(["Units", 4, ySortFraction(3)]);
+    expect(arm.place).toBe(drawPlace(RENDER, "Units", 4, 3));
     drawn = order();
     expect(drawn.get(r.arm)).toBe(drawPlace(RENDER, "Units", 4, 3));
     expect(drawn.get(r.arm)!).toBeLessThan(drawn.get(r.body)!);
@@ -300,7 +266,7 @@ describe("Skeleton2D and skinned sprites (ADR 0370, 0371)", () => {
     // A layer that isn't y-sorted: the order alone, whatever the height.
     for (const s of [r.body, r.arm]) s.sortingLayer = "Default";
     sprites.sync(engine.world);
-    expect([body.order, arm.order]).toEqual([["Default", 4, 0], ["Default", 4, 0]]);
+    expect([body.sortingLayer, body.place, arm.place]).toEqual(["Default", 4, 4]);
     expect([...order().values()]).toEqual([4, 4]);
     sprites.dispose();
   });

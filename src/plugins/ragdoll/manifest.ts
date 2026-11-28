@@ -11,5 +11,9 @@ export const ragdollManifest: PluginManifest = {
   description: "Ragdolls and powered ragdolls on animated skeletons: bodies and joints from the skeleton, muscles toward the animation, get-up.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
+  // Where the Add Component menu lists its Components.
+  componentCategories: {
+    Animation: ["engine.Ragdoll"],
+  },
   dependencies: { "myco.physics": "1.0.0", "myco.animation": "1.0.0" },
 };

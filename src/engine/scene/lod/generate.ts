@@ -1,6 +1,6 @@
 /**
- * Generating a mesh's LOD levels at import (ADR 0446 §1) with meshoptimizer's simplifier, and its occluder stand-in
- * (ADR 0447 §3). Runs in the editor's worker (`worker.ts`) and inline in the export; games never load it (they read
+ * Generating a mesh's LOD levels at import (ADR 0459 §1) with meshoptimizer's simplifier, and its occluder stand-in
+ * (ADR 0460 §3). Runs in the editor's worker (`worker.ts`) and inline in the export; games never load it (they read
  * baked levels). Plain arrays in, plain arrays out, so a worker can run it. Internal: not public API.
  *
  * The pipeline, per mesh:
@@ -10,7 +10,7 @@
  *    submesh below 1 % of its triangles (at least 12).
  * 3. Measure each level's error as a sampled two-way Hausdorff distance against LOD0 (`hausdorff.ts`), as a fraction
  *    of LOD0's bounding-box diagonal: never meshoptimizer's estimate.
- * 4. The occluder stand-in: the coarsest level, hole-trimmed (ADR 0447 §3, `standInTrim.ts`): triangles whose own error
+ * 4. The occluder stand-in: the coarsest level, hole-trimmed (ADR 0460 §3, `standInTrim.ts`): triangles whose own error
  *    exceeds 0.5 % of the diagonal are dropped, and each kept one keeps its error and its edge neighbours. Where the
  *    trimming module can't load there is no stand-in (an untrimmed one isn't conservative), with a warning once.
  * 5. Reorder each level's triangles for the vertex cache, then the shared vertices coarsest level first for vertex fetch,

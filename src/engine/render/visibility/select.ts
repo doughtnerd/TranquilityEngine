@@ -1,5 +1,5 @@
 /**
- * LOD selection (ADR 0446 §2–3): for one view, each group's level from its screen-relative height, the frustum test,
+ * LOD selection (ADR 0459 §2–3): for one view, each group's level from its screen-relative height, the frustum test,
  * shadow casters' levels and hysteresis. Pure TypeScript over flat arrays, no backend imports, no allocation per call
  * (`spikes/lod-select/`: about 0.23 ms a view for 10,000 groups with cached world spheres). Not public API.
  *
@@ -8,7 +8,7 @@
  * orthographic, then times the tier's `lodBias`. Level i draws while h ≥ heights[i]; below the last height the group is
  * LOD-culled.
  *
- * **Crossfade (ADR 0446 §4).** In a persistent view, a group whose `fadeDuration` is above 0 (its `fade` is
+ * **Crossfade (ADR 0459 §4).** In a persistent view, a group whose `fadeDuration` is above 0 (its `fade` is
  * `"crossfade"`) fades from its old level to its new one over that many seconds while the tier's `lodCrossfade` is on:
  * both levels draw, each discarding a complementary dither pattern. A fade reversed midway runs back from its progress;
  * a change to a third level fades from whichever of the two showed more. Other views, and groups with no duration, snap.
@@ -40,7 +40,7 @@ export interface SelectionTier {
   readonly lodFirstLevel: number;
   /** How far LOD-culled groups keep casting shadows at their coarsest level, in world units. */
   readonly shadowDistance: number;
-  /** Whether level changes may crossfade (ADR 0446 §5); absent: off. */
+  /** Whether level changes may crossfade (ADR 0459 §5); absent: off. */
   readonly lodCrossfade?: boolean;
 }
 
@@ -48,13 +48,13 @@ export interface SelectionTier {
 export interface SelectionOut {
   /** The level to draw, or `LOD_CULLED`. Written for off-screen groups too (their shadows still draw). */
   readonly levels: Uint8Array;
-  /** The level shadow casters draw, or `LOD_CULLED` (ADR 0446 §3). */
+  /** The level shadow casters draw, or `LOD_CULLED` (ADR 0459 §3). */
   readonly casterLevels: Uint8Array;
   /** 1 when the group's sphere is outside the view's frustum. */
   readonly hidden: Uint8Array;
   /**
    * The crossfade value of the level in `levels` (the incoming one), 0 while steady: during a fade it is
-   * `fadeIn(t)`, never 0, and the outgoing level in `fadeFrom` draws with `fadeOut(t)` (ADR 0446 §4).
+   * `fadeIn(t)`, never 0, and the outgoing level in `fadeFrom` draws with `fadeOut(t)` (ADR 0459 §4).
    */
   readonly fade: Float32Array;
   /** During a fade, the outgoing level (or `LOD_CULLED` when fading in from culled); `LOD_CULLED` while steady. */
@@ -63,7 +63,7 @@ export interface SelectionOut {
 
 /**
  * An incoming level's fade value at progress t (0–1): the complement of the outgoing one, encoded negative. At t = 0 it
- * is a tiny negative, as -0 isn't < 0 and would draw the incoming level whole (ADR 0446 §4, `spikes/lod-crossfade/`).
+ * is a tiny negative, as -0 isn't < 0 and would draw the incoming level whole (ADR 0459 §4, `spikes/lod-crossfade/`).
  * The shader keeps the pixels whose 4×4 Bayer rank is below round(16·|f|).
  */
 export function fadeIn(t: number): number {
@@ -83,7 +83,7 @@ export function outgoingOf(f: number): number {
 /** The magnitude of an incoming fade value at t = 0: far below the shader's 1/32 rounding step. */
 const FADE_EPSILON = 1e-6;
 
-/** A level change needs h to cross the threshold by this share (ADR 0446 §3). */
+/** A level change needs h to cross the threshold by this share (ADR 0459 §3). */
 export const HYSTERESIS = 0.04;
 /** In `SelectionState`: no level chosen yet; in a fade's `from`: not fading. */
 const NONE = 254;
@@ -101,7 +101,7 @@ interface FadeState {
 }
 
 /**
- * The level each group last had per persistent view, for hysteresis (ADR 0446 §3). Group indices must be stable across
+ * The level each group last had per persistent view, for hysteresis (ADR 0459 §3). Group indices must be stable across
  * frames; `forget` a group's index before giving it to another group.
  */
 export class SelectionState {
@@ -160,7 +160,7 @@ function pick(h: number, heights: Float32Array, start: number, n: number, scale:
 }
 
 /**
- * The editor's "preview a level" (ADR 0446 §7): group `group` draws `level` (-1: culled) in a scene view, as
+ * The editor's "preview a level" (ADR 0459 §7): group `group` draws `level` (-1: culled) in a scene view, as
  * `forceLevel` would, without changing the group. The caller gives it only for the scene view's own selection.
  */
 export interface LevelPreview {
@@ -179,7 +179,7 @@ export function screenHeightOf(view: VisibilityView, size: number, distance: num
 }
 
 /**
- * Choose every group's level for `view` (ADR 0446 §3) into `out`, by group index. Hysteresis and crossfades are kept in
+ * Choose every group's level for `view` (ADR 0459 §3) into `out`, by group index. Hysteresis and crossfades are kept in
  * `state` when the view is persistent; other views (probe faces, thumbnails) choose from h alone, snap, and leave `state`
  * untouched. `time` is the engine's clock in seconds: fades advance by the time since the view was last selected.
  */
@@ -236,7 +236,7 @@ export function selectLevels(view: VisibilityView, groups: SelectionGroups, tier
     else if (index >= n) level = LOD_CULLED;
     else level = Math.max(index, Math.min(firstLevel, n - 1));
     out.levels[g] = level;
-    // Casters draw the level shown more: the outgoing one until a fade's midpoint (ADR 0446 §3).
+    // Casters draw the level shown more: the outgoing one until a fade's midpoint (ADR 0459 §3).
     let cast = level;
     let from: number = NONE;
     if (fades) {
@@ -292,7 +292,7 @@ function stepFade(f: FadeState, g: number, level: number, step: number): number 
   return from;
 }
 
-/** Automatic heights' last value: culled below 1 % of the view's height (ADR 0446 §2). */
+/** Automatic heights' last value: culled below 1 % of the view's height (ADR 0459 §2). */
 export const AUTOMATIC_CULL_HEIGHT = 0.01;
 /** The reference view height automatic heights are measured at. */
 const REFERENCE_HEIGHT_PX = 1080;
@@ -307,7 +307,7 @@ export interface MeshLevelErrors {
 }
 
 /**
- * Transition heights derived from members' measured errors (ADR 0446 §2), for a group whose `levels` is empty. A level
+ * Transition heights derived from members' measured errors (ADR 0459 §2), for a group whose `levels` is empty. A level
  * is good enough while its error covers under `pixelError` pixels at 1080p: the group leaves level i for i + 1 once
  * h < pixelError / (1080 × error of i + 1). Every member must be good enough, so each height is the smallest over the
  * members (one past its last level, a member draws its last). The last value is 0.01. With no member levels: `[0]`,

@@ -76,7 +76,7 @@ import { BabylonDecals } from "./decals";
 import { BabylonDynamicMeshes } from "./dynamicMeshes";
 import { PROBES_SPEC, ProbesFeature } from "./features";
 import { FOG_SPEC, FogFeature } from "./fog";
-import { sortingOrder, unknownLayerMessage } from "../sortOrder";
+import { unknownLayerMessage } from "../sortOrder";
 import { snapToGrid } from "../pixelPerfect";
 import { createEngine } from "./createEngine";
 import { DrawCounter } from "./drawCounter";
@@ -208,11 +208,11 @@ export class BabylonRenderer {
   private cameraPreviewDrawn = false;
   /** What reflection probes capture: the scene's meshes minus editor-only ones, refilled each frame. */
   private readonly probeMeshes: AbstractMesh[] = [];
-  /** ADR 0446 §3: this frame's views with their visibility, by the frame-graph view they belong to (`fitView`). */
+  /** ADR 0459 §3: this frame's views with their visibility, by the frame-graph view they belong to (`fitView`). */
   private readonly featureViews = new Map<CameraView, FeatureView>();
-  /** ADR 0446 §3: each view's object list, rebuilt each frame while a feature chooses drawables per view. */
+  /** ADR 0459 §3: each view's object list, rebuilt each frame while a feature chooses drawables per view. */
   private readonly viewObjects = new ViewObjectLists();
-  /** ADR 0446 §3: each probe capture's render list this frame, by its key. */
+  /** ADR 0459 §3: each probe capture's render list this frame, by its key. */
   private readonly probeLists = new Map<string, AbstractMesh[]>();
 
   /** Creates the engine (the engine factory: WebGPU, else, or when it can't start, WebGL2; ADR 0244) and the scene. */
@@ -244,7 +244,7 @@ export class BabylonRenderer {
       for (const slot of this.slots) {
         const feature = slot.feature;
         if (!feature) continue;
-        // ADR 0446 §3: a feature that follows views by key gets the view; the rest (the sky's box, ADR 0112) the camera.
+        // ADR 0459 §3: a feature that follows views by key gets the view; the rest (the sky's box, ADR 0112) the camera.
         if (feature.fitView && visibility) feature.fitView(visibility);
         else feature.fit?.(camera);
       }
@@ -262,7 +262,8 @@ export class BabylonRenderer {
       scene,
       materials2D: this.materials2D,
       texture: (path, onReady) => this.materials.texture(path, "color", () => onReady()),
-      sortOrder: (layer, order) => sortingOrder(this.settings.render.sortingLayers, layer, order, (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l))),
+      sortSettings: () => this.settings.render,
+      unknownLayer: (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l)),
     });
     this.lights2D = new BabylonLights2D({
       scene,
@@ -499,7 +500,9 @@ export class BabylonRenderer {
 
   /**
    * ADR 0276: what every loaded feature drew now, with quad batches (a tile layer's) resolved to the meshes
-   * that draw them, so the editor tools and thumbnails read meshes, quads and canvas rectangles alone.
+   * that draw them, so the editor tools and thumbnails read meshes, quads and canvas rectangles alone. Batches
+   * are grouped by the place each reports (ADR 0445): one drawing per place, picked at it, so a tile row drawn
+   * over a sprite in a y-sorted layer picks over it too.
    */
   private *drawn(): Iterable<EditorDrawn> {
     for (const slot of this.slots) {
@@ -508,12 +511,15 @@ export class BabylonRenderer {
           yield d as EditorDrawn;
           continue;
         }
-        const meshes: AbstractMesh[] = [];
+        const byPlace = new Map<number, AbstractMesh[]>();
         for (const b of d.shape.batches) {
           const mesh = this.quads.meshOf(b);
-          if (mesh) meshes.push(mesh);
+          if (!mesh) continue;
+          const meshes = byPlace.get(b.place);
+          if (meshes) meshes.push(mesh);
+          else byPlace.set(b.place, [mesh]);
         }
-        yield { ...d, shape: { kind: "meshes", meshes } };
+        for (const [order, meshes] of byPlace) yield { ...d, shape: { kind: "meshes", meshes }, order };
       }
     }
   }
@@ -583,7 +589,7 @@ export class BabylonRenderer {
     this.lastPost = first ? { composed: !!first.effects, toneMapping: first.toneMapping, effects: first.effects, composedCameras } : null;
     this.cameraPreviewDrawn = previewShown && this.frame.ready;
     for (const slot of this.slots) slot.feature?.beforeFrame?.(); // the sky's bake: before the frame graph runs, like probe captures
-    // ADR 0446 §3: each view's (and probe capture's) drawables from its visibility result, before anything draws.
+    // ADR 0459 §3: each view's (and probe capture's) drawables from its visibility result, before anything draws.
     const probeList = this.applyVisibility(world, planned, views);
     if (views.length) this.probes.capture(views[0].camera, probeList); // before the frame graph runs
     const readiness = this.readiness;
@@ -605,7 +611,7 @@ export class BabylonRenderer {
   }
 
   /**
-   * ADR 0446 §3: this frame's views as the visibility stage sees them (a `ViewKey` from the camera's node and output
+   * ADR 0459 §3: this frame's views as the visibility stage sees them (a `ViewKey` from the camera's node and output
    * kind, its frustum and device-pixel height) and, while the World runs the stage, each one's selection, plus one per
    * probe capture. Features that choose drawables per view (`prepareViews`) then give each view its object list, the
    * shadow casters and the cascades' expander; without any, every view draws the scene's meshes as before. Returns

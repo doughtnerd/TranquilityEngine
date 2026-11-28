@@ -12,7 +12,7 @@ export const SKINNING_SPEC: RenderFeatureSpec = { name: "skinning", phase: "cont
 
 /** @internal */
 export function registerSkinning(context: RuntimePluginContext, _on: AnimationIntegrations): void {
-  // ADR 0446 §2: an LODGroup controls skinned meshes too, through the visibility stage's member types (a repeat is a no-op).
+  // ADR 0459 §2: an LODGroup controls skinned meshes too, through the visibility stage's member types (a repeat is a no-op).
   registerLodMemberType(SkinnedMeshRenderer);
   context.registerRenderFeature({ spec: SKINNING_SPEC, load: () => import("./renderFeature").then((m) => m.createSkinningFeature) });
 }

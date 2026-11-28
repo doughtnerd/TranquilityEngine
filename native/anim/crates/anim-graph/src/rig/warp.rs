@@ -3,6 +3,7 @@
 //! matching (Update phase: the input advances at the rate that matches the character's travel).
 //! Never allocates.
 
+use anim_format::frames::FrameClock;
 use anim_format::NONE;
 use anim_math::trig::sin_cos;
 use anim_math::{AosQuat, AosTransform, AosVec3};
@@ -37,13 +38,11 @@ fn root_frame(clip: &ClipRef<'_>, f: usize) -> Option<AosTransform> {
 
 /// The root at clip time `t` (frames lerped, rotations nlerped, clamped to the curve).
 fn root_at(clip: &ClipRef<'_>, t: f32) -> Option<AosTransform> {
-    let last = clip.frame_count.checked_sub(1)? as usize;
-    let x = (t * clip.sample_rate).clamp(0.0, last as f32);
-    let f0 = (x.floor() as usize).min(last);
-    let f1 = (f0 + 1).min(last);
-    let a = root_frame(clip, f0)?;
-    let b = root_frame(clip, f1)?;
-    let u = x - f0 as f32;
+    clip.frame_count.checked_sub(1)?;
+    let p = clip.frame_clock().pos(t);
+    let a = root_frame(clip, p.f0 as usize)?;
+    let b = root_frame(clip, p.f1 as usize)?;
+    let u = p.alpha;
     Some(AosTransform::new(
         a.translation.lerp(b.translation, u),
         a.rotation.nlerp(b.rotation, u),
@@ -199,10 +198,17 @@ pub(super) fn motion_root(cx: &mut EvalContext<'_>, node: &NodeData<'_>, input: 
             None => return,
         }
     }
-    let shift = first as f32 / rate;
+    let clock = clip.frame_clock();
+    let shift = clock.time(first as f32);
+    let n = (end - first + 1) as u32;
     let curve = RootCurve {
         samples: &samples[..end - first + 1],
-        sample_dt: 1.0 / rate,
+        // The slice ends on the clip's last frame only when `end` is it.
+        clock: if end < last {
+            FrameClock::uniform(rate, n)
+        } else {
+            FrameClock::new(clip.duration - shift, rate, n)
+        },
     };
     let mw = MotionWarp {
         t0: w0 - shift,
@@ -243,7 +249,7 @@ fn rate(cx: &mut EvalContext<'_>, node: &NodeData<'_>, input: u32, dt: f32) -> f
     }
     let curve = DistanceCurve {
         distance: clip.distance,
-        sample_dt: 1.0 / clip.sample_rate,
+        clock: clip.frame_clock(),
     };
     let p = node.word_or_none(PARAM);
     let v = if p != NONE { cx.param_f32(p) } else { 0.0 };

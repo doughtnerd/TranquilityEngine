@@ -1,5 +1,5 @@
 /**
- * Import-time hole trimming of occluder stand-ins (ADR 0447 §3) over the occlusion core's editor module
+ * Import-time hole trimming of occluder stand-ins (ADR 0460 §3) over the occlusion core's editor module
  * (`native/visibility/crates/vis-editor-wasm`, committed in `render/visibility/occlusion/wasm/editor/`). Loaded by LOD
  * generation (`generate.ts`) in the editor's worker and the export, never by games (they read the baked result).
  * Browsers and workers fetch `myco_visibility_editor_bg.wasm`, which Vite bundles as an asset beside this module; Node
@@ -7,7 +7,7 @@
  */
 import type * as EditorWasm from "../../render/visibility/occlusion/wasm/editor/myco_visibility_editor.js";
 
-/** ADR 0447 §3: stand-in triangles whose own error exceeds this fraction of LOD0's diagonal are dropped. */
+/** ADR 0460 §3: stand-in triangles whose own error exceeds this fraction of LOD0's diagonal are dropped. */
 const TRIM_FRACTION = 0.005;
 /** The sampling lattice's spacing, as a fraction of the diagonal (the spike's and the crate's default). */
 const SPACING_FRACTION = 0.005;

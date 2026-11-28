@@ -1,4 +1,4 @@
-// ADR 0446 §3: each view's object list is the scene's meshes no per-view feature owns, plus what each chose for the
+// ADR 0459 §3: each view's object list is the scene's meshes no per-view feature owns, plus what each chose for the
 // view; probe lists can leave meshes out (the editor's); cascade expanders combine.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { Plane } from "@babylonjs/core/Maths/math.plane.js";
@@ -10,7 +10,7 @@ import type { ViewDrawing } from "./feature";
 import { aabbInPlanes, type CascadeExpander } from "./shadowCulling";
 import { ViewObjectLists, cascadesOf } from "./viewObjects";
 
-describe("per-view object lists (ADR 0446 §3)", () => {
+describe("per-view object lists (ADR 0459 §3)", () => {
   let engine: NullEngine;
   let scene: Scene;
   beforeEach(() => {

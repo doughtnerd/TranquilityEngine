@@ -1,4 +1,4 @@
-// The visibility stage's World service (ADR 0446 §2–3) in a headless World: it starts with the first LODGroup, selects
+// The visibility stage's World service (ADR 0459 §2–3) in a headless World: it starts with the first LODGroup, selects
 // for the main camera after transforms each frame, and fills `LODGroup.currentLevel` and `visibility`, the per-slot
 // results the renderer reads, and the per-view statistics.
 import { afterEach, describe, expect, it } from "vitest";
@@ -212,7 +212,7 @@ describe("the visibility service", () => {
     expect(service.stats("nothing")).toBeNull();
   });
 
-  describe("crossfades (ADR 0446 §4)", () => {
+  describe("crossfades (ADR 0459 §4)", () => {
     afterEach(() => {
       Graphics.quality = Graphics.defaultQuality;
     });
@@ -358,7 +358,7 @@ const WITH_LEVELS = [
 ];
 registerLodMemberType(LevelsProbe);
 
-describe("occlusion in the visibility service (ADR 0447)", () => {
+describe("occlusion in the visibility service (ADR 0460)", () => {
   afterEach(() => {
     Graphics.quality = Graphics.defaultQuality;
   });

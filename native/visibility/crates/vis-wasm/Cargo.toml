@@ -1,6 +1,6 @@
 [package]
 name = "vis-wasm"
-description = "Myco occlusion core (ADR 0447): the runtime WebAssembly boundary (setup through wasm-bindgen, per-frame data through raw views over linear memory)."
+description = "Myco occlusion core (ADR 0460): the runtime WebAssembly boundary (setup through wasm-bindgen, per-frame data through raw views over linear memory)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

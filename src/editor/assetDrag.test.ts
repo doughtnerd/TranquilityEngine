@@ -6,7 +6,7 @@ import { insertNodes, whyNotInsert } from "./nodeInsertion";
 import { dropDescription } from "./assetDrag";
 import { hierarchyDrop } from "./hierarchyDrop";
 import { OrbitCamera } from "./OrbitCamera";
-import { instanceInnerNodes } from "./prefabs";
+import { instanceInnerNodes } from "./nodeKey";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
 import { openScene, sceneCamera } from "./state";

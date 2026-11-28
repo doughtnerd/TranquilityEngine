@@ -1,5 +1,5 @@
 /**
- * The engine-owned visibility stage's shapes (ADR 0446 §3, 0447 §2): what each view draws, decided renderer-neutrally
+ * The engine-owned visibility stage's shapes (ADR 0459 §3, 0460 §2): what each view draws, decided renderer-neutrally
  * and read by the Babylon mesh feature and the animation plugin's skinned feature. Not public API.
  *
  * Contract stub written by the coordinator before wave 1 (docs/plans/2026-11-lod-occlusion-plan.md, "Contracts");
@@ -36,7 +36,7 @@ export interface VisibilityView {
   readonly heightPx: number;
   /** Persistent views keep fade and hysteresis state; probes and thumbnails don't. */
   readonly persistent: boolean;
-  /** Whether occlusion runs for this view (ADR 0447 §4). */
+  /** Whether occlusion runs for this view (ADR 0460 §4). */
   readonly occlusion: boolean;
   /** Near and far distances. */
   readonly near: number;
@@ -46,14 +46,14 @@ export interface VisibilityView {
   readonly sy: number;
 }
 
-/** Why a group or renderer isn't drawn, or that it is (`LODGroup.visibility`, ADR 0446 §2). */
+/** Why a group or renderer isn't drawn, or that it is (`LODGroup.visibility`, ADR 0459 §2). */
 export type LodVisibility = "drawn" | "lodCulled" | "offScreen" | "occluded";
 
-/** A renderer's occlusion role (`MeshRenderer.occlusion`, ADR 0447 §3). */
+/** A renderer's occlusion role (`MeshRenderer.occlusion`, ADR 0460 §3). */
 export type OcclusionRole = "auto" | "occluder" | "occludee" | "none";
 
 /**
- * A component an `LODGroup` controls (ADR 0446 §2): `MeshRenderer` in core and `SkinnedMeshRenderer` in the animation
+ * A component an `LODGroup` controls (ADR 0459 §2): `MeshRenderer` in core and `SkinnedMeshRenderer` in the animation
  * plugin implement it, so core never imports a plugin.
  */
 export interface LodMember {
@@ -72,17 +72,17 @@ export interface VisibilityResult {
   /** Per renderer slot: the level to draw, or `LOD_CULLED`. */
   readonly levels: Uint8Array;
   /**
-   * Per renderer slot, for shadow casters (main view only, ADR 0446 §3): the level casters draw, or `LOD_CULLED` when
+   * Per renderer slot, for shadow casters (main view only, ADR 0459 §3): the level casters draw, or `LOD_CULLED` when
    * the renderer casts no shadow. LOD-culled groups cast at their coarsest level up to the tier's `shadowDistance`.
    */
   readonly casterLevels: Uint8Array;
   /** Per renderer slot: 1 when off-screen or occluded in this view (drawn otherwise, at `levels`). */
   readonly hidden: Uint8Array;
-  /** Per renderer slot, during a crossfade: the fade value (0 steady; see ADR 0446 §4 for the sign convention). */
+  /** Per renderer slot, during a crossfade: the fade value (0 steady; see ADR 0459 §4 for the sign convention). */
   readonly fade: Float32Array;
 }
 
-/** The per-view statistics the diagnostics report (ADR 0446 §3, 0447 §6). */
+/** The per-view statistics the diagnostics report (ADR 0459 §3, 0460 §6). */
 export interface VisibilityStats {
   readonly groups: number;
   readonly perLevel: readonly number[];
@@ -91,7 +91,7 @@ export interface VisibilityStats {
   readonly occlusion: { readonly occluders: number; readonly triangles: number; readonly tested: number; readonly culled: number; readonly ms: number } | null;
 }
 
-/** One view's camera data the occlusion core needs besides the view-projection (ADR 0447 §4). */
+/** One view's camera data the occlusion core needs besides the view-projection (ADR 0460 §4). */
 export interface OcclusionCamera {
   readonly near: number;
   readonly far: number;
@@ -102,14 +102,14 @@ export interface OcclusionCamera {
 }
 
 /**
- * The occlusion core's boundary over the wasm module (ADR 0447 §2); `occlusion/core.ts` implements it over
+ * The occlusion core's boundary over the wasm module (ADR 0460 §2); `occlusion/core.ts` implements it over
  * `native/visibility`'s `vis-wasm` exports (layout documented in `vis-wasm/src/lib.rs`). Perspective views only:
  * orthographic views stay unculled.
  */
 export interface OcclusionCore {
   /**
    * Rasterise this view's occluders and test its occludees. `occluders` holds world-space triangles (x, y, z per vertex,
-   * three vertices per triangle, in the engine's winding: `scene/winding.ts`, ADR 0450); `errors` holds each triangle's final world-space error
+   * three vertices per triangle, in the engine's winding: `scene/winding.ts`, ADR 0463); `errors` holds each triangle's final world-space error
    * (already doubled); `neighbors` 3 edge neighbours per triangle as indices into this frame's list (0xFFFFFFFF =
    * boundary; rebased when meshes are concatenated). `occludees` holds world AABBs (6 floats each). Writes 1 into
    * `hidden[i]` for each occludee the buffer proves hidden, and leaves other entries untouched.

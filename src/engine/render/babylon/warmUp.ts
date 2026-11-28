@@ -13,7 +13,7 @@
  * Besides MeshRenderers' meshes it draws what the renderer builds for other content (`WarmCustom`):
  * a particle effect's draws holding one particle each, a world-space UI canvas's plane. Built-in
  * materials are also drawn with the renderer's reflection-probe copies (`probeVariants`). While the tier crossfades
- * LOD changes, a mesh with levels is also drawn as a fade batch draws it (ADR 0446 §4), so a first transition doesn't
+ * LOD changes, a mesh with levels is also drawn as a fade batch draws it (ADR 0459 §4), so a first transition doesn't
  * wait for that variant; a tier change that switches crossfade on warms everything again (`pipelineTierKey`).
  */
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
@@ -126,7 +126,7 @@ export interface WarmDeps {
    * They're the renderer's own copies, kept: not disposed with the batch.
    */
   probeVariants?(base: PBRMaterial): PBRMaterial[];
-  /** Whether the World applies levels per view now (ADR 0446 §3): auto batches then draw thin (ADR 0448), and warm so. */
+  /** Whether the World applies levels per view now (ADR 0459 §3): auto batches then draw thin (ADR 0461), and warm so. */
   levelsApplied?(): boolean;
   /** With async pipeline compiles (WebGPU): resolves once the compiles started so far finish. Without, warm draws compile (and stall) as they go. */
   compiling?(): Promise<void>;
@@ -350,7 +350,7 @@ export class PipelineWarmer {
       const drawnOf = mats.slotMaterials(w, sources);
       // As the renderer: slot 0's material asset says how it batches.
       const mode = mats.instancing(w.materials?.[0] || w.material || null, this.deps.levelsApplied?.() ?? false);
-      // `fade`: drawn as a crossfade batch draws it (ADR 0446 §4): the fade plugin's variant, never a caster.
+      // `fade`: drawn as a crossfade batch draws it (ADR 0459 §4): the fade plugin's variant, never a caster.
       const place = (mesh: Mesh, material: BabylonMaterial, fogOf: BabylonMaterial, fade = false) => {
         if (fade) addLodFade(material);
         mesh.material = material;
@@ -414,7 +414,7 @@ export class PipelineWarmer {
         const drawn = drawnOf(src, plain);
         place(plain, drawn, drawn);
         // A mesh with levels may crossfade (an `LODGroup` with `fade: "crossfade"` is what the editor adds to it,
-        // ADR 0446 §2) while the tier allows it: its fade variants too, in every copy below (ADR 0446 §4).
+        // ADR 0459 §2) while the tier allows it: its fade variants too, in every copy below (ADR 0459 §4).
         const fades = Graphics.tier.lodCrossfade && mode !== "off" && (src.lods?.levels.length ?? 1) > 1;
         if (fades && canFade(drawn)) {
           const faded = meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}:fade`, src);

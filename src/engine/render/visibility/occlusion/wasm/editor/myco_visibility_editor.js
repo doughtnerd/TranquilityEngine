@@ -133,7 +133,7 @@ export function source_hash() {
 
 /**
  * Trims `standin` against `original`. Triangles whose error exceeds `trim_fraction` of the original's diagonal are
- * dropped (ADR 0447: 0.005); `spacing_fraction` is the sampling lattice's spacing (0.005).
+ * dropped (ADR 0460: 0.005); `spacing_fraction` is the sampling lattice's spacing (0.005).
  * @param {Float32Array | number[]} original_positions
  * @param {Uint32Array | number[]} original_indices
  * @param {Float32Array | number[]} standin_positions

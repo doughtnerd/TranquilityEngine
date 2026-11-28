@@ -1,5 +1,5 @@
 /**
- * Bounds for the visibility stage (ADR 0446 §3): each renderer's local AABB from its meshes, and its world AABB and
+ * Bounds for the visibility stage (ADR 0459 §3): each renderer's local AABB from its meshes, and its world AABB and
  * sphere, recomputed only when its world matrix changes (`matrixChanged`); an `LODGroup`'s bounds as the union of its
  * members', and its automatic size. Renderer-neutral, no backend imports. Not public API.
  *
@@ -138,7 +138,7 @@ export interface GroupBounds {
   readonly world: Aabb;
   /** World sphere around `world`: x, y, z, radius. */
   readonly sphere: Float32Array;
-  /** The automatic size (ADR 0446 §2): the diagonal of the members' combined local bounds × the node's largest world scale. */
+  /** The automatic size (ADR 0459 §2): the diagonal of the members' combined local bounds × the node's largest world scale. */
   size: number;
 }
 

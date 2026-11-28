@@ -1,4 +1,4 @@
-# LOD apply in Babylon: first-wave spike for ADR 0446 section 3
+# LOD apply in Babylon: first-wave spike for ADR 0459 section 3
 
 Raw Babylon 9.32.0 (module-by-module imports), WebGL2 on SwiftShader in headless Chromium (Playwright), a frame graph shaped like
 `src/engine/render/babylon/frameGraph.ts:590-660` (clear, then per view cull task, optional geometry task, object renderer task; views are
@@ -17,7 +17,7 @@ Run: `node spikes/lod-apply/run.mjs` (about 7 min, `RUNS=5`, fresh page per run,
 | `test3.ts` | result 3: per-view and per-cascade thin source meshes, fill and upload cost |
 | `harness2.ts`, `browser.mjs`, `build.mjs`, `run.mjs`, `dev.mjs`, `main.ts`, `index.html` | frame graph with geometry pass, runner, page |
 
-## Recommendation for 0446 section 3
+## Recommendation for 0459 section 3
 
 1. **Per-view object lists (a) stay the design; `customLODSelector` (b) is not worth it.** Both are correct, but (a) is 20-30x cheaper in the
    JS the engine owns (0.06 ms vs 1.6 ms per view at 10k, p50), involves no private field, and works the same for every pass. (b) needs the
@@ -70,7 +70,7 @@ lod-crossfade README), so the cull task tests 40k and the hook flips 30k twice p
    same view, so it saw all 40k drawables (draw log 40,000 instances per view; depth covered at 10,000 of 6,000 expected, 7999 mismatches).
    Installing the same hide/restore on the geometry renderer's observables fixes it (6000 / 6001, 0 mismatches) at double the toggle cost.
 1.5 **Winner: (a).** Blockers: none. Costs to plan for: the pool holds one drawable per level per group (40k `InstancedMesh` here:
-   0.65-1.0 s to create, see `createMs`; ADR 0446's pooling-per-level already covers this), and every drawable in a list must stay enabled
+   0.65-1.0 s to create, see `createMs`; ADR 0459's pooling-per-level already covers this), and every drawable in a list must stay enabled
    and visible globally. Not measured: Babylon's own cull-task cost at 10k vs 40k beyond what the `scene.render()` column shows.
 
 ## 2. Shared GPU vertex buffers across level meshes: PROVEN with `setVerticesBuffer`
@@ -87,7 +87,7 @@ of u32 indices in all; LOD0 alone is 240,000 B). Byte totals hook `gl.createBuff
 | skinned baseline | 24 | 2,611,456 | 312,000 | 2,923,456 | 3.27 |
 | skinned, shared `VertexBuffer` x5 | 9 | 652,864 | 312,000 | 964,864 | 1.08 |
 
-LOD0 = 566,432 B (3 kinds) or 892,864 B (skinned). The 0446 target (<= 1.3x LOD0 per model mesh) holds for both shared paths whatever the batch count.
+LOD0 = 566,432 B (3 kinds) or 892,864 B (skinned). The 0459 target (<= 1.3x LOD0 per model mesh) holds for both shared paths whatever the batch count.
 
 2.1 **Draws correctly: PROVEN.** Plain level meshes, `InstancedMesh` of each level mesh, and thin-instance sources on shared buffers each cover
    5024 / 5024 / 5024 / 4920 px (the same counts as baseline, pi * 40^2 = 5027), and the canvas hash is **identical** to the baseline's for

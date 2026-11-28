@@ -15,8 +15,10 @@
  *
  * ## Wire format
  *
- * One registered message kind per stream, `net.input:<id>(<field>:<type>,…)` (so the handshake
- * refuses a client whose input schemas differ), on the unreliable channel. The session header's
+ * One message kind per stream in the message catalogue (`catalogue.ts`), named
+ * `net.input:<id>(<field>:<type>[~<step>],…)` from the codec's signature (so the handshake refuses
+ * a client whose input schemas differ), on the unreliable channel. Redefining a stream with another
+ * schema, or the editor forgetting it, takes its old kind out of the handshake (ADR 0457). The session header's
  * tick is the newest input's tick, T. The body is a varuint count n, then the inputs for ticks
  * T-n+1 … T, oldest first: the first whole, each next delta-encoded against the one before it with
  * the stream's `recordCodec` (a changed bit per field, then the changed fields). Each packet is
@@ -67,7 +69,8 @@ import type { GameObject } from "../scene/GameObject";
 import { createBitReader, createBitWriter, recordCodec, type RecordCodec } from "./codec";
 import type { InputDef, InputOptions } from "./messages";
 import { Replicated } from "./Replicated";
-import { netSession, registerNetMessage, type NetPeer, type NetSession } from "./session";
+import { checkMessageId, defineMessage, forgetMessage, inputKindName } from "./catalogue";
+import { netSession, type NetPeer, type NetSession } from "./session";
 import { TickHistory } from "./tickHistory";
 
 /** Past inputs sent with each packet when `defineInput` isn't given `redundancy`. */
@@ -114,9 +117,10 @@ interface PeerState {
 interface Stream {
   readonly id: string;
   readonly kind: number;
+  /** Its kind's name in the message catalogue (`inputKindName`). */
+  readonly kindName: string;
   readonly codec: RecordCodec;
   readonly fields: readonly string[];
-  readonly coerce: (values: Values) => Values;
   readonly redundancy: number;
   /** Client Worlds' state, by local player. */
   readonly clients: WeakMap<World, Map<number, ClientState>>;
@@ -157,7 +161,7 @@ function connectionOf(session: NetSession, node: GameObject): NetPeer | null {
  * ```
  */
 export function defineInput<S extends Schema>(id: string, schema: S, options: InputOptions = {}): InputDef<S> {
-  if (typeof id !== "string" || id.trim() === "" || /[()]/.test(id)) throw new Error(`defineInput: the id must be a non-empty string without parentheses (got ${JSON.stringify(id)}).`);
+  checkMessageId("defineInput", id);
   if (streams.has(id) && !_isReplacingRegistrations()) throw new Error(`Input "${id}" is already defined.`);
   const redundancy = options.redundancy ?? DEFAULT_INPUT_REDUNDANCY;
   if (!(Number.isInteger(redundancy) && redundancy >= 0 && redundancy < MAX_PER_PACKET)) {
@@ -170,30 +174,24 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
   for (const f of Object.keys(encoding)) if (!(f in schema)) throw new Error(`defineInput("${id}"): encoding names "${f}", which isn't a field.`);
   const codec = recordCodec(schema, encoding as Partial<Record<keyof S, { quantize?: number }>>) as RecordCodec;
   const fields = codec.fields;
-  const kinds = fields.map((f) => schema[f].kind);
-  const steps = fields.map((f) => encoding[f]?.quantize ?? 0);
-  const descriptor = `net.input:${id}(${fields.map((f, i) => `${f}:${kinds[i]}${steps[i] ? `~${steps[i]}` : ""}`).join(",")})`;
-  /** A value as it travels: an f32, rounded to its quantize step. */
-  const wire = (i: number, v: number): number => (kinds[i] === "f32" ? Math.fround(steps[i] ? Math.round(v / steps[i]) * steps[i] : v) : kinds[i] === "i32" ? v | 0 : v & 0xff);
-  const coerce = (values: Values): Values => {
-    const out: Values = {};
-    for (let i = 0; i < fields.length; i++) out[fields[i]] = wire(i, values[fields[i]]);
-    return out;
-  };
+  const kindName = inputKindName(id, codec.signature);
+  const previous = streams.get(id);
   const stream: Stream = {
     id,
-    kind: registerNetMessage(descriptor),
+    kind: defineMessage(kindName),
+    kindName,
     codec,
     fields,
-    coerce,
     redundancy,
-    clients: streams.get(id)?.clients ?? new WeakMap(),
-    servers: streams.get(id)?.servers ?? new WeakMap(),
+    clients: previous?.clients ?? new WeakMap(),
+    servers: previous?.servers ?? new WeakMap(),
     writeSynthetic(world, values) {
       const state = clientState(world, "write", 0);
       for (const f of fields) if (typeof values[f] === "number") state.current[f] = values[f];
     },
   };
+  // A schema change makes a new kind; the old one leaves the handshake (connections open now keep its number).
+  if (previous && previous.kindName !== kindName) forgetMessage(previous.kindName);
   streams.set(id, stream);
 
   const clientState = (world: World, what: string, player: number): ClientState => {
@@ -237,7 +235,7 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
         const i = fields.indexOf(key);
         if (i < 0) throw new Error(`Input "${id}".write: there's no field "${key}" (fields: ${fields.join(", ")}).`);
         if (typeof v !== "number") throw new Error(`Input "${id}".write: field "${key}" must be a number (got ${typeof v}).`);
-        current[key] = steps[i] ? wire(i, v) : v;
+        current[key] = codec.quantizeAt(i) ? codec.coerceAt(i, v) : v;
       }
     },
     of(node, player = 0) {
@@ -257,7 +255,7 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
       // As the server will read it (f32, quantized, i32, u8), so prediction matches it.
       const replay = session.replayTick;
       if (replay !== null) return replayed(stream, state, replay) as Readonly<DataView<S>> | null;
-      return stream.coerce(state.current) as Readonly<DataView<S>>;
+      return stream.codec.coerce(state.current) as Readonly<DataView<S>>;
     },
     stats(node, player = 0) {
       const world = World.require();
@@ -304,15 +302,23 @@ export function _writeSyntheticInput(world: World, id: string, values: Readonly<
  * file changed (ADR 0433) redefines its networked set's stream.
  */
 export function _redefineInput<S extends Schema>(id: string, schema: S, options: InputOptions = {}): InputDef<S> {
-  if (!_isReplacingRegistrations()) {
-    streams.delete(id);
-    defs.delete(id);
-  }
-  return defineInput(id, schema, options);
+  if (_isReplacingRegistrations()) return defineInput(id, schema, options);
+  const previous = streams.get(id);
+  streams.delete(id);
+  defs.delete(id);
+  const def = defineInput(id, schema, options);
+  if (previous && previous.kindName !== streams.get(id)!.kindName) forgetMessage(previous.kindName);
+  return def;
 }
 
-/** @internal Editor: forget a stream a project script defined (the script was deleted, or another project opened). */
+/**
+ * @internal Editor: forget a stream a project script defined (the script was deleted, or another
+ * project opened). Its kind leaves the handshake (ADR 0457); connections open now keep its number.
+ */
 export function _undefineInput(id: string): void {
+  const stream = streams.get(id);
+  if (stream) forgetMessage(stream.kindName);
+  streams.delete(id);
   defs.delete(id);
 }
 
@@ -324,7 +330,7 @@ export function _undefineInput(id: string): void {
  * it; the tick being written gets the current input.
  */
 function replayed(stream: Stream, state: ClientState, tick: number): Readonly<Values> | null {
-  if (state.pending && tick === state.tick) return stream.coerce(state.current);
+  if (state.pending && tick === state.tick) return stream.codec.coerce(state.current);
   const history = state.history;
   for (let t = Math.min(tick, history.newest); t >= 0 && t >= history.oldest; t--) {
     const v = history.get(t);
@@ -338,7 +344,7 @@ function commit(stream: Stream, session: NetSession, state: ClientState, player:
   state.pending = false;
   const tick = state.tick;
   if (tick < 0) return;
-  const values = stream.coerce(state.current);
+  const values = stream.codec.coerce(state.current);
   const history = state.history;
   // serverTick can skip a tick when the estimate is corrected: those ticks get the previous input
   // (the newest sent), as the server repeats it for a tick with none; the last `redundancy` of them

@@ -1,5 +1,5 @@
 /**
- * The renderer component types an `LODGroup` controls (ADR 0446 §2). Core registers `MeshRenderer`; a plugin registers
+ * The renderer component types an `LODGroup` controls (ADR 0459 §2). Core registers `MeshRenderer`; a plugin registers
  * its own (the animation plugin's `SkinnedMeshRenderer`), so the visibility stage in core never imports a plugin
  * (ADR 0135, 0140). Not public API.
  */

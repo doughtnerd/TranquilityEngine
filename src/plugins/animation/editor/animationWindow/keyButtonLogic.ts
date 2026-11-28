@@ -9,10 +9,11 @@
 //
 // Pure; no DOM.
 import type { AnimSource } from "../../../../engine/animation/animSource";
+import { fieldPathValue } from "../../../../engine/animation/bindingPath";
 import type { Binding } from "../../../../engine/animation/tracks";
 import { accept, type EditResult } from "../../../../editor/sdk";
 import { keyField, keyState, unkeyField, type KeyState } from "./clipEditLogic";
-import { animatedPaths, subValue } from "./fieldTracksLogic";
+import { animatedPaths } from "./fieldTracksLogic";
 
 /** A field's key button: its state, or null where there is no button (the field can't be animated). */
 export function keyButtonState(clip: AnimSource, field: Binding, t: number): KeyState | null {
@@ -33,8 +34,7 @@ export function toggleKey(clip: AnimSource, field: Binding, value: unknown, t: n
     if (on) {
       if (keyState(result.next, b, t) === "key") result = unkeyField(result.next, b, t);
     } else {
-      const dot = p.indexOf(".");
-      result = keyField(result.next, b, dot < 0 ? value : subValue(value, p.slice(dot + 1)), t);
+      result = keyField(result.next, b, fieldPathValue(value, p), t);
     }
   }
   return { label: `${on ? "Remove" : "Add"} key: ${field.field}`, result: paths.length ? result : keyField(clip, field, value, t) };

@@ -1,4 +1,4 @@
-//! The 4-wide path against the scalar reference on the spike's workloads (ADR 0447 section 1: "SIMD and scalar outputs
+//! The 4-wide path against the scalar reference on the spike's workloads (ADR 0460 section 1: "SIMD and scalar outputs
 //! equal"): the same depth buffer bit for bit, the same visibility, at both tier resolutions, along a camera path.
 use vis_bench::Workload;
 use vis_raster::{Config, Occlusion};

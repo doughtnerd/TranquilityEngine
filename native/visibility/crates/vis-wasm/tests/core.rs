@@ -28,7 +28,7 @@ fn put_wall(core: &mut Core) {
         [10.0, 10.0, 10.0],
         [10.0, -10.0, 10.0],
     );
-    // the engine's winding (ADR 0450): front faces toward the camera at -z
+    // the engine's winding (ADR 0463): front faces toward the camera at -z
     let tris: Vec<f32> = [a, c, b, a, d, c].concat();
     core.triangles_mut()[..18].copy_from_slice(&tris);
     core.errors_mut()[..2].copy_from_slice(&[0.0, 0.0]);

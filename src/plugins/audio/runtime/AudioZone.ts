@@ -24,12 +24,13 @@ import type { BuiltinSystem } from "../../../engine/core/systems";
 import type { World } from "../../../engine/core/World";
 import { Camera } from "../../../engine/render/components";
 import { isPlaylistPath } from "../../../engine/audio/playlist/format";
+import { dbToGain } from "../../../engine/audio/decibels";
 import { AudioListener, listenerPose } from "./AudioListener";
 import { worldKeyOf, worldPlays } from "./AudioSource";
 import type { AudioVoice } from "./backend";
 import { clipRequest, clipVolume } from "./clipResolver";
 import { playSampleVoice } from "./sampleVoice";
-import { audioZoneEdgeSpread, UprightBox } from "./core/spatial";
+import { audioZoneEdgeSpread, DEFAULT_ROLLOFF_ATTENUATION, UprightBox } from "./core/spatial";
 import { warnOnce } from "./core/handle";
 import { playlists } from "./playlists/playlistSystem";
 import type { PlaylistInstance } from "./playlists/instance";
@@ -38,10 +39,9 @@ import type { PlaylistInstance } from "./playlists/instance";
 export const AUDIO_ZONE_HEARD = ["edge", "inside"] as const;
 export type AudioZoneHeard = (typeof AUDIO_ZONE_HEARD)[number];
 
-/** A sample a zone plays (it has no attenuation of its own): ADR 0162's default distances and law. */
-const SAMPLE_ATTENUATION = { minDistance: 1, maxDistance: 100, rolloff: "inverse" as const };
 
-const dbToGain = (db: number): number => (Number.isFinite(db) ? (db <= -60 ? 0 : Math.pow(10, Math.min(24, db) / 20)) : 1);
+/** The loudest a zone's `volume` plays, in dB. */
+const MAX_ZONE_DB = 24;
 
 @component("engine.AudioZone")
 export class AudioZone extends Component {
@@ -115,7 +115,7 @@ export class AudioZone extends Component {
     const d = box.nearest(l.x, l.y, l.z, this.near);
     const inside = d < 0.01;
     this.distanceNow = inside ? 0 : d;
-    let level = dbToGain(this.volume);
+    let level = Number.isFinite(this.volume) ? dbToGain(Math.min(MAX_ZONE_DB, this.volume)) : 1;
     let bed = false;
     if (this.heard === "edge" && !inside) {
       // Outside an edge zone: a source at the nearest point.
@@ -176,7 +176,7 @@ export class AudioZone extends Component {
       req.volume = 0; // silent until the first frame levels it
       req.world = worldKeyOf(this._world);
       req.owner = this.node.name;
-      req.attenuation = SAMPLE_ATTENUATION;
+      req.attenuation = DEFAULT_ROLLOFF_ATTENUATION; // a sample has no attenuation of its own
       req.position = at;
       // ADR 0342: the sample's trimmed start, normalisation gain and loop region (endless: a zone has no release).
       this.voice = playSampleVoice(path, req);

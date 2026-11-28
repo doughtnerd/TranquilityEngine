@@ -454,7 +454,7 @@ describe("culling and LOD", () => {
     destroyAll();
   });
 
-  describe('lodMetric "lodGroup" (ADR 0446 §6)', () => {
+  describe('lodMetric "lodGroup" (ADR 0459 §6)', () => {
     /** The poses `hero(lod)` shows for 12 frames, each next to the poses of a reference hero at the same frame. */
     async function sameAsReference(group: HeroOptions["group"], reference: HeroOptions): Promise<void> {
       const { node: a, anim: grouped } = await hero({ lodMetric: "lodGroup", group });

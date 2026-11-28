@@ -230,7 +230,7 @@ describe("material resolution (ADR 0127)", () => {
       expect(instancingFor("off", true)).toBe("off");
     });
 
-    it("draws auto batches thin while levels apply, except while the editor picks (ADR 0448)", () => {
+    it("draws auto batches thin while levels apply, except while the editor picks (ADR 0461)", () => {
       expect(instancingFor("auto", false, true)).toBe("thin");
       expect(instancingFor(undefined, false, true)).toBe("thin");
       expect(instancingFor("auto", true, true)).toBe("auto");

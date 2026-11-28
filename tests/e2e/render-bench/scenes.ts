@@ -1,4 +1,4 @@
-// The render benchmark's scenes (ADR 0446 and 0447's targets): a forest and a city, generated at test time as project files
+// The render benchmark's scenes (ADR 0459 and 0460's targets): a forest and a city, generated at test time as project files
 // for `openEditor(page, { files })`, never committed. Promoted from `spikes/render-bench/generate.mjs`: the same seeds, the
 // same procedural meshes (`geom.ts`, `meshes.ts`), the same placement, so the numbers stay comparable with the spike's.
 //
@@ -14,7 +14,7 @@ export type Instancing = "auto" | "thin";
 /**
  * One benchmark variant of a scene.
  *
- * `lod` (ADR 0446): each model gets a sidecar (`models/<name>.obj.meta.json`) with `lod` (the import panel's defaults; `permissive`
+ * `lod` (ADR 0459): each model gets a sidecar (`models/<name>.obj.meta.json`) with `lod` (the import panel's defaults; `permissive`
  * for buildings, whose boxes and window slabs have hard edges) and each tree, rock, building and prop an automatic `engine.LODGroup`
  * beside its `MeshRenderer`. The editor generates the levels when the model loads, so no simplified OBJs are written.
  * TODO(occlusion): and `occlusion: boolean`: the occluder setup the occlusion task defines (buildings and the ground as occluders).
@@ -157,7 +157,7 @@ function city(lod: boolean): Built {
   return { name: "City bench", meshes, nodes, camera: { pos: [0, 1.7, -470], yaw: 0, pitch: 0 }, groundScale: 100, groundMaterial: "asphalt" };
 }
 
-/** The sidecar `lod` the import panel's "Generate LODs" writes (ADR 0446 §1's defaults: three levels at 0.5 / 0.25 / 0.125). */
+/** The sidecar `lod` the import panel's "Generate LODs" writes (ADR 0459 §1's defaults: three levels at 0.5 / 0.25 / 0.125). */
 const LOD_DEFAULTS = {
   levels: [{ ratio: 0.5, error: 0.01 }, { ratio: 0.25, error: 0.02 }, { ratio: 0.125, error: 0.04 }],
   attributes: true,
@@ -189,7 +189,7 @@ function projectFiles(b: Built, variant: Variant): ProjectFiles {
     // The editor reads model files as bytes (`memoryFs.readBinary`), so they go in as UTF-8, not text.
     files[`models/${name}.mtl`] = utf8.encode(materials.map((m) => `newmtl ${m}\nKd ${kd(MATERIALS[m]!.color)}\n`).join("\n"));
     files[`models/${name}.obj`] = utf8.encode(toObj(name, parts, `${name}.mtl`));
-    // ADR 0446: the levels are generated when the editor loads the model; buildings are boxes with window slabs, so their edges may collapse.
+    // ADR 0459: the levels are generated when the editor loads the model; buildings are boxes with window slabs, so their edges may collapse.
     if (variant.lod) files[`models/${name}.obj.meta.json`] = JSON.stringify({ format: "myco.import@1", lod: { ...LOD_DEFAULTS, permissive: name.startsWith("bld") } });
   }
   files["scenes/main.scene.json"] = JSON.stringify({ format: "myco.scene@5", nodes: [...baseNodes(b.camera, b.groundScale, b.groundMaterial), ...b.nodes] });

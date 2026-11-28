@@ -5,8 +5,10 @@
 //! bits are read one at a time, and all arithmetic is f64. It follows the compressed-form contract
 //! that `anim-compress` documents (its crate docs, "The bitstream"):
 //!
-//! - **Time to frames:** `x = clamp(t · rate, 0, frames − 1)`, `f0 = floor(x)`,
-//!   `f1 = min(f0 + 1, frames − 1)`, `alpha = x − f0`.
+//! - **Time to frames:** frame `i` sits at `min(i / rate, duration)` (`anim_format::frames`), so
+//!   the last frame of a clip whose duration isn't a whole number of frames sits at the duration.
+//!   `f0 = floor(t · rate)`, `f1 = f0 + 1`, `alpha` the fraction of the way from `f0`'s time to
+//!   `f1`'s; frame 0 before 0, the last frame from its time on.
 //! - **Segment ranges:** a segment's range in value space is
 //!   `min = clip_min + (q_min / 255) · clip_extent`, `extent = (q_extent / 255) · clip_extent`.
 //! - **Samples:** bit rate 0 is the segment minimum; 3..=23 bits is
@@ -39,17 +41,37 @@ pub struct FramePos {
     pub alpha: f64,
 }
 
-/// The two frames around `t` (seconds) at `rate` Hz over `frames` samples.
-pub fn frame_pos(t: f64, rate: f64, frames: u32) -> FramePos {
-    let last = frames.saturating_sub(1) as f64;
-    let x = (t * rate).clamp(0.0, last);
-    let f0 = x.floor();
-    let f1 = (f0 + 1.0).min(last);
-    FramePos {
-        f0: f0 as u32,
-        f1: f1 as u32,
-        alpha: x - f0,
+/// The two frames around `t` (seconds) at `rate` Hz over `frames` samples of a clip of
+/// `duration` seconds (frame `i` at `min(i / rate, duration)`).
+pub fn frame_pos(t: f64, rate: f64, frames: u32, duration: f64) -> FramePos {
+    let last = frames.saturating_sub(1);
+    let time = |i: u32| (i as f64 / rate).min(duration);
+    let t = t.max(0.0);
+    if t >= time(last) {
+        return FramePos {
+            f0: last,
+            f1: last,
+            alpha: 0.0,
+        };
     }
+    let f0 = ((t * rate).floor() as u32).min(last.saturating_sub(1));
+    let f1 = f0 + 1;
+    let (t0, t1) = (time(f0), time(f1));
+    FramePos {
+        f0,
+        f1,
+        alpha: if t1 > t0 { (t - t0) / (t1 - t0) } else { 1.0 },
+    }
+}
+
+/// [`frame_pos`] for the clip `view`.
+pub fn clip_frame_pos(view: &ClipView<'_>, t: f64) -> FramePos {
+    frame_pos(
+        t,
+        view.sample_rate() as f64,
+        view.frame_count(),
+        view.duration() as f64,
+    )
 }
 
 /// The skeleton's rest pose.
@@ -152,7 +174,7 @@ pub fn raw_pose_at_frame(view: &ClipView<'_>, rest: &[Transform], frame: u32) ->
 
 /// The local pose at time `t` from the raw form.
 pub fn sample_raw_pose(view: &ClipView<'_>, rest: &[Transform], t: f64) -> Vec<Transform> {
-    let p = frame_pos(t, view.sample_rate() as f64, view.frame_count());
+    let p = clip_frame_pos(view, t);
     let a = raw_pose_at_frame(view, rest, p.f0);
     let b = raw_pose_at_frame(view, rest, p.f1);
     let slerp = slerp_flag(view);
@@ -165,7 +187,7 @@ pub fn sample_raw_pose(view: &ClipView<'_>, rest: &[Transform], t: f64) -> Vec<T
 /// A non-bone sampled track's value at time `t` from the raw form.
 pub fn sample_raw_track(view: &ClipView<'_>, track: usize, t: f64) -> Option<Vec<f64>> {
     let info = view.track(track)?;
-    let p = frame_pos(t, view.sample_rate() as f64, view.frame_count());
+    let p = clip_frame_pos(view, t);
     let a: Vec<f64> = raw_frame(view, track, p.f0)?
         .iter()
         .map(|&x| x as f64)
@@ -317,7 +339,7 @@ pub fn sample_compressed_pose(
     rest: &[Transform],
     t: f64,
 ) -> Option<Vec<Transform>> {
-    let p = frame_pos(t, view.sample_rate() as f64, view.frame_count());
+    let p = clip_frame_pos(view, t);
     let a = compressed_pose_at_frame(view, rest, p.f0)?;
     let b = compressed_pose_at_frame(view, rest, p.f1)?;
     let slerp = slerp_flag(view);
@@ -347,7 +369,7 @@ pub fn compressed_track_at_frame(
 /// A non-bone track's value at time `t` from the compressed form (`None` for a default channel).
 pub fn sample_compressed_track(view: &ClipView<'_>, track: usize, t: f64) -> Option<Vec<f64>> {
     let info = view.track(track)?;
-    let p = frame_pos(t, view.sample_rate() as f64, view.frame_count());
+    let p = clip_frame_pos(view, t);
     let a = compressed_track_at_frame(view, track, p.f0)?;
     let b = compressed_track_at_frame(view, track, p.f1)?;
     Some(blend_values(&a, &b, p.alpha, info.kind, info.subtype))

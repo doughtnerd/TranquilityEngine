@@ -23,6 +23,15 @@
  *   - axis x (flat-top): columns `(w + hexSide·w)/2` apart, flat sides horizontal, shifted columns h/2 lower.
  *   0 gives diamonds, 1 offset rectangles. Neighbours and the axial conversion use axial coordinates (`offsetToAxial`).
  *
+ * **Blocks and their shape (ADR 0444, 0448).** A block of cells is a rectangle in the grid's own cell coordinates. On
+ * staggered and hexagonal grids rows (stagger axis y) or columns (axis x) alternate between shifted and unshifted, so
+ * the same rectangle has another shape on screen when its bottom-left cell is in a row of the other kind. Such a block
+ * remembers its `BlockFrame` (the stagger axis and whether its bottom-left row or column is a shifted one), which fixes
+ * each cell's place relative to the block's origin in the grid's lattice coordinates (diamond coordinates on staggered
+ * grids, axial ones on hexagonal grids); placed elsewhere, cells move by a lattice translation (`moveCell`,
+ * `placeCell`). Square and isometric cells are their own lattice: blocks land cell for cell and have no frame. A block
+ * without a frame, or with one of the other stagger axis, lands cell for cell on every grid.
+ *
  * **Tiled.** Tiled's maps are y-down; the picture is the same, only the row numbers run the other way.
  * `tiledCellToCell` converts a Tiled cell to this module's cell for a map of a given size, keeping `staggerAxis`,
  * `staggerIndex` and `hexSide` as Tiled has them (`staggeraxis`, `staggerindex`, `hexsidelength / tilewidth|height`):
@@ -67,6 +76,19 @@ export interface DiamondSpace {
   toLocal(u: number, v: number): GridPoint;
 }
 
+/** Where a block of cells was laid out on a staggered or hexagonal grid (see the module header). */
+export interface BlockFrame {
+  /** The stagger axis of the grid it was laid out on. */
+  axis: StaggerAxis;
+  /** Whether the block's bottom-left row (axis y) or column (axis x) is a shifted one. */
+  shifted: boolean;
+}
+
+/** The frame of the block whose bottom-left is cell (c, r) of a block laid out in `frame`: rows (columns) alternate. */
+export function frameOfBlockCell(frame: BlockFrame, c: number, r: number): BlockFrame {
+  return { axis: frame.axis, shifted: frame.shifted !== (odd(frame.axis === "y" ? r : c) === 1) };
+}
+
 export interface TileGrid {
   readonly shape: GridShape;
   readonly params: Readonly<Required<GridParams>>;
@@ -88,6 +110,36 @@ export interface TileGrid {
   drawKey(x: number, y: number): number;
   /** Isometric and staggered grids only. */
   readonly diamond: DiamondSpace | null;
+  /**
+   * Whether cell (x, y) is exactly the box `x..x+1 × y..y+1` scaled by `cellSize` (square grids): shapes over the cells
+   * can be built in cell units and scaled afterwards, and the cells' edges form straight grid lines.
+   */
+  readonly cellUnits: boolean;
+  /** The cells sharing a side with a cell, in no promised order: 4 on square and diamond grids, 6 on hexagonal ones. */
+  sides(x: number, y: number): GridPoint[];
+  /**
+   * Whether the square's symmetries (a quarter turn, and mirroring a block's layout) take the grid's cells to cells, so
+   * a block of cells can be laid out flipped and turned. False on hexagonal grids: there only tiles' images flip.
+   */
+  readonly quarterTurn: boolean;
+  /** The frame of a block whose bottom-left cell is (x, y); null where every block lands cell for cell (square, isometric). */
+  frameAt(x: number, y: number): BlockFrame | null;
+  /**
+   * Where `cell` lands when cells move so that cell `from` lands on cell `to`, keeping their shape: a lattice
+   * translation on staggered and hexagonal grids, the plain offset elsewhere.
+   */
+  moveCell(from: GridPoint, to: GridPoint, cell: GridPoint): GridPoint;
+  /**
+   * The cell where cell (c, r) of a block laid out in `frame` lands when the block's bottom-left cell is placed on
+   * `corner`: by a lattice move when the frame is of this grid's stagger axis on a staggered or hexagonal grid, else
+   * cell for cell.
+   */
+  placeCell(frame: BlockFrame | null | undefined, corner: GridPoint, c: number, r: number): GridPoint;
+  /**
+   * Which cell of a `width × height` block laid out in `frame`, tiled from a placement on `corner`, falls on cell
+   * (x, y): the inverse of `placeCell`, wrapped into the block (a rectangle tiles the block's pattern over its cells).
+   */
+  blockCellAt(frame: BlockFrame | null | undefined, corner: GridPoint, x: number, y: number, width: number, height: number): { c: number; r: number };
 }
 
 /** N NE E SE S SW W NW in cell space (square and isometric grids; diamond space for staggered ones). */
@@ -106,6 +158,9 @@ const AXIAL_6: readonly GridPoint[] = [
 const odd = (n: number) => n & 1;
 /** A cell coordinate without a negative zero (Math.round and Math.ceil give -0), so cells compare equal. */
 const cell = (x: number, y: number): GridPoint => [x + 0, y + 0];
+
+/** N E S W in cell space: the sides of a square cell (and, in diamond space, of a diamond). */
+const SIDES_4: readonly GridPoint[] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 
 /** Whether row (or column) `n` is a shifted one. */
 function shifted(n: number, index: StaggerIndex): number {
@@ -205,6 +260,48 @@ function insideConvex(poly: readonly GridPoint[], px: number, py: number, eps: n
   return true;
 }
 
+/** A grid's cells in lattice coordinates and back (diamond or axial); null where cells are their own lattice. */
+interface Lattice {
+  to(x: number, y: number): GridPoint;
+  from(a: number, b: number): GridPoint;
+}
+
+/** The block questions of a grid (`frameAt`, `moveCell`, `placeCell`, `blockCellAt`) for its lattice. */
+function blockLayout(params: Required<GridParams>, lattice: Lattice | null): Pick<TileGrid, "frameAt" | "moveCell" | "placeCell" | "blockCellAt"> {
+  const { staggerAxis: axis, staggerIndex: index } = params;
+  const isShifted = (x: number, y: number): boolean => shifted(axis === "y" ? y : x, index) === 1;
+  const moveCell = (from: GridPoint, to: GridPoint, c: GridPoint): GridPoint => {
+    if (!lattice) return [c[0] + to[0] - from[0], c[1] + to[1] - from[1]];
+    const a = lattice.to(from[0], from[1]), b = lattice.to(to[0], to[1]), p = lattice.to(c[0], c[1]);
+    return lattice.from(p[0] + b[0] - a[0], p[1] + b[1] - a[1]);
+  };
+  /** A cell with the frame's kind of row or column, standing for where the block was laid out. */
+  const frameOrigin = (frame: BlockFrame): GridPoint => {
+    const n = frame.shifted === isShifted(0, 0) ? 0 : 1;
+    return frame.axis === "y" ? [0, n] : [n, 0];
+  };
+  const framed = (frame: BlockFrame | null | undefined): frame is BlockFrame => !!frame && !!lattice && frame.axis === axis;
+  return {
+    frameAt: (x, y) => (lattice ? { axis, shifted: isShifted(x, y) } : null),
+    moveCell,
+    placeCell(frame, corner, c, r) {
+      if (!framed(frame)) return [corner[0] + c, corner[1] + r];
+      const o = frameOrigin(frame);
+      return moveCell(o, corner, [o[0] + c, o[1] + r]);
+    },
+    blockCellAt(frame, corner, x, y, width, height) {
+      let c = x - corner[0], r = y - corner[1];
+      if (framed(frame)) {
+        const o = frameOrigin(frame);
+        const s = moveCell(corner, o, [x, y]);
+        c = s[0] - o[0];
+        r = s[1] - o[1];
+      }
+      return { c: ((c % width) + width) % width, r: ((r % height) + height) % height };
+    },
+  };
+}
+
 /** The grid for a shape and its parameters. */
 export function tileGrid(input: GridParams): TileGrid {
   const params = withDefaults(input);
@@ -226,6 +323,10 @@ function squareGrid(params: Required<GridParams>): TileGrid {
     params,
     neighbourCount: 8,
     diamond: null,
+    cellUnits: true,
+    quarterTurn: true,
+    ...blockLayout(params, null),
+    sides: (x, y) => SIDES_4.map(([dx, dy]) => [x + dx, y + dy]),
     cellToLocal: (x, y) => [(x + 0.5) * w, (y + 0.5) * h],
     localToCell: (px, py) => [Math.floor(px / w), Math.floor(py / h)],
     cellOutline: (x, y) => [[x * w, y * h], [(x + 1) * w, y * h], [(x + 1) * w, (y + 1) * h], [x * w, (y + 1) * h]],
@@ -253,6 +354,13 @@ function diamondGrid(params: Required<GridParams>): TileGrid {
     params,
     neighbourCount: 8,
     diamond: { toDiamond, fromDiamond, toLocal },
+    cellUnits: false,
+    quarterTurn: true,
+    ...blockLayout(params, staggered ? { to: toDiamond, from: fromDiamond } : null),
+    sides(x, y) {
+      const [u, v] = toDiamond(x, y);
+      return SIDES_4.map(([du, dv]) => fromDiamond(u + du, v + dv));
+    },
     cellToLocal: centre,
     localToCell(px, py) {
       const X = (px - ox) / w, Y = (py - oy) / h;
@@ -302,6 +410,10 @@ function hexGrid(params: Required<GridParams>): TileGrid {
     params,
     neighbourCount: 6,
     diamond: null,
+    cellUnits: false,
+    quarterTurn: false,
+    ...blockLayout(params, { to: (x, y) => offsetToAxial(x, y, axis, index), from: (q, r) => axialToOffset(q, r, axis, index) }),
+    sides: neighbours,
     cellToLocal: centre,
     localToCell(px, py) {
       // The nearest cell by the grid's rows and columns, then whichever of it and its neighbours holds the point

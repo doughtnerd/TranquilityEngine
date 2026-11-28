@@ -16,6 +16,7 @@ import { Assets, Camera, Engine, GameObject, SceneManager, Vector2 } from "../in
 import { ParticleSystem, SpriteRenderer } from "../render/components";
 import { BabylonSprites } from "../render/babylon/sprites";
 import { BabylonMaterials2D } from "../render/babylon/materials2D";
+import { BabylonQuadBatches } from "../render/babylon/quadBatches";
 import type { BabylonEditorContext, EditorDrawn } from "../render/babylon/editorContext";
 import { PICK_ORDER } from "../render/babylon/feature";
 import { BabylonEditorViewport } from "../render/babylon/editorViewport";
@@ -100,19 +101,19 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
   it("picks the sprite drawn on top in a y-sorted layer: the lower one (ADR 0440), from the sprite feature's places", () => {
     camera();
     const pickSprites = (ySortedLayers: string[]) => {
+      const materials2D = new BabylonMaterials2D({ scene, library: { texture: () => null } });
       const sprites = new BabylonSprites({
         scene,
         pixelsPerUnit: () => 100,
-        sortingLayers: () => ["Default"],
-        ySortedLayers: () => ySortedLayers,
+        quads: new BabylonQuadBatches({ scene, materials2D, texture: () => null, sortSettings: () => ({ sortingLayers: ["Default"], ySortedLayers }), unknownLayer: () => {} }),
         texture: () => null,
-        materials2D: new BabylonMaterials2D({ scene, library: { texture: () => null } }),
+        materials2D,
         drawPolicy: () => "perObject", // the editor's scene view: a quad per sprite
         warnOnce: () => {},
       });
       sprites.sync(world());
       drawn = [];
-      for (const d of sprites.drawn()) if (d.shape?.kind === "quad") drawn.push({ component: d.component, shape: d.shape, order: d.order });
+      for (const d of sprites.drawn()) if (d.shape?.kind === "quad" && d.order !== undefined) drawn.push({ component: d.component, shape: d.shape, order: d.order });
       const picked = queries.pick(400, 300);
       sprites.dispose();
       return picked;

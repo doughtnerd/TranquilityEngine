@@ -32,7 +32,7 @@ import { forEachChildWindow } from "./windows/editorWindows";
 
 // The core asset kinds (ADR 0143): every per-kind question is answered from the registered kinds.
 registerCoreAssetKinds();
-// Generated LOD levels (ADR 0446): the editor generates them in a worker; games only read baked levels.
+// Generated LOD levels (ADR 0459): the editor generates them in a worker; games only read baked levels.
 setLodHost({ generate: workerLodGenerator(), cache: projectLodCache() });
 
 const session = () => import("./session");

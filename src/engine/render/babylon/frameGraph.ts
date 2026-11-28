@@ -17,7 +17,7 @@
  * marked `overlay`, straight onto the canvas without post-processing, so a camera preview inset drawn
  * after it covers it.
  *
- * Each view culls its own object list (ADR 0446 §3: the levels and visibility chosen for it), by default every mesh.
+ * Each view culls its own object list (ADR 0459 §3: the levels and visibility chosen for it), by default every mesh.
  *
  * Each camera's tasks follow its pass plan (`render/passPlan.ts`, ADR 0274). The graph is rebuilt only
  * when its layout changes (cameras, their sizes and pass plan keys, shadow lights, MSAA); every value,
@@ -94,7 +94,7 @@ export interface CameraView {
    */
   backdrop?: Color4;
   /**
-   * ADR 0446 §3: the meshes this view draws (its cull task's object list, so its geometry pass and render pass draw the
+   * ADR 0459 §3: the meshes this view draws (its cull task's object list, so its geometry pass and render pass draw the
    * same set), or absent for every mesh in the scene.
    */
   objects?: readonly AbstractMesh[];
@@ -295,7 +295,7 @@ class FrameGraphLights2DTask extends FrameGraphTask {
 
 interface ViewTasks {
   render: FrameGraphObjectRendererTask;
-  /** The object list its cull task reads (ADR 0446 §3). */
+  /** The object list its cull task reads (ADR 0459 §3). */
   objects: FrameGraphObjectList;
   /** The camera's 2D light textures (ADR 0399), or null without the pass. */
   lights2D: ViewLights2D | null;
@@ -381,7 +381,7 @@ export class BabylonFrame {
   /** Called just before each camera draws its objects (the renderer fits the skybox to it), with its view when in a frame. */
   beforeView: ((camera: TargetCamera, view?: CameraView) => void) | null = null;
   /**
-   * ADR 0446 §3: casters that stand for many (thin batches' casters), compacted per shadow cascade, or null. Read
+   * ADR 0459 §3: casters that stand for many (thin batches' casters), compacted per shadow cascade, or null. Read
    * while the shadow maps draw.
    */
   cascades: CascadeExpander | null = null;
@@ -606,7 +606,7 @@ export class BabylonFrame {
 
     // Frustum culling: Babylon's frame graph object renderer draws every mesh in its list, so without
     // this every mesh in the scene was drawn (and readied) by every camera, on screen or not.
-    // ADR 0446 §3: each view culls its own object list (`CameraView.objects`, set each frame in `update`); by default
+    // ADR 0459 §3: each view culls its own object list (`CameraView.objects`, set each frame in `update`); by default
     // every mesh in the scene (the scene's own list, so new meshes join at once).
     const objects = new FrameGraphObjectList();
     objects.meshes = this.scene.meshes;

@@ -34,7 +34,8 @@ export interface BabylonParticleHost extends EffectHost {
   tierScale(): number;
   /**
    * Draw place for a sorting layer and order in layer (ADR 0014, 0415: 2D particles), as sprites have it, with the
-   * system's world height `y` for a y-sorted layer (ADR 0440, `drawPlace`). Optional: without it, 2D systems draw as 3D.
+   * system's world height `y` for a y-sorted layer (ADR 0440, `drawPlace`): the renderer's one place rule, which quad
+   * batches and sprites use too (`BabylonQuadBatches.place`, ADR 0450). Optional: without it, 2D systems draw as 3D.
    */
   sortOrder?(sortingLayer: string, orderInLayer: number, y: number): number;
   /** The 2D materials (ADR 0418): a 2D system's lighting. Optional: without them, 2D systems draw unlit. */

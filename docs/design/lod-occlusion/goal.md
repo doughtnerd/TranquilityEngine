@@ -1,6 +1,6 @@
 # Mesh LOD and occlusion culling: goal and constraints
 
-Written 2026-11-28 from the owner's brief; the record numbers come later (0445, 0446 proposed).
+Written 2026-11-28 from the owner's brief; the record numbers come later (0445, 0459 proposed).
 
 ## Goal (owner's words, condensed)
 

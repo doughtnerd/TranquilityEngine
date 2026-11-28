@@ -41,11 +41,11 @@
  *   },
  *   "animation": { "influences": 8, "clips": { "Take 001": [{ "name": "Walk", "to": 1.2, "loop": true }] } }
  *                                 // models: skins, bone map and clip settings (ADR 0371), `animation/import/clips.ts`
- *   "lod": {                      // models: generated LOD levels (ADR 0446 §1); absent or null = none
+ *   "lod": {                      // models: generated LOD levels (ADR 0459 §1); absent or null = none
  *     "levels": [{ "ratio": 0.5, "error": 0.01 }, { "ratio": 0.25, "error": 0.02 }],
  *     "attributes": true, "permissive": false, "lockBorders": false, "pixelError": 1
  *   },
- *   "occluder": "none"            // models: the occluder stand-in (ADR 0447 §3), "auto" (default) | "lod" | "none"
+ *   "occluder": "none"            // models: the occluder stand-in (ADR 0460 §3), "auto" (default) | "lod" | "none"
  * }
  * ```
  *
@@ -204,9 +204,9 @@ export interface ImportSettings {
    * each take, parsed by `animation/import/clips.ts`; null (absent) when every value is the default.
    */
   animation: ModelAnimationSettings | null;
-  /** Models (ADR 0446 §1): how LOD levels are generated; null (absent) for none. */
+  /** Models (ADR 0459 §1): how LOD levels are generated; null (absent) for none. */
   lod: LodSettings | null;
-  /** Models (ADR 0447 §3): the occluder stand-in, beside `lod`. */
+  /** Models (ADR 0460 §3): the occluder stand-in, beside `lod`. */
   occluder: OccluderSetting;
 }
 
@@ -509,7 +509,7 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
 }
 
 /**
- * The sidecar's `lod` (ADR 0446 §1). A missing or bad key takes its value from `DEFAULT_LOD_SETTINGS` (a bad one with a
+ * The sidecar's `lod` (ADR 0459 §1). A missing or bad key takes its value from `DEFAULT_LOD_SETTINGS` (a bad one with a
  * problem); a level outside 0 < ratio < 1, with a negative error, or not below the level before it is dropped. Null
  * for a value that isn't an object.
  */

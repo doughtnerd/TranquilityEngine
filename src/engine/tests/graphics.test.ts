@@ -187,7 +187,7 @@ describe("parseGraphics", () => {
   });
 });
 
-describe("LOD and occlusion tier fields (ADR 0446 §5, 0447 §5)", () => {
+describe("LOD and occlusion tier fields (ADR 0459 §5, 0460 §5)", () => {
   const visibility = (t: QualityTier) => [t.lodBias, t.lodFirstLevel, t.lodCrossfade, t.occlusionBuffer, t.occluderBudget, t.occlusionViews];
 
   it("has each default tier's values", () => {

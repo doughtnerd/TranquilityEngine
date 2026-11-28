@@ -49,7 +49,8 @@ project's generated `tsconfig.json` includes `plugins/**/*.ts` and maps `myco/ed
   "runtime": "runtime/index.ts",
   "editor": "editor/index.ts",
   "server": true,
-  "assetKinds": [{ "id": "spin", "extensions": [".spin.json"], "label": "Spin Preset", "icon": "M4 12a8 8 0 1 0 8-8" }]
+  "assetKinds": [{ "id": "spin", "extensions": [".spin.json"], "label": "Spin Preset", "icon": "M4 12a8 8 0 1 0 8-8" }],
+  "componentCategories": { "Rendering": ["acme.Spinner"] }
 }
 ```
 
@@ -63,6 +64,7 @@ project's generated `tsconfig.json` includes `plugins/**/*.ts` and maps `myco/ed
 | `dependencies` | no | Other plugins it needs, name → version range. Myco's plugins carry the engine's version, so `"*"` is usual for them. |
 | `server` | no | `false` for a plugin that only draws: the dedicated server leaves it out. Default `true`. |
 | `assetKinds` | no | File types the Assets panel recognises before any plugin code runs: `id`, `extensions` (lower case, with the dot), `label`, `icon` (an SVG path in a 24×24 box). |
+| `componentCategories` | no | Where the **Add Component** menu lists your Components: submenu label → Component type ids. Myco's labels (Rendering, Physics 2D, Physics 3D, Navigation, Audio, UI, Animation, Networking, Input) keep their place; a new label adds a submenu after them. Components left out are listed under Scripts. A bad entry is a warning, never a refusal. |
 
 Version ranges use npm's syntax: `1.2.3`, `^1.2.3`, `~1.2.3`, `>=1.2 <2`, `1.x`, `*`, `a || b`.
 

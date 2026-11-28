@@ -1,6 +1,6 @@
 [package]
 name = "vis-trim"
-description = "Myco occlusion core (ADR 0447 section 3): import-time hole trimming of occluder stand-ins (per-triangle error against the original by dense sampling) and the edge-neighbour table. Never in the runtime module."
+description = "Myco occlusion core (ADR 0460 section 3): import-time hole trimming of occluder stand-ins (per-triangle error against the original by dense sampling) and the edge-neighbour table. Never in the runtime module."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

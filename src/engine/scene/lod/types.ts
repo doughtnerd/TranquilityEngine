@@ -1,5 +1,5 @@
 /**
- * Generated LOD levels of a model mesh (ADR 0446): the renderer-neutral shapes the import pipeline produces, the
+ * Generated LOD levels of a model mesh (ADR 0459): the renderer-neutral shapes the import pipeline produces, the
  * `.mycomesh` baker stores and the visibility stage and the Babylon mesh feature read. Not public API.
  *
  * Contract stub written by the coordinator before wave 1 (docs/plans/2026-11-lod-occlusion-plan.md, "Contracts");
@@ -24,14 +24,14 @@ export interface ModelLodLevel {
   readonly triangles: number;
 }
 
-/** An occluder stand-in (ADR 0447 §3): positions are LOD0's; only indices are its own. */
+/** An occluder stand-in (ADR 0460 §3): positions are LOD0's; only indices are its own. */
 export interface OccluderStandIn {
-  /** The kept triangles after import-time hole trimming (ADR 0447 §3), into LOD0's positions. */
+  /** The kept triangles after import-time hole trimming (ADR 0460 §3), into LOD0's positions. */
   readonly indices: Uint32Array;
   /** Measured two-way sampled Hausdorff error of the whole stand-in against LOD0, as a fraction of the diagonal. */
   readonly error: number;
   /**
-   * Per kept triangle: its own measured error, as a fraction of the diagonal, before the runtime doubles it (ADR 0447
+   * Per kept triangle: its own measured error, as a fraction of the diagonal, before the runtime doubles it (ADR 0460
    * §3). Empty until trimming runs (`vis-trim`'s `trim_standin`).
    */
   readonly triangleErrors: Float32Array;
@@ -45,11 +45,11 @@ export interface ModelLods {
   readonly levels: readonly ModelLodLevel[];
   readonly occluder: OccluderStandIn | null;
   readonly bounds: Bounds6;
-  /** The sidecar's `pixelError`, which derives automatic transition heights (ADR 0446 §2). */
+  /** The sidecar's `pixelError`, which derives automatic transition heights (ADR 0459 §2). */
   readonly pixelError: number;
 }
 
-/** One level's generation settings in the sidecar (ADR 0446 §1). */
+/** One level's generation settings in the sidecar (ADR 0459 §1). */
 export interface LodLevelSettings {
   /** Triangle target relative to LOD0, 0 < ratio < 1. */
   readonly ratio: number;
@@ -70,10 +70,10 @@ export interface LodSettings {
   readonly pixelError: number;
 }
 
-/** The sidecar's `occluder` (ADR 0447 §3), beside `lod`. */
+/** The sidecar's `occluder` (ADR 0460 §3), beside `lod`. */
 export type OccluderSetting = "auto" | "lod" | "none";
 
-/** The default levels the import panel's "Generate LODs" switch fills in (ADR 0446 §1). */
+/** The default levels the import panel's "Generate LODs" switch fills in (ADR 0459 §1). */
 export const DEFAULT_LOD_SETTINGS: LodSettings = {
   levels: [
     { ratio: 0.5, error: 0.01 },

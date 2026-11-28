@@ -65,7 +65,7 @@ export interface CameraViews {
   readonly main: CameraView | null;
   /**
    * The level the visibility stage gives the `LODGroup` enclosing `rt`'s Animator for the main camera: -1 when it is
-   * culled by LOD, 0 with no group, no camera or no stage (ADR 0446 §6). The first call of a sub-step brings the
+   * culled by LOD, 0 with no group, no camera or no stage (ADR 0459 §6). The first call of a sub-step brings the
    * stage up to date, so it is this frame's selection, not last frame's (the stage's own run is after propagation,
    * which is after the animation gather).
    */
@@ -169,7 +169,7 @@ export function cameraViews(world: World): CameraViews {
 
 /**
  * @internal Whether any camera of `views` sees `rt`'s skeleton (true without cameras or bounds). With
- * `lodMetric: "lodGroup"`, an enclosing group culled by LOD counts as not seen (ADR 0446 §6).
+ * `lodMetric: "lodGroup"`, an enclosing group culled by LOD counts as not seen (ADR 0459 §6).
  */
 export function isVisible(views: CameraViews, rt: AnimatorRuntime): boolean {
   if (!views.all.length) return true;

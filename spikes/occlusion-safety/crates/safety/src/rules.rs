@@ -1,4 +1,4 @@
-//! The rule sets that are measured. `FULL b+c+d2x+e` is ADR 0447 §3 as written: depth pushed back by the error, coverage shrink
+//! The rule sets that are measured. `FULL b+c+d2x+e` is ADR 0460 §3 as written: depth pushed back by the error, coverage shrink
 //! max(0.25 px, projected error) on the stand-in's triangle edges, skip occluders within 2 x near of the camera, and the
 //! projected-width test. The rest isolate each rule and add candidate fixes.
 use crate::setup::{Near, Rule, Shrink, RULE_NONE};

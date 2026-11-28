@@ -8,9 +8,9 @@
 // or the instance itself for a top-level inner row) and the drop marks that parent. Moving scene nodes inside an
 // instance is refused: an override's nodes can't be referenced from outside it, so the move would break references
 // to them; copy and paste is the way. Nodes inside an instance are moved in the prefab.
-import { pathKey, type SceneDocument } from "./document";
+import type { SceneDocument } from "./document";
 import type { InsertPlace } from "./nodeInsertion";
-import { instanceInnerNodes, type InnerNode } from "./prefabs";
+import { innerAt, isInnerKey as isInner } from "./nodeKey";
 
 /** How a drop relates to the row it marks: into it, before or after it, or the scene's top level. */
 export type HierarchyDropMode = "into" | "before" | "after" | "root";
@@ -29,24 +29,6 @@ export interface HierarchyDrop {
 /** Why scene nodes can't be dropped inside a prefab instance. */
 export const NO_MOVE_INSIDE = "scene nodes can't move inside a prefab instance; copy and paste them there";
 
-const isInner = (key: string) => key.includes("/");
-
-/** The inner row `key`'s name and its parent row's key (its inner parent, or the instance for a top-level inner row), or null when it's gone. */
-function innerRow(doc: SceneDocument, key: string): { readonly name: string; readonly parent: string } | null {
-  const id = key.split("/")[0]!;
-  if (!doc.has(id)) return null;
-  const find = (level: readonly InnerNode[], parent: string): { name: string; parent: string } | null => {
-    for (const n of level) {
-      const k = pathKey(n.path);
-      if (k === key) return { name: n.name, parent };
-      const found = find(n.children, k);
-      if (found) return found;
-    }
-    return null;
-  };
-  return find(instanceInnerNodes(doc, id), id);
-}
-
 /**
  * The drop for a pointer over the row `rowKey` at `fraction` of its height (0 = top), or null when the row's node is
  * gone. A null row (empty space, the scene header) is the scene's top level.
@@ -55,7 +37,7 @@ export function hierarchyDrop(doc: SceneDocument, rowKey: string | null, fractio
   if (rowKey === null) return { mode: "root", row: null, insert: { kind: "into", key: null }, move: { parent: null } };
   const edge = fraction < 0.25 ? "before" : fraction > 0.75 ? "after" : null;
   if (isInner(rowKey)) {
-    const inner = innerRow(doc, rowKey);
+    const inner = innerAt(doc, rowKey);
     if (!inner) return null;
     const row = edge ? inner.parent : rowKey; // an override has no order: beside an inner row is into its parent
     return { mode: "into", row, insert: { kind: "into", key: row }, move: isInner(row) ? { reason: NO_MOVE_INSIDE } : { parent: row } };
@@ -80,6 +62,6 @@ export function hierarchyDropAt(sceneDoc: SceneDocument, clientX: number, client
 /** The name a drop's row shows: a scene node's name, an inner node's, or "the scene". */
 export function dropRowName(doc: SceneDocument | null, row: string | null): string {
   if (row === null || !doc) return "the scene";
-  if (isInner(row)) return innerRow(doc, row)?.name ?? row.split("/").pop()!;
+  if (isInner(row)) return innerAt(doc, row)?.node.name ?? row.split("/").pop()!;
   return doc.has(row) ? (doc.node(row).name ?? row) : "the scene";
 }

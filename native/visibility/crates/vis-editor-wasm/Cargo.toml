@@ -1,6 +1,6 @@
 [package]
 name = "vis-editor-wasm"
-description = "Myco occlusion core (ADR 0447): the editor and export module (import-time hole trimming of occluder stand-ins). Never loaded by games."
+description = "Myco occlusion core (ADR 0460): the editor and export module (import-time hole trimming of occluder stand-ins). Never loaded by games."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

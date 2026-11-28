@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SEPARATOR, edgeIndex, hasCheckColumn, stepIndex, tidyEntries, typeaheadIndex, type MenuEntry } from "./contextMenuModel";
 import { historyPopoverText } from "./historyPopoverModel";
 import { formatCombo, formatKeys, isSingleKey, matchesCombo, parseCombo, type KeyEventLike } from "./keyCombo";
-import { allFolders, folderTree, isCurrentFolder, parentFolder, searchFolders, whyNotMoveTo } from "./moveToModel";
+import { allFolders, folderTree, isCurrentFolder, searchFolders, whyNotMoveTo } from "./moveToModel";
 import { segmentForKey } from "./segmentedModel";
 import { numberBoxCommit, numberBoxStep, numberBoxText } from "./panelFieldsModel";
 import { shownShortcuts } from "./shortcutListModel";
@@ -136,8 +136,6 @@ describe("Move to…", () => {
     expect(root.name).toBe("Racer");
     expect(root.children.map((c) => c.path)).toEqual(["audio", "takes"]);
     expect(root.children[0].children.map((c) => c.name)).toEqual(["music", "sfx"]);
-    expect(parentFolder("audio/sfx/a.wav")).toBe("audio/sfx");
-    expect(parentFolder("a.wav")).toBe("");
   });
 
   it("disables the folder the items are in, and a moved folder with everything inside it", () => {

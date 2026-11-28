@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Connection, ConnectionState, Engine, GameObject, defineRpc, defineSystem, i32, u8, type BootstrapConfig, type LinkConfig } from "../index";
+import { Assets, Connection, ConnectionState, Engine, GameObject, defineInput, defineRpc, defineSystem, f32, i32, u8, type BootstrapConfig, type LinkConfig } from "../index";
 import { World } from "../core/World";
-import { createBitWriter } from "../net/codec";
-import { netSession, registerNetMessage } from "../net/session";
+import { unregisterScripts, withScriptRegistrations } from "../editor";
+import { createBitReader, createBitWriter } from "../net/codec";
+import { defineMessage, forgetMessage } from "../net/catalogue";
+import { netSession } from "../net/session";
 import { createTransport } from "../net/Transport";
 
 // ADR 0033, T10: connections, network ticks and RPCs, over the loopback transport on a fake clock
@@ -398,7 +400,7 @@ describe("RPCs (T10)", () => {
 });
 
 describe("the internal message API (T10, for T11 and T12)", () => {
-  const SNAP = registerNetMessage("test.session.snapshot");
+  const SNAP = defineMessage("test.session.snapshot");
 
   it("sends registered kinds as bytes or written bodies, tagged with the sender's tick, drained per kind", async () => {
     const engine = await create(clientServer({ latencyMs: 10 }));
@@ -494,5 +496,72 @@ describe("the wire header (T10)", () => {
     const close = raw.poll().find((e) => e.kind === "close");
     expect(close?.kind === "close" && close.reason).toMatch(/protocol error: malformed message header/);
     raw.close();
+  });
+});
+
+describe("the message catalogue (ADR 0457)", () => {
+  /** What a client World's hello lists, as another process's server reads it. */
+  async function helloLists(address: string): Promise<{ rpcs: string[]; kinds: string[] }> {
+    const raw = createTransport("loopback", { now });
+    await raw.listen(address);
+    const game = await create({ worlds: [{ name: "Client", tags: ["client"] }] });
+    game.findWorld("Client")!.connect(address, "loopback", { now });
+    step(game, 1);
+    const hello = raw.poll().find((e) => e.kind === "data");
+    raw.close();
+    if (hello?.kind !== "data") throw new Error("no hello");
+    const r = createBitReader(hello.data.subarray(2)); // after the header: kind 0, tick 0
+    r.readVarUint(); // version
+    r.readFloat32(); // tick rate
+    r.readString(); // World name
+    const strings = () => Array.from({ length: r.readVarUint() }, () => r.readString());
+    return { rpcs: strings(), kinds: strings() };
+  }
+
+  it("lists what's defined now in the hello, whatever scripts defined and the editor forgot before", async () => {
+    const before = await helloLists("test-catalogue-before");
+    // A project's scripts load, then reload: one script is deleted (its RPC and input go) and an
+    // input's schema changes. Another process that loaded only the new scripts lists what this one should.
+    const first = await withScriptRegistrations(async () => {
+      defineRpc("test.catalogue.Gone", { a: u8 });
+      defineInput("test.catalogue.GoneInput", { x: f32 });
+      defineInput("test.catalogue.Changed", { x: f32 });
+    });
+    expect(first.rpcs).toEqual(["test.catalogue.Gone"]);
+    const second = await withScriptRegistrations(async () => {
+      defineInput("test.catalogue.Changed", { x: f32, y: f32 });
+    });
+    const gone = (old: string[], now: string[]) => old.filter((id) => !now.includes(id));
+    unregisterScripts({ components: [], data: [], systems: [], inputs: gone(first.inputs, second.inputs), rpcs: gone(first.rpcs, second.rpcs) });
+
+    const after = await helloLists("test-catalogue-after");
+    expect(after.rpcs).toEqual(before.rpcs);
+    expect(after.kinds).toEqual([...before.kinds, "net.input:test.catalogue.Changed(x:f32,y:f32)"].sort());
+
+    unregisterScripts(second);
+    expect(await helloLists("test-catalogue-unloaded")).toEqual(before);
+  });
+
+  it("keeps a forgotten kind's number on connections already open; new connections leave it out", async () => {
+    const A = defineMessage("test.catalogue.a");
+    const B = defineMessage("test.catalogue.b");
+    const engine = await create(clientServer());
+    step(engine, 3);
+    const client = netSession(world(engine, "Client"))!;
+    const server = netSession(world(engine, "Server"))!;
+
+    forgetMessage("test.catalogue.a");
+    client.send(A, "server", "reliable", Uint8Array.from([1]));
+    client.send(B, "server", "reliable", Uint8Array.from([2]));
+    step(engine, 3);
+    expect(server.drain(A).map((m) => [...m.data])).toEqual([[1]]);
+    expect(server.drain(B).map((m) => [...m.data])).toEqual([[2]]);
+
+    const lists = await helloLists("test-catalogue-forgotten");
+    expect(lists.kinds).not.toContain("test.catalogue.a");
+    expect(lists.kinds).toContain("test.catalogue.b");
+    // Defined again, it has its old id back, and new handshakes list it again.
+    expect(defineMessage("test.catalogue.a")).toBe(A);
+    expect((await helloLists("test-catalogue-again")).kinds).toContain("test.catalogue.a");
   });
 });

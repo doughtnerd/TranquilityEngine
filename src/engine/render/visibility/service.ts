@@ -1,5 +1,5 @@
 /**
- * The visibility stage's World service (ADR 0446 §3, 0135): once per frame, after transform propagation, it finds each
+ * The visibility stage's World service (ADR 0459 §3, 0135): once per frame, after transform propagation, it finds each
  * `LODGroup`'s members, brings bounds up to date and runs selection for the main camera (the enabled `Camera` with the
  * lowest depth, as `Camera.main` and the animation core's views). That result feeds `LODGroup.currentLevel` and
  * `visibility` with no renderer, so a headless or server World behaves the same. The renderer reads it for its main
@@ -8,9 +8,9 @@
  * **Slots.** Every enabled member (a `MeshRenderer`, or a plugin's registered member type) has a renderer slot, stable
  * while it stays enabled; `slotOf` gives it, and each `VisibilityResult`'s arrays are indexed by it. A member outside
  * any group draws LOD0 and is hidden only when off-screen. A member's level byte is its group's level: each of its
- * meshes draws min(level, its last level) (ADR 0446 §2).
+ * meshes draws min(level, its last level) (ADR 0459 §2).
  *
- * **Crossfades (ADR 0446 §4).** Persistent views fade a group with `fade: "crossfade"` between levels over its
+ * **Crossfades (ADR 0459 §4).** Persistent views fade a group with `fade: "crossfade"` between levels over its
  * `fadeDuration`, on the World's real time (a 60th of a second per gather where it stands still, as in an edit-mode
  * World). During a fade a result's `levels` holds the incoming level and `fade` its value (`fadeIn`), and `fadeLevels`
  * gives the outgoing one, which draws with `outgoingOf(fade)`.
@@ -51,7 +51,7 @@ interface MemberEntry {
   /** That node's `tVersion` and the meshes its bounds were last brought up to date for (-1, undefined: never). */
   tv: number;
   meshes: readonly ModelMesh[] | null | undefined;
-  /** Its occluder triangles in world space (ADR 0447), for the `tVersion` and meshes they were made at. */
+  /** Its occluder triangles in world space (ADR 0460), for the `tVersion` and meshes they were made at. */
   occluder: { tv: number; meshes: readonly ModelMesh[]; world: WorldOccluder } | null;
 }
 
@@ -81,7 +81,7 @@ interface ViewEntry {
   stats: VisibilityStats;
   /** The gather generation it was last selected with. */
   generation: number;
-  /** Occlusion's back-off (ADR 0447 §4): frames in a row that culled under 10 %, and frames left paused. */
+  /** Occlusion's back-off (ADR 0460 §4): frames in a row that culled under 10 %, and frames left paused. */
   lowFrames: number;
   pausedFrames: number;
 }
@@ -126,7 +126,7 @@ export class VisibilityService {
   private generation = 0;
   private mainEntry: ViewEntry | null = null;
   private readonly removeHook: () => void;
-  /** The occlusion core once loaded (ADR 0447 §2): loading starts the first time a view asks for it. */
+  /** The occlusion core once loaded (ADR 0460 §2): loading starts the first time a view asks for it. */
   private occlusionCore: WasmOcclusionCore | null = null;
   private occlusionLoad: Promise<unknown> | null = null;
   /** Views occlusion ran for in the gather generation `occlusionGeneration` (the tier's `occlusionViews`). */
@@ -134,7 +134,7 @@ export class VisibilityService {
   private occlusionGeneration = -1;
   /** Scratch for one view's occluders and occludees, grown as needed. */
   private occ = { triangles: new Float32Array(0), errors: new Float32Array(0), neighbors: new Uint32Array(0), boxes: new Float32Array(0), hidden: new Uint8Array(0), groups: [] as number[] };
-  /** The editor's level preview (ADR 0446 §7): applied to scene views only. */
+  /** The editor's level preview (ADR 0459 §7): applied to scene views only. */
   private lodPreview: { group: LODGroup; level: number } | null = null;
 
   constructor(
@@ -228,7 +228,7 @@ export class VisibilityService {
   }
 
   /**
-   * Preview `level` (-1: culled) of `group` in the editor's scene view (ADR 0446 §7), or null to stop. Only views of
+   * Preview `level` (-1: culled) of `group` in the editor's scene view (ADR 0459 §7), or null to stop. Only views of
    * kind `"sceneView"` honour it: game views, the simulation's main view and `currentLevel` are unchanged.
    */
   setLodPreview(group: LODGroup | null, level = 0): void {
@@ -548,7 +548,7 @@ export class VisibilityService {
     return v;
   }
 
-  // --- occlusion (ADR 0447) ----------------------------------------------------------------------------------
+  // --- occlusion (ADR 0460) ----------------------------------------------------------------------------------
 
   /**
    * Occlusion for one view after selection: marks groups the buffer proves hidden with 2 in `groupOut.hidden` (1 is
@@ -696,7 +696,7 @@ export class VisibilityService {
   }
 }
 
-/** Frames of low culling before occlusion pauses, and frames it pauses for (ADR 0447 §4). */
+/** Frames of low culling before occlusion pauses, and frames it pauses for (ADR 0460 §4). */
 const BACKOFF_FRAMES = 60;
 
 /** The World's main camera: the enabled `Camera` with the lowest depth (the first such, as `Camera.main`). */

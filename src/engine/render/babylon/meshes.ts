@@ -3,17 +3,17 @@
  * World's MeshRenderers into Babylon meshes, batched for GPU instancing. It takes what it shares with
  * the renderer (the material library, the probe lookup, the reflection counter) as `BabylonMeshHost`.
  *
- * **Levels per view (ADR 0446 §3).** While the World runs the visibility stage (it has an `LODGroup`), the renderer
+ * **Levels per view (ADR 0459 §3).** While the World runs the visibility stage (it has an `LODGroup`), the renderer
  * calls `prepareViews` each frame with every view's visibility result, and each view draws exactly the drawables
  * chosen for it: per renderer mesh, the drawable of the level its result gives (none when hidden or LOD-culled),
  * acquired on first use. A level's derived `ModelMesh` is its batch key, so batches split per level; thin batches
- * draw through per-pass sources (`meshBatches.ts`), and so do auto batches outside the editor's picking (ADR 0448:
+ * draw through per-pass sources (`meshBatches.ts`), and so do auto batches outside the editor's picking (ADR 0461:
  * no Babylon object per renderer). The pooling of per-renderer instances below serves the editor. Shadow casters follow the main view's `casterLevels`. A drawable
  * is kept while a view drew it (or, off-screen, would draw it) in the last `POOL_FRAMES` frames, and batches left
  * empty a few seconds more, so a moving camera doesn't make and dispose Babylon meshes on every switch. Without the visibility stage (or before
  * its first frame, or in a thumbnail, which only syncs) every renderer draws LOD0 as it always did.
  *
- * **Crossfades (ADR 0446 §4).** While a view's result fades a renderer (its `fade` value isn't 0), the view draws both
+ * **Crossfades (ADR 0459 §4).** While a view's result fades a renderer (its `fade` value isn't 0), the view draws both
  * levels in fade batches (`DrawKey.fade`): the incoming level with the result's value, the outgoing one with its
  * complement. Fade drawables are kept per view, as each instance carries that view's value, and pooled like levels.
  * A renderer whose material can't fade (or that draws `off`) shows whichever level shows more instead. Renderers in a
@@ -55,7 +55,7 @@ export interface BabylonMeshHost {
   reflected?(): void;
 }
 
-/** Seconds a level's drawable is kept after the last view drew it (ADR 0446 §3). */
+/** Seconds a level's drawable is kept after the last view drew it (ADR 0459 §3). */
 /**
  * Frames a drawable no view drew is kept before it's given back (to its batch, which hands the instance to the next
  * renderer switching into it, `FREE_FRAMES`). Counted in frames, not seconds: a disabled Babylon instance still costs
@@ -82,9 +82,9 @@ interface MeshEntry {
   meshes: AbstractMesh[];
   /** The drawables `meshes` and the materials report come from. */
   shown: Drawable[];
-  /** Per model mesh, its drawables by level (ADR 0108, 0446). */
+  /** Per model mesh, its drawables by level (ADR 0108, 0459). */
   levels: (LevelDrawable | undefined)[][];
-  /** Per view key, per model mesh, its fade drawables by level (ADR 0446 §4). */
+  /** Per view key, per model mesh, its fade drawables by level (ADR 0459 §4). */
   fades: Map<string, (LevelDrawable | undefined)[][]>;
   /** The fade batches it reserved (every level of every model mesh), while its group crossfades. */
   reserved: DrawKey[];
@@ -109,13 +109,13 @@ function drawnMaterial(m: BabylonMaterial): DrawnMaterial {
   return { unlit: !!(lit.unlit ?? lit.disableLighting), clearcoat: 0, transmission: 0 };
 }
 
-/** The level a model mesh draws for a group level: min(level, its last), 0 without levels (ADR 0446 §2). */
+/** The level a model mesh draws for a group level: min(level, its last), 0 without levels (ADR 0459 §2). */
 function meshLevel(src: ModelMesh, level: number): number {
   const n = src.lods?.levels.length ?? 1;
   return level < n ? level : n - 1;
 }
 
-/** Whether a renderer mesh's batch can crossfade: an instanced batch (auto or thin) of a material the fade plugin takes (ADR 0446 §4). */
+/** Whether a renderer mesh's batch can crossfade: an instanced batch (auto or thin) of a material the fade plugin takes (ADR 0459 §4). */
 function fadeable(key: DrawKey | undefined): boolean {
   return !!key && key.mode !== "off" && canFade(key.material);
 }
@@ -126,7 +126,7 @@ function* allDrawables(e: MeshEntry): Iterable<LevelDrawable> {
   for (const perView of e.fades.values()) for (const part of perView) for (const ld of part ?? []) if (ld) yield ld;
 }
 
-/** @internal Draws every MeshRenderer, batched for GPU instancing (ADR 0108), with levels chosen per view (ADR 0446). */
+/** @internal Draws every MeshRenderer, batched for GPU instancing (ADR 0108), with levels chosen per view (ADR 0459). */
 export class BabylonMeshes implements BabylonFeature {
   private readonly meshRenderers = new Map<MeshRenderer, MeshEntry>();
   /** MeshRenderer meshes batched for GPU instancing (ADR 0108). */
@@ -182,7 +182,7 @@ export class BabylonMeshes implements BabylonFeature {
   }
 
   /**
-   * ADR 0446 §3: each view's drawables from its visibility result, the casters from `casters`' `casterLevels`. Null
+   * ADR 0459 §3: each view's drawables from its visibility result, the casters from `casters`' `casterLevels`. Null
    * (every view lists the scene's meshes, LOD0 as always) when the World runs no visibility stage.
    */
   prepareViews(views: readonly FeatureView[], casters: VisibilityResult | null): ViewDrawing | null {
@@ -204,7 +204,7 @@ export class BabylonMeshes implements BabylonFeature {
       return ld.d;
     };
     const use = (r: MeshRenderer, e: MeshEntry, i: number, level: number): Drawable => touch(this.levelDrawable(r, e, i, meshLevel(e.sources![i], level)));
-    // Each view's outgoing levels during fades (ADR 0446 §4).
+    // Each view's outgoing levels during fades (ADR 0459 §4).
     const fadeFrom = views.map((v) => (v.result ? service.fadeLevels(v.result) : null));
     for (const [r, e] of this.meshRenderers) {
       e.shown.length = 0;
@@ -318,7 +318,7 @@ export class BabylonMeshes implements BabylonFeature {
 
   /**
    * ADR 0276: appends the meshes that cast shadows: enabled renderers' with castShadows, and thin batches' sources;
-   * with levels per view, the casters `prepareViews` chose (ADR 0446 §3).
+   * with levels per view, the casters `prepareViews` chose (ADR 0459 §3).
    */
   casters(out: AbstractMesh[]): void {
     if (this.perView) {
@@ -335,7 +335,7 @@ export class BabylonMeshes implements BabylonFeature {
     return true;
   }
 
-  /** ADR 0154, 0446 §3: the main view's level statistics while levels are applied per view, else nothing. */
+  /** ADR 0154, 0459 §3: the main view's level statistics while levels are applied per view, else nothing. */
   diagnostics(): unknown {
     const s = this.stats;
     if (!s) return undefined;
@@ -580,7 +580,7 @@ export class BabylonMeshes implements BabylonFeature {
 
   /**
    * How a renderer's meshes batch (ADR 0108): its slot 0 material asset's `instancing`; auto draws thin while levels
-   * are applied per view, outside the editor's picking (ADR 0448).
+   * are applied per view, outside the editor's picking (ADR 0461).
    */
   private instancingFor(r: MeshRenderer): MaterialInstancing {
     return this.host.materials.instancing(r.materials[0] || r.material, this.perView);

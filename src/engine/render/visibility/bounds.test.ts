@@ -1,4 +1,4 @@
-// Visibility bounds (ADR 0446 §3): local bounds from meshes, world bounds recomputed only when the matrix (or the meshes)
+// Visibility bounds (ADR 0459 §3): local bounds from meshes, world bounds recomputed only when the matrix (or the meshes)
 // change, and group bounds and automatic size.
 import { describe, expect, it } from "vitest";
 import { Mat4 } from "../../core/math";

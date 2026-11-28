@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `npm run build:visibility` (ADR 0447): compiles native/visibility to WebAssembly with simd128 and writes the runtime
+// `npm run build:visibility` (ADR 0460): compiles native/visibility to WebAssembly with simd128 and writes the runtime
 // module, its wasm-bindgen glue (setup calls only) and hash.json to src/engine/render/visibility/occlusion/wasm/, which is
 // committed, so the engine builds without Rust. Then builds the editor and export module (vis-editor-wasm: import-time
 // hole trimming of occluder stand-ins, never shipped in games) the same way into wasm/editor/, with its own hash.json and
@@ -18,7 +18,7 @@ const TARGET = "wasm32-unknown-unknown";
 const OUT_NAME = "myco_visibility";
 const EDITOR_OUT_NAME = "myco_visibility_editor";
 /**
- * The runtime wasm's size tripwire (ADR 0447): a guard against accidental growth, not a design limit (CLAUDE.md). Set
+ * The runtime wasm's size tripwire (ADR 0460): a guard against accidental growth, not a design limit (CLAUDE.md). Set
  * from the first full build plus 20%, rounded up to the KB: T3 (2026-11-28) built 41,806 bytes (18.3 KB gzipped: the rasteriser
  * with its scalar reference, setup and clipping, the occludee test, the conservativeness rules, the boundary), + 20% =
  * 50,167 B -> 49 KB. Raise it with a line in docs/design/lod-occlusion/build-log.md saying why;

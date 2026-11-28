@@ -1,4 +1,4 @@
-// Visibility views (ADR 0446 §3): frustum planes and the view-projection matrix agree on what's inside, for perspective
+// Visibility views (ADR 0459 §3): frustum planes and the view-projection matrix agree on what's inside, for perspective
 // and orthographic views in any orientation.
 import { describe, expect, it } from "vitest";
 import { Quaternion, Vector3 } from "../../core/math";

@@ -1,5 +1,5 @@
 // Generates the gate's projects into ./generated/<scene>-auto-lod/ (deterministic; no network): the render-bench spike's
-// forest and city (same seeds, meshes, placement, camera poses), `auto` instancing, with the ENGINE's LOD (ADR 0446):
+// forest and city (same seeds, meshes, placement, camera poses), `auto` instancing, with the ENGINE's LOD (ADR 0459):
 // every model has a sidecar `models/<name>.obj.meta.json` with `lod` (the import panel's defaults, `permissive` for
 // buildings: as tests/e2e/render-bench/scenes.ts) and every tree, rock, building and prop an automatic `engine.LODGroup`
 // beside its MeshRenderer. No simplified OBJs are written: the levels are generated when the models load (bench.ts).

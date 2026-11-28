@@ -40,7 +40,7 @@ function bounds(g: NavGeometry, kind?: "navMesh" | "obstacle") {
   return { min, max };
 }
 
-/** Sum of each triangle's front normal in the engine's winding (`frontNormal`, ADR 0450): points along the walkable side. */
+/** Sum of each triangle's front normal in the engine's winding (`frontNormal`, ADR 0463): points along the walkable side. */
 function normalSum(m: NavGeometry["meshes"][number]): number[] {
   const out = [0, 0, 0];
   const p = m.positions;
@@ -76,7 +76,7 @@ describe("collectNavGeometry", () => {
     expect(findNavChunks(scene).map((n) => n.id)).toEqual(["nav"]);
   });
 
-  // ADR 0450: the bake input keeps the engine's winding, rewound only under a mirroring transform, so surfaces facing up
+  // ADR 0463: the bake input keeps the engine's winding, rewound only under a mirroring transform, so surfaces facing up
   // stay walkable whatever the source.
   /** Sum of front normals over the triangles whose vertices all sit at height `y`. */
   const facesAt = (m: NavGeometry["meshes"][number], y: number): number[] => {

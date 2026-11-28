@@ -1,7 +1,7 @@
-# Occlusion gate: does occlusion still pay with the engine's LOD on? (ADR 0447 section 0)
+# Occlusion gate: does occlusion still pay with the engine's LOD on? (ADR 0460 section 0)
 
 A measurement spike, not engine code. It adapts `spikes/render-bench/` (same generated forest and city, same seeds, camera poses, WebGL
-draw hook, object-ID occlusion oracle) and replaces its LOD oracle with the **engine's real LOD** (ADR 0446). Nothing outside
+draw hook, object-ID occlusion oracle) and replaces its LOD oracle with the **engine's real LOD** (ADR 0459). Nothing outside
 `spikes/occlusion-gate/` was touched.
 
 **All numbers below are SMOKE-LEVEL**: 3 runs x 30 frames (static) / 40 frames (fly) on a loaded shared 4-core machine (load average 6.3-7.2),
@@ -39,7 +39,7 @@ SwiftShader. The coordinator's idle re-run (`node spikes/occlusion-gate/run.mjs`
   bracketing pose (exact, zero latency, costs nothing to decide).
 * **Casters kept, method (config `lod+keep`):** the engine's own per-view mechanism, not a hack on Babylon. After the visibility service selects the main
   view, a `world._afterPropagation` hook (registered after the service's own, so it runs after it) writes `hidden[slot] = 1` into the **main view's
-  `VisibilityResult`** for each occluded renderer. That is the slot ADR 0447 section 4's occlusion stage writes (`LodVisibility "occluded"`). In
+  `VisibilityResult`** for each occluded renderer. That is the slot ADR 0460 section 4's occlusion stage writes (`LodVisibility "occluded"`). In
   `babylon/meshes.ts` `prepareViews` the renderer skips a hidden slot for that view only, and shadow casters come from the main result's
   `casterLevels` ("hidden ones still cast"), which the hook does not touch; shadow-cascade views are separate results. (A `layerMask` approach was not
   needed.) The hook's own time (`hookMs`, microseconds: below the timer's 0.1 ms resolution) is subtracted from the reported JS CPU anyway.
@@ -94,11 +94,11 @@ p99 improvement is established**; the tails are dominated by other spikes on the
   triangles, about half of the remaining frame).
 * **GPU triangle route not measured [U]:** no GPU, no Android floor here. The exact counts above are its input; SwiftShader raster time was not run.
 * The casters-kept saving is about **a third (forest) to a quarter (city static) of the casters-removed one** (LOD+remove: forest 63 / 114 ms, city 14 / 29 ms), so the spike's earlier
-  numbers overstate what a conservative implementation reaches, as ADR 0447 said.
+  numbers overstate what a conservative implementation reaches, as ADR 0460 said.
 
 ### Caveats that matter for reading the gate
 
-1. **The oracle is an upper bound on culling quality.** It is exact (pixel-perfect, full resolution, no latency) and free. ADR 0447's spike measured the real 256x128 software buffer culling **89% of the
+1. **The oracle is an upper bound on culling quality.** It is exact (pixel-perfect, full resolution, no latency) and free. ADR 0460's spike measured the real 256x128 software buffer culling **89% of the
    city's** (the reference culls 97%) and only **28% of the forest's** reference culls (thin trunks and foliage as occluders). So the forest's wide margin is the least transferable: at 28% of the
    culls its saving would be a fraction of the oracle's (not measured here [U]). The city keeps most of its culls, but its static margin is the thinnest.
 2. **One view.** The gate is per view; the oracle occludes the main view only (shadow cascades are not occlusion-culled, as the ADR says).

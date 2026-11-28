@@ -1,4 +1,4 @@
-//! Import-time preparation of an occluder stand-in (ADR 0447 section 3, "Conservativeness rules (decided)"):
+//! Import-time preparation of an occluder stand-in (ADR 0460 section 3, "Conservativeness rules (decided)"):
 //!
 //! - the **per-triangle error** of the stand-in against the original mesh, by dense sampling (a lattice over each
 //!   triangle whose spacing is a fraction of the original's bounding-box diagonal, so a hole twice the tolerance cannot
@@ -7,7 +7,7 @@
 //!   doorways and windows reopen;
 //! - the **edge-neighbour table** of the kept triangles, which tells the runtime which edges are silhouettes.
 //!
-//! The errors returned are the raw sampled errors. ADR 0447 doubles them before use (grazing silhouettes such as
+//! The errors returned are the raw sampled errors. ADR 0460 doubles them before use (grazing silhouettes such as
 //! terrain); the caller does that when it stores them.
 // `!(x > 0.0)` rejects NaN on purpose.
 #![allow(clippy::neg_cmp_op_on_partial_ord, clippy::needless_range_loop)]

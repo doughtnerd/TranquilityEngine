@@ -1,5 +1,5 @@
 /**
- * What a renderer occludes with (ADR 0447 §3), renderer-neutrally, and its triangles in world space for the core.
+ * What a renderer occludes with (ADR 0460 §3), renderer-neutrally, and its triangles in world space for the core.
  *
  * - **Geometry:** a model mesh's trimmed stand-in from import (`ModelLods.occluder`, with per-triangle errors and edge
  *   neighbours), else, for a mesh of at most 512 triangles, the mesh itself (error 0, neighbours computed here once).
@@ -7,10 +7,10 @@
  * - **Opacity:** only an opaque material occludes: a material asset whose `alphaMode` is `"opaque"`, or `"auto"` with
  *   a fully opaque colour (cut-outs and blends don't); without an asset, the model's own surfaces, all opaque. Anything
  *   else (a shader graph named directly, a file that doesn't parse) doesn't occlude.
- * - **Winding:** triangles go to the core as engine meshes wind them (`scene/winding.ts`, ADR 0450), with their edge
+ * - **Winding:** triangles go to the core as engine meshes wind them (`scene/winding.ts`, ADR 0463), with their edge
  *   neighbours as they are.
  * - **Errors:** stored as fractions of LOD0's bounding-box diagonal; the core gets them in world units, doubled (ADR
- *   0447 §3, "errors doubled").
+ *   0460 §3, "errors doubled").
  *
  * Not public API.
  */
@@ -19,7 +19,7 @@ import { parseMaterial } from "../../../scene/material";
 import type { ModelMesh } from "../../../scene/models";
 import { edgeNeighbors, NO_NEIGHBOR } from "./neighbors";
 
-/** Most triangles a mesh occludes with itself, without an import-time stand-in (ADR 0447 §3). */
+/** Most triangles a mesh occludes with itself, without an import-time stand-in (ADR 0460 §3). */
 export const SELF_OCCLUDER_TRIANGLES = 512;
 
 /** A mesh's occluder geometry in model space. */

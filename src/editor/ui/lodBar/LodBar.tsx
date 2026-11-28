@@ -1,4 +1,4 @@
-// The LOD bar (ADR 0446 §7): a segment per level of an LODGroup, widths from its transition heights, draggable dividers
+// The LOD bar (ADR 0459 §7): a segment per level of an LODGroup, widths from its transition heights, draggable dividers
 // between them. Presentational: the section (`LodGroupSection.tsx`) gives it the heights and writes what it commits.
 import { useRef, useState } from "preact/hooks";
 import "./lodBar.css";

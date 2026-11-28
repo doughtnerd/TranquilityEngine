@@ -1,4 +1,4 @@
-// The engine's one triangle winding (ADR 0450): every built-in mesh is wound in it, so `frontNormal` points out of it.
+// The engine's one triangle winding (ADR 0463): every built-in mesh is wound in it, so `frontNormal` points out of it.
 import { describe, expect, it } from "vitest";
 import { builtinMeshData } from "./builtinMeshes";
 import { FRONT_FACE_WINDING, frontNormal } from "./winding";

@@ -5,9 +5,9 @@ Levels of detail (LOD) let distant objects draw with fewer triangles. A model ge
 object looks on screen, and stops drawing it when it gets too small. It works like Unity's LODGroup, except that you
 don't model the levels yourself.
 
-The design is in [ADR 0446](../../decisions/0446-meshes-get-import-generated-lod-levels-chosen-per-camera-by-an-lodgroup-with-dithered-crossfade.md).
+The design is in [ADR 0459](../../decisions/0459-meshes-get-import-generated-lod-levels-chosen-per-camera-by-an-lodgroup-with-dithered-crossfade.md).
 Occlusion culling, which skips objects hidden behind others, is designed in
-[ADR 0447](../../decisions/0447-occlusion-culling-v1-is-a-cpu-software-depth-buffer-in-a-rust-wasm-simd-core.md) and not
+[ADR 0460](../../decisions/0460-occlusion-culling-v1-is-a-cpu-software-depth-buffer-in-a-rust-wasm-simd-core.md) and not
 switched on yet. This guide is about LOD.
 
 ## Getting started

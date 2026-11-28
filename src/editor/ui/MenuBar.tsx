@@ -7,7 +7,7 @@ import { activeHistory, redo, undo } from "../activeHistory";
 import { panelTarget, runAsset, whyNotAsset, type AssetCommandId } from "../assetActions";
 import { deleteSelected } from "../deleteSelection";
 import { copySelection, cutSelection, duplicateSelection, nodeClipboard, pasteClipboard, whyNotPasteHere } from "../hierarchyActions";
-import { isInsidePrefab } from "../hierarchyEdit";
+import { isInnerKey } from "../nodeKey";
 import { layout, requestAddPanel, showPanel } from "../layout/store";
 import { typeOf, type PanelId } from "../layout/model";
 import { registeredPanels } from "../layout/registeredPanels";
@@ -182,7 +182,7 @@ function liveMenus(): Menu[] {
     visiblePanels: visiblePanels(),
 
     pasteBlocked: nodeClipboard.value ? whyNotPasteHere() : "nothing copied",
-    selectionInPrefab: selectedKeys.value.some(isInsidePrefab),
+    selectionInPrefab: selectedKeys.value.some(isInnerKey),
     hasSelection: selectedKeys.value.length > 0 || selectedUIElement.value !== null,
     assets: returnTo?.closest(".asset-browser") ? assetReasons() : null,
     createItems: createEntries(),

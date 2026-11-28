@@ -132,7 +132,7 @@ export interface EditorViewport {
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void;
   restartParticlePreview(): void;
   /**
-   * Preview one LOD level of `node`'s `LODGroup` in this scene view only (ADR 0446 §7): `level` is its index, -1 shows
+   * Preview one LOD level of `node`'s `LODGroup` in this scene view only (ADR 0459 §7): `level` is its index, -1 shows
    * it culled, null stops. Not saved, and game views and `currentLevel` don't see it.
    */
   setLodPreview(node: GameObject | null, level?: number): void;

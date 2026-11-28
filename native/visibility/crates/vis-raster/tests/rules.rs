@@ -1,4 +1,4 @@
-//! The core's rules, through `Occlusion::occlude` (ADR 0447 section 3): occlusion, the near rule, the depth push, the
+//! The core's rules, through `Occlusion::occlude` (ADR 0460 section 3): occlusion, the near rule, the depth push, the
 //! silhouette shrink, rejection of NaN and degenerate input, and the 4-wide path against the scalar reference.
 use vis_raster::buffer::{raster_scalar, raster_simd, DepthBuf, Tri};
 use vis_raster::frame::NONE;

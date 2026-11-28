@@ -10,9 +10,10 @@
 //
 // Pure; no DOM.
 import type { AnimSource } from "../../../../engine/animation/animSource";
+import { fieldPathValue } from "../../../../engine/animation/bindingPath";
 import { accept, type EditResult } from "../../../../editor/sdk";
 import { keyField } from "./clipEditLogic";
-import { animatableSubPaths, isAnimatablePath, subValue } from "./fieldTracksLogic";
+import { animatableSubPaths, isAnimatablePath } from "./fieldTracksLogic";
 
 /** One field write as record mode sees it. */
 export interface RecordedWrite {
@@ -52,13 +53,15 @@ export function recordWrite(clip: AnimSource, write: RecordedWrite, t: number): 
   if (isAnimatablePath(write.type, write.field)) return { label: `Record ${write.field}`, result: keyField(clip, binding, write.value, t) };
   const subs = animatableSubPaths(write.type, write.field);
   if (!subs.length) return null;
-  const changed = [...new Set([...leafPaths(write.value), ...leafPaths(write.stored)])].filter((p) => !same(subValue(write.value, p), subValue(write.stored, p)));
-  const keyed = subs.filter((s) => !same(subValue(write.value, s), subValue(write.stored, s)));
+  /** The value at sub-path `p` of the written field in `v` (the field's value). */
+  const at = (v: unknown, p: string) => fieldPathValue(v, `${write.field}.${p}`);
+  const changed = [...new Set([...leafPaths(write.value), ...leafPaths(write.stored)])].filter((p) => !same(at(write.value, p), at(write.stored, p)));
+  const keyed = subs.filter((s) => !same(at(write.value, s), at(write.stored, s)));
   if (!keyed.length || changed.some((p) => !within(p, subs))) return null;
   let result: EditResult<AnimSource> = accept(clip);
   for (const s of keyed) {
     if ("refused" in result) break;
-    result = keyField(result.next, { ...binding, field: `${write.field}.${s}` }, subValue(write.value, s), t);
+    result = keyField(result.next, { ...binding, field: `${write.field}.${s}` }, at(write.value, s), t);
   }
   return { label: `Record ${keyed.map((s) => `${write.field}.${s}`).join(", ")}`, result };
 }

@@ -31,7 +31,7 @@ export interface RenderPolicy {
   /** 2D draws are lit by 2D lights (ADR 0399); false draws them unlit (the scene view's 2D Lighting toggle). */
   lighting2D: boolean;
   /**
-   * The editor's "preview a level" (ADR 0446 §7): the scene view draws `node`'s `LODGroup` at `level` (-1: culled),
+   * The editor's "preview a level" (ADR 0459 §7): the scene view draws `node`'s `LODGroup` at `level` (-1: culled),
    * whatever the camera's distance. Game views never see it. Null: every group chooses by distance.
    */
   lodPreview: { node: GameObject; level: number } | null;

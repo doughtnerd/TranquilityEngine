@@ -2,7 +2,8 @@
 // and the Tile Palette has a brush, the tool is active in that brush's mode (ADR 0231) and left presses in
 // the scene view paint instead of selecting. Each stroke is one undo step (Escape mid-stroke puts it back).
 // Draws the map's grid around the pointer and the brush's footprint (the brush's, ADR 0289) as an overlay: on
-// isometric, staggered and hexagonal maps (ADR 0437) the cells' own outlines, and the footprint as the outline of its cells.
+// grids whose cells aren't unit squares (`TileGrid.cellUnits`: isometric, staggered and hexagonal maps, ADR 0437) the
+// cells' own outlines, and the footprint as the outline of its cells.
 // ADR 0442: the selection tool (S) drags cell rectangles (Shift adds, Alt subtracts), moves the selection by dragging
 // inside it (Alt-drag copies), and acts on it with Ctrl/⌘+C, Ctrl/⌘+X, Delete, X, Y and Z (Ctrl/⌘+A selects every used
 // cell, Escape selects nothing); the selection is outlined cell by cell. With prefabs chosen, the pencil, rectangle and
@@ -316,7 +317,7 @@ function paintOverlay(state: PaintState): EditorOverlay {
       : footprintAt(t, hover, map);
   const color = tool === "erase" ? ERASE : tool === "pick" ? PICK : tool === "select" ? SELECTION : BRUSH;
   if (state.moving) return overlay;
-  if (map.gridShape !== "square") return gridOverlay(overlay, map, hover, footprint, color);
+  if (!map._grid().cellUnits) return gridOverlay(overlay, map, hover, footprint, color);
   const cs = map.cellSize;
   const w = (cx: number, cy: number): [number, number, number] => {
     const p = tr.localToWorld.transformPoint({ x: cx * cs.x, y: cy * cs.y, z: 0 });

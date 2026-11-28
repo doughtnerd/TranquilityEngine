@@ -41,7 +41,8 @@ describe("Babylon quad batches drawing tilemaps (ADR 0103, 0136)", () => {
       scene,
       materials2D: new BabylonMaterials2D({ scene, library: { texture: () => (loaded ? tex : null) } }),
       texture: (_path, onLoad) => (loaded ? tex : (pending.push(onLoad), null)),
-      sortOrder: (layer, order) => ["Back", "Default"].indexOf(layer) * 10000 + order,
+      sortSettings: () => ({ sortingLayers: ["Back", "Default"] }),
+      unknownLayer: () => {},
     });
     const tilemaps = new TilemapRenderer(quads);
     const node = GameObject.create("map");
@@ -79,7 +80,7 @@ describe("Babylon quad batches drawing triangles (ADR 0370, 0371: skinned sprite
   it("builds a mesh of any triangles, then only moves its vertices while the indices stay the same", () => {
     const scene = new Scene(new NullEngine());
     const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false } as unknown as Texture;
-    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortOrder: (_layer, order) => order });
+    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortSettings: () => ({ sortingLayers: ["Default"] }), unknownLayer: () => {} });
     const batch = quads.createBatch("skinned");
     batch.setVisible(true);
     const indices = new Uint32Array([0, 1, 2]);
@@ -105,7 +106,7 @@ describe("Babylon quad batches updated in place (ADR 0437: animated tiles)", () 
   it("takes setQuads with the same texture, vertex count and indices array as a vertex update, not a new mesh", () => {
     const scene = new Scene(new NullEngine());
     const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false } as unknown as Texture;
-    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortOrder: (_layer, order) => order });
+    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortSettings: () => ({ sortingLayers: ["Default"] }), unknownLayer: () => {} });
     const batch = quads.createBatch("tiles");
     batch.setVisible(true);
     batch.setOrder("Default", 4);
@@ -138,7 +139,7 @@ describe("Babylon quad batches per camera (ADR 0444: tile parallax follows each 
     const scene = new Scene(new NullEngine());
     // Never ready: the mesh is skipped at draw time (NullEngine draws nothing anyway); its matrix is what's checked.
     const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false, isReady: () => false, isReadyOrNotBlocking: () => false } as unknown as Texture;
-    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortOrder: (_layer, order) => order });
+    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortSettings: () => ({ sortingLayers: ["Default"] }), unknownLayer: () => {} });
     const batch = quads.createBatch("parallax");
     batch.setVisible(true);
     batch.setQuads("t.png", new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]), new Float32Array(8), new Uint32Array([0, 1, 2, 0, 2, 3]));

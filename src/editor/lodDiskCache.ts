@@ -1,4 +1,4 @@
-// The editor's persistent LOD cache (ADR 0446 §1, "Disk cache"): generated levels kept in `.myco/lod/` of a writable
+// The editor's persistent LOD cache (ADR 0459 §1, "Disk cache"): generated levels kept in `.myco/lod/` of a writable
 // project folder, beside the thumbnail cache's `.myco/thumbnails/` (ADR 0061), so reopening a project skips generation.
 // A read-only project (the samples, a browser without a writable folder) keeps them for the session only. The keys are
 // `lodCacheKey`'s, content hashes of the mesh and the settings, so a stale entry can never be hit and a cache file is
@@ -13,7 +13,7 @@ import { currentProject } from "./state";
 
 const FOLDER = ".myco/lod";
 const MAGIC = 0x444f4c4d; // "MLOD" read little-endian
-const VERSION = 2; // 2: the occluder's per-triangle errors and neighbours (ADR 0447 §3)
+const VERSION = 2; // 2: the occluder's per-triangle errors and neighbours (ADR 0460 §3)
 
 type ArrayKind = "f32" | "u16" | "u32";
 type TypedArray = Float32Array | Uint16Array | Uint32Array;

@@ -71,7 +71,7 @@ export interface MeshData {
   readonly uvs2?: Float32Array | null;
   /** r, g, b, a per vertex (linear), when the mesh's material uses vertex colours; null for none. */
   readonly colors?: Float32Array | null;
-  /** Three per triangle, in the engine's winding (`winding.ts`, ADR 0450): a front face's right-hand normal points inward. */
+  /** Three per triangle, in the engine's winding (`winding.ts`, ADR 0463): a front face's right-hand normal points inward. */
   readonly indices: Uint32Array;
   /** Index ranges drawn with each surface (`surfaces[materialIndex]`); empty: one surface for all. */
   readonly groups: readonly { start: number; count: number; materialIndex: number }[];
@@ -271,7 +271,7 @@ export interface ModelMesh {
   readonly morphTargets?: readonly MorphTargetData[];
   /** x, y, z, w per vertex (the file's tangents, baked like the normals); absent or null: none. */
   readonly tangents?: Float32Array | null;
-  /** Generated levels, occluder stand-in and bounds (ADR 0446); absent: none generated. */
+  /** Generated levels, occluder stand-in and bounds (ADR 0459); absent: none generated. */
   readonly lods?: ModelLods;
 }
 
@@ -933,7 +933,7 @@ async function parseModel(path: string, url: string, settings: ImportSettings, u
 }
 
 /**
- * `data` with each mesh's LOD levels (ADR 0446 §1) when its sidecar asks for them (`lod`), generated through `host`
+ * `data` with each mesh's LOD levels (ADR 0459 §1) when its sidecar asks for them (`lod`), generated through `host`
  * (cached). Without a host (a game: levels come only from its baked file) the model loads without levels and says so
  * once. A mesh whose generation fails keeps its own data, with a warning.
  */
@@ -973,7 +973,7 @@ async function bakeLodHost(): Promise<LodHost> {
 /**
  * @internal A model file baked for a game build (ADR 0090): loaded from the file itself (never an
  * earlier baked copy) with its import settings, then encoded. `dropped` lists textures that
- * couldn't be kept (neither a project file nor stored in the model). Its LOD levels (ADR 0446) are
+ * couldn't be kept (neither a project file nor stored in the model). Its LOD levels (ADR 0459) are
  * generated here when its sidecar asks for them, so the game only reads them.
  */
 export async function bakeModelFile(ref: string): Promise<{ bytes: Uint8Array; dropped: string[] }> {

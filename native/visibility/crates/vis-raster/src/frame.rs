@@ -1,4 +1,4 @@
-//! One occlusion view: clear, rasterise the occluder triangles under the conservativeness rules of ADR 0447 section 3,
+//! One occlusion view: clear, rasterise the occluder triangles under the conservativeness rules of ADR 0460 section 3,
 //! build the coarse level and test the occludees.
 //!
 //! The rules (the "PROPOSED, errors x2" configuration of `spikes/occlusion-safety`, decided by the owner):
@@ -51,7 +51,7 @@ impl Default for Config {
 /// The occluder triangles of one view, already chosen and budgeted by the caller.
 #[derive(Clone, Copy)]
 pub struct Occluders<'a> {
-    /// World-space triangles, 9 floats each (x, y, z per vertex), in the engine's winding (`geom::front_normal`, ADR 0450):
+    /// World-space triangles, 9 floats each (x, y, z per vertex), in the engine's winding (`geom::front_normal`, ADR 0463):
     /// the outward normal `(c - a) x (b - a)` points toward a viewer in front.
     pub triangles: &'a [f32],
     /// Per triangle: its final error E in world units (the sampled error, doubled by the caller).

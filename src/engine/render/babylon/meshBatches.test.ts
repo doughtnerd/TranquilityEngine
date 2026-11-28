@@ -1,4 +1,4 @@
-// ADR 0446 §1, §3: batches on shared vertex buffers, retention of empty batches, per-pass thin sources and their
+// ADR 0459 §1, §3: batches on shared vertex buffers, retention of empty batches, per-pass thin sources and their
 // per-cascade compaction, through `MeshBatches` and `meshOf` on Babylon's NullEngine.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
@@ -24,7 +24,7 @@ function sphereWithLevel(): ModelMesh {
   return attachLods(base, { levels: [{ indices: half, groups: [], error: 0.01, triangles: half.length / 3 }], occluder: null, bounds: [-0.5, -0.5, -0.5, 0.5, 0.5, 0.5], pixelError: 1 });
 }
 
-describe("mesh batches (ADR 0108, 0446)", () => {
+describe("mesh batches (ADR 0108, 0459)", () => {
   let engine: NullEngine;
   let scene: Scene;
   let batches: MeshBatches;
@@ -229,7 +229,7 @@ describe("mesh batches (ADR 0108, 0446)", () => {
     expect(batches.expand(near.source, 1, 0, planesOf(10), [])).toBe(false);
   });
 
-  describe("fade batches (ADR 0446 §4)", () => {
+  describe("fade batches (ADR 0459 §4)", () => {
     const fadeKey = (src: ModelMesh, mode: DrawKey["mode"] = "auto"): DrawKey => ({ ...key(src, mode), fade: true });
 
     it("routes a fade key to a batch of its own, whose material gets the crossfade plugin", () => {

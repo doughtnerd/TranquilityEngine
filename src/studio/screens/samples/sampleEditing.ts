@@ -7,6 +7,7 @@ import { DEFAULT_CROSSFADE_MS, DEFAULT_LOUDNESS_TARGET, DEFAULT_PEAK_TARGET, MAR
 import { NOTE_NAME_PATTERN } from "../../../engine/audio/sample/noteNames";
 import type { LoopDirection, MarkerType, RangeLook, ReservedRange, SampleEdits, SampleLoop, SampleMarker, SampleNormalize } from "../../../engine/audio/sample/types";
 import { isMarkColour, MARK_NOTE_MAX } from "../../../engine/audio/markColour";
+import { isMeter } from "../../../engine/audio/meter";
 import { editedLength, inClosedGap, toSource, toView, trimOf } from "./sampleTime";
 
 export type SampleEdit = { readonly next: SampleEdits; readonly label: string } | { readonly refused: string };
@@ -274,7 +275,7 @@ export const resetTrim = (e: SampleEdits): SampleEdit => (e.trim ? ok({ ...e, tr
 export function setTempo(e: SampleEdits, tempo: { bpm: number; meter: string } | null): SampleEdit {
   if (!tempo) return ok({ ...e, tempo: null }, "Tempo");
   if (!(tempo.bpm >= SAMPLE_LIMITS.minBpm && tempo.bpm <= SAMPLE_LIMITS.maxBpm)) return no(`a tempo is ${SAMPLE_LIMITS.minBpm}–${SAMPLE_LIMITS.maxBpm} BPM`);
-  if (!/^\d{1,2}\/\d{1,2}$/.test(tempo.meter)) return no('a meter is written like "4/4"');
+  if (!isMeter(tempo.meter)) return no('a meter is written like "4/4"');
   return ok({ ...e, tempo: { bpm: Math.round(tempo.bpm * 10) / 10, meter: tempo.meter, map: e.tempo?.map ?? [], source: "set" } }, "Tempo");
 }
 

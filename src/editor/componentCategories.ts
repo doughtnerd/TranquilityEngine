@@ -1,91 +1,38 @@
-// How the Add Component menu groups types into submenus. Built-in (engine.*) components are
-// categorised by this editor-side table (no engine API); scripts are grouped by their folder under
-// scripts/; data components share one "Data" submenu.
+// How the Add Component menu groups types into submenus. A plugin's Components go where its manifest's
+// `componentCategories` says (ADR 0447); the core's few built-in Components are categorised by the table below;
+// scripts are grouped by their folder under scripts/; data components share one "Data" submenu.
 import type { ComponentTypeInfo } from "../engine/editor";
+import { pluginOfComponent, runtimePluginManifest } from "../plugins/runtimeContext";
 
 const OTHER_CATEGORY = "Other";
 
-/** Engine categories in menu order. Empty ones are left out of the menu. */
-const ENGINE_CATEGORIES = ["Rendering", "Physics 2D", "Physics 3D", "Navigation", "Audio", "UI", "Animation", "Networking", "Input", OTHER_CATEGORY] as const;
+/** Engine categories in menu order. Empty ones are left out of the menu; a plugin's own label comes after them, before Other. */
+const ENGINE_CATEGORIES = ["Rendering", "Physics 2D", "Physics 3D", "Navigation", "Audio", "UI", "Animation", "Networking", "Input"] as const;
 
-/** The category of each built-in component, by its short name (`engine.` stripped). Navigation is by the `Nav` prefix. */
-const BY_NAME: Readonly<Record<string, string>> = {
-  Animator: "Animation",
-  BoneAttachment: "Animation",
-  Skeleton: "Animation",
-  Skeleton2D: "Animation",
-  SkinnedMeshRenderer: "Rendering",
-  TimelineDirector: "Animation",
-  Ragdoll: "Animation", // ADR 0375
-  Camera: "Rendering",
-  InputContext: "Input",
-  MeshRenderer: "Rendering",
-  LODGroup: "Rendering",
-  SpriteRenderer: "Rendering",
-  Light: "Rendering",
-  Light2D: "Rendering",
-  ShadowCaster2D: "Rendering",
-  CompositeShadowCaster2D: "Rendering",
-  Environment: "Rendering",
-  Fog: "Rendering",
-  Sky: "Rendering",
-  PostProcessing: "Rendering",
-  CameraShake: "Rendering",
-  ShakeImpulseSource: "Rendering",
-  ReflectionProbe: "Rendering",
-  ParticleSystem: "Rendering",
-  WaterSurface: "Rendering",
-  Tilemap: "Rendering",
-  MapObject: "Rendering",
-  LineRenderer: "Rendering", // ADR 0396
-  TrailRenderer: "Rendering",
-  DecalProjector: "Rendering", // ADR 0395
-  Decal2D: "Rendering",
-  ShapeCollider2D: "Physics 2D",
-  BoxCollider2D: "Physics 2D",
-  CircleCollider2D: "Physics 2D",
-  EdgeCollider2D: "Physics 2D",
-  PolygonCollider2D: "Physics 2D",
-  RigidBody2D: "Physics 2D",
-  CharacterController2D: "Physics 2D",
-  FixedJoint2D: "Physics 2D",
-  HingeJoint2D: "Physics 2D",
-  SliderJoint2D: "Physics 2D",
-  RopeJoint2D: "Physics 2D",
-  SpringJoint2D: "Physics 2D",
-  BoxCollider: "Physics 3D",
-  CapsuleCollider: "Physics 3D",
-  MeshCollider: "Physics 3D",
-  SphereCollider: "Physics 3D",
-  RigidBody: "Physics 3D",
-  Buoyancy: "Physics 3D",
-  CharacterController: "Physics 3D",
-  FixedJoint: "Physics 3D",
-  HingeJoint: "Physics 3D",
-  SliderJoint: "Physics 3D",
-  BallJoint: "Physics 3D",
-  RopeJoint: "Physics 3D",
-  SpringJoint: "Physics 3D",
-  AudioSource: "Audio",
-  AudioListener: "Audio",
-  AudioOccluder: "Audio", // ADR 0162
-  AudioReverbZone: "Audio", // ADR 0162
-  AudioZone: "Audio", // ADR 0347
-  AudioSpeaker: "Audio", // ADR 0355
-  AudioPackageLoader: "Audio", // ADR 0351
-  SubtitleDisplay: "UI", // ADR 0357
-  UIView: "UI",
-  UIControlMapper: "UI",
+/** The category of each Component the core registers (no plugin claims it), by type id. */
+const CORE: Readonly<Record<string, string>> = {
+  "engine.Camera": "Rendering",
+  "engine.LODGroup": "Rendering", // ADR 0446
+  "engine.Light": "Rendering",
+  "engine.Fog": "Rendering",
+  "engine.ReflectionProbe": "Rendering",
+  "engine.InputContext": "Input",
 };
 
-/** The category of an engine component id, or null when the table doesn't know it (it lands in Other). */
-function knownEngineCategory(id: string): string | null {
-  const name = id.replace(/^[^.]*\./, "");
-  if (name.startsWith("Nav")) return "Navigation";
-  return BY_NAME[name] ?? null;
+/** The category the manifest of the plugin that registers `id` gives it, if any. */
+function pluginCategory(id: string): string | null {
+  const plugin = pluginOfComponent(id);
+  const categories = plugin === undefined ? undefined : runtimePluginManifest(plugin)?.componentCategories;
+  for (const [category, ids] of Object.entries(categories ?? {})) if (ids.includes(id)) return category;
+  // The Navigation plugin's code is frozen (CLAUDE.md), so its manifest can't list its Components yet: they go by
+  // their `Nav` prefix until it does.
+  if (plugin === "myco.navigation" && id.startsWith("engine.Nav")) return "Navigation";
+  return null;
 }
 
-const engineCategory = (id: string): string => knownEngineCategory(id) ?? OTHER_CATEGORY;
+/** An item's category from its plugin's manifest or the core table, or null (scripts and data go by group). */
+const declaredCategory = (id: string): string | null => pluginCategory(id) ?? CORE[id] ?? null;
+
 
 /**
  * The folders under `scripts/` of the script that defines each id, found by looking for the id as
@@ -117,19 +64,30 @@ export interface MenuNode<T extends ComponentTypeInfo = ComponentTypeInfo> {
 const node = <T extends ComponentTypeInfo>(label: string, parent: readonly string[]): MenuNode<T> => ({ label, path: [...parent, label], children: [], items: [] });
 
 /**
- * The menu tree: one submenu per non-empty engine category, then Scripts (nested by folder, scripts
- * directly in scripts/ beside the folders) and Data. Items keep the catalog's (name) order.
+ * The menu tree: one submenu per non-empty engine category (then plugins' own labels, then Other), then Scripts
+ * (nested by folder, scripts directly in scripts/ beside the folders) and Data. A Component a plugin's manifest
+ * categorises goes there whatever its group (a third-party plugin's `acme.Spinner` too). Items keep the catalog's
+ * (name) order.
  */
 export function buildMenuTree<T extends ComponentTypeInfo>(items: readonly T[], scripts: ReadonlyMap<string, string>): MenuNode<T>[] {
   const engine = new Map<string, MenuNode<T>>(ENGINE_CATEGORIES.map((c) => [c, node<T>(c, [])]));
+  const other = node<T>(OTHER_CATEGORY, []);
   const scriptRoot = node<T>("Scripts", []);
   const data = node<T>("Data", []);
+  const categories = new Map(items.map((i) => [i.id, declaredCategory(i.id)]));
   const folders = scriptFolders(
-    items.filter((i) => i.group === "Scripts").map((i) => i.id),
+    items.filter((i) => i.group === "Scripts" && categories.get(i.id) === null).map((i) => i.id),
     scripts,
   );
   for (const item of items) {
-    if (item.group === "Engine") engine.get(engineCategory(item.id))!.items.push(item);
+    const category = categories.get(item.id) ?? null;
+    if (category !== null) {
+      // A declared label that names a fixed submenu (Other, Scripts, Data) joins it rather than making a second one.
+      const fixed = category === OTHER_CATEGORY ? other : category === "Scripts" ? scriptRoot : category === "Data" ? data : null;
+      let submenu = fixed ?? engine.get(category);
+      if (!submenu) engine.set(category, (submenu = node<T>(category, [])));
+      submenu.items.push(item);
+    } else if (item.group === "Engine") other.items.push(item);
     else if (item.group === "Data") data.items.push(item);
     else {
       let at = scriptRoot;
@@ -149,5 +107,5 @@ export function buildMenuTree<T extends ComponentTypeInfo>(items: readonly T[], 
     n.children.forEach(sortFolders);
   };
   sortFolders(scriptRoot);
-  return [...engine.values(), scriptRoot, data].filter((n) => n.items.length > 0 || n.children.length > 0);
+  return [...engine.values(), other, scriptRoot, data].filter((n) => n.items.length > 0 || n.children.length > 0);
 }

@@ -44,7 +44,7 @@ pub fn load_cols(cols: &[[f32; 4]; 4]) -> [F4; 4] {
     }
 }
 
-/// How one triangle is made conservative (ADR 0447 section 3).
+/// How one triangle is made conservative (ADR 0460 section 3).
 #[derive(Clone, Copy, Debug)]
 pub struct TriAdjust {
     /// Depth push: the triangle moves this far (world units) away from the camera along each vertex's view ray.

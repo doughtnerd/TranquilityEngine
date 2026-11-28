@@ -10,6 +10,7 @@
 //
 // What's editable follows owner decision 1 of ADR 0423: static parts of the view's own component are; expressions,
 // `{#each}` rows, snippets and child components' insides (written in another file) are view-only, with the reason.
+import { fileName } from "./projectPath";
 import { signal } from "@preact/signals";
 import type { GameObject } from "../engine";
 import { getFields } from "../engine/core/registry";
@@ -215,7 +216,6 @@ export function viewElementSource(lookup: NodeLookup, ref: UIViewRef): ViewEleme
   return { file: ref.file, line: ref.line, column: ref.column, viewFile: viewFile(view), source, element: source ? elementAtLocation(source, ref.line, ref.column) : null };
 }
 
-const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /**
  * Why the element `ref` names is view-only (owner decision 1 of ADR 0423), or null when its static parts can be

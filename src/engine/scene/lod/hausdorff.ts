@@ -1,5 +1,5 @@
 /**
- * A sampled two-way Hausdorff distance between two triangle meshes (ADR 0446 §1, 0447 §3): the error the LOD pipeline
+ * A sampled two-way Hausdorff distance between two triangle meshes (ADR 0459 §1, 0460 §3): the error the LOD pipeline
  * measures for every level and occluder stand-in, since meshoptimizer's own estimate isn't a bound. Ported from the
  * spike's BVH metric (`spikes/lod-simplify/lib/metrics.mjs`). Internal: not public API.
  *

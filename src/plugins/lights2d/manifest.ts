@@ -7,4 +7,8 @@ export const lights2dManifest: PluginManifest = {
   description: "The Light2D and ShadowCaster2D components, their gizmos and shape tools, and the 2D Lighting settings.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
+  // Where the Add Component menu lists its Components.
+  componentCategories: {
+    Rendering: ["engine.Light2D", "engine.ShadowCaster2D", "engine.CompositeShadowCaster2D"],
+  },
 };

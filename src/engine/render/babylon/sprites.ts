@@ -1,15 +1,13 @@
 /**
  * The Babylon backend's sprite feature (ADR 0014, 0040, 0108, 0115, 0130): SpriteRenderers drawn as
- * thin-instance batches, or as a mesh each (9-sliced and tiled slices, and the editor's scene view).
- * Shares nothing with the renderer but what `BabylonSpriteHost` hands it; materials, lit or not, are the 2D materials'
- * (`materials2D.ts`, ADR 0418).
+ * thin-instance batches, or each as a quad batch of its own (ADR 0450: 9-sliced and tiled slices, graph-shaded sprites
+ * and the editor's scene view). Shares nothing with the renderer but what `BabylonSpriteHost` hands it; materials, lit
+ * or not, are the 2D materials' (`materials2D.ts`, ADR 0418), and every sprite's place is the quad host's (`place`), the
+ * one rule 2D draws sort, pick and warn about unknown layers by (ADR 0440, 0445, 0450).
  */
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
-import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
-import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
-import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
@@ -17,12 +15,13 @@ import { Assets } from "../../scene/Assets";
 import { authoredSize, splitSpriteRef } from "../../scene/importSettings";
 import { Camera, SpriteRenderer } from "../components";
 import { snapToGrid } from "../pixelPerfect";
+import type { QuadBatch } from "../quadBatches";
 import { spriteClaimed } from "../spriteClaims";
-import { drawPlace, isYSorted, unknownLayerMessage, type YSortSettings } from "../sortOrder";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import type { BabylonFeature, DrawnNode, FeatureSyncContext } from "./feature";
-import { placeInLayer, SpriteBatcher, type SpriteItem } from "./layeredQuads";
-import type { BabylonMaterials2D, Material2D, Material2DRequest } from "./materials2D";
+import { SpriteBatcher, type SpriteItem } from "./layeredQuads";
+import type { BabylonMaterials2D, Material2D } from "./materials2D";
+import type { BabylonQuadBatches } from "./quadBatches";
 
 /** @internal What the sprite feature needs from the renderer. */
 export interface BabylonSpriteHost {
@@ -30,19 +29,20 @@ export interface BabylonSpriteHost {
   readonly scene: Scene;
   /** The project's pixels per unit (`render.pixelsPerUnit`): a slice's default scale, and the pixel snapping step. */
   pixelsPerUnit(): number;
-  /** The project's sorting layers, bottom to top (`render.sortingLayers`). */
-  sortingLayers(): readonly string[];
-  /** The project's y-sorted sorting layers (`render.ySortedLayers`, ADR 0440). */
-  ySortedLayers(): readonly string[];
+  /**
+   * The renderer's quad batches (ADR 0136, 0450): a lone sprite's batch, and every sprite's place (`place`, `ySorted`:
+   * the project's sorting layers, y-sorted layers and the one unknown-layer warning).
+   */
+  readonly quads: Pick<BabylonQuadBatches, "createBatch" | "meshOf" | "place" | "ySorted">;
   /**
    * A colour texture asset if loaded (sampled again if its import settings changed), else null: it starts loading and
    * `onReady` runs once it has (the material library's `texture`).
    */
   texture(path: string, onReady?: () => void): Texture | null;
-  /** The 2D materials (ADR 0418): every sprite's material, batched or its own, lit or not. */
+  /** The 2D materials (ADR 0418): every batched sprite's material, and whether a material is graph-shaded. */
   readonly materials2D: BabylonMaterials2D;
   /**
-   * `perObject`: a mesh per sprite, for the editor's scene view and editor play mode (picking and
+   * `perObject`: a quad batch per sprite, for the editor's scene view and editor play mode (picking and
    * outlines use them). `batched`: plain sprites batch (ADR 0108, 0129). Read each sync.
    */
   drawPolicy(): "batched" | "perObject";
@@ -51,23 +51,21 @@ export interface BabylonSpriteHost {
 }
 
 interface SpriteEntry {
-  /** Its own quad: the editor's scene view, sliced and tiled slices and graph-shaded sprites; other sprites batch (ADR 0108). */
-  mesh: Mesh | null;
-  /** Its material (ADR 0418): its own mesh's, or its batch's; null before it was first shown. */
+  /** Its own quad batch (ADR 0450): the editor's scene view, sliced and tiled slices and graph-shaded sprites; other sprites batch (ADR 0108). */
+  batch: QuadBatch | null;
+  /** The batched sprite's material (ADR 0418, the batcher's); null while it has a batch of its own or wasn't shown yet. */
   look: Material2D | null;
   /** What the batcher draws for it (ADR 0108), null while hidden. */
   item: SpriteItem | null;
   spritePath: string | null;
   texture: Texture | null;
-  /** The UVs the quad has, as a key ("" for the whole texture). */
-  uvKey: string;
-  /** The mesh's vertex count (16 for the 9-slice grid; more when tiled). */
-  vertexCount: number;
+  /** What its own batch's geometry was made from, as a key (null: not made yet). */
+  geometry: string | null;
   /** Size in node units (before the node's scale), once the texture has loaded. */
   size: [number, number] | null;
-  /** The world matrix the quad is frozen at (Babylon keeps it), or null before the first sync. */
+  /** The world matrix the quad was last given, or null before the first sync. */
   matrix: Matrix | null;
-  /** Its place (`drawPlace`: the draw order, plus its height in a y-sorted layer, ADR 0440), as last drawn. */
+  /** Its place (the quad host's `place`: the draw order, plus its height in a y-sorted layer, ADR 0440), as last drawn. */
   order: number;
 }
 
@@ -76,13 +74,14 @@ const tmpSpriteA = new Matrix();
 const tmpSpriteB = new Matrix();
 const tmpSpriteC = new Matrix();
 const tmpColor = new Color3();
-const SPRITE_GRID_NORMALS = Array.from({ length: 16 }, () => [0, 0, 1]).flat();
+/** The 4 × 4 grid's indices as a batch takes them: one array, so a 9-slice that changes moves its vertices in place. */
+const GRID_INDICES = Uint32Array.from(SPRITE_GRID_INDICES);
 const WHOLE_FRAME: SpriteFrame = { uv: null, size: [1, 1], pivot: [0.5, 0.5], border: null, fill: "stretch", pixelsPerUnit: 1, pixelSize: [1, 1], missingSlice: false };
 
 /** @internal Draws the World's SpriteRenderers (the Sprites plugin's feature, ADR 0140). */
 export class BabylonSprites implements BabylonFeature {
   private readonly sprites = new Map<SpriteRenderer, SpriteEntry>();
-  /** Sprites batched per texture run (ADR 0108); the editor's scene view keeps a mesh per sprite. */
+  /** Sprites batched per texture run (ADR 0108); the editor's scene view keeps a quad batch per sprite. */
   private readonly batcher: SpriteBatcher;
   /** A sprite changed since the batcher was last given them. */
   private spritesDirty = true;
@@ -102,7 +101,7 @@ export class BabylonSprites implements BabylonFeature {
     if (!(c instanceof SpriteRenderer)) return;
     const e = this.sprites.get(c);
     if (e) {
-      e.mesh?.dispose();
+      e.batch?.dispose();
       e.look?.release();
       this.sprites.delete(c);
       this.spritesDirty = true;
@@ -110,39 +109,31 @@ export class BabylonSprites implements BabylonFeature {
   }
 
   /**
-   * ADR 0276: the sprites drawn now: a sprite with a mesh of its own (the editor's scene view, sliced and
-   * tiled ones) as its quad, a batched one with no shape; each in its draw order, with its size once known.
+   * ADR 0276: the sprites drawn now: a sprite with a batch of its own (the editor's scene view, sliced and
+   * tiled ones) as its quad, a batched one with no shape; each at its place, with its size once known.
    */
   *drawn(): Iterable<DrawnNode> {
     for (const [component, e] of this.sprites) {
-      const shown = e.mesh ? e.mesh.isEnabled() : e.item !== null;
+      const mesh = e.batch ? this.host.quads.meshOf(e.batch) : null;
+      const shown = e.batch ? !!mesh?.isEnabled() : e.item !== null;
       if (!shown) continue;
-      yield { component, shape: e.mesh ? { kind: "quad", mesh: e.mesh } : null, order: e.order, size: e.size };
+      yield { component, shape: mesh ? { kind: "quad", mesh } : null, order: e.order, size: e.size };
     }
   }
 
   dispose(): void {
     for (const e of this.sprites.values()) {
-      e.mesh?.dispose();
+      e.batch?.dispose();
       e.look?.release();
     }
     this.sprites.clear();
     this.batcher.dispose();
   }
 
-  /** Draw place: `sortingLayer` index × 10000 + `orderInLayer`, plus the height `y`'s offset in a y-sorted layer (ADR 0440). */
-  sortOrder(layer: string, order: number, y = 0): number {
-    return drawPlace(this.render(), layer, order, y, (l) => this.host.warnOnce(`layer|${l}`, unknownLayerMessage(l)));
-  }
-
-  private render(): YSortSettings {
-    return { sortingLayers: this.host.sortingLayers(), ySortedLayers: this.host.ySortedLayers() };
-  }
-
   private syncSprite(world: World, s: SpriteRenderer, snap: number): void {
     let entry = this.sprites.get(s);
     if (!entry) {
-      entry = { mesh: null, look: null, item: null, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null, order: 0 };
+      entry = { batch: null, look: null, item: null, spritePath: null, texture: null, geometry: null, size: null, matrix: null, order: 0 };
       this.sprites.set(s, entry);
       this.spritesDirty = true;
     }
@@ -166,7 +157,7 @@ export class BabylonSprites implements BabylonFeature {
     // A skinned slice under a Skeleton2D is another feature's to draw (ADR 0371, `spriteClaims.ts`).
     const visible = s.isActiveAndEnabled && ready && !spriteClaimed(s);
     if (!visible) {
-      entry.mesh?.setEnabled(false);
+      entry.batch?.setVisible(false);
       if (entry.item) this.spritesDirty = true;
       entry.item = null;
       return;
@@ -190,42 +181,44 @@ export class BabylonSprites implements BabylonFeature {
     }
     entry.size = entry.texture || s.size ? [w, h] : null;
 
-    // A mesh of its own with editor tools (picking and outlines), or for a 9-sliced or tiled slice
+    // A quad batch of its own with editor tools (picking and outlines), or for a 9-sliced or tiled slice
     // (ADR 0115), whose grid the batcher's quads can't draw; plain sprites batch (ADR 0108).
-    // A sprite shaded by a sprite graph (ADR 0415) draws on its own mesh too: the batcher's material is the plain one.
+    // A sprite shaded by a sprite graph (ADR 0415) draws on its own too: the batcher's material is the plain one.
     const own = this.host.drawPolicy() === "perObject" || this.host.materials2D.shadedByGraph(s.material) || !!(frame && (frame.border || frame.fill === "tile"));
-    if (own && !entry.mesh) this.makeSpriteMesh(s, entry);
-    else if (!own && entry.mesh) {
-      entry.mesh.dispose();
-      entry.mesh = null;
+    if (own && !entry.batch) {
+      entry.batch = this.host.quads.createBatch(`sprite:${s.node.name}`, { own: true });
+      entry.geometry = null;
       entry.matrix = null;
-    }
-    const mesh = entry.mesh;
-    if (mesh) {
-      mesh.setEnabled(true);
-      if (entry.item) this.spritesDirty = true; // drawn by its own mesh now
-      entry.item = null;
+      entry.look?.release(); // the batch has its own material
+      entry.look = null;
+    } else if (!own && entry.batch) {
+      entry.batch.dispose();
+      entry.batch = null;
+      entry.matrix = null;
     }
 
     // Its sort point is the node's world position (the pivot), Unity's default (ADR 0440).
     const e = s.node.entity;
-    const render = this.render();
-    const order = drawPlace(render, s.sortingLayer, s.orderInLayer, world.worldMatrix(e)[e * 16 + 13], (l) => this.host.warnOnce(`layer|${l}`, unknownLayerMessage(l)));
-    entry.order = order;
-    const ySorted = isYSorted(render, s.sortingLayer);
+    const y = world.worldMatrix(e)[e * 16 + 13];
     const c = s.color;
-    // Its own mesh's material takes the tint in place; a batch's is white, tinted by the instance colour.
-    const request: Material2DRequest = mesh
-      ? { texture: image, material: s.material, sortingLayer: s.sortingLayer, own: true, tint: c }
-      : { texture: image, material: s.material, sortingLayer: s.sortingLayer, instanced: true };
-    if (entry.look) entry.look.update(request);
-    else entry.look = this.host.materials2D.acquire(request);
-    const material = entry.look.material;
-    if (mesh) {
-      if (mesh.material !== material) mesh.material = material;
-      placeInLayer(mesh, order);
-      if (frame && texSize) this.setSpriteGeometry(entry, frame, texSize.width, texSize.height);
+    const batch = entry.batch;
+    if (batch) {
+      if (entry.item) this.spritesDirty = true; // drawn by its own batch now
+      entry.item = null;
+      batch.setOrder(s.sortingLayer, s.orderInLayer, { y });
+      entry.order = batch.place;
+      batch.setMaterial(s.material); // asked again each sync: a material or graph edited since takes effect
+      batch.setTint(c, c.a); // its own material takes the tint in place
+      this.setSpriteGeometry(entry, batch, image, frame ?? WHOLE_FRAME, texSize?.width ?? 1, texSize?.height ?? 1);
+      batch.setVisible(true);
     } else {
+      const order = (entry.order = this.host.quads.place(s.sortingLayer, s.orderInLayer, { y }));
+      const ySorted = this.host.quads.ySorted(s.sortingLayer);
+      // A batch's material is white, tinted by the instance colour.
+      const request = { texture: image, material: s.material, sortingLayer: s.sortingLayer, instanced: true };
+      if (entry.look) entry.look.update(request);
+      else entry.look = this.host.materials2D.acquire(request);
+      const material = entry.look.material;
       const item = (entry.item ??= { material, order, ySorted, matrix: new Float32Array(16), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
       // The batch's instance colour multiplies the (white) albedo: linear, like the albedo colour.
       tmpColor.set(c.r, c.g, c.b).toLinearSpaceToRef(tmpColor);
@@ -251,7 +244,7 @@ export class BabylonSprites implements BabylonFeature {
     }
 
     // Scale the unit quad to size with the pivot at the node's origin (flips mirror about it).
-    // Without allocating, and frozen again only when it changed: freezing recomputes the bounds.
+    // Without allocating, and given again only when it changed: freezing recomputes the bounds.
     Matrix.TranslationToRef(0.5 - px, 0.5 - py, 0, tmpSpriteA);
     Matrix.ScalingToRef(s.flipX ? -w : w, s.flipY ? -h : h, 1, tmpSpriteB);
     tmpSpriteA.multiplyToRef(tmpSpriteB, tmpSpriteC);
@@ -265,52 +258,25 @@ export class BabylonSprites implements BabylonFeature {
     if (entry.matrix?.equals(tmpSpriteA)) return;
     entry.matrix ??= new Matrix();
     entry.matrix.copyFrom(tmpSpriteA);
-    if (mesh) mesh.freezeWorldMatrix(entry.matrix);
+    if (batch) batch.setMatrix(entry.matrix.m);
     else {
       entry.matrix.copyToArray(entry.item!.matrix);
       this.spritesDirty = true;
     }
   }
 
-  /** A sprite's own quad: a 4 × 4 vertex grid, so a slice's 9-slice border can move the inner lines (ADR 0115). */
-  private makeSpriteMesh(s: SpriteRenderer, entry: SpriteEntry): void {
-    const scene = this.host.scene;
-    const mesh = new Mesh(`sprite:${s.node.name}`, scene);
-    const data = new VertexData();
-    const grid = spriteMeshData(WHOLE_FRAME, 1, 1);
-    data.positions = grid.positions;
-    data.normals = SPRITE_GRID_NORMALS;
-    data.uvs = grid.uvs;
-    data.indices = SPRITE_GRID_INDICES as number[];
-    data.applyToMesh(mesh, true);
-    mesh.alwaysSelectAsActiveMesh = true;
-    entry.mesh = mesh;
-    entry.uvKey = "";
-    entry.vertexCount = 16;
-    entry.matrix = null;
-  }
-
-  /** Draw a slice's part of the texture (9-sliced when it has a border), or the whole texture, on the sprite's own mesh. */
-  private setSpriteGeometry(entry: SpriteEntry, frame: SpriteFrame, texWidth: number, texHeight: number): void {
-    const mesh = entry.mesh;
-    if (!mesh) return;
-    const key = frame.uv || frame.border || frame.fill === "tile" ? `${frame.uv?.join(",") ?? ""}|${frame.border?.join(",") ?? ""}|${frame.fill}|${frame.size.join(",")}|${frame.pixelsPerUnit}|${texWidth}x${texHeight}` : "";
-    if (key === entry.uvKey) return;
-    entry.uvKey = key;
+  /**
+   * A lone sprite's quad (ADR 0115, 0450): a 4 × 4 vertex grid in the unit quad, so a slice's 9-slice border can move the
+   * inner lines (or its tiles), drawing `image`; given to its batch again only when what it's made from changed.
+   */
+  private setSpriteGeometry(entry: SpriteEntry, batch: QuadBatch, image: string, frame: SpriteFrame, texWidth: number, texHeight: number): void {
+    const key = `${image}|${frame.uv?.join(",") ?? ""}|${frame.border?.join(",") ?? ""}|${frame.fill}|${frame.size.join(",")}|${frame.pixelsPerUnit}|${texWidth}x${texHeight}`;
+    if (key === entry.geometry) return;
+    entry.geometry = key;
     const grid = spriteMeshData(frame, texWidth, texHeight);
     if (grid.tileCapped) this.host.warnOnce(`tiles|${entry.spritePath}`, `sprite "${entry.spritePath}" would need more than ${MAX_TILE_QUADS} tiles; drawing it stretched. Use a bigger tile or a smaller sprite.`);
-    if (grid.indices === SPRITE_GRID_INDICES && entry.vertexCount === 16) {
-      mesh.updateVerticesData(VertexBuffer.PositionKind, grid.positions);
-      mesh.updateVerticesData(VertexBuffer.UVKind, grid.uvs);
-      return;
-    }
-    // A different vertex count (tiling): replace the buffers and indices.
-    const count = grid.positions.length / 3;
-    entry.vertexCount = count;
-    mesh.setVerticesData(VertexBuffer.PositionKind, grid.positions, true);
-    mesh.setVerticesData(VertexBuffer.NormalKind, Array.from({ length: count }, () => [0, 0, 1]).flat());
-    mesh.setVerticesData(VertexBuffer.UVKind, grid.uvs, true);
-    mesh.setIndices(grid.indices);
+    const indices = grid.indices === SPRITE_GRID_INDICES ? GRID_INDICES : Uint32Array.from(grid.indices);
+    batch.setQuads(image, Float32Array.from(grid.positions), Float32Array.from(grid.uvs), indices);
   }
 
   /** After syncing sprites: hand the batcher this frame's sprites when any changed (ADR 0108). */
@@ -318,7 +284,7 @@ export class BabylonSprites implements BabylonFeature {
     if (!this.spritesDirty) return;
     this.spritesDirty = false;
     const items: SpriteItem[] = [];
-    for (const e of this.sprites.values()) if (e.item && !e.mesh) items.push(e.item); // sprites with a mesh of their own draw with it
+    for (const e of this.sprites.values()) if (e.item && !e.batch) items.push(e.item); // sprites with a batch of their own draw with it
     this.batcher.update(items);
   }
 

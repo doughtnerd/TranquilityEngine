@@ -1,4 +1,4 @@
-/* The model import panel's LOD section (ADR 0446 §7). Theme tokens only. */
+/* The model import panel's LOD section (ADR 0459 §7). Theme tokens only. */
 .lod-import-levels { display: grid; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-3); }
 .lod-import-head, .lod-import-level { display: grid; grid-template-columns: 3.5em 1fr 1fr auto; gap: var(--sp-3); align-items: center; }
 .lod-import-head { color: var(--faint); font-size: var(--fs-xs); }

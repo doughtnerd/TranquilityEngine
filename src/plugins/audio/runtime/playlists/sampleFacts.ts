@@ -9,6 +9,7 @@
  */
 import { compileTempoMap, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import type { TempoMarker as GridTempoMarker } from "../../../../engine/audio/musicGrid";
+import { meterParts } from "../../../../engine/audio/meter";
 import { MUSIC_TICKS_PER_BEAT } from "../../../../engine/audio/musicPosition";
 import type { SampleEdits, SampleLoop, SampleMarker, SampleTempo } from "../../../../engine/audio/sample/types";
 import type { LoopBehaviour } from "../../../../engine/audio/playlist/types";
@@ -87,22 +88,16 @@ const toLoop = (l: SampleLoop): FactLoop => ({
 
 const toMarker = (m: SampleMarker): FactMarker => ({ id: m.id, type: m.type as FactMarker["type"], name: m.name, at: m.at });
 
-/** `"7/8"` → [7, 8]; anything else 4/4. */
-export function meterOf(meter: string): [number, number] {
-  const [a, b] = meter.split("/").map(Number);
-  return a! > 0 && b! > 0 && Number.isInteger(a) && Number.isInteger(b) ? [a!, b!] : [4, 4];
-}
-
 /**
  * A tempo `{ bpm, meter }` and its changes at file seconds as a music grid: each change lands on the beat nearest its
  * time (a tempo marker sits on a beat; one that doesn't is moved with one warning), a metre change on the next bar line.
  */
 export function tempoGrid(tempo: Pick<SampleTempo, "bpm" | "meter"> & { map?: SampleTempo["map"] }, endSeconds: number | undefined, where: string): SegmentGrid {
-  const [bpb0, unit0] = meterOf(tempo.meter);
+  const { beatsPerBar: bpb0, beatUnit: unit0 } = meterParts(tempo.meter);
   const markers: GridTempoMarker[] = [{ at: "1:1:0", bpm: tempo.bpm, beatsPerBar: bpb0, beatUnit: unit0 }];
   let prevSec = 0, prevBpm = tempo.bpm, bar = 1, beat = 1, bpb = bpb0;
   for (const m of tempo.map ?? []) {
-    const [mb, mu] = meterOf(m.meter);
+    const { beatsPerBar: mb, beatUnit: mu } = meterParts(m.meter);
     if (!(m.at > 0)) {
       // A change at the start replaces the base tempo.
       markers[0] = { at: "1:1:0", bpm: m.bpm, beatsPerBar: mb, beatUnit: mu };

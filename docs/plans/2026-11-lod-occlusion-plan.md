@@ -1,12 +1,12 @@
-# Build plan: mesh LOD (0446) and occlusion culling (0447)
+# Build plan: mesh LOD (0459) and occlusion culling (0460)
 
-The accepted records 0446 and 0447 own the design, and the RFC README (`docs/rfc/0446-0447/README.md`) owns the
+The accepted records 0459 and 0460 own the design, and the RFC README (`docs/rfc/0459-0460/README.md`) owns the
 provisional task table: its IDs W0–W8 and person-week figures come from the senior engineer's review. This plan owns
 order, file ownership, gates and test cadence. Every number below that isn't measured is an estimate.
 
 ## State at planning (2026-11-28)
 
-- **Branch:** `claude/lod-occlusion-design`, pushed, based on master 6a0740ca. Master's newest record is 0444. 0445 is taken on unmerged branch `ccr-1e2a6237-n83y8a` (Rapier). These records are 0446 and 0447, both Accepted.
+- **Branch:** `claude/lod-occlusion-design`, pushed, based on master 6a0740ca. Master's newest record is 0444. 0445 is taken on unmerged branch `ccr-1e2a6237-n83y8a` (Rapier). These records are 0459 and 0460, both Accepted.
 - **Spikes** live in `spikes/lod-simplify/`, `spikes/lod-crossfade/`, `spikes/lod-select/`, `spikes/occlusion-raster/` and `spikes/render-bench/`. First-wave spikes `spikes/lod-apply/` and `spikes/occlusion-safety/` are running.
 - **Navigation is frozen.** Never touch `native/nav/`, `src/engine/nav/`, `src/plugins/navigation/` or the navigation samples.
 - **Toolchain in this container:**
@@ -34,7 +34,7 @@ its exit check.
 
 | Milestone | Tasks | Exit check (a person can run it) |
 |---|---|---|
-| **M1: LOD, hard switches** | W0, T1–T7 | A forest scene in the editor: tick "Generate LODs" on a model, place it, see the LOD bar and the level change as the scene camera moves. `npm run test:e2e` green. The promoted benchmark meets 0446's targets (triangles, JS CPU ≤ baseline, draws, GPU memory). An exported build of the bench scene loads cold and draws levels (shipped-form smoke). |
+| **M1: LOD, hard switches** | W0, T1–T7 | A forest scene in the editor: tick "Generate LODs" on a model, place it, see the LOD bar and the level change as the scene camera moves. `npm run test:e2e` green. The promoted benchmark meets 0459's targets (triangles, JS CPU ≤ baseline, draws, GPU memory). An exported build of the bench scene loads cold and draws levels (shipped-form smoke). |
 | **M2: crossfade, skinned levels, rig LOD** | T8, T9 | Levels blend instead of popping (the pixel check finds no holes during a fade). A skinned character switches levels, and its Animator rate follows. Bench JS CPU ≤ M1. |
 | **M3: occlusion** | T3 (from wave 1), gate G, T10, T11 | The gate measurement is logged. If it passes: the city camera culls hidden props with zero false occlusions against the reference, adversarial scenes included; the debug view shows the buffer; the exported build loads the wasm lazily. If it fails: the crate stays unwired and the result goes to the owner. |
 | **M4: docs and the re-run** | T12 | `docs/wiki/guide/lod-and-occlusion.md` exists; `implementation-status.md` rows are updated; the benchmark is re-run against baseline and reported. |
@@ -53,7 +53,7 @@ its exit check.
 | **T7** the editor adds groups, plus M1 e2e | W7 part | Sonnet | `src/editor/` placement code (the drop-model command), `tests/e2e/lod.spec.ts` | T5, T6 |
 | **T8** crossfade | W4 | Opus | `src/engine/render/babylon/lodFade.ts` (new), `meshBatches.ts`, `meshes.ts` (fade state), `warmUp.ts` | M1 merged |
 | **T9** skinned levels and rig LOD | W8 part | Sonnet | `src/plugins/animation/runtime/components/SkinnedMeshRenderer.ts`, `Animator.ts`, `features/playback/view.ts`, `src/plugins/animation/runtime/features/skinning/**`, `src/engine/render/babylon/skinnedMeshes.ts` | M1 merged |
-| **G** occlusion gate | 0447 §0 | coordinator | `docs/design/lod-occlusion/build-log.md` | M1, T3 |
+| **G** occlusion gate | 0460 §0 | coordinator | `docs/design/lod-occlusion/build-log.md` | M1, T3 |
 | **T10** occlusion integration | W6 | Opus | `src/engine/render/visibility/occlusion/core.ts` (+ tests), `src/engine/render/visibility/service.ts` (occlusion step), diagnostics types | G passed |
 | **T11** editor debug views and preview | W7 part | Sonnet | `src/engine/render/renderPolicy.ts` (`lodPreview`), `src/engine/render/editorViewport.ts` (debug overlays), `src/editor/` View menu, Profiler table, `tests/e2e/occlusion.spec.ts` | T10, M2 |
 | **T12** docs, status, re-run | W8 part | coordinator, Haiku leaf for the guide draft | `docs/wiki/guide/lod-and-occlusion.md`, `docs/architecture/implementation-status.md`, build log | everything |

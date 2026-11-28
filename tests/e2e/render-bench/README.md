@@ -1,6 +1,6 @@
 # Render benchmark scenes
 
-The scene generator behind `tests/e2e/render-bench.spec.ts` (ADRs 0446 and 0447): a forest (4,000 trees, 6,000 rocks) and a
+The scene generator behind `tests/e2e/render-bench.spec.ts` (ADRs 0459 and 0460): a forest (4,000 trees, 6,000 rocks) and a
 city (576 buildings, 5,000 props), in `auto` and `thin` instancing variants. It is the deterministic generator of
 `spikes/render-bench/` promoted: same seeds, same procedural meshes, same placement, so numbers stay comparable with the spike's.
 
@@ -15,7 +15,7 @@ scene) in memory at test time and the spec passes them to `openEditor(page, { fi
 
 ## LOD variants and the occlusion variants to come
 
-The `lod` flag on `Variant` (ADR 0446) adds `forest-auto-lod`, `forest-thin-lod` and `city-auto-lod`: each model gets a sidecar
+The `lod` flag on `Variant` (ADR 0459) adds `forest-auto-lod`, `forest-thin-lod` and `city-auto-lod`: each model gets a sidecar
 `models/<name>.obj.meta.json` with `lod` (the import panel's defaults; `permissive: true` for buildings) and each tree, rock,
 building and prop an automatic `engine.LODGroup` beside its `MeshRenderer`. The editor generates the levels when the models load, so
 no simplified OBJs are written. The ids of the other variants are unchanged, so the report merges.

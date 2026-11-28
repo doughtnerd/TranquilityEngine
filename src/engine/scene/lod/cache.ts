@@ -1,5 +1,5 @@
 /**
- * Where LOD generation runs and how its results are kept (ADR 0446 §1, "Cost, caching and the main thread"). Internal:
+ * Where LOD generation runs and how its results are kept (ADR 0459 §1, "Cost, caching and the main thread"). Internal:
  * not public API.
  *
  * The editor installs a host (`setLodHost`): a generator (the worker, `workerGenerator.ts`) and a cache. Model loading
@@ -76,7 +76,7 @@ function hashArrays(arrays: readonly ArrayBufferView[]): string {
 /**
  * What the generator makes, beyond its input: bumped whenever the same input would give other output, so entries made by
  * an older generator (memory or `.myco/lod/` files) are never hit. 2: hole-trimmed stand-ins with per-triangle errors
- * and neighbours (ADR 0447 §3).
+ * and neighbours (ADR 0460 §3).
  */
 const GENERATOR_VERSION = 2;
 

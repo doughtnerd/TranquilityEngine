@@ -1,8 +1,8 @@
-//! The occlusion core's editor and export module (ADR 0447 section 3): import-time hole trimming of occluder stand-ins,
+//! The occlusion core's editor and export module (ADR 0460 section 3): import-time hole trimming of occluder stand-ins,
 //! for the editor's import worker and the exporters. Never loaded by games (they ship the baked result).
 //!
 //! `trim_standin` measures the stand-in against the original, drops the triangles that close holes and returns the
-//! kept triangles with their raw errors and edge neighbours; the caller doubles the errors when it stores them (ADR 0447:
+//! kept triangles with their raw errors and edge neighbours; the caller doubles the errors when it stores them (ADR 0460:
 //! "errors doubled"). `neighbors_of` builds just the neighbour table, for a mesh that occludes with itself (at most 512
 //! triangles, error 0).
 use vis_trim::{Mesh, Options, TrimError, Trimmed};
@@ -74,7 +74,7 @@ fn why(e: TrimError) -> JsError {
 }
 
 /// Trims `standin` against `original`. Triangles whose error exceeds `trim_fraction` of the original's diagonal are
-/// dropped (ADR 0447: 0.005); `spacing_fraction` is the sampling lattice's spacing (0.005).
+/// dropped (ADR 0460: 0.005); `spacing_fraction` is the sampling lattice's spacing (0.005).
 #[wasm_bindgen]
 pub fn trim_standin(
     original_positions: &[f32],

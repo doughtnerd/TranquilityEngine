@@ -1,5 +1,5 @@
 /**
- * The occlusion core over `native/visibility`'s `vis-wasm` module (ADR 0447 §2): the TypeScript side owns the views over
+ * The occlusion core over `native/visibility`'s `vis-wasm` module (ADR 0460 §2): the TypeScript side owns the views over
  * wasm memory. Per view it writes the header, the occluder triangles, their errors and edge neighbours and the occludee
  * boxes into the module's regions, runs it, and reads back one byte per occludee (layout: `vis-wasm/src/lib.rs`).
  *

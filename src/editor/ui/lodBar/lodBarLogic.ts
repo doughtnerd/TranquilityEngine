@@ -1,4 +1,4 @@
-// The LODGroup inspector's LOD bar as pure functions (ADR 0446 §2, §7): where each level's segment sits from the
+// The LODGroup inspector's LOD bar as pure functions (ADR 0459 §2, §7): where each level's segment sits from the
 // transition heights, what a drag does to them, and how the automatic heights are made explicit.
 //
 // The bar's axis is the screen-relative height h: 100% on the left (the group fills the view), 0% on the right. A group's
@@ -6,7 +6,7 @@
 // culled (a last value of 0 never culls). So level 0 spans [levels[0], 1], level i spans [levels[i], levels[i-1]) and the
 // culled segment spans [0, levels[last]).
 
-/** The most levels a group has (`LODGroup.levels`, ADR 0446 §2). */
+/** The most levels a group has (`LODGroup.levels`, ADR 0459 §2). */
 export const MAX_LEVELS = 8;
 /** The closest two dividers can get, as a height. */
 export const MIN_GAP = 0.001;

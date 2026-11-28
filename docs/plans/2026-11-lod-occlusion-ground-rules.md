@@ -1,4 +1,4 @@
-# Ground rules for agents building 0446 and 0447
+# Ground rules for agents building 0459 and 0460
 
 Every brief for this build points here. Read CLAUDE.md first; this adds to it.
 
@@ -6,7 +6,7 @@ Every brief for this build points here. Read CLAUDE.md first; this adds to it.
   coordinator's branch, never push, never rebase another branch.
 - **Your files only.** Edit only the files your brief lists. If you need another file changed, stop and say so in your
   reply instead of editing it.
-  - The coordinator alone writes `package.json`, `package-lock.json`, `docs/README.md`, `docs/architecture/implementation-status.md`, the records 0446 and 0447, `docs/design/lod-occlusion/build-log.md`, and the contract stubs `src/engine/scene/lod/types.ts` and `src/engine/render/visibility/types.ts`.
+  - The coordinator alone writes `package.json`, `package-lock.json`, `docs/README.md`, `docs/architecture/implementation-status.md`, the records 0459 and 0460, `docs/design/lod-occlusion/build-log.md`, and the contract stubs `src/engine/scene/lod/types.ts` and `src/engine/render/visibility/types.ts`.
 - **Frozen.** Never touch `native/nav/`, `src/engine/nav/`, `src/plugins/navigation/` or the navigation samples.
 - **Checks you run:** `npm run typecheck` and Vitest on the tests you touched or added (`npx vitest run <paths>`), plus `cargo test` for Rust. **Never run Playwright.** The coordinator runs e2e once on the merged result.
 - **Node modules.** If your worktree has no `node_modules`, symlink `/home/user/TranquilityEngine/node_modules` and don't commit the link. Use `CARGO_TARGET_DIR=/tmp/claude-0/cargo-target` for Rust.

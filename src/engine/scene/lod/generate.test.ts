@@ -1,4 +1,4 @@
-// ADR 0446 §1: LOD generation (weld, per-submesh simplification, measured error, occluder, reorder), its cache and its
+// ADR 0459 §1: LOD generation (weld, per-submesh simplification, measured error, occluder, reorder), its cache and its
 // worker protocol, driven through `generateLods`, `cachedLods` and the two ends of the worker port.
 import { describe, expect, it } from "vitest";
 import { DEFAULT_LOD_SETTINGS, type LodSettings, type OccluderStandIn } from "./types";
@@ -211,7 +211,7 @@ function expectTrimmed(occluder: OccluderStandIn): void {
 
 // --- Tests ----------------------------------------------------------------------------------------------------------
 
-describe("LOD generation (ADR 0446 §1)", () => {
+describe("LOD generation (ADR 0459 §1)", () => {
   it("brings a rock to its level targets, with measured errors that grow level by level", async () => {
     const source: LodSource = { streams: streamsOf(ROCK), indices: new Uint32Array(ROCK.indices), groups: [] };
     const lods = await generateLods(source, DEFAULT_LOD_SETTINGS, "auto");
@@ -363,7 +363,7 @@ describe("LOD generation (ADR 0446 §1)", () => {
   }, 60_000);
 });
 
-describe("occluder stand-in trimming (ADR 0447 §3)", () => {
+describe("occluder stand-in trimming (ADR 0460 §3)", () => {
   /** A sheet on [0, 1]² bumped by `bump` in z, simplified to 1 % of its triangles. */
   const bumpySheet = (bump: number): LodSource => {
     const N = 40;

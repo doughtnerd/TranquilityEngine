@@ -1,3 +1,4 @@
+import { isSceneFile } from "../projectPath";
 import type { ComponentChildren } from "preact";
 import { Panel } from "./panel/Panel";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -391,7 +392,7 @@ function ColorField(props: { value: string | undefined; fallback: string; onComm
 function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: EditorProject; problems: readonly SettingsProblem[] }) {
   const { s, draft, project, problems } = props;
   const list = autoloadsOf(draft);
-  const choices = project.files.filter((f) => /\.(scene|prefab)\.json$/.test(f) && !list.includes(f));
+  const choices = project.files.filter((f) => isSceneFile(f) && !list.includes(f));
   const set = (label: string, next: SettingsDraft) => edit(s, label, next);
   return (
     <div class="project-settings-list" role="group" aria-label="Autoload list">
@@ -435,7 +436,7 @@ function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: Editor
 /** Input players (ADR 0337) and the action sets (ADR 0433): the files in load order, then the sets scripts define. */
 function InputSettings(props: { s: PanelState; draft: SettingsDraft; project: EditorProject; problems: readonly SettingsProblem[] }) {
   const { s, draft, project, problems } = props;
-  const input = (draft.input ?? {}) as { join?: string; maxPlayers?: number };
+  const input = draft.input ?? {};
   const defaults = defaultSettings.input;
   const at = (field: string) => problems.filter((p) => p.field === field || p.field.startsWith(`${field}.`));
   const set = (label: string, next: SettingsDraft) => edit(s, label, next);
@@ -752,7 +753,7 @@ function Tiers(props: { draft: SettingsDraft; problems: readonly SettingsProblem
               <span class="tier-label">2D lights</span>
               {choice(i, "lights2D", "2D lights", LIGHTS_2D_QUALITIES)}
             </label>
-            <label title="Scales the screen height LOD groups are chosen by: below 1 drops detail sooner (ADR 0446)">
+            <label title="Scales the screen height LOD groups are chosen by: below 1 drops detail sooner (ADR 0459)">
               <span class="tier-label">LOD bias</span>
               {tierNumber(i, "lodBias", "LOD bias", 0.1, 5, 0.1)}
             </label>
@@ -764,7 +765,7 @@ function Tiers(props: { draft: SettingsDraft; problems: readonly SettingsProblem
               <span class="tier-label">LOD crossfade</span>
               {toggle(i, "lodCrossfade", "LOD crossfade")}
             </label>
-            <label title="The occlusion culling depth buffer's size (ADR 0447)">
+            <label title="The occlusion culling depth buffer's size (ADR 0460)">
               <span class="tier-label">Occlusion buffer</span>
               {choice(i, "occlusionBuffer", "occlusion buffer", OCCLUSION_BUFFER_QUALITIES)}
             </label>

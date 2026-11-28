@@ -1,4 +1,4 @@
-/* The LODGroup's LOD bar (ADR 0446 §7) and the model import panel's LOD rows. Theme tokens only (src/editor/theme.ts). */
+/* The LODGroup's LOD bar (ADR 0459 §7) and the model import panel's LOD rows. Theme tokens only (src/editor/theme.ts). */
 .lod-bar-section { margin: var(--sp-3) 0; font-size: var(--fs-md); }
 .lod-bar-head { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-2); }
 .lod-bar-title { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1,5 +1,5 @@
 // Occlusion-gate harness page (spike only; not engine code). Adapted from spikes/render-bench/bench.ts. Loads a generated
-// project (sidecar `lod` + an LODGroup per object: the ENGINE's LOD, ADR 0446) the way the game player does, but owns the
+// project (sidecar `lod` + an LODGroup per object: the ENGINE's LOD, ADR 0459) the way the game player does, but owns the
 // frame loop, so each frame can be timed and a camera pose and an occlusion oracle applied before it.
 //
 // LOD is the engine's: an LOD host (the editor's, here inline) generates each model's levels when it loads, and the
@@ -8,7 +8,7 @@
 // Occlusion oracles (both hide exactly the objects the object-ID pass found with zero visible pixels):
 //   "keep"    the engine's own per-view mechanism: after the visibility service has selected the main view
 //             (`world._afterPropagation`, registered after the service's own hook), set `hidden[slot] = 1` in the MAIN view's
-//             VisibilityResult. That is the slot the real occlusion stage writes (ADR 0447 section 4, LodVisibility "occluded"):
+//             VisibilityResult. That is the slot the real occlusion stage writes (ADR 0460 section 4, LodVisibility "occluded"):
 //             the renderer skips a hidden slot in that view only, and shadow casters come from `casterLevels`, which this
 //             does not touch, so the object still casts ("hidden ones still cast", babylon/meshes.ts). Shadow views are
 //             separate results and are untouched.
@@ -53,7 +53,7 @@ export type RunConfig = {
   capture?: boolean;
   /** minimum wall-clock time of the settle phase. */
   settleMs?: number;
-  /** The engine's own occlusion culling (ADR 0447) on the main camera; off (default) measures LOD alone. */
+  /** The engine's own occlusion culling (ADR 0460) on the main camera; off (default) measures LOD alone. */
   engineOcclusion?: boolean;
 };
 type OccData = { ids: string[]; poses: { s: number; inFrustum: number; visible: number; occluded: number }[]; visible: number[][]; inFrustum: number[][]; tookMs: number };
@@ -375,7 +375,7 @@ async function run(cfg: RunConfig) {
       const st = svc?.main ? svc.stats(svc.main.view.key) : null;
       rows.push({
         cpuMs: t1 - t0,
-        // the occlusion hook's own time (writing the hidden set; the real stage's cost is budgeted separately, ADR 0447 section 0)
+        // the occlusion hook's own time (writing the hidden set; the real stage's cost is budgeted separately, ADR 0460 section 0)
         hookMs,
         updateMs: timings.update,
         renderMs: timings.render,

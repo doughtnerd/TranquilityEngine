@@ -107,7 +107,7 @@ export interface ThemeTokens {
   "series-6": string;
   "series-7": string;
   "series-8": string;
-  // LOD bar colours (ADR 0446 §7): one per level, then the culled segment; legible on the panels like the series.
+  // LOD bar colours (ADR 0459 §7): one per level, then the culled segment; legible on the panels like the series.
   lod0: string;
   lod1: string;
   lod2: string;

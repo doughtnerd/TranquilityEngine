@@ -22,7 +22,7 @@ import { ActionEvents, ActionPhase, actionSetClashes, actionSetSource, actionSet
 import { DEFAULT_CONTEXT, registeredContexts } from "../input/contexts";
 import type { InputContextSpec, MappingSpec, ModifierSpec } from "../input/contextTypes";
 import { compileModifier } from "../input/modifiers";
-import { PRESS_POINT, control, namedControlPaths, type DeviceFamily } from "../input/controls";
+import { PRESS_POINT, control, controlById, namedControlPaths, type DeviceFamily } from "../input/controls";
 import { DEVICE_FAMILIES, DeviceEvents, DeviceKind, InputDevice, deviceNodes, takesLocalInput } from "../input/deviceEntities";
 import { DEFAULT_STICK_DEADZONE, contextProblems, lastEvaluation, mappingSourceValue, playerTable, type CompiledMapping } from "../input/evaluate";
 import { ControlledBy, InputPlayer, PlayerJoined, PlayerLeft, playerNodes } from "../input/players";
@@ -190,9 +190,7 @@ function playerRow(world: World, player: GameObject, pawns: ReadonlyMap<number, 
 }
 
 function sourceRow(m: CompiledMapping): InputSourceRow {
-  const s = m.source;
-  const controls = s.kind === "single" ? [s.control] : s.kind === "dpad" ? [s.up, s.down, s.left, s.right] : s.kind === "axis" ? [s.negative, s.positive] : [...s.modifiers, s.control];
-  return { context: m.context, mapping: m.index, composite: s.kind, controls: controls.map((c) => c.path) };
+  return { context: m.context, mapping: m.index, composite: m.source.kind, controls: m.controls.map((id) => controlById(id).path) };
 }
 
 // --- the event log -------------------------------------------------------------------------------

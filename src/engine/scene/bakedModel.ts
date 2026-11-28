@@ -22,10 +22,10 @@
  *   "animation": { "skeleton": { "bones": […], "inverseBinds": [offset, count], "roles", "profile" },
  *                  "takes": [{ "name", "duration", "tracks": [0371 tracks] }], "clips": [{ "name", "take", "source": myco.anim-source@1, "settings" }],
  *                  "boneMap": {…}, "boneMapSource": "guessed" }
- *   // ADR 0446: per mesh with generated levels (LOD0 is its "indices", its vertices welded and reordered)
+ *   // ADR 0459: per mesh with generated levels (LOD0 is its "indices", its vertices welded and reordered)
  *   // "lods": [{ "indices": [offset, count], "groups": […], "error": 0.006, "triangles": 512 }],
  *   // "occluder": { "indices", "error", "triangleErrors": [offset, count] (f32), "neighbors": [offset, count] (u32) },
- *   //   (ADR 0447 §3: hole-trimmed; a stand-in without its per-triangle arrays loads as none)
+ *   //   (ADR 0460 §3: hole-trimmed; a stand-in without its per-triangle arrays loads as none)
  *   // "bounds": [minX, minY, minZ, maxX, maxY, maxZ], "pixelError": 1
  * }
  * ```
@@ -45,7 +45,7 @@ import type { Bounds6 } from "./lod/types";
 /** @internal The suffix of a baked model beside its model file. */
 export const BAKED_SUFFIX = ".mycomesh";
 const MAGIC = "MYCOMESH";
-const VERSION = 5; // 2: node poses, lights and cameras, layer textures, variants (ADR 0118); 3: mirrored left-handed, `facing` (ADR 0164); 4: skins, morphs, tangents, skeleton, takes and clips, the `animation` settings (ADR 0371); 5: LOD levels, occluder stand-ins, bounds, the `lod` and `occluder` settings (ADR 0446)
+const VERSION = 5; // 2: node poses, lights and cameras, layer textures, variants (ADR 0118); 3: mirrored left-handed, `facing` (ADR 0164); 4: skins, morphs, tangents, skeleton, takes and clips, the `animation` settings (ADR 0371); 5: LOD levels, occluder stand-ins, bounds, the `lod` and `occluder` settings (ADR 0459)
 
 type BakeSettings = Pick<ImportSettings, "scale" | "upAxis" | "normals" | "facing"> & Partial<Pick<ImportSettings, "animation" | "lod" | "occluder">>;
 type Range = [offset: number, count: number];

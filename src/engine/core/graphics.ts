@@ -118,23 +118,23 @@ export interface QualityTier {
   /** 2D lighting quality (ADR 0399): light texture scale, shadowed lights, soft shadows, normal maps, layer batches (`LIGHTS_2D_QUALITY`). */
   lights2D: Lights2DQuality;
   /**
-   * Multiplies every `LODGroup`'s screen-relative height before its level is chosen (ADR 0446 §5; 0.1–5): above 1 keeps
+   * Multiplies every `LODGroup`'s screen-relative height before its level is chosen (ADR 0459 §5; 0.1–5): above 1 keeps
    * detail longer, below 1 drops it sooner.
    */
   lodBias: number;
-  /** The most detailed LOD level this tier draws (ADR 0446 §5; a whole number, 0–7): 1 never draws LOD0. */
+  /** The most detailed LOD level this tier draws (ADR 0459 §5; a whole number, 0–7): 1 never draws LOD0. */
   lodFirstLevel: number;
-  /** Whether `LODGroup`s with `fade: "crossfade"` crossfade between levels (ADR 0446 §4); off, they switch at once. */
+  /** Whether `LODGroup`s with `fade: "crossfade"` crossfade between levels (ADR 0459 §4); off, they switch at once. */
   lodCrossfade: boolean;
-  /** The occlusion culling depth buffer (ADR 0447 §5): off, low (256×128) or high (320×180). */
+  /** The occlusion culling depth buffer (ADR 0460 §5): off, low (256×128) or high (320×180). */
   occlusionBuffer: OcclusionBufferQuality;
-  /** Occluder triangles rasterised per view (ADR 0447 §5; a whole number, 0–200000). */
+  /** Occluder triangles rasterised per view (ADR 0460 §5; a whole number, 0–200000). */
   occluderBudget: number;
-  /** How many views per frame run occlusion culling (ADR 0447 §4; a whole number, 0–8): 1 is the main camera. */
+  /** How many views per frame run occlusion culling (ADR 0460 §4; a whole number, 0–8): 1 is the main camera. */
   occlusionViews: number;
 }
 
-/** The occlusion culling depth buffer's size (ADR 0447 §5): off, low (256×128) or high (320×180). */
+/** The occlusion culling depth buffer's size (ADR 0460 §5): off, low (256×128) or high (320×180). */
 export type OcclusionBufferQuality = "off" | "low" | "high";
 export const OCCLUSION_BUFFER_QUALITIES: readonly OcclusionBufferQuality[] = ["off", "low", "high"];
 
@@ -188,13 +188,13 @@ export const defaultGraphics = (): GraphicsSettings => ({
 /** A new tier's values (the High tier's), with the given name. */
 export const defaultTier = (name: string): QualityTier => ({ ...defaultGraphics().tiers[2], name });
 
-/** The LOD and occlusion fields (ADR 0446 §5, 0447 §5), which tiers written before them don't have. */
+/** The LOD and occlusion fields (ADR 0459 §5, 0460 §5), which tiers written before them don't have. */
 const VISIBILITY_KEYS = ["lodBias", "lodFirstLevel", "lodCrossfade", "occlusionBuffer", "occluderBudget", "occlusionViews"] as const;
 
 /**
  * The tier settings that change the pipelines draws need (ADR 0080), as a key: the sample count, the
  * passes (post-processing, ambient occlusion, depth of field, bloom), shadow maps and cascades, the
- * shader level graph materials compile for, probe captures, and LOD crossfade (its fade shader variants, ADR 0446 §4).
+ * shader level graph materials compile for, probe captures, and LOD crossfade (its fade shader variants, ADR 0459 §4).
  * Not the render scale or particle budget.
  */
 export function pipelineTierKey(t: Readonly<QualityTier>): string {

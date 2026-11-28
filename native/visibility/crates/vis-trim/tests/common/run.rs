@@ -4,7 +4,7 @@ use vis_raster::buffer::DepthBuf as Buf;
 use vis_raster::{test_occludees, Config, Occluders, Occlusion, Stats};
 
 /// An occluder as the engine would hold it after import: the stand-in's kept triangles in world space, their errors
-/// (doubled, as ADR 0447 stores them) and their edge neighbours.
+/// (doubled, as ADR 0460 stores them) and their edge neighbours.
 pub struct Prepared {
     pub tris: Vec<f32>,
     pub errors: Vec<f32>,

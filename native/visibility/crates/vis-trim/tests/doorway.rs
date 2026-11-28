@@ -1,4 +1,4 @@
-//! Hole trimming reopens a doorway (ADR 0447 section 3): a stand-in that closes a doorway falsely hides what is seen
+//! Hole trimming reopens a doorway (ADR 0460 section 3): a stand-in that closes a doorway falsely hides what is seen
 //! through it; with its closed-hole triangles trimmed at import, the doorway is open again.
 mod common;
 use common::*;

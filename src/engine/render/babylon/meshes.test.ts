@@ -1,4 +1,4 @@
-// ADR 0446 §3: the mesh feature applies levels per view. Each view draws the drawable of the level its visibility
+// ADR 0459 §3: the mesh feature applies levels per view. Each view draws the drawable of the level its visibility
 // result gives (none when hidden or LOD-culled), casters follow the main view's caster levels, thin batches draw
 // through per-pass sources, level drawables are pooled and empty batches kept a while; without a visibility stage
 // nothing changes. On Babylon's NullEngine, with a model whose levels come from the real import pipeline.
@@ -52,7 +52,7 @@ const ROCK = "asset:models/rock.obj";
 const THIN = "asset:materials/thin.material.json";
 const OFF = "asset:materials/off.material.json";
 
-describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
+describe("levels per view in the mesh feature (ADR 0459 §3)", () => {
   let engine: Engine;
   let nullEngine: NullEngine;
   let scene: BabylonScene;
@@ -61,7 +61,7 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
   let rock: ModelMesh;
   /**
    * Editor picking: auto batches keep a Babylon instance per renderer (ADR 0108). Off (a game), they draw through
-   * per-pass thin buffers from the first frame levels apply (ADR 0448).
+   * per-pass thin buffers from the first frame levels apply (ADR 0461).
    */
   let picking = false;
 
@@ -314,7 +314,7 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
     for (const m of casters) expect(mainSources.has(m)).toBe(false);
   });
 
-  describe("auto batches in a game draw through per-pass thin buffers (ADR 0448)", () => {
+  describe("auto batches in a game draw through per-pass thin buffers (ADR 0461)", () => {
     /** Each listed pass source's level (by triangles) and how many instances it draws, finest first. */
     const passes = (list: readonly AbstractMesh[]) =>
       list.map((m) => {
@@ -363,7 +363,7 @@ describe("levels per view in the mesh feature (ADR 0446 §3)", () => {
     });
   });
 
-  describe("crossfades (ADR 0446 §4)", () => {
+  describe("crossfades (ADR 0459 §4)", () => {
     beforeEach(() => {
       Graphics.quality = "High"; // lodCrossfade on
     });

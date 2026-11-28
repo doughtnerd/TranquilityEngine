@@ -47,7 +47,7 @@ describe("layered 2D quads (ADR 0014, 0108, 0136, 0186)", () => {
   const sprite = (texture: Texture, at: number): SpriteItem => ({ material: batchMaterial(texture), order: at, matrix: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
   const tileLayer = (name: string, layer: string, inLayer: number) => {
     const tex = { getBaseSize: () => ({ width: 16, height: 16 }), hasAlpha: false } as unknown as Texture;
-    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortOrder: order });
+    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortSettings: () => ({ sortingLayers: LAYERS }), unknownLayer: () => {} });
     const batch = quads.createBatch(name);
     batch.setOrder(layer, inLayer);
     batch.setVisible(true);

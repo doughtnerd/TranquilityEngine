@@ -1,4 +1,4 @@
-//! The engine's one triangle winding (ADR 0450, `src/engine/scene/winding.ts`): a front face's right-hand normal
+//! The engine's one triangle winding (ADR 0463, `src/engine/scene/winding.ts`): a front face's right-hand normal
 //! `(b - a) x (c - a)` points inward, so its outward normal is `(c - a) x (b - a)`. Engine triangles enter the bake in it
 //! as they are (the walkable side faces along `front_normal`).
 use crate::vec::Float3;

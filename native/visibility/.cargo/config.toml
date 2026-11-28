@@ -1,4 +1,4 @@
-# ADR 0447: the wasm build always has simd128 (no scalar fallback build), so a plain `cargo build --target
+# ADR 0460: the wasm build always has simd128 (no scalar fallback build), so a plain `cargo build --target
 # wasm32-unknown-unknown` here gives the same module as build.mjs. Native builds are untouched.
 # Hashed into the source hash (vis-wasm/source_hash.rs), because it changes the binary.
 [target.wasm32-unknown-unknown]

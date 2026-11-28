@@ -322,7 +322,7 @@ impl BinClassifier {
         }
     }
 
-    /// The front normal in the engine's winding (`nav_math::winding::front_normal`, ADR 0450), flipped with `flip_winding`.
+    /// The front normal in the engine's winding (`nav_math::winding::front_normal`, ADR 0463), flipped with `flip_winding`.
     pub fn is_walkable_in(&self, bin: i32, a: Float3, b: Float3, c: Float3) -> bool {
         let mut nrm = nav_math::winding::front_normal(a, b, c);
         let len = nrm.length();

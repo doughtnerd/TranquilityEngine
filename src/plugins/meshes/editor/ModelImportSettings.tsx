@@ -153,7 +153,7 @@ const OCCLUDER_CHOICES: readonly { value: OccluderSetting; label: string; title:
 const percent = (n: number) => `${Math.round(n * 1000) / 10}%`;
 
 /**
- * Generated LOD levels (ADR 0446 §1, §7): the "Generate LODs" switch, the level rows and options, the occluder choice,
+ * Generated LOD levels (ADR 0459 §1, §7): the "Generate LODs" switch, the level rows and options, the occluder choice,
  * and, once the model has loaded, what each level reached.
  */
 function ModelLodRows(props: { path: string; lod: LodSettings | null; occluder: OccluderSetting; dirty: boolean; readOnly: string | null; onLod: (lod: LodSettings | null) => void; onOccluder: (o: OccluderSetting) => void }) {
@@ -182,7 +182,7 @@ function ModelLodRows(props: { path: string; lod: LodSettings | null; occluder: 
   );
   return (
     <>
-      <label class="import-row" title="Generate simpler copies of each mesh when the model is imported, for an LODGroup to draw from far away (ADR 0446)">
+      <label class="import-row" title="Generate simpler copies of each mesh when the model is imported, for an LODGroup to draw from far away (ADR 0459)">
         <span>Generate LODs</span>
         <input type="checkbox" aria-label="Generate LODs" checked={lod !== null} disabled={locked} onChange={(e) => props.onLod(setGenerate(lod, (e.currentTarget as HTMLInputElement).checked))} />
       </label>
@@ -240,7 +240,7 @@ function ModelLodRows(props: { path: string; lod: LodSettings | null; occluder: 
           </label>
         </>
       )}
-      <label class="import-row" title="The stand-in occlusion culling rasterises for this model (ADR 0447)">
+      <label class="import-row" title="The stand-in occlusion culling rasterises for this model (ADR 0460)">
         <span>Occluder</span>
         <select aria-label="Occluder" value={props.occluder} disabled={locked} onChange={(e) => props.onOccluder((e.currentTarget as HTMLSelectElement).value as OccluderSetting)}>
           {OCCLUDER_CHOICES.map((c) => (

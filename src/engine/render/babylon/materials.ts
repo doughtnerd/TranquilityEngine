@@ -1,6 +1,6 @@
 /**
  * Babylon materials and meshes built from the engine's renderer-neutral data (ADR 0043, 0044, 0075):
- * material assets as PBR materials, model geometry as shared vertex buffers (ADR 0446 §1), model surfaces as PBR materials.
+ * material assets as PBR materials, model geometry as shared vertex buffers (ADR 0459 §1), model surfaces as PBR materials.
  * Shared by the World renderer (`BabylonRenderer.ts`) and the editor's preview renderers
  * (`previews/`), so a material looks the same in the scene, the Inspector and a thumbnail.
  */
@@ -66,7 +66,7 @@ export function linear(c: Color): Color3 {
 }
 
 /**
- * One model mesh's vertex streams on the GPU (ADR 0446 §1): one Babylon `VertexBuffer` per stream, shared by every
+ * One model mesh's vertex streams on the GPU (ADR 0459 §1): one Babylon `VertexBuffer` per stream, shared by every
  * Babylon mesh drawing the model mesh or one of its levels (the levels share LOD0's vertex arrays), each mesh with
  * its own `Geometry` and index buffer. Never one `Geometry` across meshes: thin instances attach their matrices to
  * the `Geometry`, so every source would draw the last one's (`spikes/lod-apply/` §2.4).
@@ -451,7 +451,7 @@ export function modelSubMeshes(src: ModelMesh, mesh: Mesh): void {
 /** A Babylon mesh of a model mesh's renderer-neutral geometry (no material yet). */
 export function meshOf(scene: Scene, name: string, src: ModelMesh): Mesh {
   const mesh = new Mesh(name, scene);
-  // The model mesh's shared vertex buffers (ADR 0446 §1) and an index buffer of its own, in a `Geometry` of its own.
+  // The model mesh's shared vertex buffers (ADR 0459 §1) and an index buffer of its own, in a `Geometry` of its own.
   const shared = acquireVertices(scene, src);
   for (const b of shared.buffers) mesh.setVerticesBuffer(b, false, shared.vertices);
   mesh.setIndices(src.data.indices as IndicesArray, shared.vertices, false);

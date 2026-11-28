@@ -3,7 +3,7 @@ import { inLiveWorld } from "./liveWorld";
 import { noise3, orientOutward, sphereForTris, toObj } from "./render-bench/geom";
 import { captureView, pixelsChanged, steadyView, type ViewCapture } from "./viewCapture";
 
-// The LOD crossfade, seen in pixels (ADR 0446 §4). A group with `fade: "crossfade"` and a long `fadeDuration` changes level
+// The LOD crossfade, seen in pixels (ADR 0459 §4). A group with `fade: "crossfade"` and a long `fadeDuration` changes level
 // while the camera stands still (its `levels` are rewritten through the public component API); the game view is captured
 // while the fade runs. The dither draws the outgoing and the incoming level in complementary pixels, so the object must
 // have no holes: its silhouette (the pixels that differ from the same view without the rock) stays about as large as it is

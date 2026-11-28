@@ -1,4 +1,4 @@
-//! Occluder triangle setup with the ADR 0447 §3 conservativeness rules: depth pushed back by the error, coverage shrink,
+//! Occluder triangle setup with the ADR 0460 §3 conservativeness rules: depth pushed back by the error, coverage shrink,
 //! the near-distance skip and the width test. Perspective cameras only. The geometry path mirrors `occ::cull::setup_tri`
 //! (same clip order, same edge setup) so that with every rule off the depth buffer is bit-identical to the spike's.
 use crate::data::{Occluder, Standin};

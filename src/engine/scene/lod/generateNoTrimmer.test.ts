@@ -1,4 +1,4 @@
-// ADR 0447 §3: where the stand-in trimming module can't load, LOD generation still makes the levels but no occluder
+// ADR 0460 §3: where the stand-in trimming module can't load, LOD generation still makes the levels but no occluder
 // stand-in (an untrimmed one isn't conservative), and says so once. The module's loader is mocked to fail.
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_LOD_SETTINGS } from "./types";

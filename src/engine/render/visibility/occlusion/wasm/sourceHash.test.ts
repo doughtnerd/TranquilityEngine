@@ -1,4 +1,4 @@
-// ADR 0447 (after 0370 and 0157): the committed myco_visibility_bg.wasm and myco_visibility_editor_bg.wasm must match their
+// ADR 0460 (after 0370 and 0157): the committed myco_visibility_bg.wasm and myco_visibility_editor_bg.wasm must match their
 // Rust sources. This test recomputes the source hash of native/visibility/ with node:crypto, by the rule in
 // native/visibility/crates/vis-wasm/source_hash.rs, and compares it with both hash.json files and with the hash each wasm
 // embeds (read through its glue's `source_hash`). Skipped when native/visibility is absent (an exported project, a package).

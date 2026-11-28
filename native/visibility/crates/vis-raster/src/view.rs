@@ -1,4 +1,4 @@
-//! The camera of one occlusion view, validated at the boundary (ADR 0447 section 1: NaN and zero-scale matrices are
+//! The camera of one occlusion view, validated at the boundary (ADR 0460 section 1: NaN and zero-scale matrices are
 //! rejected inside the core).
 
 /// Why a view was refused.
@@ -12,7 +12,7 @@ pub enum Reject {
     Singular,
 }
 
-/// A perspective view. Orthographic views are not supported in v1 (ADR 0447 section 4 turns them off by default); the
+/// A perspective view. Orthographic views are not supported in v1 (ADR 0460 section 4 turns them off by default); the
 /// caller leaves them unculled.
 #[derive(Clone, Debug)]
 pub struct View {

@@ -1,4 +1,4 @@
-//! ADR 0447 section 3, "The safety gate is a tolerance": on a reduced deterministic subset of the safety spike's
+//! ADR 0460 section 3, "The safety gate is a tolerance": on a reduced deterministic subset of the safety spike's
 //! adversarial scenes (hollow buildings with windows and doorways, a camera beside and inside one, thin and low walls,
 //! a heightfield), the decided rules leave no false occlusion of 16 pixels or more at 1080p against an exact reference
 //! (the original meshes at 1920x1080, each occludee's silhouette tested pixel by pixel).
@@ -27,7 +27,7 @@ fn no_false_occlusion_of_16_pixels_at_1080p() {
                 scene.name, w, h, total, dropped, t.in_frustum, t.oracle_hidden, t.agreed, 100.0 * t.kept(), t.false_any, t.false_ge16
             );
             if (w, h) == (256, 128) {
-                // the gate (ADR 0447: "no false occlusion may be 16 pixels or larger at 1080p")
+                // the gate (ADR 0460: "no false occlusion may be 16 pixels or larger at 1080p")
                 assert_eq!(
                     t.false_ge16, 0,
                     "{} at {}x{}: a false occlusion of 16 or more pixels",

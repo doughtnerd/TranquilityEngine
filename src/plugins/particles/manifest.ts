@@ -7,6 +7,10 @@ export const particlesManifest: PluginManifest = {
   description: "Particle effects, their sub-graphs and custom blocks, the Particle Graph and the ParticleSystem component.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
+  // Where the Add Component menu lists its Components.
+  componentCategories: {
+    Rendering: ["engine.ParticleSystem"],
+  },
   // Drawing only (particles are cosmetic and never replicated): the dedicated server skips it.
   server: false,
 };

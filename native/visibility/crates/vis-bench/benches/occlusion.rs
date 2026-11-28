@@ -1,4 +1,4 @@
-//! Criterion benches of one occlusion view over the spike's workloads (ADR 0447 section 0's cost figures). The frame's
+//! Criterion benches of one occlusion view over the spike's workloads (ADR 0460 section 0's cost figures). The frame's
 //! inputs are built once per camera position (outside the timing), as the engine's selection step hands them over.
 use criterion::{criterion_group, criterion_main, Criterion};
 use vis_bench::Workload;

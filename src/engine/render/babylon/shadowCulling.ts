@@ -4,7 +4,7 @@
  * inside its four sides and nearer the light than its far side. The near side isn't tested: with depth
  * clamping a caster between the light and the box still shadows it.
  *
- * ADR 0446 §3: a caster that stands for many (a thin batch's casters) is handed to an expander, which
+ * ADR 0459 §3: a caster that stands for many (a thin batch's casters) is handed to an expander, which
  * replaces it with that cascade's own mesh holding only the instances that reach the cascade (per-cascade compaction).
  */
 import { BoundingBox } from "@babylonjs/core/Culling/boundingBox.js";
@@ -17,7 +17,7 @@ import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 export type CustomRenderList = (layer: number, list: readonly AbstractMesh[], length: number) => AbstractMesh[] | null;
 
 /**
- * Casters that stand for many (ADR 0446 §3): `expand` gets one of the shadow map's casters, and when it is one of its
+ * Casters that stand for many (ADR 0459 §3): `expand` gets one of the shadow map's casters, and when it is one of its
  * own, appends what cascade `layer` of caster list `list` draws instead (nothing when no instance reaches it) and
  * returns true; false leaves the caster to the box test.
  */

@@ -7,7 +7,7 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import type { Container } from "@babylonjs/gui/2D/controls/container.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, Input, UIButton, UIText } from "../../myco";
-import { UIPointer } from "./uiPointer";
+import { UIPointer, pointerTargetAt } from "./uiPointer";
 import { World } from "../core/World";
 import { UICore } from "../ui/UICore";
 import { BabylonUI } from "../render/babylon/ui";
@@ -195,7 +195,7 @@ describe("atomic inline boxes (ADR 0432)", () => {
     const button = byId(ui, "b", UIButton);
     const seen: string[] = [];
     ui.query("#t")!.on("click", (e) => seen.push(`p ${e.target === ui.query("#b") ? "from button" : "?"}`));
-    expect(pointer.core.hitTest(pointer.centreOf(button).x, pointer.centreOf(button).y)).toBe(button);
+    expect(pointerTargetAt(pointer.core, pointer.centreOf(button).x, pointer.centreOf(button).y)).toBe(button);
     pointer.click(button);
     engine.step(DT);
     engine.step(DT);

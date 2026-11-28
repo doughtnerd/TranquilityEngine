@@ -13,7 +13,7 @@
  * file) instead of capturing, and blend with a neighbour near its box's faces (`lookup`'s `blend`,
  * drawn by `probeBlend.ts`).
  *
- * ADR 0446 §3: a capture draws what a selection for the probe's own view chose (`captures`, `probeView`, and the
+ * ADR 0459 §3: a capture draws what a selection for the probe's own view chose (`captures`, `probeView`, and the
  * lists `capture` takes): levels by distance from the probe at its face resolution, nothing hidden, no crossfade.
  */
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
@@ -32,7 +32,7 @@ import { Assets } from "../../scene/Assets";
 import { blendProbes, PROBE_RESOLUTION, type BlendBox } from "../probeBoxes";
 import type { VisibilityView } from "../visibility/types";
 
-/** A capture this frame (ADR 0446 §3): its view's key, the probe's position and its face resolution. */
+/** A capture this frame (ADR 0459 §3): its view's key, the probe's position and its face resolution. */
 export interface ProbeCapture {
   readonly key: string;
   readonly position: readonly [number, number, number];
@@ -44,7 +44,7 @@ const ALL_ROUND = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0,
 const NO_PROJECTION = new Float32Array(16);
 
 /**
- * @internal A probe capture's visibility view (ADR 0446 §3): at the probe's position, a 90° face of its resolution, so
+ * @internal A probe capture's visibility view (ADR 0459 §3): at the probe's position, a 90° face of its resolution, so
  * levels follow distance as a cube face sees them; every direction inside; not persistent (no hysteresis), no occlusion.
  */
 export function probeView(c: ProbeCapture): VisibilityView {
@@ -243,7 +243,7 @@ export class BabylonProbes {
     return CreateEnvTextureAsync(texture, { imageType: "image/png" });
   }
 
-  /** The captures this frame renders (after `sync`), for their selections (ADR 0446 §3). */
+  /** The captures this frame renders (after `sync`), for their selections (ADR 0459 §3). */
   captures(): ProbeCapture[] {
     const out: ProbeCapture[] = [];
     for (const e of this.entries.values()) {
@@ -256,7 +256,7 @@ export class BabylonProbes {
 
   /**
    * Render this frame's captures; call before the frame graph runs, with the camera that draws the view. `lists`
-   * gives a capture's own render list by its key (ADR 0446 §3), or null for the scene's meshes `sync` was given.
+   * gives a capture's own render list by its key (ADR 0459 §3), or null for the scene's meshes `sync` was given.
    */
   capture(camera: Camera | null, lists?: (key: string) => AbstractMesh[] | null): void {
     if (!this.toRender.length) return;

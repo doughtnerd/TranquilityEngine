@@ -158,7 +158,7 @@ describe("model import handedness (ADR 0164)", () => {
     }
   });
 
-  it("keys baked copies by facing and reads only the current version (5 since ADR 0446)", async () => {
+  it("keys baked copies by facing and reads only the current version (5 since ADR 0459)", async () => {
     useArrow();
     const data = await loadModel("models/arrow.gltf");
     const forward = { scale: 1, upAxis: "y" as const, normals: "import" as const, facing: "forward" as const };

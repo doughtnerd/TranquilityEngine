@@ -113,9 +113,12 @@ export class Input {
   }
 
   /**
-   * True when the pointer is over interactable UI (a `UIButton` or `UIInputField`, ADR 0069). That
-   * frame's mouse-button presses go to the UI: `getMouseButtonDown` reports false for them, and
-   * `getMouseButton` and `getMouseButtonUp` stay false for them until they're released.
+   * True when the pointer is over UI that stops it: any element whose `raycastTarget` is on (text,
+   * images, buttons, input fields, and panels that draw a background or border; ADR 0069, 0385), not
+   * only interactable UI. That frame's mouse-button presses go to the UI: `getMouseButtonDown`
+   * reports false for them, and `getMouseButton` and `getMouseButtonUp` stay false for them until
+   * they're released. It says where presses go, not whether the pointer is over the game: aiming by
+   * hover can ignore it, and HUD elements that shouldn't block presses turn `raycastTarget` off.
    */
   static get pointerOverUI(): boolean {
     return live() && devices.pointerOverUI;

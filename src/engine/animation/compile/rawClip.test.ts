@@ -9,7 +9,7 @@ import { emptyAnimSource, type AnimSource } from "../animSource";
 import { readAnimationHeader, type ClipInfo } from "../binaryHeader";
 import { evalCurve } from "../../core/curve";
 import type { CurveSampler } from "./curveKeys";
-import { compileRawClip, frameCount, rootMotionAxes, usesBones, type ClipSkeleton } from "./rawClip";
+import { compileRawClip, rootMotionAxes, usesBones, type ClipSkeleton } from "./rawClip";
 
 const SKELETON: ClipSkeleton = {
   names: ["Root", "Hips", "Spine"],
@@ -111,8 +111,6 @@ describe("raw clips (myco.anim@1 raw form)", () => {
 
   it("are deterministic, and say what the compile needs", () => {
     expect(compileRawClip(clip(), SKELETON, "", sampler).bytes).toEqual(compileRawClip(clip(), SKELETON, "", sampler).bytes);
-    expect(frameCount(0.8, 30)).toBe(25);
-    expect(frameCount(0, 30)).toBe(1);
     expect(usesBones(clip())).toBe(true);
     expect(usesBones({ ...clip(), tracks: [] })).toBe(false);
     expect(rootMotionAxes({ bone: "Root", axes: ["x", "z", "yaw"], bakeIntoPose: false })).toBe(13);

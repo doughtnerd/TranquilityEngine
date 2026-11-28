@@ -1,6 +1,8 @@
 /**
  * Quad batches on Babylon (ADR 0136, 0418): the backend half of `QuadBatchHost`. Each batch is one mesh. Like sprites,
- * quads are layered 2D quads: `layeredQuads.ts` gives them their place in the draw order (ADR 0014, 0186), and the 2D
+ * quads are layered 2D quads: each batch works out its place in the draw order from the sorting layer, order in layer and
+ * sort point its feature gives (`drawPlace`: y-sorted layers, unknown layers; ADR 0440, 0445) and reports it for picking;
+ * `layeredQuads.ts` puts the mesh there (ADR 0014, 0186), and the 2D
  * materials (`materials2D.ts`) their material, from the batch's texture, material asset, sorting layer, blend, mask and
  * tint: shared by batches asking for the same, lit by the sorting layer's 2D lights or not, replaced in place when the
  * 2D lighting changes. Knows nothing of tiles or bones: the features (tiles, 2D lines and decals, skinned sprites with
@@ -10,6 +12,11 @@
  * A deforming mesh (`setTriangles`) whose material has a normal map gets a 2D tangent per vertex, worked out here from
  * its positions and UVs (`tangents2D`) each time it moves, so the normals follow its bones or its line; quads
  * (`setQuads`) turn their normal map by the batch's matrix.
+ *
+ * A lone draw (ADR 0450: a 9-sliced, tiled, graph-shaded or editor sprite) is a batch too, made with `own`: its material is
+ * never shared, so a tint that changes every frame (a fading sprite) changes it in place instead of asking for another.
+ * The host is also where the layered 2D draws that aren't batches (batched sprites' instances, 2D particles) get their
+ * place (`place`), so one formula and one unknown-layer warning cover every 2D draw.
  *
  * Camera listeners (ADR 0444) run from the scene's before-camera-render observable, which the renderer's frame graph
  * raises before each camera's render pass. A matrix set from a listener freezes the mesh's world matrix to a copy for that
@@ -26,8 +33,9 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../scene/Assets";
 import { authoredSize } from "../../scene/importSettings";
 import { tangents2D } from "../lights2D/tangents";
-import type { QuadBatch, QuadBatchHost, QuadBlend, QuadMask } from "../quadBatches";
-import { placeInLayer, withinOrder } from "./layeredQuads";
+import type { QuadBatch, QuadBatchHost, QuadBlend, QuadMask, QuadTint } from "../quadBatches";
+import { drawPlace, isYSorted, type DrawSort, type YSortSettings } from "../sortOrder";
+import { placeInLayer } from "./layeredQuads";
 import { TANGENT_2D_ATTRIBUTE } from "./lights2DMaterial";
 import type { BabylonMaterials2D, Material2D, Material2DRequest, Tint2D } from "./materials2D";
 
@@ -38,11 +46,19 @@ export interface BabylonQuadBatchDeps {
   readonly materials2D: BabylonMaterials2D;
   /** A loaded colour texture, or null (and it starts loading): `onReady` runs once it has (the material library's `texture`). */
   texture(path: string, onReady: () => void): Texture | null;
-  /** Draw order for a sorting layer and order in layer (`sortingOrder`, warning once about an unknown layer). */
-  sortOrder(sortingLayer: string, orderInLayer: number): number;
+  /** The project's sorting layers and which are y-sorted (`render` of the project settings): what places are worked out on. */
+  sortSettings(): YSortSettings;
+  /** A batch was given a sorting layer the project doesn't list (the renderer warns once per layer). */
+  unknownLayer(sortingLayer: string): void;
 }
 
 const HEX = /^#[0-9a-f]{6}$/i;
+
+/** @internal How a batch is made (`BabylonQuadBatches.createBatch`). */
+export interface QuadBatchOptions {
+  /** A lone draw's batch (ADR 0450): its material is its own, never shared, and a new tint changes it in place. */
+  readonly own?: boolean;
+}
 
 /** @internal */
 export class BabylonQuadBatches implements QuadBatchHost {
@@ -92,8 +108,8 @@ export class BabylonQuadBatches implements QuadBatchHost {
     this.perCamera.add(b);
   }
 
-  createBatch(name: string): QuadBatch {
-    const b = new BabylonQuadBatch(this, name);
+  createBatch(name: string, options?: QuadBatchOptions): QuadBatch {
+    const b = new BabylonQuadBatch(this, name, !!options?.own);
     this.batches.add(b);
     return b;
   }
@@ -120,9 +136,17 @@ export class BabylonQuadBatches implements QuadBatchHost {
     return this.deps.materials2D;
   }
 
-  /** @internal */
-  sortOrder(sortingLayer: string, orderInLayer: number): number {
-    return this.deps.sortOrder(sortingLayer, orderInLayer);
+  ySorted(sortingLayer: string): boolean {
+    return isYSorted(this.deps.sortSettings(), sortingLayer);
+  }
+
+  /**
+   * @internal The place of a layered 2D draw (ADR 0440, 0445, 0450): `drawPlace` on the project's sorting layers, warning
+   * once about an unknown layer. What every batch's `place` is, and what a 2D draw that isn't a batch (a batched sprite's
+   * instance, a 2D particle system) takes, so they all sort, pick and warn by one rule.
+   */
+  place(sortingLayer: string, orderInLayer: number, sort?: DrawSort): number {
+    return drawPlace(this.deps.sortSettings(), sortingLayer, orderInLayer, sort ?? {}, (l) => this.deps.unknownLayer(l));
   }
 
   /** @internal */
@@ -152,8 +176,6 @@ class BabylonQuadBatch implements QuadBatch {
   /** Built by `setTriangles`: a deforming mesh, which gets 2D tangents when its material has a normal map. */
   private deforming = false;
   private tint: Tint2D = { r: 1, g: 1, b: 1, a: 1 };
-  private color = "#ffffff";
-  private opacity = 1;
   private blend: QuadBlend = "alpha";
   private mask: QuadMask | null = null;
   /** Its 2D material asset, or null: plain and unlit. */
@@ -167,13 +189,16 @@ class BabylonQuadBatch implements QuadBatch {
   /** The matrix for the camera drawing now (ADR 0444), set from a camera listener; the mesh holds it while `cameraHeld`. */
   private readonly cameraMatrix = Matrix.Identity();
   private cameraHeld = false;
-  private order = 0;
+  /** Its place in the draw order (`drawPlace`), what `place` reports. */
+  private _place = 0;
   private visible = false;
   private disposed = false;
 
   constructor(
     private readonly owner: BabylonQuadBatches,
     private readonly name: string,
+    /** A lone draw's batch: its material is never shared (`QuadBatchOptions.own`). */
+    private readonly own: boolean,
   ) {}
 
   setQuads(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void {
@@ -228,7 +253,7 @@ class BabylonQuadBatch implements QuadBatch {
       data.applyToMesh(mesh, updatable);
       this.applyColors(mesh, colors);
       mesh.alwaysSelectAsActiveMesh = true;
-      placeInLayer(mesh, this.order);
+      placeInLayer(mesh, this._place);
       mesh.freezeWorldMatrix(this.cameraHeld ? this.cameraMatrix : this.matrix);
       mesh.setEnabled(this.visible);
       this.mesh = mesh;
@@ -298,10 +323,14 @@ class BabylonQuadBatch implements QuadBatch {
     this.mesh?.freezeWorldMatrix(this.matrix);
   }
 
-  setOrder(sortingLayer: string, orderInLayer: number, within = 0): void {
+  get place(): number {
+    return this._place;
+  }
+
+  setOrder(sortingLayer: string, orderInLayer: number, sort?: DrawSort): void {
     if (this.disposed) return;
-    this.order = this.owner.sortOrder(sortingLayer, orderInLayer) + withinOrder(within);
-    if (this.mesh) placeInLayer(this.mesh, this.order);
+    this._place = this.owner.place(sortingLayer, orderInLayer, sort);
+    if (this.mesh) placeInLayer(this.mesh, this._place);
     if (sortingLayer === this.sortingLayer) return;
     this.sortingLayer = sortingLayer;
     if (this.materialAsset !== null) this.updateMaterial(); // lit by that layer's 2D lights
@@ -313,12 +342,12 @@ class BabylonQuadBatch implements QuadBatch {
     this.updateMaterial(); // asked again each time: a material or graph edited since, or a sidecar's maps, take effect
   }
 
-  setTint(color: string, opacity: number): void {
-    if (this.disposed || (color === this.color && opacity === this.opacity)) return;
-    this.color = color;
-    this.opacity = opacity;
-    const c = parseHex(color);
-    this.tint = { r: c[0], g: c[1], b: c[2], a: opacity };
+  setTint(color: QuadTint, opacity: number): void {
+    if (this.disposed) return;
+    const [r, g, b] = typeof color === "string" ? parseHex(color) : [color.r, color.g, color.b];
+    const t = this.tint;
+    if (r === t.r && g === t.g && b === t.b && opacity === t.a) return;
+    this.tint = { r, g, b, a: opacity };
     this.updateMaterial();
   }
 
@@ -340,7 +369,7 @@ class BabylonQuadBatch implements QuadBatch {
   }
 
   private request(): Material2DRequest {
-    return { texture: this.texture, material: this.materialAsset, sortingLayer: this.sortingLayer, blend: this.blend, mask: this.mask, tint: this.tint };
+    return { texture: this.texture, material: this.materialAsset, sortingLayer: this.sortingLayer, blend: this.blend, mask: this.mask, tint: this.tint, own: this.own };
   }
 
   private updateMaterial(): void {

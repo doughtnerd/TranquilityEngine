@@ -1,4 +1,4 @@
-// ADR 0447 §3: import-time hole trimming of occluder stand-ins, driven through `loadStandInTrimmer` (the occlusion core's
+// ADR 0460 §3: import-time hole trimming of occluder stand-ins, driven through `loadStandInTrimmer` (the occlusion core's
 // editor module, loaded from disk in Node).
 import { describe, expect, it } from "vitest";
 import { loadStandInTrimmer } from "./standInTrim";
@@ -35,7 +35,7 @@ function expectConsistentNeighbors(neighbors: Uint32Array, triangles: number): v
   }
 }
 
-describe("stand-in hole trimming (ADR 0447 §3)", () => {
+describe("stand-in hole trimming (ADR 0460 §3)", () => {
   // A wall with a doorway (cells 8..11 × 0..7 of 20: 0.2 wide, 0.4 high, far wider than 0.5 % of the diagonal).
   const N = 20;
   const door = (x: number, y: number) => x >= 8 && x < 12 && y < 8;

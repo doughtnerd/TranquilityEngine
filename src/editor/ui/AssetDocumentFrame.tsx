@@ -3,6 +3,7 @@
 // `data-asset-document`, so focus inside makes the document the active history (ADR 0145); the head with the kind,
 // the file name and Undo / Redo; the problems list; the read-only notice; and writing a pending coalesced edit when
 // it closes. The kind supplies only its body.
+import { fileName } from "../projectPath";
 import type { ComponentChildren } from "preact";
 import { useEffect } from "preact/hooks";
 import type { AssetDocument } from "../assetDocuments";
@@ -23,7 +24,6 @@ export interface AssetDocumentFrameProps {
   readonly children?: ComponentChildren;
 }
 
-const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /** One asset document's editor frame (see the file comment). */
 export function AssetDocumentFrame(props: AssetDocumentFrameProps) {

@@ -1,4 +1,4 @@
-# ADR 0447 (after 0370): the occlusion core builds with one pinned stable toolchain and the wasm target, so the
+# ADR 0460 (after 0370): the occlusion core builds with one pinned stable toolchain and the wasm target, so the
 # committed wasm and its source hash are reproducible. 1.97.0 is the toolchain this was first built with;
 # native/anim pins its own channel, and the two are independent.
 [toolchain]

@@ -24,7 +24,7 @@ type Vec3 = readonly [number, number, number];
  */
 export function modelNodeTemplates(modelPath: string, position: Vec3 = [0, 0, 0]): NodeTemplate[] {
   const templates = modelNodes(modelPath, position);
-  // ADR 0446 §2: a model with generated levels is placed with an automatic LODGroup (empty `levels`) on its root, in the
+  // ADR 0459 §2: a model with generated levels is placed with an automatic LODGroup (empty `levels`) on its root, in the
   // same undoable add. A prefab made from the placed nodes keeps it, as it keeps any component.
   if (hasLodLevels(modelPath)) templates[0].components!.push({ type: "engine.LODGroup", data: {} });
   return templates;

@@ -1,11 +1,11 @@
-// The model import panel's LOD section as pure state (ADR 0446 §1, §7): the draft's `lod` edited as the rows change,
+// The model import panel's LOD section as pure state (ADR 0459 §1, §7): the draft's `lod` edited as the rows change,
 // and what the loaded model reports about each level it generated.
 import { DEFAULT_LOD_SETTINGS, type LodLevelSettings, type LodSettings } from "../../../engine/scene/lod/types";
 import type { ModelMesh } from "../../../engine/scene/models";
 
-/** Levels a model can have beyond LOD0 in the panel (ADR 0446 §1: add and remove up to four). */
+/** Levels a model can have beyond LOD0 in the panel (ADR 0459 §1: add and remove up to four). */
 export const MAX_LOD_LEVELS = 4;
-/** A mesh at least this big gets the "Generate LODs" hint (ADR 0446 §1). */
+/** A mesh at least this big gets the "Generate LODs" hint (ADR 0459 §1). */
 export const SUGGEST_LOD_TRIANGLES = 2000;
 /** A level that reached more than this many times its target ratio stopped short. */
 export const SHORT_FACTOR = 1.2;

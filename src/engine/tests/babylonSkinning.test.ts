@@ -81,7 +81,7 @@ function bumpyObj(rows = 16, columns = 24): string {
   return `${lines.join("\n")}\n`;
 }
 
-describe("skinned LOD levels per view (ADR 0446 §6)", () => {
+describe("skinned LOD levels per view (ADR 0459 §6)", () => {
   const ROCK = "asset:models/rock.obj";
   let engine: Engine;
   let world: World;

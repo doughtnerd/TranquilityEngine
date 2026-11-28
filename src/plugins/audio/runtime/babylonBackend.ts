@@ -38,7 +38,7 @@ import { KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_VOICES, NO_NAME, k
 import { generatorParamIndex } from "../../../engine/audio/generators/catalogue";
 import { mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioGenerators, type GeneratorSource, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicLifecycleEvent, type MusicGroupRequest, type AudioOutputDevice, type BackendKeyframe, type MusicBackendDebug, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type ShapedParams, type VoiceSpatialOptions } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
-import { DistanceEffect, SendCurveTable, SpatialViewFlag, type ListenerFrame, type SpatialPassHost, type SpatialVoiceView, type ZonePass } from "./core/spatial";
+import { DEFAULT_ROLLOFF_ATTENUATION, DistanceEffect, SendCurveTable, SpatialViewFlag, type ListenerFrame, type SpatialPassHost, type SpatialVoiceView, type ZonePass } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
 import { OcclusionPass } from "./core/occlusion";
 import { encodeVoiceId, voiceGen, voiceIndex } from "./core/ids";
@@ -749,7 +749,7 @@ class BabylonVoice implements AudioVoice {
 }
 
 /** The settings of a sound given a position but no attenuation: the engine's defaults for `AudioSource`. */
-const DEFAULT_ATTENUATION: Attenuation = { minDistance: 1, maxDistance: 100, rolloff: "inverse" };
+const DEFAULT_ATTENUATION: Attenuation = DEFAULT_ROLLOFF_ATTENUATION;
 
 /**
  * ADR 0162 (K4, F1): the fallback's `SpatialVoiceView`. Slots are `SPATIAL_SLOTS` long; a voice takes one at play and gives

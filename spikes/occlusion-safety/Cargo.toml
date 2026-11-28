@@ -1,4 +1,4 @@
-# Occlusion-safety spike: ADR 0447 §3 safety gate. Own workspace; depends on the occlusion-raster spike's `occ` crate by path
+# Occlusion-safety spike: ADR 0460 §3 safety gate. Own workspace; depends on the occlusion-raster spike's `occ` crate by path
 # (read-only use: its rasteriser, depth buffer, camera and occludee test).
 [workspace]
 resolver = "2"

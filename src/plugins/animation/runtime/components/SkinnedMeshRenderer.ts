@@ -46,7 +46,7 @@ export class SkinnedMeshRenderer extends Component implements LodMember {
   receiveShadows = true;
 
   /**
-   * Its part in occlusion culling (ADR 0447 §3). A skinned mesh is an occludee only: it is hidden when something covers
+   * Its part in occlusion culling (ADR 0460 §3). A skinned mesh is an occludee only: it is hidden when something covers
    * it and never hides anything, whatever this says; "none" always draws it.
    */
   @field(String, {
@@ -55,7 +55,7 @@ export class SkinnedMeshRenderer extends Component implements LodMember {
   })
   occlusion: OcclusionRole = "auto";
 
-  /** @internal The LOD0 model meshes it draws (ADR 0446 §2: what an `LODGroup` controls), or null while its model loads. */
+  /** @internal The LOD0 model meshes it draws (ADR 0459 §2: what an `LODGroup` controls), or null while its model loads. */
   lodMeshes(): readonly ModelMesh[] | null {
     return meshesIfLoaded(this.mesh);
   }

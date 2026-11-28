@@ -19,6 +19,9 @@ export { isResimulating, predictedTick } from "./net/prediction";
 export { Component, GameBehavior, Waits, type LifecycleHooks, type PhysicsCollision, type PhysicsControllerHit } from "./core/Component";
 export { Time } from "./core/Time";
 export { Color, Mathf, Plane, Quaternion, Ray, Vector2, Vector3, DEG2RAD, RAD2DEG, type RotationOrder, type Vec2Like, type Vec3Like, type Vec2Input, type Vec3Input } from "./core/math";
+// The engine curve, which a tween's `ease` may be: `[[x, y], [x, y, "smooth"], …]` over 0–1; and the colour gradient.
+export type { Curve } from "./core/curve";
+export { evaluateGradient, type Gradient } from "./core/gradient";
 export { ASSET_FIELD_KINDS, AssetRef, PlainObject, behavior, component, field, getComponentClass, getComponentId, getComponentOptions, getFields, registerComponent, registerComponentAlias, resolveComponentId, type AssetFieldKind, type KnownAssetFieldKind, type ComponentOptions, type FieldChoice, type FieldChoices, type FieldOptions, type FieldType, type ListFieldType } from "./core/registry";
 export { defineBuffer, defineComponent, f32, i32, u8, type BufferDef, type ColumnArray, type Columns, type DataComponentDef, type DataView, type ScalarType, type Schema } from "./core/data";
 export { defineSystem, type Phase, type Row, type SystemContext, type SystemDef } from "./core/systems";
@@ -38,9 +41,8 @@ export { Assets, type AssetSource } from "./scene/Assets";
 export type { ImportPlatform, ImportSettings, PlatformOverrides, TextureCompression, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
-// ParticleSystem (and ParticlePropertyValue) are the Particles plugin's public exports (`src/myco.ts`, ADR 0135);
-// SpriteRenderer, MeshRenderer, Environment, PostProcessing, WaterSurface and the UI Components
-// are the Sprites, Meshes, Environment, Post-processing, UI and Water plugins' (ADR 0140).
+// Render Components defined here but owned by a plugin (SpriteRenderer, ParticleSystem, WaterSurface…) are exported
+// by that plugin's `runtime/public.ts`, not here.
 export { Camera, Fog, LODGroup, Light, ReflectionProbe, type FogMode, type LightType, type LodFade, type MaterialPropertyValue, type ProbeRefresh, type Projection } from "./render/components";
 export type { LodVisibility, OcclusionRole } from "./render/visibility/types";
 export { CameraViewOffset } from "./render/cameraViewOffset";

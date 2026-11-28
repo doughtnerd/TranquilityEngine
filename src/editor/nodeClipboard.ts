@@ -4,7 +4,8 @@
 // Copies also go on the system clipboard as tagged JSON (ADR 0226), read back by a paste.
 import { readClipboard } from "./clipboard";
 import type { NodeEntry, SceneDocument } from "./document";
-import { deleteNodes, isInsidePrefab } from "./hierarchyEdit";
+import { deleteNodes } from "./hierarchyEdit";
+import { isInnerKey } from "./nodeKey";
 import { hierarchyEntries, topmostKeys } from "./selectionModel";
 import type { OpenScene } from "./state";
 import { undoStep } from "./undoStep";
@@ -65,7 +66,7 @@ export function nodeClipboardFromText(text: string): NodeClipboard | null {
 /** Why the nodes at `keys` can't be copied, or null if they can. */
 export function whyNotCopyable(doc: SceneDocument, keys: readonly string[]): string | null {
   if (keys.length === 0) return "select something first";
-  if (keys.some(isInsidePrefab)) return "nodes inside a prefab are copied in the prefab";
+  if (keys.some(isInnerKey)) return "nodes inside a prefab are copied in the prefab";
   if (keys.some((k) => !doc.has(k))) return "that node is gone";
   return null;
 }

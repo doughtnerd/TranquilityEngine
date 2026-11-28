@@ -5,7 +5,7 @@
  * geometry generators (MIT, © three.js authors) and produce the same uvs, indices and groups, with positions and normals mirrored
  * in z (ADR 0164): three.js is right-handed, so mirrored, each mesh looks as it did there, and its triangles wind as Babylon's
  * left-handed builders wind theirs (right-hand-rule normal inward), the renderer's default front face: the engine's one
- * winding (`winding.ts`, ADR 0450).
+ * winding (`winding.ts`, ADR 0463).
  */
 import type { MeshData } from "./models";
 

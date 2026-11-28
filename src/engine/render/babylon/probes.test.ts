@@ -1,4 +1,4 @@
-// ADR 0446 §3: each probe capture has a view of its own (selected by distance from the probe at its face resolution,
+// ADR 0459 §3: each probe capture has a view of its own (selected by distance from the probe at its face resolution,
 // nothing off-screen) and draws the render list chosen for it.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
@@ -9,7 +9,7 @@ import { Assets, Engine, GameObject, Graphics, ReflectionProbe, SceneManager, Ve
 import { PROBE_RESOLUTION } from "../probeBoxes";
 import { BabylonProbes, probeView } from "./probes";
 
-describe("probe captures' own selections (ADR 0446 §3)", () => {
+describe("probe captures' own selections (ADR 0459 §3)", () => {
   let engine: Engine;
   let babylon: NullEngine;
   let scene: Scene;

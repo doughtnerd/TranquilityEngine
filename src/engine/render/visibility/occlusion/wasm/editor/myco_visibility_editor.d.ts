@@ -50,7 +50,7 @@ export function source_hash(): string;
 
 /**
  * Trims `standin` against `original`. Triangles whose error exceeds `trim_fraction` of the original's diagonal are
- * dropped (ADR 0447: 0.005); `spacing_fraction` is the sampling lattice's spacing (0.005).
+ * dropped (ADR 0460: 0.005); `spacing_fraction` is the sampling lattice's spacing (0.005).
  */
 export function trim_standin(original_positions: Float32Array | number[], original_indices: Uint32Array | number[], standin_positions: Float32Array | number[], standin_indices: Uint32Array | number[], trim_fraction: number, spacing_fraction: number): TrimResult;
 

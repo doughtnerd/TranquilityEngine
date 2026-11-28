@@ -191,7 +191,7 @@ pub fn surface_bin_layout(settings_json: &str) -> String {
     .to_string()
 }
 
-/// The bin each triangle (`positions`: 9 floats each, world space, in the engine's winding, ADR 0450) bakes
+/// The bin each triangle (`positions`: 9 floats each, world space, in the engine's winding, ADR 0463) bakes
 /// into with these settings, by the bake's own classification; -1 where it isn't walkable in any bin.
 pub fn classify_surface_bins(settings_json: &str, positions: &[f32]) -> Result<Vec<i32>, String> {
     let setup = NavigationSettingsDto::parse(settings_json)?.to_setup();
@@ -254,7 +254,7 @@ mod tests {
         assert_eq!(bins.len(), 6, "floor, four walls, ceiling: {layout}");
         assert_eq!(bins[1]["name"], "Ring 1·1");
 
-        // A floor (normal up), a wall facing +x (normal +x), a ceiling (normal down), in the engine's winding (ADR 0450).
+        // A floor (normal up), a wall facing +x (normal +x), a ceiling (normal down), in the engine's winding (ADR 0463).
         let tris = [
             0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, // up
             0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, // +x

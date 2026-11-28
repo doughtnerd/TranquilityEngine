@@ -1,5 +1,5 @@
 /**
- * Dithered LOD crossfade on Babylon (ADR 0446 §4, `spikes/lod-crossfade/`): `MycoLodFadePlugin` discards a 4×4
+ * Dithered LOD crossfade on Babylon (ADR 0459 §4, `spikes/lod-crossfade/`): `MycoLodFadePlugin` discards a 4×4
  * screen-space ordered-dither share of a fading mesh's pixels, so two levels drawn together cover each pixel once.
  *
  * - **Where it goes:** on a material the first time a fade batch drawing it is made (`addLodFade`), after the graph
@@ -101,7 +101,7 @@ const WGSL_FRAGMENT_BEGIN = `
 #endif
 `;
 
-/** @internal The dithered LOD crossfade plugin (ADR 0446 §4). */
+/** @internal The dithered LOD crossfade plugin (ADR 0459 §4). */
 export class MycoLodFadePlugin extends MycoMaterialPlugin {
   constructor(material: Material) {
     super(material, PLUGIN_NAME, PRIORITY, new LodFadeDefines());

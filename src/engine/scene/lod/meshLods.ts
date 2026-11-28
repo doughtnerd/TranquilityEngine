@@ -1,5 +1,5 @@
 /**
- * A model mesh with its generated levels (ADR 0446 §1): the generator's arrays turned back into `ModelMesh`es, and a
+ * A model mesh with its generated levels (ADR 0459 §1): the generator's arrays turned back into `ModelMesh`es, and a
  * mesh's streams handed to the generator. Both a fresh import (`models.ts`) and a baked file (`bakedModel.ts`) build
  * their levels here, so the two give the same shapes. Internal: not public API.
  *
@@ -35,7 +35,7 @@ export function lodSourceOf(mesh: ModelMesh): LodSource {
 export interface StoredLods {
   /** Levels 1… (LOD0 is the mesh's own `data`). */
   readonly levels: readonly { readonly indices: Uint32Array; readonly groups: readonly LodGroup[]; readonly error: number; readonly triangles: number }[];
-  /** The hole-trimmed stand-in with its per-triangle errors and neighbours (ADR 0447 §3). */
+  /** The hole-trimmed stand-in with its per-triangle errors and neighbours (ADR 0460 §3). */
   readonly occluder: OccluderStandIn | null;
   readonly bounds: Bounds6;
   readonly pixelError: number;

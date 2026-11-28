@@ -5,6 +5,7 @@
 // from the time since the start.
 // Pure.
 import { compileTempoMap, positionToTicks, ticksToSeconds } from "../../../../engine/audio/musicGrid";
+import { meterParts } from "../../../../engine/audio/meter";
 import { MUSIC_TICKS_PER_BEAT } from "../../../../engine/audio/musicPosition";
 import type { PlaybackRules, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { clipLoops, clipPlan, loopBand } from "./clipGeometry";
@@ -169,9 +170,7 @@ export interface HeardPosition {
  */
 export function playheadFromMusic(tempo: SequenceSettings["tempo"], at: HeardPosition | null | undefined): number | null {
   if (!tempo || !at || !(tempo.bpm > 0) || !Number.isFinite(at.bar) || !Number.isFinite(at.beat)) return null;
-  const [bpb, unit] = tempo.meter.split("/").map(Number);
-  if (!(bpb! > 0) || !(unit! > 0)) return null;
-  const map = compileTempoMap([{ at: "1:1:0", bpm: tempo.bpm, beatsPerBar: bpb!, beatUnit: unit! }], 0);
+  const map = compileTempoMap([{ at: "1:1:0", bpm: tempo.bpm, ...meterParts(tempo.meter) }], 0);
   const s = ticksToSeconds(map, positionToTicks(map, at.bar, at.beat, 0) + Math.max(0, at.beatFraction) * MUSIC_TICKS_PER_BEAT);
   return Number.isFinite(s) ? Math.max(0, s) : null;
 }

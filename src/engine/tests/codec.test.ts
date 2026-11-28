@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { f32, i32, u8 } from "../core/data";
-import { createBitReader, createBitWriter, recordCodec, type BitReader, type BitWriter, type RecordCodec } from "../net/codec";
+import { createBitReader, createBitWriter, fieldSignature, recordCodec, schemaSignature, type BitReader, type BitWriter, type RecordCodec } from "../net/codec";
 
 function roundTrip(write: (w: BitWriter) => void, read: (r: BitReader) => void): Uint8Array {
   const w = createBitWriter();
@@ -340,5 +340,40 @@ describe("recordCodec", () => {
     expect(r.remaining).toBeLessThan(8);
     // Much smaller than 50 full records (4 × 4 + up to 5 + 2 bytes each).
     expect(bytes.length).toBeLessThan(50 * 12);
+  });
+
+  // ADR 0457: the codec owns how each field type travels; callers ask it instead of repeating the rules.
+  it("coerces values as the receiver reads them, the same as a round trip", () => {
+    const codec = recordCodec(Transform, { x: { quantize: 0.01 } });
+    const values = { x: 1.23456, y: 0.1, z: -0, hp: 2.7, team: 257 };
+    const coerced = codec.coerce(values);
+    expect(coerced).toEqual(codec.read(createBitReader(encode(codec, values))));
+    expect(coerced).toEqual({ x: Math.fround(1.23), y: Math.fround(0.1), z: -0, hp: 2, team: 1 });
+    expect(codec.coerceAt(0, 1.23456)).toBe(Math.fround(1.23));
+    expect(codec.quantizeAt(0)).toBe(0.01);
+    expect(codec.quantizeAt(1)).toBe(0);
+    expect(() => codec.coerceAt(0, 1e30)).toThrow(/out of range/); // as write would
+  });
+
+  it("says whether two values encode the same, as a delta write decides", () => {
+    const codec = recordCodec(Transform, { x: { quantize: 0.01 } });
+    expect(codec.sameAt(0, 1.001, 1.004)).toBe(true); // the same step
+    expect(codec.sameAt(0, 1.001, 1.006)).toBe(false);
+    expect(codec.sameAt(1, 0.1, Math.fround(0.1))).toBe(true); // the same float32
+    expect(codec.sameAt(1, 0, -0)).toBe(false); // different bits
+    expect(codec.sameAt(3, 2.2, 2.9)).toBe(true); // i32
+    expect(codec.sameAt(4, 1, 257)).toBe(true); // u8
+    expect(() => codec.sameAt(0, NaN, 0)).toThrow(/out of range/); // as write would
+    const base = { x: 1.001, y: 0.1, z: 0, hp: 2, team: 1 };
+    const next = { x: 1.004, y: Math.fround(0.1), z: 0, hp: 2.9, team: 257 };
+    expect(encode(codec, next, base).length).toBe(1); // nothing changed: the mask only
+  });
+
+  it("describes a schema for the handshake in the format RPC and input descriptors carry", () => {
+    // These strings travel in the hello: changing them needs a protocol version bump.
+    expect(recordCodec({ x: f32, y: f32, jump: u8 }, { y: { quantize: 0.5 } }).signature).toBe("x:f32,y:f32~0.5,jump:u8");
+    expect(schemaSignature({ team: u8, name: { kind: "str" } })).toBe("team:u8,name:str");
+    expect(fieldSignature("f32", 0.01)).toBe("f32~0.01");
+    expect(fieldSignature("i32")).toBe("i32");
   });
 });

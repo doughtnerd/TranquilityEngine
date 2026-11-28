@@ -1,6 +1,7 @@
 // The Lights 2D plugin's editor models (ADR 0399, 0413, 0414): the gizmo's lines, handles and drags, outline point editing,
 // the 2D Lighting settings edits, which fields each light type shows, and the lit preview.
 import { describe, expect, it } from "vitest";
+import { projectSettingsIssues } from "../../../engine/core/settings";
 import { tangents2D } from "../../../engine/render/lights2D/tangents";
 import { dragLight, lightHandles, lightLines, type LightGizmoFields } from "./lightGizmoModel";
 import { hiddenLightFields, LIGHT_FIELDS } from "./lightFields";
@@ -113,5 +114,14 @@ describe("2D tangents (normal maps on deforming meshes)", () => {
     // Turned 90° counter-clockwise: +U now points up.
     const turned = [0, 0, 0, 0, 1, 0, -1, 1, 0, -1, 0, 0];
     expect([...tangents2D(turned, quad.uv, quad.i)].map((v) => Math.round(v * 1000) / 1000)).toEqual([0, 1, 0, 1, 0, 1, 0, 1]);
+  });
+});
+
+describe("the 2D Lighting section's problems", () => {
+  it("the Project panel reports a bad lighting2D value once: the section declares no problems of its own (ADR 0446)", () => {
+    const issues = (d: Record<string, unknown>) => projectSettingsIssues(d, { sections: [{ id: "lighting2D", keys: ["lighting2D"] }] }).problems.filter((p) => p.field.startsWith("lighting2D"));
+    expect(issues({})).toEqual([]);
+    expect(issues({ lighting2D: { shadowLayers: ["A", "A"] } }).map((p) => p.message)).toEqual(['lighting2D.shadowLayers: "A" is listed twice; skipped.']);
+    expect(issues({ lighting2D: { bogus: 1 } })).toHaveLength(1);
   });
 });

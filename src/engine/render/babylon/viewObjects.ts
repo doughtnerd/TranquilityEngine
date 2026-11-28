@@ -1,5 +1,5 @@
 /**
- * Each view's object list (ADR 0446 §3): what the view's cull task (and so its geometry pass and render pass) or a
+ * Each view's object list (ADR 0459 §3): what the view's cull task (and so its geometry pass and render pass) or a
  * probe capture draws. Features that choose their drawables per view (`BabylonFeature.prepareViews`) own some of the
  * scene's meshes; a view lists every other mesh of the scene, as it always did (sprites, particles' meshes, water, UI
  * planes, the editor's helpers), plus what each such feature chose for it.

@@ -5,6 +5,7 @@
 // keyboard is one octave from the generator's pitch; the computer keys follow the common DAW layout (A W S E D F T G
 // Y H U J K for C up to the next C). The gate only says what to do; the screen does it through the Studio's runtime.
 // Pure.
+import { semitonesToRatio } from "../../../../engine/audio/decibels";
 
 /** What holds a voice: Space, the Play button, an on-screen key (`note:<st>`) or a computer key (`key:<letter>`). */
 export type GateSource = string;
@@ -25,14 +26,11 @@ export interface GateStep {
 
 export const EMPTY_GATE: GateState = { held: new Map() };
 
-/** A pitch ratio from semitones. */
-export const pitchRatio = (semitones: number): number => 2 ** (semitones / 12);
-
 /** `source` pressed, playing at `semitones` above the generator's pitch: a voice starts unless it holds one already. */
 export function gatePress(s: GateState, source: GateSource, semitones = 0): GateStep {
   if (s.held.has(source)) return { state: s, commands: [] };
   const held = new Map(s.held).set(source, semitones);
-  return { state: { held }, commands: [{ kind: "start", source, semitones, pitch: pitchRatio(semitones) }] };
+  return { state: { held }, commands: [{ kind: "start", source, semitones, pitch: semitonesToRatio(semitones) }] };
 }
 
 /** `source` let go: its voice keys off. */
@@ -77,5 +75,5 @@ export function octaveKeys(): readonly { readonly semitones: number; readonly na
 /** The frequency a key plays from a generator's `hz` ("+7 st · 659 Hz"), for its tooltip. */
 export function keyPitchText(semitones: number, hz: number | null): string {
   const st = semitones === 0 ? "root" : `+${semitones} st`;
-  return hz === null ? st : `${st} · ${Math.round(hz * pitchRatio(semitones))} Hz`;
+  return hz === null ? st : `${st} · ${Math.round(hz * semitonesToRatio(semitones))} Hz`;
 }

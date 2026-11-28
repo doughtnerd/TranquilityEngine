@@ -4,9 +4,10 @@
 //
 // Pure; no DOM.
 import type { AnimSource } from "../../../../engine/animation/animSource";
+import { fieldPathValue } from "../../../../engine/animation/bindingPath";
 import type { Binding } from "../../../../engine/animation/tracks";
 import { findTrack } from "./clipEditLogic";
-import { animatedPaths, subValue } from "./fieldTracksLogic";
+import { animatedPaths } from "./fieldTracksLogic";
 
 /** A node under the Animator, as the list reads it. */
 export interface NodeFields {
@@ -35,8 +36,7 @@ export function propertyChoices(clip: AnimSource, nodes: readonly NodeFields[], 
         for (const path of animatedPaths(c.type, f.name)) {
           const binding = { nodePath: node.path, component: c.type, field: path };
           if (findTrack(clip, binding) >= 0) continue;
-          const dot = path.indexOf(".");
-          out.push({ binding, label: `${node.path || rootName} › ${title(c.type)}.${path}`, value: dot < 0 ? f.value : subValue(f.value, path.slice(dot + 1)) });
+          out.push({ binding, label: `${node.path || rootName} › ${title(c.type)}.${path}`, value: fieldPathValue(f.value, path) });
         }
       }
     }
