@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Assets } from "../index";
 import { defaultImportSettings, formatImportSettings, parseImportSettings } from "../scene/importSettings";
 import { colorHex, defaultMaterialSettings, formatMaterial, parseMaterial } from "../scene/material";
-import { loadMeshes, loadModel, meshesIfLoaded, meshTriangles } from "../scene/models";
+import { beginMeshLookups, endMeshLookups, loadMeshes, loadModel, meshesIfLoaded, meshTriangles } from "../scene/models";
 
 const file = (path: string) => readFileSync(new URL(`../../../samples/playground3d/${path}`, import.meta.url));
 const dataUrl = (path: string) => `data:application/octet-stream;base64,${file(path).toString("base64")}`;
@@ -62,6 +62,27 @@ describe("model assets (ADR 0044)", () => {
     expect(meshesIfLoaded("asset:models/missing.obj")).toEqual([]);
     expect(meshesIfLoaded("builtin:sphere")?.[0].name).toBe("sphere");
     expect(meshesIfLoaded("builtin:teapot")).toEqual([]);
+  });
+});
+
+describe("mesh lookup passes", () => {
+  beforeEach(() => useAssets());
+
+  it("answers a reference the same for a whole pass, and reads the sources again after it", async () => {
+    const before = await loadMeshes("asset:models/crate.obj");
+    beginMeshLookups();
+    beginMeshLookups(); // passes nest
+    expect(meshesIfLoaded("asset:models/crate.obj")).toEqual(before);
+    // The model is replaced during the pass (a sidecar written): the pass still answers what it resolved first.
+    Assets.addSource(Assets.fromObject({ "models/crate.obj.meta.json": { format: "myco.import@1", scale: 3 } }));
+    expect(meshesIfLoaded("asset:models/crate.obj")).toEqual(before);
+    endMeshLookups();
+    expect(meshesIfLoaded("asset:models/crate.obj")).toEqual(before); // the inner end doesn't forget
+    endMeshLookups();
+    // After the pass: the new sidecar is seen, the model loads again.
+    expect(meshesIfLoaded("asset:models/crate.obj")).toBeNull();
+    const [scaled] = await loadMeshes("asset:models/crate.obj");
+    expect(bounds(scaled.geometry!)).toEqual({ min: [-1.5, -1.5, -1.5], max: [1.5, 1.5, 1.5] });
   });
 });
 
