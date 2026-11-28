@@ -1,9 +1,9 @@
 # Plugin diagnostics and localisation: goal (design step 1)
 
 Confirmed by the owner on 2026-11-28 (answers below). No record number in this folder's name until the record is written (design step 3).
-Proposed records drafted earlier: [0451](../../decisions/0451-localisation-becomes-a-first-party-plugin-over-a-small-language-core.md)
-(localisation as a plugin) and [0452](../../decisions/0452-recordings-are-made-of-plugin-lanes-and-one-profiler-serves-the-editor-and-the-studio.md)
-(recordings of plugin lanes, one profiler, plugin build steps). This design may revise them.
+Proposed records drafted earlier: [0451](../../decisions/0451-localisation-becomes-a-plugin-behind-a-small-strings-interface-in-the-engine.md)
+(localisation as a plugin) and [0452](../../decisions/0452-plugins-contribute-diagnostics-every-recording-is-a-capture-and-the-profiler-is-a-module-in-the-studio.md)
+(plugin diagnostics, captures, the profiler module). This design may revise them.
 
 ## Goal (owner's words, 2026-11-27, to confirm)
 
