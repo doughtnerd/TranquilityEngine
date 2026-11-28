@@ -1,0 +1,22 @@
+[package]
+name = "vis-wasm"
+description = "Myco occlusion core (ADR 0447): the runtime WebAssembly boundary (setup through wasm-bindgen, per-frame data through raw views over linear memory)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vis-raster.workspace = true
+wasm-bindgen.workspace = true
+
+[build-dependencies]
+sha2.workspace = true
+
+[dev-dependencies]
+# tests/source_hash.rs includes source_hash.rs, as build.rs does.
+sha2.workspace = true

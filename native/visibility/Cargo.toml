@@ -1,0 +1,46 @@
+# Myco's occlusion core (ADR 0447): a CPU software depth buffer in Rust compiled to WebAssembly with simd128, one module
+# instance per page. Built by `npm run build:visibility` (native/visibility/build.mjs) into
+# src/engine/render/visibility/occlusion/wasm/, which is committed, so the engine builds without Rust. Its own
+# workspace; it shares no code with native/nav/ (frozen).
+#
+# Crates (in dependency order):
+#   vis-raster      no_std + alloc: the depth buffer, clipping, the simd128 rasteriser and its scalar reference, the coarse
+#                   min level, the occludee test and the conservativeness rules (ADR 0447 section 3).
+#   vis-trim        import time: per-triangle error of an occluder stand-in against its original, hole trimming,
+#                   the edge-neighbour table (std; never in the runtime module).
+#   vis-wasm        the runtime boundary (setup through wasm-bindgen, per-frame data through raw views over linear memory).
+#   vis-editor-wasm the editor/export module around vis-trim (never shipped in games).
+#   vis-bench       Criterion benches and a smoke timer over a city and a forest workload (never linked into a module).
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+vis-raster = { path = "crates/vis-raster" }
+vis-trim = { path = "crates/vis-trim" }
+# sqrt for the no_std core: core has no f32 maths (floor and ceil are done with casts in the raster setup).
+libm = { version = "0.2", default-features = false }
+# The boundary's glue for setup calls; build.mjs checks wasm-bindgen-cli against this pin.
+wasm-bindgen = "=0.2.130"
+# The embedded source hash (vis-wasm and vis-editor-wasm build scripts only).
+sha2 = { version = "0.10", default-features = false }
+criterion = { version = "0.8", default-features = false }
+
+# No fast-math (rustc has none) and no fused multiply-add anywhere: that is what keeps the scalar reference and the
+# simd path bit-identical (ADR 0447 sections 1 and 3, after 0370).
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+
+# The tests rasterise 1080p references; unoptimised they take minutes.
+[profile.dev]
+opt-level = 2
