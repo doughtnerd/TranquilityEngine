@@ -248,7 +248,7 @@ export class TilemapRenderer implements BabylonFeature {
           }
         }
       }
-      const painters = grid.shape === "square" || ySorted ? null : paintersOrder(le.chunks, grid);
+      const painters = grid.cellUnits || ySorted ? null : paintersOrder(le.chunks, grid);
       for (const [key, ce] of le.chunks) {
         const place = painters?.get(key);
         ce.batches.forEach((be, j) => {
@@ -269,7 +269,7 @@ export class TilemapRenderer implements BabylonFeature {
   private buildChunk(entry: MapEntry, map: Tilemap, li: number, chunk: { cx: number; cy: number; cells: Int32Array }, key: string, grid: TileGrid, ySorted: boolean, time: number | null): ChunkEntry {
     const { cx, cy, cells } = chunk;
     const cellX = (i: number) => cx * CHUNK_SIZE + (i % CHUNK_SIZE), cellY = (i: number) => cy * CHUNK_SIZE + Math.floor(i / CHUNK_SIZE);
-    const square = grid.shape === "square";
+    const square = grid.cellUnits;
     const ts = entry.tileset;
     const idOf = (n: number) => map._tileIdAt(li, n);
     const sortOffsetOf = (id: number) => ts?.tile(id)?.sortOffset ?? 0;
@@ -463,7 +463,7 @@ function nextChange(ce: ChunkEntry, time: number): number {
  */
 function rowSortPoint(grid: TileGrid, x: number, y: number, sortOffset: number): [number, number] {
   const h = grid.params.cellSize.y;
-  if (grid.shape === "square") {
+  if (grid.cellUnits) {
     const box = grid.cellBox(x, y);
     return [box.x + box.w / 2, box.y + sortOffset * h];
   }
