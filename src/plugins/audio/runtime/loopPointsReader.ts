@@ -3,8 +3,10 @@
 // Rust got from symphonia. Pure functions over bytes, no dependencies, and none of them throws on any input.
 // Every result is in sample frames with `end` exclusive (the first frame after the loop), or null when there is no
 // usable loop. Not clamped to the clip length (the caller knows it; the Rust decoder clamps).
-//
-// E4.2 skeleton: bodies are filled by leaf L4.2a.
+// ADR 0463: the WAV side is a thin layer over `engine/audio/sample/wavChunks.ts` (its chunk walk, `smpl` reader,
+// `firstForwardLoop` and `wavSampleRate`); the Ogg comment reader is this module's own.
+
+import { firstForwardLoop, readSmplChunk, walkWavChunks, wavSampleRate } from "../../../engine/audio/sample/wavChunks";
 
 /** A loop region in sample frames; `end` is exclusive. Both are integers in 0..=0xFFFFFFFF. */
 export interface LoopFrames {
@@ -43,19 +45,9 @@ export function readLoopPoints(bytes: Uint8Array): LoopFrames | null {
  * past the end of `bytes` ends the walk (a truncated `smpl` is malformed: null). Only `RIFF` (not `RIFX`/`RF64`).
  */
 export function wavLoopPoints(bytes: Uint8Array): LoopFrames | null {
-  if (bytes.length < 12 || !startsWithAscii(bytes, "RIFF") || !matchesAscii(bytes, 8, "WAVE")) return null;
-  let pos = 12;
-  for (;;) {
-    if (pos + 8 > bytes.length) return null;
-    const isSmpl = matchesAscii(bytes, pos, "smpl");
-    const size = readU32(bytes, pos + 4);
-    const bodyStart = pos + 8;
-    const bodyEnd = bodyStart + size;
-    if (bodyEnd > bytes.length) return null;
-    if (isSmpl) return smplLoopPoints(bytes.subarray(bodyStart, bodyEnd));
-    // Odd-sized bodies are followed by one pad byte.
-    pos = bodyEnd + (size % 2);
-  }
+  // `walkWavChunks` stops at a chunk that runs past the end, so a truncated `smpl` is never listed.
+  const smpl = walkWavChunks(bytes)?.chunks.find((c) => c.id === "smpl");
+  return smpl ? smplLoopPoints(smpl.body) : null;
 }
 
 /**
@@ -66,23 +58,10 @@ export function wavLoopPoints(bytes: Uint8Array): LoopFrames | null {
  * read at most numSampleLoops records. Body under 36 bytes or no qualifying record: null.
  */
 export function smplLoopPoints(body: Uint8Array): LoopFrames | null {
-  if (body.length < 36) return null;
-  const count = readU32(body, 28);
-  if (count === 0) return null;
-  // Whole records only: a trailing partial record is never read.
-  const available = Math.floor((body.length - 36) / 24);
-  const records = Math.min(count, available);
-  for (let i = 0; i < records; i++) {
-    const at = 36 + i * 24;
-    const type = readU32(body, at + 4);
-    const start = readU32(body, at + 8);
-    const end = readU32(body, at + 12);
-    if (type !== 0 || end < start) continue;
-    const exclusiveEnd = end + 1;
-    if (exclusiveEnd > MAX_U32) continue;
-    return { start, end: exclusiveEnd };
-  }
-  return null;
+  // `readSmplChunk` reads whole records only, at most numSampleLoops, skipping end < start and an end at the u32 limit.
+  const smpl = readSmplChunk(body);
+  const loop = smpl ? firstForwardLoop(smpl.loops) : null;
+  return loop ? { start: loop.start, end: loop.end } : null;
 }
 
 /**
@@ -282,8 +261,9 @@ function parseCommentHeader(packet: Uint8Array, prefixLength: number): CommentPa
 }
 
 /**
- * The sample rate a file states, which its loop points are counted in: a WAV's `fmt ` chunk, an Ogg Vorbis
- * identification header, 48000 for Opus (whose loop comments are in 48 kHz samples). Null when unknown. Never throws.
+ * The sample rate a file states, which its loop points are counted in: a WAV's `fmt ` chunk (`wavSampleRate`, ADR 0463),
+ * an Ogg Vorbis identification header, 48000 for Opus (whose loop comments are in 48 kHz samples). Null when unknown.
+ * Never throws.
  */
 export function fileSampleRate(bytes: Uint8Array): number | null {
   const u32 = (at: number): number => ((bytes[at] ?? 0) | ((bytes[at + 1] ?? 0) << 8) | ((bytes[at + 2] ?? 0) << 16) | ((bytes[at + 3] ?? 0) << 24)) >>> 0;
@@ -292,15 +272,8 @@ export function fileSampleRate(bytes: Uint8Array): number | null {
     for (let i = 0; i < text.length; i++) if (bytes[at + i] !== text.charCodeAt(i)) return false;
     return true;
   };
-  if (tag(0, "RIFF") && tag(8, "WAVE")) {
-    let pos = 12;
-    while (pos + 8 <= bytes.length) {
-      const size = u32(pos + 4);
-      if (tag(pos, "fmt ")) return size >= 8 && pos + 20 <= bytes.length ? u32(pos + 12) || null : null;
-      pos += 8 + size + (size & 1);
-    }
-    return null;
-  }
+  const walk = walkWavChunks(bytes);
+  if (walk) return wavSampleRate(walk);
   if (tag(0, "OggS") && bytes.length > 27) {
     const body = 27 + (bytes[26] ?? 0); // the first packet starts after the lacing table
     if (tag(body, "OpusHead")) return 48000;

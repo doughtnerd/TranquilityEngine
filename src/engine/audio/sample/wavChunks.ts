@@ -237,6 +237,28 @@ export function walkWavChunks(bytes: Uint8Array): RiffWalk | null {
   return { chunks, overrun };
 }
 
+/**
+ * ADR 0463: the sample rate a walked WAV file states: the first `fmt ` chunk's rate (u32 LE at body offset 4), when that
+ * chunk is whole and at least 14 bytes (format, channels, rate, byte rate, block align) and the rate is above 0; else
+ * null. A `fmt ` chunk that runs past the end of the file is not read.
+ */
+export function wavSampleRate(walk: RiffWalk): number | null {
+  const fmt = walk.chunks.find((c) => c.id === "fmt ");
+  if (!fmt || fmt.body.length < 14) return null;
+  const rate = u32At(fmt.body, 4);
+  return rate > 0 ? rate : null;
+}
+
+/**
+ * ADR 0463: the loop a plain clip plays from its file's `smpl` loops: the first forward (type 0) loop in record order,
+ * or null. The same rule as the native decoder (`audio-decode` `smpl_loop_points`) and the Babylon fallback
+ * (`loopPointsReader.ts`). The Studio's sample import keeps every loop (a sample block plays several); this is the one
+ * loop a clip without a sample block loops.
+ */
+export function firstForwardLoop(loops: readonly WavLoop[]): WavLoop | null {
+  return loops.find((l) => l.type === 0) ?? null;
+}
+
 const isAdtl = (c: RiffChunk): boolean => c.id === "LIST" && c.body.length >= 4 && matchesAscii(c.body, 0, "adtl");
 
 // --- chunk bodies ----------------------------------------------------------------------------------------------------
@@ -378,12 +400,11 @@ export function readWavMetadata(bytes: Uint8Array): WavMetadata {
     const fmt = first("fmt ");
     const data = first("data");
     const dataBytes = data ? data.size : walk.overrun?.id === "data" ? walk.overrun.available : undefined;
+    out.sampleRate = wavSampleRate(walk);
     if (fmt && fmt.body.length >= 14) {
       const channels = u16At(fmt.body, 2);
-      const rate = u32At(fmt.body, 4);
       const blockAlign = u16At(fmt.body, 12);
       if (channels > 0) out.channels = channels;
-      if (rate > 0) out.sampleRate = rate;
       if (blockAlign > 0 && dataBytes !== undefined) out.frames = Math.floor(dataBytes / blockAlign);
     }
     const cue = first("cue ");
