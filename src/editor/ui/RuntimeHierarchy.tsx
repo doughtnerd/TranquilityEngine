@@ -13,6 +13,7 @@ import { HierarchyMenu, hierarchyMenu } from "./HierarchyMenu";
 import { TreeView, renameRow, type TreeRow } from "./TreeView";
 import "./playdebug.css";
 import { EmptyState } from "./EmptyState";
+import { DragGhost } from "./AssetDragOverlay";
 
 /** The live tree refreshes this often (not every frame). */
 const REFRESH_MS = 300;
@@ -271,9 +272,9 @@ export function RuntimeHierarchy() {
       {top.length === 0 && <EmptyState compact title="This World has no nodes." />}
       <TreeView tree={LIVE_TREE} label="Live nodes" class="tree live-tree" rows={top} owner={owner} />
       {drag && (
-        <div class={`asset-drag-ghost${drag.problem ? " invalid" : ""}`} style={{ left: `${drag.x + 14}px`, top: `${drag.y + 14}px` }} role="status">
+        <DragGhost x={drag.x} y={drag.y} invalid={!!drag.problem}>
           {drag.problem ? `${drag.node.name}: ${drag.problem}` : `Move ${drag.node.name} ${drag.on === -1 ? "to the top level" : `into ${nodeOfEntity(world, drag.on!)?.name ?? "it"}`}`}
-        </div>
+        </DragGhost>
       )}
       <HierarchyMenu owner={owner} />
     </div>

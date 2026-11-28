@@ -339,7 +339,7 @@ export class BabylonRenderer {
     return {
       scene: this.scene,
       overlay,
-      canvas: this.engine.getRenderingCanvas() as HTMLCanvasElement,
+      canvasSize: () => this.canvasSize(),
       settings: this.settings,
       get editor() {
         return self.policy.sceneView;
@@ -393,6 +393,13 @@ export class BabylonRenderer {
   /** The surface's device-pixel grid (ADR 0154), which features (the UI) read: the same answer the camera's maths reads. */
   setPixelGrid(source: () => PixelGrid): void {
     this.gridSource = source;
+  }
+
+  /** The canvas's CSS size: the surface's cached one (no layout read), else (a thumbnail renderer's) the canvas's own. */
+  private canvasSize(): { readonly width: number; readonly height: number } {
+    if (this.gridSource) return this.gridSource();
+    const canvas = this.engine.getRenderingCanvas();
+    return { width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 };
   }
 
   /** The view's device-pixel grid: the surface's, else (a thumbnail renderer's) the canvas's size, or the reference resolution, at the pixel ratio `resize` applied. */

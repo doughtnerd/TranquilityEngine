@@ -92,11 +92,16 @@ export function createGameView(container: HTMLElement): GameView {
 
     const tiled = tiles.size > 0;
     container.classList.toggle("tiled", tiled);
+    // Runs every frame, so it writes only what changed: any DOM write dirties the page's styles,
+    // and the next layout read (the renderer measures its canvas each frame) pays to restyle the editor.
     const show = (tile: Tile, s: WorldViewState | null) => {
-      tile.element.dataset.world = s?.name ?? "";
-      tile.label.textContent = s?.name ?? "";
-      tile.element.classList.toggle("has-input", tiled && !!s?.takesInput);
-      tile.element.setAttribute("aria-label", s ? `World ${s.name}${s.takesInput ? " (has input)" : ""}` : "Game");
+      const name = s?.name ?? "";
+      const label = s ? `World ${s.name}${s.takesInput ? " (has input)" : ""}` : "Game";
+      if (tile.element.dataset.world !== name) tile.element.dataset.world = name;
+      if (tile.label.textContent !== name) tile.label.textContent = name;
+      const hasInput = tiled && !!s?.takesInput;
+      if (tile.element.classList.contains("has-input") !== hasInput) tile.element.classList.toggle("has-input", hasInput);
+      if (tile.element.getAttribute("aria-label") !== label) tile.element.setAttribute("aria-label", label);
     };
     show(mainTile, main);
     for (const [name, tile] of tiles) show(tile, states.find((s) => s.name === name)!);

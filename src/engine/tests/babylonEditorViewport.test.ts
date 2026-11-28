@@ -36,7 +36,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     const ctx = {
       scene,
       overlay: layer,
-      canvas: { clientWidth: 800, clientHeight: 600 },
+      canvasSize: () => ({ width: 800, height: 600 }),
       settings: World.require().settings,
       editor,
       world: () => World.require(),

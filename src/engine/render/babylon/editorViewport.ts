@@ -133,7 +133,8 @@ export class BabylonEditorViewport implements ViewportAdapter {
   // --- Picking and canvas queries ----------------------------------------------------------------
 
   private hasSize(): boolean {
-    return this.ctx.canvas.clientWidth > 0 && this.ctx.canvas.clientHeight > 0;
+    const size = this.ctx.canvasSize();
+    return size.width > 0 && size.height > 0;
   }
 
   /** The camera that draws the view (the first in depth order), once there is a World. */
