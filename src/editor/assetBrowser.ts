@@ -12,9 +12,6 @@ export { assetKind, canAddToScene, opensInCodePanel, type AssetKind, type CoreAs
 /** Files the Assets panel lists: everything but import settings sidecars, which travel with their files. */
 export const listedFiles = (files: readonly string[]) => files.filter((f) => !isSidecarPath(f));
 
-/** Project paths are read by `projectPath.ts` (ADR 0454); these re-exports serve modules not yet moved to it. */
-export { fileName, folderOf } from "./projectPath";
-
 /** Files whose name contains every word of `query` (case-insensitive), across all folders. */
 function searchFiles(files: readonly string[], query: string): string[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);

@@ -5,7 +5,7 @@ import { useContext } from "preact/hooks";
 import { Panel, usePanelValue } from "./panel/Panel";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { addAssets, whyNotAddAssets } from "../addAssets";
-import { fileName, folderOf } from "../assetBrowser";
+import { fileName, folderOf, parentFolder } from "../projectPath";
 import {
   assetCommandLabel,
   assetCreateItems,
@@ -37,7 +37,6 @@ import {
   AssetBrowserView,
   defaultAssetBrowser,
   lastAssetBrowser,
-  parentFolder,
   renamingAsset,
   selectedAssets,
   type Modifiers,

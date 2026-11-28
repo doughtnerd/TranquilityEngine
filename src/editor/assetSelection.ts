@@ -93,9 +93,6 @@ export const openFolder = (path: string): void => lastAssetBrowser.peek().openFo
 export const goBack = (): void => lastAssetBrowser.peek().goBack();
 export const goForward = (): void => lastAssetBrowser.peek().goForward();
 
-/** A folder's parent is read by `projectPath.ts` (ADR 0454); this re-export serves Assets.tsx until it moves to it. */
-export { parentFolder } from "./projectPath";
-
 const isIn = (entry: string, folder: string) => entryFolder(entry) === folder;
 
 /** Forget every Assets panel's history, and the selection (another project opened). */

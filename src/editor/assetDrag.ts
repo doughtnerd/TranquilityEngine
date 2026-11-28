@@ -11,7 +11,7 @@ import { isInnerKey, parseKey } from "./nodeKey";
 import { addAssets, whyNotAddAssets, type AssetAddTarget } from "./addAssets";
 import { dropRowName, hierarchyDropAt, type HierarchyDrop } from "./hierarchyDrop";
 import { whyNotInsert } from "./nodeInsertion";
-import { fileName } from "./assetBrowser";
+import { fileName } from "./projectPath";
 import { dropTargetFor, setDraggedAssets, type AssetDropPoint, type AssetDropTargetSpec } from "./assetDropTargets";
 import { entryPath, isSliceEntry } from "./assetEntry";
 import { moveAssetsTo, whyNotMovable, whyNotMoveTarget } from "./assetOps";
