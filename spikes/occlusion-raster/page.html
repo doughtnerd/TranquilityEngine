@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>occ bench</title></head>
+<body>
+<script type="module">
+  // Headless Chromium side of run.mjs: runs the same job list through harness.mjs. Served cross-origin isolated so
+  // performance.now() has 5 us resolution.
+  import { runJobs } from "./harness.mjs";
+  try {
+    const kind = new URLSearchParams(location.search).get("kind");
+    const jobs = await (await fetch("/jobs.json")).json();
+    const bytes = await (await fetch(`/occ_${kind}.wasm`)).arrayBuffer();
+    const list = jobs.filter((j) => (kind === "simd" ? true : j.simd === 0 && j.kind === "main"));
+    window.__result = await runJobs(bytes, list, (id) => console.log("[occ] " + id));
+  } catch (e) {
+    window.__error = String(e && e.stack || e);
+  }
+  window.__done = true;
+</script>
+</body></html>
