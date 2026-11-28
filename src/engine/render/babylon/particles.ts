@@ -14,7 +14,7 @@ import { projectAssets } from "../../scene/particleSubgraphs";
 import type { ParticleSystem } from "../components";
 import type { ParticleStats } from "../RenderSurface";
 import type { ParticlePreview } from "../renderPolicy";
-import { srgbToLinear } from "../particles/gpu/kernelMath";
+import { srgbToLinear } from "../../core/colorSpace";
 import { EffectPlayer, EffectResources, type EffectHost, type PlayState } from "./effectPlayer";
 import type { BabylonMaterials2D } from "./materials2D";
 import type { ParticleLayer2D } from "./particleDraw";

@@ -5,7 +5,8 @@
 // `kernelOps.test.ts` runs every operator's and every set's KSL as JavaScript (the shader source module's
 // third output, ADR 0250) against its closure, as `kernelSteps.test.ts` does for the steps (ADR 0251).
 import { ATTR, LOCAL_WIDTH, widthOf, type KExpr, type KLocal, type KOp, type KStmt } from "../../../scene/particleKernel";
-import { hsv, srgbToLinear, valueNoise } from "./kernelMath";
+import { srgbToLinear } from "../../../core/colorSpace";
+import { hsv, valueNoise } from "./kernelMath";
 import type { StepFrame } from "./kernelSteps";
 
 export type OpExpr = Extract<KExpr, { k: "op" }>;

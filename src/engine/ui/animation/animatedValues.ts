@@ -14,6 +14,7 @@
  * - Anything else (choices, booleans, strings, assets) is discrete: it jumps at the midpoint of the eased progress,
  *   except `display` to or from `none` (ADR 0432, as CSS animates it): the value that isn't `none` shows throughout.
  */
+import { linearToSrgb, srgbToLinear } from "../../core/colorSpace";
 import { Color } from "../../core/math";
 import { interpolateAffine, matrixText, parseMatrixText } from "../transform2d";
 
@@ -54,8 +55,6 @@ export interface AnimatedPair {
   readonly discrete: boolean;
 }
 
-const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-const linearToSrgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(Math.max(c, 0), 1 / 2.4) - 0.055);
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 /** Lengths write back without float noise. */
 const tidy = (n: number) => {
@@ -117,7 +116,7 @@ export function animatedPair(field: string, kind: AnimatedKind, a: unknown, b: u
         from: lin(x),
         to: lin(y),
         discrete: false,
-        decode: (f, at) => new Color(clamp01(linearToSrgb(f[at])), clamp01(linearToSrgb(f[at + 1])), clamp01(linearToSrgb(f[at + 2])), clamp01(f[at + 3])),
+        decode: (f, at) => new Color(linearToSrgb(f[at]), linearToSrgb(f[at + 1]), linearToSrgb(f[at + 2]), clamp01(f[at + 3])),
       };
     }
     case "matrix": {

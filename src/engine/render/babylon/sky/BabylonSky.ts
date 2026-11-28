@@ -29,6 +29,7 @@ import { Vector3, Vector4 } from "@babylonjs/core/Maths/math.vector.js";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
+import { srgbToLinear } from "../../../core/colorSpace";
 import type { World } from "../../../core/World";
 import { Assets } from "../../../scene/Assets";
 import { readSkyAsset, worldSkyPath, type LiveSky } from "../../../sky/skyAsset";
@@ -334,7 +335,7 @@ export class BabylonSky implements BabylonFeature {
     this.settings = settings;
     this.time = time;
     const fog = world._componentsOfType(Fog).find((f) => f.isActiveAndEnabled) ?? null;
-    const fogFrame = fog ? { color: srgbToLinear(fog.color.r, fog.color.g, fog.color.b), amount: fog.affectsSkybox ? Math.min(1, Math.max(0, fog.skyboxFog)) : 0 } : null;
+    const fogFrame = fog ? { color: [srgbToLinear(fog.color.r), srgbToLinear(fog.color.g), srgbToLinear(fog.color.b)] as [number, number, number], amount: fog.affectsSkybox ? Math.min(1, Math.max(0, fog.skyboxFog)) : 0 } : null;
 
     this.drawable ??= new SkyDrawable(this.scene);
     this.drawable.mesh.setEnabled(env.skybox);
@@ -449,10 +450,4 @@ export class BabylonSky implements BabylonFeature {
     for (const r of this.retiring) r.texture.dispose();
     this.retiring.length = 0;
   }
-}
-
-/** sRGB 0–1 to linear. */
-function srgbToLinear(r: number, g: number, b: number): [number, number, number] {
-  const f = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-  return [f(r), f(g), f(b)];
 }

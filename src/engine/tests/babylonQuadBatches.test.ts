@@ -1,5 +1,6 @@
 // ADR 0103, 0136: tilemap chunks drawn through the Babylon quad batches, on NullEngine with a fake texture loader.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
+import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
@@ -167,6 +168,25 @@ describe("Babylon quad batches per camera (ADR 0444: tile parallax follows each 
     expect(seen).toHaveLength(2);
     expect(drawnAt).toEqual([5, 5]);
     expect(mesh.getWorldMatrix().m[12]).toBe(5);
+    quads.dispose();
+  });
+});
+
+describe("Babylon quad batch tints read as hex colours (ADR 0461)", () => {
+  it("reads #rrggbbaa as the colour with its alpha times the opacity, not white", () => {
+    const scene = new Scene(new NullEngine());
+    const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false } as unknown as Texture;
+    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortSettings: () => ({ sortingLayers: ["Default"] }), unknownLayer: () => {} });
+    const batch = quads.createBatch("tiles");
+    batch.setVisible(true);
+    batch.setQuads("t.png", new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]), new Float32Array(8), new Uint32Array([0, 1, 2, 0, 2, 3]));
+    batch.setTint("#ff000080", 0.5);
+    const m = quads.meshOf(batch)!.material as PBRMaterial;
+    expect([m.albedoColor.r, m.albedoColor.g, m.albedoColor.b]).toEqual([1, 0, 0]);
+    expect(m.alpha).toBeCloseTo(0.5 * (128 / 255), 6);
+    batch.setTint("#0f0", 1); // the short form too
+    const short = quads.meshOf(batch)!.material as PBRMaterial;
+    expect([short.albedoColor.r, short.albedoColor.g, short.albedoColor.b]).toEqual([0, 1, 0]);
     quads.dispose();
   });
 });

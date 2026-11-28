@@ -3,7 +3,8 @@
  * show. The generic key helpers live in `src/editor/ui/curves/keyList.ts`. No DOM here, so they're tested headless.
  */
 import type { CurveEditKey as Key } from "../../../../editor/sdk";
-import { colorKind, evalGradient, hexColor, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../engine/scene/particles";
+import { formatHex } from "../../../../engine/core/colorSpace";
+import { colorKind, evalGradient, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../engine/scene/particles";
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
 
@@ -40,10 +41,14 @@ export function convertNumber(value: ParticleNumber, kind: ParticleNumberKind): 
   }
 }
 
-const rgb = (hex: string) => hex.slice(0, 7).toLowerCase();
+/** A colour key's `#rrggbb` (its alpha goes to the alpha keys). */
+const rgb = (hex: string) => formatHex(parseHexColor(hex));
 const flatGradient = (hex: string): ParticleGradient => ({ colors: [[0, rgb(hex)], [1, rgb(hex)]], alphas: [[0, parseHexColor(hex)[3]], [1, parseHexColor(hex)[3]]] });
 const copyGradient = (g: ParticleGradient): ParticleGradient => ({ colors: copyKeys(g.colors), alphas: copyKeys(g.alphas) });
-const gradientHex = (g: ParticleGradient, t: number) => hexColor(...evalGradient(g, t));
+const gradientHex = (g: ParticleGradient, t: number) => {
+  const [r, gr, b, a] = evalGradient(g, t);
+  return formatHex([r, gr, b], a);
+};
 
 /** A colour as another kind; gradients to constants take the colour at the start of life. */
 export function convertColor(value: ParticleColor, kind: ParticleColorKind): ParticleColor {

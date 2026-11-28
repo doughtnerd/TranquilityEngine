@@ -9,7 +9,7 @@
  * unknown node, a missing property or a loop is reported, and the input it fed reads its default.
  */
 import type { ShaderLevel } from "../../core/graphics";
-import { Color } from "../../core/math";
+import { parseHex, srgbToLinear } from "../../core/colorSpace";
 import { Assets, normalizeAssetPath } from "../../scene/Assets";
 import { projectFileKind } from "../../scene/projectFiles";
 import { keywordConstant, keywordConstantsWgsl, type ShaderKeyword } from "../../scene/shaderKeywords";
@@ -132,13 +132,10 @@ function floatLiteral(n: number): string {
 const SIZE_TYPE = ["float", "float", "vec2", "vec3", "vec4"] as const;
 const sizeOf = (t: ValueType) => (t === "texture" ? 1 : PORT_SIZE[t]);
 
-/** sRGB component (0–1) to linear. */
-export const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-
-/** A `#rrggbb[aa]` colour as linear `[r, g, b, a]`. */
+/** A hex colour (`#rgb[a]`, `#rrggbb[aa]`, ADR 0461) as linear `[r, g, b, a]`; anything else reads as white. */
 export function linearColor(hex: string): [number, number, number, number] {
-  const c = Color.from(/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(hex) ? hex : "#ffffff");
-  return [srgbToLinear(c.r), srgbToLinear(c.g), srgbToLinear(c.b), c.a];
+  const [r, g, b, a] = parseHex(hex) ?? [1, 1, 1, 1];
+  return [srgbToLinear(r), srgbToLinear(g), srgbToLinear(b), a];
 }
 
 /** Convert an expression between value types: floats fill every component, wider vectors are truncated, narrower ones padded (alpha with 1). */

@@ -74,8 +74,8 @@ export interface QuadBatch {
    */
   setMaterial(material: string | null): void;
   /**
-   * `#rrggbb` (sRGB; any other string reads as white), or sRGB channels 0..1 taken exactly (a sprite's colour, ADR 0450),
-   * and opacity 0..1.
+   * A hex colour (`#rgb[a]`, `#rrggbb[aa]`, sRGB, ADR 0461: its alpha multiplies the opacity; any other string reads as
+   * white), or sRGB channels 0..1 taken exactly (a sprite's colour, ADR 0450), and opacity 0..1.
    */
   setTint(color: QuadTint, opacity: number): void;
   /**

@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDraftText } from "./draftText";
 import { Color } from "../../engine";
+import { hexWithAlpha } from "../colorMath";
 import { openScript } from "../code/codeBuffers";
 import { describeOrigin, originBadge, type FieldOrigin, type FieldSourceRow } from "../uiFieldSources";
 
@@ -99,10 +100,9 @@ function FieldEditor(props: { row: FieldSourceRow; raw: string; onCommit: (raw: 
   }
   if (row.info.type === Color) {
     const c = row.value instanceof Color ? row.value : null;
-    const alpha = c && c.a < 1 ? Math.round(c.a * 255).toString(16).padStart(2, "0") : "";
     return (
       <span class="ui-color-edit">
-        <input type="color" aria-label={`${label} colour`} value={c ? c.toHex() : "#000000"} onChange={(e) => commit(`${(e.currentTarget as HTMLInputElement).value}${alpha}`)} />
+        <input type="color" aria-label={`${label} colour`} value={c ? c.toHex() : "#000000"} onChange={(e) => commit(hexWithAlpha((e.currentTarget as HTMLInputElement).value, c ? c.a : 1))} />
         <DraftInput label={label} class="ui-field-text" value={raw} onCommit={commit} />
       </span>
     );

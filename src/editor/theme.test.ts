@@ -48,6 +48,8 @@ describe("colour maths", () => {
     expect(parseHex("#fff")).toEqual([255, 255, 255]);
     expect(parseHex("19e6e6")).toEqual([25, 230, 230]);
     expect(parseHex("teal")).toBeNull();
+    expect(parseHex("#ffcc0080")).toEqual([255, 204, 0]); // alpha forms parse as the engine's (ADR 0461); was null
+    expect(parseHex("#fc08")).toEqual([255, 204, 0]);
     expect(mix("#000000", "#ffffff", 0.5)).toBe("#808080");
   });
 
@@ -173,6 +175,15 @@ describe("applying a theme", () => {
     const vp = viewportColors(t);
     expect(vp.outline).toBe(0x2ad4d4);
     expect(vp.handle).toBe(0x2ad4d4);
+  });
+
+  it("gives Monaco well-formed hex for short and translucent tokens (ADR 0461)", () => {
+    const t = { ...resolveTheme(presetById("myco-dark")), text: "#ffffff80", accent: "#0f0" };
+    const colors = monacoColors(t);
+    for (const v of Object.values(colors)) expect(v).toMatch(/^#[0-9a-f]{6}([0-9a-f]{2})?$/);
+    expect(colors["editor.foreground"]).toBe("#ffffff80"); // its own alpha kept
+    expect(colors["editor.lineHighlightBackground"]).toBe("#ffffff06"); // 0.5 × 0.05, not "#ffffff800d"
+    expect(colors["editorCursor.foreground"]).toBe("#00ff00");
   });
 
   it("cleans font settings", () => {

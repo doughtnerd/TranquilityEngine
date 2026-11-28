@@ -2,18 +2,22 @@
  * Pure key edits for a colour gradient (ADR 0396, moved from the Particles plugin, ADR 0057): add, move, recolour and remove
  * colour and alpha keys, never mutating the input. The generic key-list helpers are in `../curves/keyList.ts`. No DOM here.
  */
+import { formatHex, parseHex } from "../../../engine/core/colorSpace";
 import { evaluateGradient, type Gradient } from "../../../engine/core/gradient";
 import { addKey, moveKey, removeKey, type Key } from "../curves/keyList";
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
 const copyKeys = <T,>(keys: readonly Key<T>[]): Key<T>[] => keys.map((k) => [k[0], k[1]]);
-const rgb = (hex: string) => hex.slice(0, 7).toLowerCase();
-const hex2 = (x: number) => Math.round(clamp01(x) * 255).toString(16).padStart(2, "0");
+/** A colour key's `#rrggbb` (ADR 0461: short forms expanded, alpha dropped; text that isn't a colour kept as written). */
+const rgb = (hex: string) => {
+  const c = parseHex(hex);
+  return c ? formatHex(c) : hex;
+};
 
 /** A colour key added at `t`, coloured as the gradient is there. */
 export function addColorKey(g: Gradient, t: number): { gradient: Gradient; index: number } {
   const [r, gr, b] = evaluateGradient(g, clamp01(t));
-  const { keys, index } = addKey(g.colors, t, `#${hex2(r)}${hex2(gr)}${hex2(b)}`);
+  const { keys, index } = addKey(g.colors, t, formatHex([r, gr, b]));
   return { gradient: { ...g, colors: keys }, index };
 }
 

@@ -18,6 +18,7 @@
  * (0, 0), so objects land on the tiles they sat on.
  */
 
+import { formatHex, parseHex } from "../../../../engine/core/colorSpace";
 import { randomUuid } from "../../../../engine/core/uuid";
 import { formatImportSettings, parseImportSettings, defaultImportSettings, sidecarPath, type ImportSettings } from "../../../../engine/scene/importSettings";
 import { CURRENT_FORMAT_VERSION, SCENE_FORMAT, type ComponentEntry, type NodeEntry, type SceneFile } from "../../../../engine/scene/SceneLoader";
@@ -116,13 +117,11 @@ function unique(name: string, taken: Set<string>): string {
   return out;
 }
 
-/** Split `#rrggbb` / `#rrggbbaa` into the colour and its alpha 0..1. */
+/** Split a hex colour (ADR 0461) into its `#rrggbb` and its alpha 0..1; anything else is opaque white. */
 function splitColor(c: string | undefined): { rgb: string; alpha: number } {
-  if (!c || !/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(c)) return { rgb: "#ffffff", alpha: 1 };
-  return { rgb: c.slice(0, 7).toLowerCase(), alpha: c.length === 9 ? parseInt(c.slice(7), 16) / 255 : 1 };
+  const p = c ? parseHex(c) : null;
+  return p ? { rgb: formatHex(p), alpha: p[3] } : { rgb: "#ffffff", alpha: 1 };
 }
-
-const hex2 = (a: number) => Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16).padStart(2, "0");
 
 function transform(position: GridPoint, angle = 0): ComponentEntry {
   const data: Record<string, unknown> = { position: [r(position[0]), r(position[1]), 0] };
@@ -731,7 +730,7 @@ function tiledImageLayer(layer: ImportImageLayer, order: number, id: string, par
     data.pixelsPerUnit = ppu;
     centre = space.screen(layer.offset[0], layer.offset[1]);
   }
-  if (rgb !== "#ffffff" || a < 1) data.color = a < 1 ? `${rgb}${hex2(a)}` : rgb;
+  if (rgb !== "#ffffff" || a < 1) data.color = formatHex(parseHex(rgb)!, a);
   const components: ComponentEntry[] = [transform([centre[0] / ppu, centre[1] / ppu]), { type: "engine.SpriteRenderer", data }];
   if (layer.class || Object.keys(layer.properties).length) components.push(mapObject(layer.class ?? "", jsonProps(layer.properties, { object: () => null, point: (x, y) => [x, y], tile: (_i, rr) => rr })));
   return { id, name: layer.name, parent, ...(layer.visible ? {} : { active: false }), components };

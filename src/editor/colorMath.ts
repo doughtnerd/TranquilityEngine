@@ -1,24 +1,23 @@
 // Colour maths on hex colours: parsing, mixing, WCAG luminance and contrast, and nudging a colour
 // until it reads against another. The editor's theme (theme.ts) derives its tokens with it.
 
+import { formatHex, parseHex as parseHexText, srgbToLinear } from "../engine/core/colorSpace";
+
 export type RGB = [number, number, number];
 
-/** `#rgb` or `#rrggbb` to 0–255 channels (anything else: null). */
+/** A hex colour (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, ADR 0461; alpha dropped) to 0–255 channels (anything else: null). */
 export function parseHex(hex: string): RGB | null {
-  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
-  const h = m[1].length === 3 ? [...m[1]].map((c) => c + c).join("") : m[1];
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  const c = parseHexText(hex);
+  return c ? [Math.round(c[0] * 255), Math.round(c[1] * 255), Math.round(c[2] * 255)] : null;
 }
 
-export const toHex = ([r, g, b]: RGB) => `#${[r, g, b].map((c) => Math.round(Math.min(255, Math.max(0, c))).toString(16).padStart(2, "0")).join("")}`;
+export const toHex = ([r, g, b]: RGB) => formatHex([r / 255, g / 255, b / 255]);
 
 export const rgb = (hex: string): RGB => parseHex(hex) ?? [0, 0, 0];
 
 /** `#rrggbb` with opacity `a` (0–1) appended as `aa` when below 1: the `#rrggbb[aa]` form asset files store. */
 export function hexWithAlpha(hex: string, a: number): string {
-  const opaque = toHex(rgb(hex));
-  return a >= 1 ? opaque : `${opaque}${Math.round(Math.max(0, a) * 255).toString(16).padStart(2, "0")}`;
+  return formatHex(rgb(hex).map((c) => c / 255), a);
 }
 
 /** `a` moved `t` (0–1) of the way to `b`. */
@@ -35,10 +34,7 @@ export function alpha(hex: string, a: number): string {
 
 /** WCAG relative luminance (0 black – 1 white). */
 export function luminance(hex: string): number {
-  const lin = (c: number) => {
-    const s = c / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
+  const lin = (c: number) => srgbToLinear(c / 255);
   const [r, g, b] = rgb(hex);
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }

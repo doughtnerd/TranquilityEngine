@@ -24,6 +24,7 @@ import { Assets, fetchAssetBytes, normalizeAssetPath, sidecarValue } from "./Ass
 import { BAKED_SUFFIX, decodeBakedModel, encodeBakedModel } from "./bakedModel";
 import { BUILTIN_MESHES, builtinMeshData, type BuiltinMesh } from "./builtinMeshes";
 import { isTextureMapStatement, materialLibraryFiles, readTextureMap, wavefrontStatements } from "./wavefront";
+import { linearToSrgb } from "../core/colorSpace";
 import { Mat4 } from "../core/math";
 import { uniqueName } from "../core/uniqueName";
 import { splitSpriteRef, type ImportSettings } from "./importSettings";
@@ -1407,7 +1408,6 @@ interface TakeContext {
 }
 
 const MESH_RENDERER = "engine.MeshRenderer";
-const srgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
 
 /**
  * The file's animations as takes (ADR 0371; `animation/import/channels.ts` makes the tracks). Node paths are the ones
@@ -1500,7 +1500,7 @@ function importTakes(root: Object3D, cx: TakeContext): ImportedTake[] {
             const o = n.extensions?.KHR_lights_punctual?.light === pointed.light ? special(nodeObject(i), "mycoLight") : undefined;
             if (!o || c.sampler.width !== want) return;
             const binding = (field: string) => ({ nodePath: nodePath(o), component: "engine.Light", field });
-            if (pointed.property === "color") add({ kind: "property", track: "color", binding: binding("color"), map: (v) => [srgb(v[0]), srgb(v[1]), srgb(v[2]), 1], linear: false });
+            if (pointed.property === "color") add({ kind: "property", track: "color", binding: binding("color"), map: (v) => [linearToSrgb(v[0]), linearToSrgb(v[1]), linearToSrgb(v[2]), 1], linear: false });
             else if (pointed.property === "intensity") add({ kind: "property", track: "float", binding: binding("intensity") });
             else if (pointed.property === "range") add({ kind: "property", track: "float", binding: binding("range"), map: (v) => [v[0] * cx.scale] });
             else if (pointed.property === "outerConeAngle") add({ kind: "property", track: "float", binding: binding("spotAngle"), map: (v) => [(2 * v[0] * 180) / Math.PI] });

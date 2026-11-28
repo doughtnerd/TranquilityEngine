@@ -13,6 +13,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
+import { parseHex } from "../../core/colorSpace";
 import { Color as EngineColor, type Color } from "../../core/math";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import type { MaterialMapKey, MaterialSettings } from "../../scene/material";
@@ -496,7 +497,8 @@ export function tiledTexture(shared: Texture, tiling: readonly [number, number])
 
 /** An override's colour value (a hex string or an [r, g, b, a] array), or null. */
 function overrideColor(v: GraphValue | undefined): EngineColor | null {
-  return typeof v === "string" || Array.isArray(v) ? EngineColor.from(v as string) : null;
+  if (Array.isArray(v)) return EngineColor.from(v as number[]);
+  return typeof v === "string" && parseHex(v) ? EngineColor.from(v) : null;
 }
 
 /** `into` set to the sRGB colour `c` in linear space, without allocating. */

@@ -3,7 +3,8 @@
 // shaders compile and are compared with the JavaScript executor's (`kernelMath.ts`).
 import { describe, expect, it } from "vitest";
 import { shaderSource } from "../render/shaderSource/shaderSource";
-import { hsv, krand, noise3, particleSeed, srgbToLinear, valueNoise, KERNEL_MATH_SHADER } from "../render/particles/gpu/kernelMath";
+import { srgbToLinear } from "../core/colorSpace";
+import { hsv, krand, noise3, particleSeed, valueNoise, KERNEL_MATH_SHADER } from "../render/particles/gpu/kernelMath";
 
 describe("the shader source language (KSL)", () => {
   const src = shaderSource(/* KSL */ `

@@ -4,6 +4,7 @@ import { Panel } from "./panel/Panel";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDraftText } from "./draftText";
 import { ANTIALIAS_MODES, LIGHTS_2D_QUALITIES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
+import { formatHex, parseHex } from "../../engine/core/colorSpace";
 import { defaultSettings, INPUT_JOIN_POLICIES } from "../../engine/core/settings";
 import { inputActionSets } from "../../engine/editor";
 import { allPluginManifests } from "../../plugins/thirdPartyEditor";
@@ -374,7 +375,9 @@ function ColorField(props: { value: string | undefined; fallback: string; onComm
     if (t === (props.value ?? "")) return;
     props.onCommit(t === "" ? undefined : t);
   });
-  const shown = /^#[0-9a-f]{6}$/i.test(props.value ?? "") ? props.value! : props.fallback;
+  const parsed = parseHex(props.value ?? "");
+  const shown = parsed ? formatHex(parsed) : props.fallback; // the picker takes #rrggbb only
+
   return (
     <span class="project-settings-color">
       <input type="color" aria-label="Background colour picker" value={shown} onChange={(e) => props.onCommit((e.currentTarget as HTMLInputElement).value)} />

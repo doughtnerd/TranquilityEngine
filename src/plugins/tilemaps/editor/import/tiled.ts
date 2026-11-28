@@ -24,6 +24,7 @@ import type {
   ImportValue,
 } from "./model";
 import type { TilePolygon } from "../../runtime/tileset";
+import { formatHex, parseHex } from "../../../../engine/core/colorSpace";
 import { baseName, cssColor, gridTileRect, resolvePath } from "./shared";
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -651,16 +652,10 @@ interface Inherited {
   tint: [number, number, number, number] | null;
 }
 
-function tintParts(c: string | null): [number, number, number, number] | null {
-  if (!c) return null;
-  const h = c.slice(1);
-  return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255, h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1];
-}
+/** Our `#rrggbb[aa]` (`cssColor` has already turned Tiled's `#AARRGGBB` into it) as 0–1 components. */
+const tintParts = (c: string | null): [number, number, number, number] | null => (c ? parseHex(c) : null);
 
-function tintString(t: [number, number, number, number]): string {
-  const hx = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, "0");
-  return `#${hx(t[0])}${hx(t[1])}${hx(t[2])}${t[3] < 1 ? hx(t[3]) : ""}`;
-}
+const tintString = (t: [number, number, number, number]): string => formatHex(t, t[3]);
 
 async function buildObject(o: Json, b: MapBuilder, ranges: GidRange[], base: string, where: string): Promise<ImportObject | null> {
   let raw = o;

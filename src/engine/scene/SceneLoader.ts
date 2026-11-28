@@ -9,6 +9,7 @@ import { migrateToUnityCoordinates } from "./handednessMigration";
 import { mapSceneFile } from "./sceneFileWalk";
 import { Component } from "../core/Component";
 import { getDataComponentDef, type DataComponentDef, type Schema } from "../core/data";
+import { parseHex } from "../core/colorSpace";
 import { Color, DEG2RAD, Quaternion, Vector2, Vector3 } from "../core/math";
 import { AssetRef, PlainObject, _componentAliasVersion, component, field, getComponentClass, getComponentId, getFields, isListType, resolveComponentId, type ComponentClass, type FieldInfo, type ScalarFieldType } from "../core/registry";
 import type { World } from "../core/World";
@@ -477,7 +478,12 @@ function convertValue(t: ScalarFieldType, raw: unknown, current: unknown, ref: (
     if (current instanceof Quaternion) return (current.copy(q), SKIP);
     return q;
   }
-  if (t === Color) return raw === null ? null : Color.from(raw as string);
+  if (t === Color) {
+    if (raw === null) return null;
+    if (Array.isArray(raw) || (typeof raw === "string" && parseHex(raw))) return Color.from(raw as string | number[]);
+    console.warn(`[myco] ${path}: field "${name}" expects a colour such as "#ff8800"; keeping its default.`);
+    return SKIP;
+  }
   if (t === AssetRef) return typeof raw === "string" ? normalizeAssetPath(raw) : raw;
   // A plain JSON value replaces the field's whole value (a deep copy, ADR 0039); merging into the old one would keep
   // keys the new value dropped, so a reverted override or a removed key would linger.
