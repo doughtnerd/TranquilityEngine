@@ -59,22 +59,33 @@ GPU Hi-Z belongs to the high-end pipeline (O24), and baked PVS is a later option
 
 ## Decision
 
+### 0. Sequencing and the go/no-go gate
+
+Occlusion is built after 0446's LOD, and its engine integration goes ahead only if the after-LOD numbers justify it.
+- The Rust crate (§1) is built in parallel with LOD.
+- Before integration, the promoted benchmark runs the city with LOD on, against an oracle that hides objects from the main view only and keeps their shadow casters.
+- **Gate:** the oracle must save at least twice the measured occlusion cost (about 1.2 ms) in JS CPU, or show a GPU triangle saving worth that cost on the Android floor.
+- If it doesn't, the build stops after the crate and the result goes to the owner.
+
+The spike's −38/−44 % savings were measured against a baseline without LOD and removed casters too. Against LOD-on, the oracle rows show about 3–6 ms of gain (forest 40.2 → 33.9 ms, city 27.7 → 24.3 ms, both with casters removed), so the margin is real but not large.
+
 ### 1. A new Rust workspace, `native/visibility/`
 
 - **Crates:**
-  - `vis-raster`: the buffer, clipping, rasteriser, coarse level and occludee tests; `no_std` with `alloc`, simd128 behind `cfg(target_feature)`, with a scalar reference used by tests.
-  - `vis-wasm`: the boundary, raw `extern "C"` exports over linear memory, without wasm-bindgen, as in the spike.
+  - `vis-raster`: the buffer, clipping, rasteriser, coarse level and occludee tests. `no_std` with `alloc`, simd128 behind `cfg(target_feature)`, with a scalar reference used by tests (`cargo test`: SIMD and scalar outputs equal).
+  - `vis-wasm`: the boundary.
   - `vis-bench`: Criterion benches over the spike's city and forest workloads.
-- **Build.** `npm run build:visibility` (`native/visibility/build.mjs`) builds the wasm into `src/plugins/meshes/runtime/occlusion/wasm/`, which is committed, so the engine builds without Rust.
-  - It uses the reproducible flags of `native/rustflags.mjs` (0432), a pinned toolchain (`rust-toolchain.toml`), simd128 from `.cargo/config.toml`, and a source hash.
+- **Packaging follows the animation core's conventions** (`native/anim/build.mjs`): wasm-bindgen pinned for setup calls, raw typed-array views over linear memory for the per-frame data, `hash.json` with the source hash, the CI freshness check, and the export path's asset handling.
+- **Build.** `npm run build:visibility` (`native/visibility/build.mjs`) builds into `src/engine/render/visibility/occlusion/wasm/`, which is committed, so the engine builds without Rust.
+  - It uses the reproducible flags of `native/rustflags.mjs` (0432), a pinned toolchain (`rust-toolchain.toml`), and simd128 from `.cargo/config.toml`.
   - Its size tripwire is the first full build plus 20 %.
-- **Rules.** It follows 0370's deterministic rules (no fast-math) and never shares code with `native/nav/`.
+- **Rules.** It follows 0370's deterministic rules (no fast-math), rejects NaN and zero-scale matrices inside the core, and never shares code with `native/nav/`.
 
-### 2. Who owns it: the Meshes plugin
+### 2. Who owns it: the engine's visibility stage
 
-- **Owner.** Occlusion only culls `MeshRenderer`s and `SkinnedMeshRenderer`s, so it lives in the `myco.meshes` plugin (`src/plugins/meshes/runtime/occlusion/`).
-- **Loading.** The module loads lazily the first time a view with occlusion on is drawn, so games that never use it don't download it.
-- **Without SIMD,** occlusion stays off with one warning, as the animation core does. The Chrome 113 floor (0169) supports SIMD.
+- **Owner.** Occlusion is part of 0446's engine-owned visibility stage (`render/visibility/`, core). That stage also owns bounds, frustum and LOD selection. The Meshes feature and the animation plugin's skinned feature read its per-view results, so occlusion hides skinned meshes without core importing a plugin (0135, 0140).
+- **Loading.** The wasm core loads lazily the first time a view with occlusion on is drawn, so games that never use it don't download it. Loading never holds the first frame: the view draws unculled until the core is ready (0120).
+- **Without SIMD** (or if loading fails), occlusion stays off with one warning, as in the animation core. There is no scalar fallback build: the Chrome 113 floor (0169) and current WebKit support SIMD.
 - **The TS side** (`occlusion/core.ts`) owns the wasm memory views. Each frame, per view, it writes the occluder list and occludee bounds into wasm memory, then reads back one visibility bit per occludee.
 
 ### 3. What occludes and what is tested
@@ -83,44 +94,59 @@ GPU Hi-Z belongs to the high-end pipeline (O24), and baked PVS is a later option
 
   | Value | Occluder | Occludee |
   |---|---|---|
-  | `"auto"` (default) | yes, when the mesh has occluder geometry and its bounds are large and solid; no otherwise | yes |
-  | `"occluder"` | yes | yes |
+  | `"auto"` (default) | yes, when the mesh has occluder geometry, its material is opaque, and it passes the per-frame width test; no otherwise | yes |
+  | `"occluder"` | yes, when it has occluder geometry and an opaque material | yes |
   | `"occludee"` | no | yes |
   | `"none"` | no | no: always drawn |
 
-  - **"Solid"** means the smallest bounds extent is at least 10 % of the largest. Thin things (trees, poles, fences) don't occlude, because the forest measurement shows they cost more than they save.
-- **Occluder geometry,** in order:
-  1. the model's occluder stand-in from import (0446's `lod.occluder`): `"auto"` is the coarsest generated level, or a `simplifySloppy` stand-in at about 5 % of the triangles when the model has no levels; `"lod"` is always the coarsest level;
-  2. the mesh itself, if it has at most 512 triangles (built-in cubes and planes, simple walls);
-  3. otherwise none: the renderer is never an occluder, and the editor warns when it is set to `"occluder"`.
+  - **Scripts can change it every frame,** for example a door that occludes when closed and doesn't when open.
+  - **Skinned meshes are occludees only:** their bounds lag a frame and are dilated (0446 §3).
+- **Width test, per frame, in screen space.** An occluder takes part only while its projected minimum width is at least 2 buffer pixels.
+  - Walls, floors and terrain pass, because they are wide in two directions.
+  - Poles, trunks and fences fail at a distance, which is what the forest measurement calls for.
+  - This replaces a world-space "solid" rule, which would have excluded walls.
+- **Occluder geometry** comes from the sidecar's `occluder` setting, beside 0446's `lod`. It applies whether or not the model has levels:
+  - `"auto"` (default): the coarsest generated level when the model has levels; otherwise a `simplifySloppy` stand-in at about 5 % of the triangles, but only if the first wave's adversarial gate passes for sloppy stand-ins (below). If it doesn't, models without levels get no stand-in.
+  - `"lod"`: the coarsest generated level only.
+  - `"none"`.
 
-  The stand-in is baked into `.mycomesh` (0446's `occluder` range, positions only).
-- **Keeping simplified occluders conservative.** A simplified occluder can poke slightly past the real surface, so two rules apply:
-  - its depth is pushed back by its measured error (0446 measures every level's error);
-  - an occluder whose error would cover more than half a buffer pixel at its distance uses a finer level, or is skipped.
-
-  Together with the coverage shrink, this keeps false occlusions at zero. The rule is tested in the benchmark scenes against a full-resolution reference.
+  A mesh with at most 512 triangles (built-in cubes and planes, simple walls) occludes with itself. The stand-in is baked into `.mycomesh` (0446's `occluder` range, positions only). The editor warns when `"occluder"` is set on a renderer with no geometry to occlude with.
+- **Keeping simplified occluders conservative.** A simplified occluder can poke past the real surface sideways or in depth, and a sloppy one can close a doorway. These rules apply:
+  - Every stand-in's error is a sampled two-way Hausdorff distance measured at import (0446 §1), never meshoptimizer's estimate.
+  - Its depth is pushed back by that error.
+  - The coverage shrink is the larger of 0.25 pixels and the error's projected size in buffer pixels, so a stand-in that bulges sideways can't claim pixels the real surface doesn't cover.
+  - Occluders whose bounds are within the near distance of the camera (the camera inside or beside one) are skipped.
+- **The safety gate,** in the first wave:
+  - The real stand-ins (coarsest levels and sloppy) are rasterised against a full-resolution reference.
+  - The scenes are the city plus adversarial ones: a doorway, a thin wall, and the camera beside or inside a stand-in.
+  - **Zero false occlusions is a gate, not an assumption.** The spike's zero came from exact box and prism occluders only.
 - **Groups test once.** An `LODGroup` (0446) is tested once with its group bounds. If it is hidden, LOD selection skips it.
 
 ### 4. Per frame, per view
 
-- **Which views:** game cameras with `Camera.occlusionCulling` on (new field, default `true`), render-texture cameras the same way, and the editor scene view when its View menu's "Occlusion culling" toggle is on (default off, so editing shows everything).
-  - **Never:** reflection-probe captures (rare and far from the camera), shadow maps (an object hidden from the camera can still cast a visible shadow, so casters are never occlusion-culled), or the preview inset.
+- **Which views:**
+  - **Game cameras** with `Camera.occlusionCulling` on. This is a new field: default `true` for perspective cameras, `false` for orthographic ones.
+  - **Render-texture cameras:** default off.
+  - **The editor scene view:** when its View menu's "Occlusion culling" toggle is on (default off, so editing shows everything).
+  - **Limit:** v1 runs occlusion for at most `occlusionViews` views per frame (tier field, default 1: the main camera).
+  - **Never:** reflection-probe captures, shadow maps (an object hidden from the camera can still cast a visible shadow, so casters are never occlusion-culled), or the preview inset.
 - **Steps:**
   1. Frustum-test occluders.
-  2. Pick the biggest on screen first, up to the tier's occluder triangle budget, skipping occluders under 0.5 % of the screen's height.
+  2. Apply the width test, then pick the biggest on screen first, up to the tier's occluder triangle budget.
   3. Clear and rasterise.
   4. Build the coarse level.
-  5. Test in-frustum occludees with a 1-pixel dilation and a 0.25-pixel coverage shrink.
-  6. Hand the hidden set to the mesh feature, which applies it in that view's `fit(camera)` hook (0446 §3).
+  5. Test in-frustum occludees with a 1-pixel dilation and the coverage shrink above.
+  6. Hand the hidden set to the visibility stage, which leaves those objects out of that view's object list. Thin batches also leave them out of that view's matrix buffer (0446 §3).
+- **Back-off.** When a view's culled share stays under 10 % for 60 frames, its occlusion pauses for 60 frames, then retries for one. A forest then stops paying about 2.9 ms a view for little gain. A paused view draws everything, which is always correct.
 - **Same-frame buffer.** v1 rasterises this frame's buffer before the view draws: about 1.2 ms (p99 1.3 ms) in Chromium wasm for a city view (spike), with no latency artefacts. Reusing last frame's buffer is a later optimisation (Open questions).
 - **On the main thread** in v1. A worker needs shared memory, and with it COOP/COEP headers (Open questions).
 
 ### 5. Quality tiers
 
-`QualityTier` gains two fields:
-- `occlusion`: the buffer size, `"off"` | `"low"` (256×128) | `"high"` (320×180). Low tier `"low"`, Medium and High `"low"`, Ultra `"high"`.
-- `occluderBudget`: source triangles rasterised per view. Low 4,000, Medium and High 10,000, Ultra 20,000.
+`QualityTier` gains three fields:
+- `occlusionBuffer`: `"off"` | `"low"` (256×128) | `"high"` (320×180). Low `"off"`, Medium and High `"low"`, Ultra `"high"`. The Low tier runs on the device with the least CPU headroom, where about 3–4 ms a view (est.) is hard to afford.
+- `occluderBudget`: source triangles rasterised per view. Medium and High 10,000, Ultra 20,000.
+- `occlusionViews`: views per frame (default 1).
 
 Automatic quality (0322) steps whole tiers, so it moves these too.
 
@@ -133,7 +159,8 @@ Automatic quality (0322) steps whole tiers, so it moves these too.
   - a readout: occluders and triangles rasterised, occludees tested, culled, and milliseconds.
 
   The buffer image comes from the core's own output through the diagnostics, not from reading internals.
-- **The inspector** shows the effective role of `"auto"` beside the `occlusion` field: occluder and occludee, or occludee only, with the reason (thin, no stand-in).
+- **The inspector** shows the effective role of `"auto"` beside the `occlusion` field (occluder and occludee, or occludee only), with the reason: no stand-in, transparent, or too narrow on screen.
+- **Debugging tools:** a "freeze culling" toggle keeps the last visibility set while the camera flies, and a validator mode for QA re-renders culled objects in a colour, so a false occlusion is visible at once.
 - **Diagnostics (0154):** `occlusion: { views, occluders, triangles, tested, culled, ms }`. The editor Profiler (0326) gets an Occlusion table.
 
 ### Path to a high-end pipeline
@@ -145,11 +172,29 @@ This is a constraint on the design, not a plan (open question O24):
 - **Shared inputs.** Occluder stand-ins and conservative-error rules carry over to a GPU depth pre-pass of occluders.
 - **Baked PVS** for static scenes would gate which renderers reach either path.
 
+## RFC round (2026-11-28)
+
+Five reviewers all approved with changes. Every point and its resolution is in `docs/rfc/0446-0447/README.md`. The changes to this record:
+- **A go/no-go gate** after LOD, measured with LOD on and shadow casters kept (§0).
+- **Ownership** moves from the Meshes plugin to the engine's visibility stage, so skinned meshes can be culled (§2).
+- **Wall-friendly width test.** A per-frame screen-space width test replaces the "solid" rule, which excluded walls.
+- **Occluder safety.**
+  - Stand-ins use measured Hausdorff error for the coverage shrink and the depth push.
+  - Occluders next to the camera are skipped.
+  - Zero false occlusions became an adversarial first-wave gate.
+- **The occluder setting** sits beside `lod` in the sidecar, with one definition.
+- **Cost controls.**
+  - The Low tier is off.
+  - Occlusion runs by default only for perspective cameras, and for one view per frame.
+  - A back-off pauses it where it culls little.
+- **Skinned meshes** are occludees only. Transparent materials never occlude. `occlusion` is scriptable per frame.
+- **Packaging** follows the animation core's conventions.
+
 ## Alternatives considered
 
 - **GPU occlusion queries (Babylon's `occlusionType`):** one query per object, results a frame or more late, popping on fast cameras, and per-query overhead. On WebGPU they need query sets per pass. They don't help thin batches, and they make results depend on the backend.
 - **Intel's Masked Occlusion Culling (port):** more accurate per pixel at the same resolution, but a much larger port (C++, archived). The simple buffer already culls 89 % of the occludees inside the view in the city with zero false occlusions.
-- **The occlusion core in TypeScript:** no wasm, but the rasteriser's hot loop gains 3× from SIMD (spike), and wasm runs at 1.0–1.4× native.
+- **The occlusion core in TypeScript:** no second wasm module, and the whole-frame SIMD gain is only 1.2–1.9× today, because setup and the occludee test are still scalar. But the raster stage gains 3× from SIMD, wasm runs at 1.0–1.4× native, and the owner chose Rust/wasm SIMD like the animation core. A TypeScript port wasn't measured.
 - **Inside the animation core's module:** one fewer download, but unrelated systems would share a release and size gate, and games without animation would load it.
 - **Shadow cascades as occlusion cameras:** they culled 49 % in the city and 0.05 % in the forest, and their correctness for shadow casters is unproven. Not in v1.
 - **Baked PVS first:** costs nothing at run time, but needs a bake step, static scenes and a level-authoring workflow. A later option.
@@ -157,17 +202,19 @@ This is a constraint on the design, not a plan (open question O24):
 ## Consequences
 
 **Positive**
-- **Big savings where it matters.** At street level the city hides 97 % of its objects (oracle), and the CPU buffer culls 89 % of those in view with zero false occlusions (spike). Drawn triangles fall by up to 96 %, and JS CPU by up to 44 % (oracle).
-- **Targets for the build,** re-measured with the same harness on the same machine:
-  - city (auto) triangles ≤ 15 % of baseline;
+- **Big savings where it matters.** At street level the city hides 97 % of its objects (oracle), and the CPU buffer culls 89 % of those in view with zero false occlusions (spike, exact box occluders). Against a baseline without LOD, the oracle cut drawn triangles by up to 96 % and JS CPU by up to 44 %. Those figures include removing hidden shadow casters, which this record never does.
+- **Targets for the build,** measured with LOD on, casters kept, with the promoted benchmark on the same machine:
   - occlusion ≤ 2 ms per view in Chromium on the reference machine;
-  - city JS CPU, occlusion cost included, at least 20 % below baseline;
-  - zero false occlusions in the pixel check against the oracle.
-- **No authoring:** the default `"auto"` makes large solid models occluders from the stand-ins 0446 already generates.
-- **Conservative by construction:** zero false occlusions in the measured cities, and the rules are tested against a full-resolution reference.
+  - city (auto) main-view triangles ≤ 40 % of the LOD-on figure;
+  - city JS CPU, occlusion cost included, at least 10 % below the LOD-on figure;
+  - zero false occlusions against the full-resolution reference, adversarial scenes included.
+- **No authoring:** the default `"auto"` makes opaque, wide models occluders from the stand-ins 0446 already generates.
+- **Conservative by construction,** and checked by a gate rather than assumed.
 
 **Negative / costs**
-- **About 1.2 ms of main-thread CPU per occlusion view** on the reference machine (est. 3–4 ms on the Android floor at 4× throttling, unmeasured). That is wasted in open scenes such as forests, where it culls little, so cameras can turn it off.
+- **About 1.2 ms of main-thread CPU per occlusion view** on the reference machine (est. 3–4 ms on the Android floor at 4× throttling, unmeasured; so the Low tier is off). Open scenes such as forests gain little: the back-off pauses it there, and cameras can turn it off.
+- **Its value on top of LOD is modest:** about 3–6 ms of JS in the oracle rows. Hence the gate in §0.
+- **Fewer occluders than a perfect scheme:** the width test and the conservative shrink give up some culls for safety.
 - **A second wasm module** to build, pin and size-gate (about 40 KB gzip, est.).
 - **One-frame correctness only:** a moving occluder works, because the buffer is rebuilt every frame, but CPU cost grows with the occluder budget.
 - **Unverified here:** WebKit and the Tauri webviews on macOS and Linux, and the Android floor.
@@ -180,7 +227,6 @@ Nothing.
 
 - **Temporal reuse** of the previous frame's buffer (nearly free in the spike), after fast-rotation tests.
 - **A worker thread** for the rasteriser (needs shared memory and cross-origin isolation in the player).
-- **Whether `Camera.occlusionCulling` should default off,** given that open scenes gain little (recommended: on, as the cost is about 1.2 ms).
 - **SIMD in setup and the occludee test,** the spike's next optimisations.
 - **Baked PVS for static levels.**
 

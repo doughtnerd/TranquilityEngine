@@ -80,33 +80,38 @@
     "attributes": true,   // weight normals and UVs (simplifyWithAttributes); false: positions only
     "permissive": false,  // let hard edges and seams collapse (needed for boxy, flat-shaded meshes)
     "lockBorders": false, // keep open borders exactly (terrain tiles that must meet their neighbours)
-    "pixelError": 1,      // the screen error, in pixels at 1080p, that sets default transition heights
-    "occluder": "auto"    // 0447: "auto" (a sloppy stand-in), "lod" (the coarsest level), "none"
+    "pixelError": 1       // the screen error, in pixels at 1080p, that sets default transition heights
   }
   ```
 
   `ratio` is the triangle target relative to LOD0, and `error` the limit as a fraction of the diagonal. Each level simplifies from the previous one, which is as good as starting from LOD0 and about 2× faster. A level that can't reach its target stops at its error limit, and the import panel shows what it reached.
-- **New imports get the default above when a mesh has at least 2,000 triangles,** and null below that. This is the solo-developer default; the owner may prefer opt-in (see Open questions).
-  - The editor writes the setting when it first creates a model's sidecar.
-  - **A sidecar with no `lod` field means null,** so existing projects and samples are unchanged. That includes `navigation/models/terrain.obj` (8,128 triangles, the only sample model over 2,000; navigation is frozen).
+- **Occluder stand-ins are a separate setting.** `occluder: "auto" | "lod" | "none"` (0447) sits beside `lod` in the sidecar, not inside it, so a model without levels can still have one.
+- **Opt-in per model, with one click.** The import panel's "Generate LODs" switch fills in the defaults above. A sidecar with no `lod` field means no levels, so existing projects and samples, including the frozen navigation terrain, are unchanged. The panel suggests it for meshes of at least 2,000 triangles.
+  - A project-wide "generate LODs for new models" default is an owner decision (decision list, item 1).
 - **Pipeline, per model mesh:**
-  1. Weld vertices with bit-identical attributes.
-  2. Simplify each submesh with `Sparse`, locking vertices shared between submeshes. Each submesh keeps a minimum of 1 % of its triangles (at least 12), so thin parts don't vanish.
-  3. Measure each level's error: meshoptimizer's own estimate times the diagonal.
-  4. Build the occluder stand-in (0447) with `simplifySloppy`.
-  5. Reorder the one shared vertex buffer coarsest-first with `optimizeVertexFetch`, and the indices of every level with `optimizeVertexCache`.
+  1. **Weld** vertices whose every stream is bit-identical: positions, normals, UVs, second UVs, colours, tangents, joints, weights, and every morph target's deltas.
+  2. **Simplify** each submesh with `Sparse`, locking vertices shared between submeshes. Normals, UVs and vertex colours (wind weights) are weighted. Each submesh keeps a minimum of 1 % of its triangles (at least 12), so thin parts don't vanish.
+  3. **Measure each level's error** as a sampled two-way Hausdorff distance against LOD0, as a fraction of the diagonal. meshoptimizer's own estimate isn't a bound (0.02–4.7× the limit, and relative to the largest extent rather than the diagonal), so it never sets heights or occluder safety.
+  4. **Build the occluder stand-in** (0447), and measure its error the same way.
+  5. **Reorder** the shared vertex buffer coarsest-first with `optimizeVertexFetch`, and each level's indices with `optimizeVertexCache`.
 
-  Skin joints and weights, morph targets, tangents and second UVs live in the shared vertex buffer and need no remap.
-- **Cost and caching.** Generation runs where the model is parsed (`scene/models.ts`, `parseModel`), in the editor's existing model load. It adds tens of milliseconds for a typical model, and up to about 0.85 s for a Sponza-sized one.
-  - The result is cached in memory for the session, keyed by file and settings.
-  - A disk cache is later work (Open questions).
+  - **Remap.** Welding and reordering permute the vertices, so every per-vertex stream (skin, morph targets, tangents, second UVs, colours) is remapped with the same table, once.
+  - **LOD0 changes.** It becomes output-equivalent to the source, not identical: the same triangles, with vertices welded and reordered. Consumers of `mesh.data` (`meshTriangles` for `MeshCollider`, `models.ts:1646`) are audited for that.
+  - **Tests.** Unit tests check that a skinned and a morphed fixture keep their per-vertex values through the pipeline.
+- **Cost, caching and the main thread.**
+  - **Where it runs.** Generation runs in a worker started from the editor's model load (`scene/models.ts`, `parseModel`), and the model draws LOD0 until it finishes. It costs tens of milliseconds for a typical model, and up to about 0.85 s for a Sponza-sized one, plus the Hausdorff sampling (to be measured in the first wave).
+  - **Disk cache.** Results are cached keyed by a hash of the source bytes and the settings, in the editor's project cache beside the thumbnail cache (0061), so reopening a project costs nothing.
+  - **Games never generate.** The player and the export use baked levels only. A model whose bake failed loads from source with no levels and one warning, so games never load meshoptimizer.
 - **`.mycomesh` version 5.** `BakedJson` gains these per mesh:
   - `lods: { indices: Range, groups, error, triangles }[]`, where LOD0 is the existing `indices`;
   - `occluder?: Range`;
   - `bounds: [minX, minY, minZ, maxX, maxY, maxZ]`.
 
   The bake settings include `lod`, so changing it re-bakes. A version 4 file is refused and the model loads from source, as today (`bakedModel.ts:223`).
-- **In memory,** `ModelMesh` (internal) gains `lods: ModelLod[]`. Each `ModelLod` has `data: MeshData` that shares LOD0's vertex arrays and has its own `indices` and `groups`, plus its `error`. Bounds are computed once per `MeshData` from its positions, or read from the baked file.
+- **In memory,** each level is a derived `ModelMesh` (internal), cached with a stable identity. It has LOD0's `surfaces`, skin and morph targets, and its own `data`, which shares LOD0's vertex arrays but has its own `indices` and `groups`, plus its measured `error`. The batch key (`meshBatches.ts:67`) and `makeSource` keep working unchanged.
+  - Bounds are computed once per `MeshData` from its positions, or read from the baked file.
+- **One vertex buffer on the GPU too.** `meshOf` (`render/babylon/materials.ts:404`) today uploads vertex data for every Babylon mesh. Level meshes and fade-batch meshes will share one set of Babylon vertex buffers per model mesh, each with only its own index buffer. The ×1.1–1.3 figure then holds in GPU memory as well as on disk.
+  - This is checked in the first wave, with a GPU-memory target of ≤ 1.3× LOD0 per model mesh, whatever the batch count.
 
 ### 2. `LODGroup`, a component
 
@@ -114,64 +119,85 @@
 
 | Field | Default | Meaning |
 |---|---|---|
-| `levels: number[]` | from import | Transition heights, descending, one per level. Level *i* draws while h ≥ `levels[i]`; below the last value the group is culled. Set the last value to 0 to never cull. |
+| `levels: number[]` | `[]` | Transition heights, descending, one per level. Level *i* draws while h ≥ `levels[i]`; below the last value the group is culled. Set the last value to 0 to never cull. **Empty means automatic:** the heights are derived live from the members' measured errors, so re-importing with new settings updates them. If no member has levels, the group draws LOD0 and never culls. |
 | `fade: "none" \| "crossfade"` | `"crossfade"` | How a level change looks. |
 | `fadeDuration` | 0.3 s | How long a crossfade lasts. |
 | `forceLevel` | -1 | -1 chooses automatically; *n* always draws level *n* (debugging). |
 | `size` | 0 | The group's world size for h. 0 means automatic: the diagonal of its renderers' combined local bounds times the node's largest world scale. |
 
-- **Members.** At group level *i*, each member draws its own mesh's level min(*i*, last), so a group whose meshes have different level counts still switches together. A member whose mesh has no levels draws at every level until the group is culled.
-- **Defaults come from the measured error.** A level is good enough while its error covers under `pixelError` pixels at 1080p. That gives h = `pixelError` / (1080 × error), and is the same at every field of view, as h is relative to the viewport (`spikes/lod-simplify/` §4). The last value defaults to 0.01, culled below 1 % of the screen.
+- **Members.** Members are found through a core `LodMember` interface that renderer components implement: `MeshRenderer` in core, and `SkinnedMeshRenderer` in the animation plugin. So the group in core never imports a plugin (0135, 0140).
+  - At group level *i*, each member draws its own mesh's level min(*i*, last), so a group whose meshes have different level counts still switches together.
+  - A member whose mesh has no levels draws at every level until the group is culled.
+- **Automatic heights come from the measured error.** A level is good enough while its error covers under `pixelError` pixels at 1080p. That gives h = `pixelError` / (1080 × error), and is the same at every field of view and viewport size, as both are relative to the viewport (`spikes/lod-simplify/` §4). The last value is 0.01, culled below 1 % of the screen.
   - Rock example: 0.149, 0.093, 0.056, then culled below 0.01.
-  - **Size measure:** h uses the bounding diagonal, consistent with how error is measured. This differs from Unity, which uses the largest extent; Unity's numbers come out up to 1.7× higher.
-- **The editor adds the group.** Placing a model that has levels, or a prefab made from one, adds an `LODGroup` at its root with the default heights. Scripts and scenes can add or remove one like any component.
-- **Script API.** `lodGroup.currentLevel` is read-only: the level for the main camera, the lowest-depth enabled `Camera`, as 0370's views use. It is -1 when culled.
+  - The defaults are starting points per asset: Hausdorff error ignores shading, so lighting can still pop. `pixelError` and the bar let authors tune them.
+  - **Size measure:** h uses the bounding diagonal, consistent with how error is measured. This differs from Unity, which uses the largest extent, so Unity's numbers come out up to 1.7× higher.
+- **The editor adds the group.** Placing a model that has levels, or a prefab made from one, adds an `LODGroup` at its root with empty (automatic) heights. Scripts and scenes can add or remove one like any component.
+- **Script API.**
+  - `lodGroup.currentLevel` is read-only: the level for the main camera, the lowest-depth enabled `Camera`, as 0370's views use.
+  - `lodGroup.visibility` is `"drawn" | "lodCulled" | "offScreen" | "occluded"` (0447), so "why is it gone?" has an answer.
+  - Both come from the simulation-side selection (§3), so they read the same in the editor, the player and a headless World. With no camera they read 0 and `"drawn"`.
 - **Later: authored levels.** An optional `renderers` list per level (Unity's model) is reserved for importing `MSFT_lod` and `_LOD0`/`_LOD1` names. It is not built in v1.
 
-### 3. Selection: engine-owned, renderer-neutral, per view
+### 3. Selection and visibility: engine-owned, renderer-neutral, per view
 
-- **`render/lod/select.ts`** is pure TypeScript with no backend imports, unit-tested. `selectLevels(view, groups, out)` writes one byte per group (level, or 255 for culled) from:
-  - the view's position, its projection (perspective `fieldOfView`, or orthographic `orthographicSize`), its frustum planes and its height in pixels;
-  - each group's cached world bounding sphere and transition heights;
-  - the tier's `lodBias` and `lodMaxLevel`;
-  - `forceLevel`.
-- **Frustum and hysteresis.** Groups outside the frustum are marked off-screen too. Babylon's own culling stays as a second test. A level change needs h to cross the threshold by 4 %, so a group sitting on a boundary doesn't flicker.
-- **Bounds module, `render/lod/bounds.ts`.** Each renderer has a local AABB from its `MeshData`, and a world sphere and AABB recomputed only when its matrix changes (the existing `matrixChanged`).
-  - This is the engine-side bounds store the renderer lacked, also used by 0447.
-  - Skinned renderers use their `boundsMode` bounds (`SkinnedMeshRenderer`).
+- **An engine-owned visibility stage, `render/visibility/`** (core, like the lighting rig, 0140), owns everything that decides what each view draws. The Meshes feature and the animation plugin's skinned feature both read its per-view results, and neither decides anything itself.
+  - **Bounds (`bounds.ts`).** Each renderer has a local AABB from its `MeshData`, and a world sphere and AABB recomputed only when its matrix changes (`matrixChanged`). Skinned renderers use their `boundsMode` bounds, dilated by how far they moved since last frame, as bone bounds lag a frame (`skinning/sync.ts`).
+  - **Frustum test.**
+  - **LOD selection (`select.ts`, pure TypeScript, unit-tested).** `selectLevels(view, groups, out)` writes one byte per group: a level, or 255 for culled. Its inputs:
+    - the view's position, its projection (perspective `fieldOfView`, or orthographic `orthographicSize`), its frustum planes and its height in pixels;
+    - each group's cached world sphere and transition heights;
+    - the tier's `lodBias` and `lodFirstLevel`;
+    - `forceLevel`.
+  - **Occlusion results** (0447).
+- **Hysteresis.** A level change needs h to cross the threshold by 4 %, so a group sitting on a boundary doesn't flicker.
+- **The simulation runs the main view's selection.** A World service runs `selectLevels` once per frame for the main camera, in the simulation's update after transforms. It feeds `currentLevel`, `visibility` and the Animator's `"lodGroup"` rate (§6) with no dependence on the renderer, so a headless or server World behaves the same.
+  - The renderer reuses that result for its main view, and selects other views itself.
+  - Animation reads the selection made in the same frame's update. There is no frame of lag, because selection runs before the animation gather.
 - **Which views select:**
-  - every view in the frame plan (0129): game cameras, render-texture cameras, the editor scene view and the preview inset, each with its own camera;
-  - each reflection-probe capture (`probes.ts`), from the probe's position at its face resolution, with no crossfade.
-- **Shadow cascades** draw each group at the level the first view chose, at its settled level during a crossfade, switching at the fade's midpoint. Shadows then match the main view's silhouettes and need no extra selection. A group culled by LOD in that view casts no shadow. Occlusion (0447) never removes casters.
-- **Thin batches are compacted per cascade.** Before each cascade layer renders, a thin batch's caster buffer keeps only instances whose spheres meet that cascade's frustum. This is the thin-batch counterpart of `shadowCulling.ts`, and removes the measured 173.6M shadow triangles that thin batches spend drawing everything in every cascade.
-  - Rewriting the buffer per layer, through the shadow map's per-layer render hook, is to be verified in the first wave [U]. The fallback is one compaction for all cascades together.
-- **Applying it in Babylon.**
-  - `BabylonMeshes` (`render/babylon/meshes.ts`) acquires a drawable per (renderer mesh, level) as levels are first used. A level's `MeshData` is a distinct batch key, so **thin batches split per level** automatically (0108).
-  - **Before the frame:** every drawable used by any view stays enabled, because the view's cull task drops instances that start disabled (spike). Caster state is set before the shadow tasks.
-  - **In each view's `fit(camera)` hook:** instances not drawn by that view are hidden, and thin batches are compacted (`thinInstanceBufferUpdated`).
-  - **After each view:** a new `afterView` hook restores state. It joins the internal `BabylonFeature` interface (`render/babylon/feature.ts`) beside `fit`.
+  - every view in the frame plan (0129): game cameras, render-texture cameras, the editor scene view and the preview inset;
+  - each reflection-probe capture, from the probe's position at its face resolution, with no crossfade.
+  - Each view is identified by a `ViewKey` (camera id and output kind). Fade and hysteresis state are kept per key, and `fit(camera)` becomes `fitView(view)` (`feature.ts:163`).
+- **Applying it in Babylon: per-view object lists, not toggling.** Each view's `FrameGraphCullObjectsTask` (`frameGraph.ts:596`) is given that view's own object list, built from the visibility stage. The spike shows this works for `InstancedMesh` (`spikes/lod-crossfade/` §1).
+  - The view's geometry pass (AO, depth of field, `frameGraph.ts:603-621`) and its render pass both draw from the cull output, so they see the same set. Nothing is hidden and restored, and no `afterView` hook is needed.
+  - Probes get a `renderList` filtered by their own selection (`probes.ts:122`).
+  - Babylon's `scene.customLODSelector` route is measured against this in the first wave and replaces it only if it wins. That spike measures per-view lists, `customLODSelector` and enable toggling at 10k instances, with JS time per view.
+- **Thin batches split per level and per pass.** A level's derived `ModelMesh` is its own batch key, so thin batches split per level automatically (0108).
+  - Each thin batch has one source mesh per pass that draws it: each view, and each shadow cascade. All of them share the batch's geometry (§1). Each pass's matrix buffer holds only the instances that pass draws.
+  - Rewriting one shared buffer between passes was proven on WebGL2 only. On WebGPU, buffer writes may all land before the frame's passes run, so every pass would see the last write. Separate buffers per pass avoid the question on both backends, at 64 bytes per instance per pass.
+  - **Per-cascade compaction:** a cascade's buffer keeps only instances whose spheres meet that cascade's frustum. This is the thin-batch counterpart of `shadowCulling.ts`, and removes the measured 173.6M shadow triangles that thin batches spend drawing everything in every cascade.
+- **Shadows.**
+  - **Level:** casters use the level the main view chose (its settled level during a crossfade, switching at the fade's midpoint), so shadows match the main view's silhouettes.
+  - **Culled groups still cast:** a group culled by LOD keeps casting at its coarsest level until it leaves the tier's `shadowDistance`, so a small object's long evening shadow doesn't pop.
+  - **Occlusion** (0447) never removes casters.
+  - **How:** caster lists come from the shadow map's custom render list per cascade, which `shadowCulling.ts` already installs, plus the per-cascade thin buffers.
+- **No churn.**
+  - Drawables are pooled per level and kept while used in any view in the last second.
+  - Empty batches are kept alive for a few seconds before disposal (today: at once, `meshBatches.ts:213`).
+  - Fade batches are created during warm-up.
+  - So a moving camera doesn't create and dispose Babylon meshes, as the spike's oracle did (`meshes.ts:181`, `meshBatches.ts:199`).
 - **Render stats.** `RenderStats.triangles` reports the triangles actually drawn, summed over views. The diagnostics (0154) gain `lod: { groups, perLevel: number[], culled, fading }`.
 
 ### 4. Crossfade
 
-- **Not prohibitively hard, so it ships in v1** (spike: a 105-line plugin, 0 holes and 0 doubled pixels; integration est. 300–350 lines).
+- **Not prohibitively hard, so it ships in v1,** in the wave after hard switches work (spike: a 105-line plugin, 0 holes and 0 doubled pixels; integration est. 300–350 lines, about 2 person-weeks).
 - **`MycoLodFadePlugin`** (`render/babylon/lodFade.ts`) is on the `MycoMaterialPlugin` base (0225), GLSL and WGSL.
   - **Where it goes:** it is added to a material the first time that material draws a fading batch.
   - **What it reads:** a per-instance `mycoLodFade` attribute, via `registerInstancedBuffer` for auto batches and a second thin-instance buffer for thin ones.
-  - **What it does:** discards with a 4×4 screen-space ordered dither. The outgoing level keeps f and the incoming level gets the complement, encoded negative; an incoming level at 0 is a tiny negative, as -0 isn't < 0 (spike).
+  - **What it does:** discards with a 4×4 screen-space ordered dither, using Babylon's own tested `bayerDitherFunctions` include in both languages, which removes most of the WGSL risk. The outgoing level keeps f and the incoming level gets the complement, encoded negative; an incoming level at 0 is a tiny negative, as -0 isn't < 0 (spike).
   - **Its define:** `MYCO_LOD_FADE` is set per mesh in `prepareDefines`, so one material yields a fading effect only for fading batches.
 - **Fading instances sit in their own batches.** The batch key gains `fade: boolean`. A `discard` in a shader disables early depth testing on many GPUs even when no pixel discards, so steady instances never pay for it. A group fading in one view draws both levels in that view's fade batches for `fadeDuration`, then returns to a steady batch.
-- **Fade state is kept per (group, view)** for views that persist: cameras, and the editor scene view. Probe captures and thumbnails snap.
+- **Fade state is kept per (group, `ViewKey`)** for views that persist: cameras, and the editor scene view. Probe captures and thumbnails snap. A fade reversed midway runs back from where it is.
 - **Every lit or unlit mesh material takes part,** user shaders included, with no work from their authors. Built-in PBR materials, shader graphs and hand-written shader assets (0106) all draw as a `PBRMaterial`, the latter two through `MycoGraphPlugin`. The fade plugin sits on that same material after the graph plugin, and only discards fragments, so `vertexOffset`, keywords and properties are untouched.
   - **Out of scope:** raw `ShaderMaterial`s (sky, GPU particles) and the water, decal and particle plugins aren't LOD members.
 - **Shadows switch hard at the fade midpoint.** Dithered shadows would cost a `ShadowDepthWrapper` per fading material, one more effect per fading batch kind, early-Z in the depth pass, and a pattern that shimmers as cascades move (spike §3). They are a later option.
-- **Warm-up (0080)** also compiles the fade variant of each material drawn by an `LODGroup` with `fade: "crossfade"`, so a first transition doesn't stall on a pipeline compile.
+- **Warm-up (0080)** also compiles the fade variant of each material drawn by an `LODGroup` with `fade: "crossfade"`, so a first transition doesn't stall on a pipeline compile. It runs again when a quality-tier change (0055) switches crossfade on.
 
 ### 5. Quality tiers
 
 `QualityTier` (`core/graphics.ts`) gains three fields, read by selection and editable in Project Settings:
 - `lodBias` (Low 0.6, Medium 0.8, High 1, Ultra 1.5);
-- `lodMaxLevel` (the finest level a tier may draw: Low 1, others 0);
+- `lodFirstLevel` (the most detailed level a tier may draw: Low 1, so it never draws LOD0; others 0);
 - `lodCrossfade` (Low false, others true).
 
 Automatic quality (0055, 0322) steps whole tiers, so it moves these too.
@@ -205,10 +231,26 @@ This is a constraint on the design, not a plan (open question O24, added by this
 - **Nothing public changes.** `LODGroup` and the sidecar name what to draw, not how.
 - **Finer-grained LOD later.** meshoptimizer's `buildMeshlets` can feed cluster-based LOD, Nanite-style, from the same import step.
 
+## RFC round (2026-11-28)
+
+Five reviewers (architect, senior engineer, junior engineer, user persona, premise challenger) all approved with changes. Every point and its resolution is in `docs/rfc/0446-0447/README.md`. The changes to this record:
+- **Applying levels.** Per-view object lists replace per-view enable toggling, because the geometry pass ran before the hook. Thin batches get a buffer per pass, as WebGPU may not honour rewrites between passes.
+- **Engine-owned visibility.** A visibility stage (`render/visibility/`) and a `LodMember` interface keep core free of plugin imports.
+- **Selection in the simulation.** The main view's selection runs in the simulation, so headless Worlds and the Animator see it.
+- **GPU memory.** Vertex buffers are shared on the GPU, not only on disk.
+- **Error and remap.** Every stream is remapped through welding and reordering. Errors are measured as sampled Hausdorff distances, never meshoptimizer's estimate.
+- **Defaults.** Opt-in generation per model. `levels` empty means automatic. LOD-culled objects keep casting shadows.
+- **Main thread.** Generation runs in a worker, with a disk cache.
+- **Targets.** JS CPU must not exceed baseline with LODs on, plus draw-call and GPU-memory targets.
+- **Smaller changes.** Babylon's dither plugin's real limitation is stated. `lodFirstLevel` and `visibility` are added. `customLODSelector` is measured in the first wave.
+
+**Estimate (provisional):** about 27 person-weeks for 0446 and 0447 together (range 22–32), from the senior engineer's task table plus a third in reserve. It is calibrated against estimates, not actuals.
+
 ## Alternatives considered
 
-- **Babylon's `addLODLevel`:** chooses per camera inside Babylon, but has no thin-instance support, no crossfade control or shadow rule, and can't be unit-tested without a renderer. The owner ruled it out.
-- **Babylon's `DitheredTileFadeMaterialPlugin`** (9.32): fades whole meshes by per-mesh bounds, for tile LOD. It covers neither shadow passes nor per-instance values in our batches. Our own 105-line plugin fits the plugin base and the batch design.
+- **Babylon's `addLODLevel`:** chooses per camera inside Babylon, but has no thin-instance support, no crossfade control or shadow rule, and puts selection inside Babylon. The owner ruled it out.
+- **Babylon's `scene.customLODSelector` driven by `select.ts`:** keeps selection ours and skips building object lists for `auto` batches (`instancedMesh.pure.js:418-431`). Thin batches still need their own path. It is measured in the first wave against per-view object lists, and taken if it wins.
+- **Babylon's `DitheredTileFadeMaterialPlugin`** (9.32): supports instances, thin instances and WGSL (`ditheredTileFadeMaterialPlugin.js:154-220`), but has no define. Its `discard` is compiled into every mesh that uses the material (`:367`), costing steady instances their early depth test. Scoping it to fading batches would mean cloning materials. We keep our own plugin, which is scoped per mesh by a define, and reuse Babylon's Bayer include.
 - **The Rust `meshopt` crate:** the same C++ (1.3), but it needed libm and `operator new` shims to build for wasm, and saves only 3 KB over npm.
 - **Hard switches only, crossfade later:** about 300–350 fewer lines, but popping is the most visible LOD artefact. The spike found no obstacle, and the Low tier can still switch hard (`lodCrossfade`).
 - **Selection in the wasm core with occlusion:** about 3–4× faster (est.), but plain TS with cached bounds is 0.23 ms per 10k groups per view. Keeping it in TS keeps LOD free of wasm and testable in Vitest.
@@ -219,23 +261,25 @@ This is a constraint on the design, not a plan (open question O24, added by this
 
 **Positive**
 - **Dense scenes stop paying for distant detail.** The LOD oracle cut drawn triangles by 89 % in the forest and 95 % in the city, and JS CPU by 24–34 %, while changing 0.2–1 % of pixels.
-- **Targets for the build,** re-measured with the same harness on the same machine:
+- **Targets for the build,** re-measured with the promoted benchmark (`tests/e2e`, `@slow`, reading `RenderStats`) on the same machine, using the real default heights rather than the oracle's:
   - forest (auto) triangles ≤ 20 % of baseline;
   - forest (thin) shadow triangles ≤ 25 % of baseline;
-  - JS CPU no worse than baseline with every `LODGroup` forced to level 0;
+  - **JS CPU ≤ baseline at the benchmark camera with LODs on.** Levels alone cost CPU: the oracle's "LOD, no cull" row ran 66.2 ms against 52.6 ms in the forest. The win comes from culling;
+  - draw calls ≤ 3× baseline and ≤ 300 in the benchmark (the oracle went 46 → 133);
+  - GPU vertex memory ≤ 1.3× LOD0 per model mesh;
   - selection ≤ 0.5 ms per view for 10k groups.
-- **Little authoring:** models over 2,000 triangles get levels by default, and placing them adds the group.
+- **Little authoring:** one switch per model generates levels, and placing the model adds the group with automatic heights.
 - One selection serves every view, thin batches and shadows, and it's unit-tested.
 - User shaders take part in crossfade untouched.
 - The engine finally keeps renderer bounds and reports drawn triangles.
 
 **Negative / costs**
 - **New dependency** (meshoptimizer, editor and export only, about 26 KB gzip).
-- **Import is slower:** tens of milliseconds per typical model, up to about 0.85 s for a Sponza-sized one, each session until a disk cache exists.
+- **The first import is slower:** tens of milliseconds per typical model, up to about 0.85 s for a Sponza-sized one, plus Hausdorff sampling. It runs in a worker and is cached on disk.
 - **`.mycomesh` grows** ×1.1–1.3 per model with levels, and goes to version 5.
-- **More draw calls while fading:** a fading group draws both levels for `fadeDuration`, in separate batches.
-- **More work in the mesh feature:** per-view passes over drawables, and thin-batch compaction (0.17 ms per 10k matrices per view).
-- **Coarser shadows:** casters use the main view's level, so a distant object's shadow is coarser too.
+- **More draw calls:** about 3× in the forest, from one batch per level and material slot (oracle 46 → 133), more while fading, which draws both levels for `fadeDuration` in separate batches.
+- **More work per frame:** building per-view object lists, and per-pass thin buffers (about 0.17 ms per 10k matrices per pass to fill and upload, plus 64 bytes per instance per pass of memory).
+- **Coarser shadows:** casters use the main view's level, so a distant object's shadow is coarser too. LOD-culled objects cast at their coarsest level up to `shadowDistance`, which costs some shadow triangles.
 - **Hard-edged models need `permissive`,** or their levels stop at about 60 % of LOD0. The panel says so.
 - **Unverified here:** the WGSL plugin code runs only on WebGPU, which needs the owner's GPU machine.
 
@@ -245,8 +289,7 @@ Nothing. `.mycomesh` version 4 files are refused and models load from source, as
 
 ## Open questions
 
-- **Default on or opt-in:** levels by default for meshes of at least 2,000 triangles (recommended), or only when asked?
-- **A disk cache for generated levels in the editor** (Sponza-sized models cost about 0.85 s per session).
+- **Impostors** (billboard levels for trees and other foliage), the usual last level in Unity and Unreal forests.
 - **Dithered shadows** for crossfading casters, behind a tier field.
 - **Authored LOD import** (`MSFT_lod`, `_LOD0` names) through the reserved per-level `renderers` list.
 - **Whether probes and render-texture cameras want their own bias field.**
