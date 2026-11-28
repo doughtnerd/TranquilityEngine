@@ -66,7 +66,7 @@ export function buildChunkMeshes(
   const layout = layoutOf(grid);
   const cellX = (i: number) => cx * CHUNK_SIZE + (i % CHUNK_SIZE), cellY = (i: number) => cy * CHUNK_SIZE + Math.floor(i / CHUNK_SIZE);
   let order: number[] | null = null;
-  if (layout.shape !== "square") {
+  if (!layout.cellUnits) {
     const keys = new Float64Array(cells.length);
     for (let i = 0; i < cells.length; i++) keys[i] = layout.drawKey(cellX(i), cellY(i));
     order = Array.from({ length: cells.length }, (_, i) => i).sort((a, b) => keys[a] - keys[b] || a - b);
@@ -114,7 +114,7 @@ export function writeTileQuad(positions: Float32Array, uvs: Float32Array, q: num
   const ox = frame.anchor ? frame.anchor[0] * (1 - fw) : 0, oy = frame.anchor ? frame.anchor[1] * (1 - fh) : 0;
   for (let c = 0; c < 4; c++) {
     const [s, t] = CORNERS[c];
-    if (layout.shape !== "square") {
+    if (!layout.cellUnits) {
       const [px, py] = layout.cellBoxPoint(x, y, ox + s * fw, oy + (1 - t) * fh);
       positions[q * 12 + c * 3] = px;
       positions[q * 12 + c * 3 + 1] = py;
