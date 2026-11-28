@@ -10,6 +10,8 @@ class Wobble extends Component {}
 class Gizmo extends Component {}
 @component("acme.Plain")
 class Plain extends Component {}
+@component("acme.Odd")
+class Odd extends Component {}
 
 /** The Add Component submenu an engine component id lands in. */
 const categoryOf = (id: string) => buildMenuTree([{ id, name: id, group: "Engine" as const }], new Map())[0]!.label;
@@ -46,6 +48,20 @@ describe("Add Component categories", () => {
       ]);
     } finally {
       runtimeActivator.deactivate("test.categories");
+    }
+  });
+
+  it("joins a declared label that names a fixed submenu (Other) instead of making a second one", () => {
+    const plugin: RuntimePlugin = { manifest: { name: "test.fixedLabel", version: "1.0.0", componentCategories: { Other: ["acme.Odd"] } }, activate: (ctx) => ctx.registerComponents([Odd]) };
+    runtimeActivator.activate(plugin);
+    try {
+      const items = [
+        { id: "engine.SomethingNew", name: "SomethingNew", group: "Engine" as const },
+        { id: "acme.Odd", name: "Odd", group: "Scripts" as const },
+      ];
+      expect(buildMenuTree(items, new Map()).map((n) => [n.label, n.items.map((i) => i.name)])).toEqual([["Other", ["SomethingNew", "Odd"]]]);
+    } finally {
+      runtimeActivator.deactivate("test.fixedLabel");
     }
   });
 

@@ -81,7 +81,9 @@ export function buildMenuTree<T extends ComponentTypeInfo>(items: readonly T[], 
   for (const item of items) {
     const category = categories.get(item.id) ?? null;
     if (category !== null) {
-      let submenu = engine.get(category);
+      // A declared label that names a fixed submenu (Other, Scripts, Data) joins it rather than making a second one.
+      const fixed = category === OTHER_CATEGORY ? other : category === "Scripts" ? scriptRoot : category === "Data" ? data : null;
+      let submenu = fixed ?? engine.get(category);
       if (!submenu) engine.set(category, (submenu = node<T>(category, [])));
       submenu.items.push(item);
     } else if (item.group === "Engine") other.items.push(item);

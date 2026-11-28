@@ -521,7 +521,7 @@ export type ProjectSettingsDraft = { [K in Exclude<OwnedBy<"runtime" | "section"
 };
 
 /** Who owns `key` (ADR 0446), given the registered settings sections: undefined for a key nothing owns (`project.json` keeps it untouched). */
-export function projectKeyOwner(key: string, sections: readonly SettingsSectionKeys[] = []): ProjectKeyOwner | undefined {
+function projectKeyOwner(key: string, sections: readonly SettingsSectionKeys[] = []): ProjectKeyOwner | undefined {
   if (isKnownKey(key)) return OWNERS[key];
   return sections.some((s) => s.keys.includes(key)) ? "section" : undefined;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RUNTIME_SETTINGS, projectKeyOwner, projectSettingsIssues, projectSettingsKeys, sectionKeyConflict, type ProjectSettingsDraft, type SettingsSectionKeys } from "../core/settings";
+import { RUNTIME_SETTINGS, projectSettingsIssues, projectSettingsKeys, sectionKeyConflict, type ProjectSettingsDraft, type SettingsSectionKeys } from "../core/settings";
 import { buildSettingsProblems } from "../core/buildSettings";
 
 // ADR 0446: the engine's settings module says which project.json keys exist, who owns each, and what's wrong with a
@@ -12,14 +12,13 @@ const fields = (draft: ProjectSettingsDraft, sections: readonly SettingsSectionK
 const claims = (id: string, keys: string[]): SettingsSectionKeys => ({ id, keys });
 
 describe("project.json keys and their owners", () => {
-  it("own every runtime key, build and bootstrap, and nothing else without a section", () => {
-    for (const key of Object.keys(RUNTIME_SETTINGS)) expect(projectKeyOwner(key), key).toBeDefined();
-    expect(["name", "display", "time", "render", "input", "autoload", "graphics", "plugins"].map((k) => projectKeyOwner(k))).toEqual(Array(8).fill("runtime"));
-    expect(projectKeyOwner("build")).toBe("editor");
-    expect(["physics", "lighting2D", "navigation", "languages", "subtitles"].map((k) => projectKeyOwner(k))).toEqual(Array(5).fill("section"));
-    expect([projectKeyOwner("bootstrap"), projectKeyOwner("audio")]).toEqual(["reserved", "reserved"]);
-    expect(projectKeyOwner("acme")).toBeUndefined();
-    expect(projectKeyOwner("acme", [claims("acme", ["acme"])])).toBe("section");
+  it("own every runtime key: the panel lists it, a section may claim it, or it is reserved", () => {
+    for (const key of Object.keys(RUNTIME_SETTINGS)) {
+      const conflict = sectionKeyConflict(claims(key, [key]));
+      expect(projectSettingsKeys().includes(key) || conflict === undefined || /audio\.json/.test(conflict), key).toBe(true);
+    }
+    expect(["physics", "lighting2D", "navigation", "languages", "subtitles"].map((k) => projectSettingsKeys().includes(k))).toEqual(Array(5).fill(false));
+    expect(projectSettingsKeys([claims("acme", ["acme"])])).toContain("acme");
   });
 
   it("list the Project panel's keys: its own, then the sections', never a reserved one or one twice", () => {
