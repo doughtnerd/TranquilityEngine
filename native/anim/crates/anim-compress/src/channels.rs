@@ -2,6 +2,7 @@
 //! detection, clip ranges, and the per-segment quantisation of one channel.
 
 use anim_format::clip::{ChannelKind, ChannelMode, Clip, RotationFormat, TrackKind, CLIP_ADDITIVE};
+use anim_format::frames::{frame_count, frame_time};
 use anim_offline::math::{Quat, Transform, Vec3};
 use anim_offline::sample::{frame_pos, rotation_from, vertex_error};
 
@@ -36,7 +37,8 @@ pub(crate) fn resample(clip: &Clip, rate: f32) -> (u32, Vec<Vec<f32>>) {
         return (clip.frame_count, raws);
     }
     let src_rate = clip.sample_rate as f64;
-    let frames = ((clip.duration as f64 * rate as f64).round() as u32 + 1).max(1);
+    let duration = clip.duration as f64;
+    let frames = frame_count(duration, rate as f64);
     let raws = clip
         .tracks
         .iter()
@@ -47,8 +49,8 @@ pub(crate) fn resample(clip: &Clip, rate: f32) -> (u32, Vec<Vec<f32>>) {
             let w = t.kind.width() as usize;
             let mut out = Vec::with_capacity(frames as usize * w);
             for f in 0..frames {
-                let time = (f as f64 / rate as f64).min(clip.duration as f64);
-                let p = frame_pos(time, src_rate, clip.frame_count);
+                let time = frame_time(f, rate as f64, duration);
+                let p = frame_pos(time, src_rate, clip.frame_count, duration);
                 let a = &t.raw[p.f0 as usize * w..][..w];
                 let b = &t.raw[p.f1 as usize * w..][..w];
                 let lerp = |i: usize| a[i] as f64 + (b[i] as f64 - a[i] as f64) * p.alpha;

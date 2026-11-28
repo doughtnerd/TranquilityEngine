@@ -4,7 +4,6 @@ import { Assets } from "../engine";
 import { isScenePath } from "../engine/scene/SceneLoader";
 import { foldNodes, type FoldAdapter, type NodeStep, type OverrideHome } from "../engine/scene/overrideFold";
 import { mapEntryNodeRefs, nodeRefId } from "../engine/scene/nodeReferences";
-import type { ResolvedNode } from "../engine/scene/resolvedScene";
 import {
   AddComponent,
   AddNode,
@@ -33,69 +32,12 @@ import type { EditorProject } from "./projects";
 import type { OpenScene } from "./state";
 import { readOnlyMessage } from "./readOnly";
 import { insertNodes } from "./nodeInsertion";
+import { findInner, instanceInnerNodes, type InnerNode } from "./nodeKey";
 import { DASHED, uniqueName } from "../engine/core/uniqueName";
 import { undoStep } from "./undoStep";
 
-/** A node inside a prefab instance, from the prefab file (nested prefabs included) and the instance's overrides. */
-export interface InnerNode {
-  /**
-   * Full document path: `[instanceId, innerId]`, with one more id per nested instance on the way
-   * (`[instanceId, nestedId, innerId]`), the same shape as an override `target` after the instance id.
-   */
-  readonly path: NodePath;
-  readonly name: string;
-  /** The node's own active flag, with overrides (ADR 0122). */
-  readonly active: boolean;
-  /** Set when this inner node is itself an instance of another prefab. */
-  readonly prefab?: string;
-  /** True for a node the instance (or a nested instance in a prefab file) added with `addNodes` (ADR 0086). */
-  readonly added?: boolean;
-  readonly children: readonly InnerNode[];
-}
-
 function prefabFile(path: string): SceneFile | null {
   return Assets.has(path) ? Assets.json<SceneFile>(path) : null;
-}
-
-/**
- * The inner nodes of instance `id` in the document, with `overrides` in place of its own: the
- * children of the node it stands for (a prefab's root, or a sub-scene's node), nested instances
- * expanded, names, active flags, added and removed nodes as the game makes them. They come from
- * the document's resolved view (ADR 0122, 0280).
- */
-export function instanceInnerNodes(doc: SceneDocument, id: string, overrides: readonly OverrideEntry[] = doc.overrides(id)): InnerNode[] {
-  if (!doc.node(id).prefab) return [];
-  const { nodes } = doc.resolve(id, overrides);
-  const top = nodes.find((n) => n.parent === undefined);
-  if (!top) return [];
-  const byParent = new Map<string, ResolvedNode[]>();
-  for (const n of nodes) if (n.parent !== undefined) byParent.set(n.parent, [...(byParent.get(n.parent) ?? []), n]);
-  const build = (n: ResolvedNode): InnerNode => ({
-    path: n.path,
-    name: n.name ?? n.path[n.path.length - 1],
-    active: n.active,
-    ...(n.prefab ? { prefab: n.prefab } : {}),
-    ...(n.added ? { added: true } : {}),
-    children: (byParent.get(n.id) ?? []).map(build),
-  });
-  return (byParent.get(top.id) ?? []).map(build);
-}
-
-/** The node at `path` in a tree of inner nodes, or null. */
-function findIn(level: readonly InnerNode[], key: string): InnerNode | null {
-  for (const n of level) {
-    if (pathKey(n.path) === key) return n;
-    const found = findIn(n.children, key);
-    if (found) return found;
-  }
-  return null;
-}
-
-/** The inner node at `path` (length ≥ 2), or null. */
-export function findInner(doc: SceneDocument, path: NodePath): InnerNode | null {
-  const instance = doc.has(path[0]) ? doc.node(path[0]) : null;
-  if (!instance?.prefab || path.length < 2) return null;
-  return findIn(instanceInnerNodes(doc, path[0]), pathKey(path));
 }
 
 /** Keys of an override that sets only a node's own properties. */

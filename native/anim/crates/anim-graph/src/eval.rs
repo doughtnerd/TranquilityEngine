@@ -90,6 +90,7 @@
 //! curve); and the rig family's `DISTANCE_MATCH` gating its input (it advances its child at a
 //! computed rate, as `TIME_SCALE` does at a fixed one).
 
+use anim_format::frames::FrameClock;
 use anim_format::graph::{
     AnimGraphView, CondNode, CondProgram, How, Interrupt, Operand, ParamType, ParamValue,
     Transition,
@@ -174,6 +175,13 @@ pub struct ClipRef<'a> {
     /// Its root curve's cumulative ground travel per frame (`anim_rig::warp::cumulative_distance`
     /// over the curve's positions, up +Y; empty without a curve). T40: distance matching.
     pub distance: &'a [f32],
+}
+
+impl ClipRef<'_> {
+    /// Where its frames (root curve, travel) sit in time: frame `i` at `min(i / rate, duration)`.
+    pub fn frame_clock(&self) -> FrameClock {
+        FrameClock::new(self.duration, self.sample_rate, self.frame_count)
+    }
 }
 
 /// A loaded graph as a linked-graph node sees it.

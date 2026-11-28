@@ -27,6 +27,7 @@ import type { World } from "../../../../engine/core/World";
 import { GameBehavior, type Component } from "../../../../engine/core/Component";
 import { getComponentClass } from "../../../../engine/core/registry";
 import { GameObject } from "../../../../engine/scene/GameObject";
+import { dbToGain } from "../../../../engine/audio/decibels";
 import { mixer } from "../../../../engine/audio/mixer";
 import { advanceRoute, closeDistance, travelAt, travelPose, travelSpeed, type RouteTravel } from "../../../../engine/audio/spatial/routeTravel";
 import type { AudioTestScene, MovingEmitter, SceneBox, TestEmitter, Vec3 } from "../../../../engine/audio/spatial/testSceneTypes";
@@ -98,7 +99,6 @@ export interface AudioTestScenePlayer {
   dispose(): void;
 }
 
-const dbToGain = (db: number): number => (db <= -60 ? 0 : Math.pow(10, db / 20));
 
 /**
  * Moves a node along a moving emitter's route each frame (`routeTravel.ts`: by arc length at its speed; a looping route

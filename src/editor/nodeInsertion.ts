@@ -6,14 +6,15 @@
 // step. `whyNotInsert` is the same check without the edit, for menus and drags.
 import { Assets } from "../engine";
 import { BRACKETED, DASHED, uniqueName } from "../engine/core/uniqueName";
-import { fileName } from "./assetBrowser";
+import { fileName } from "./projectPath";
 import { isFolderEntry, isSliceEntry, splitSliceEntry } from "./assetEntry";
 import { assetKind, registeredKind, sceneNodesAt } from "./assetKindLookup";
 import { writeAddNodes } from "./overrideWriter";
 import { AddNode, type NodeEntry, type SceneDocument, type SceneFile } from "./document";
 import { copyNodes, subtreeRoots, whyNotCopyable, type NodeClipboard } from "./nodeClipboard";
 import { kindTemplate, type NodeKind } from "./nodeKinds";
-import { findInner, instanceInnerNodes, wouldNest } from "./prefabs";
+import { wouldNest } from "./prefabs";
+import { findInner, instanceInnerNodes, parseKey } from "./nodeKey";
 import type { NodeTemplate } from "./sdk/contributions";
 import { whyNotEdit } from "./editGate";
 import type { OpenScene } from "./state";
@@ -93,7 +94,7 @@ const capitalised = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /** Where `place` puts nodes in `doc`, or why it can't. */
 function resolvePlace(doc: SceneDocument, place: InsertPlace): Spot | string {
   if (place.key === null) return place.kind === "into" ? { parent: null, index: place.index } : { parent: null };
-  const [id, ...target] = place.key.split("/");
+  const [id, ...target] = parseKey(place.key);
   if (!doc.has(id)) return "that node is gone";
   const after = (): Spot => {
     const parent = doc.parentOf(id);

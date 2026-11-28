@@ -4,6 +4,7 @@
 // documents (assetOps.ts, assetDelete.ts); and a project-wide edit asks it, as a file's owner, to rewrite unsaved text
 // (`codeBufferOwner`, ADR 0302). Monaco (code/monaco.ts) is an adapter: its models hold `bufferTexts`, and the Code
 // panel reports typing with `editBuffer`. No Monaco here, so it is tested without it.
+import { isSceneFile } from "../projectPath";
 import { signal, type ReadonlySignal } from "@preact/signals";
 import { showPanel } from "../layout/store";
 import { isTextAsset, isWithin, type EditorProject } from "../projects";
@@ -12,9 +13,8 @@ import { currentProject } from "../state";
 // ---------------------------------------------------------------------------------------------
 // What the Code panel holds
 
-const isSceneOrPrefab = (path: string) => /\.(scene|prefab)\.json$/i.test(path);
 /** A text file (not a script) the Code panel edits: scenes and prefabs open in the scene view instead. */
-const isCodeTextFile = (path: string) => isTextAsset(path) && !isSceneOrPrefab(path);
+const isCodeTextFile = (path: string) => isTextAsset(path) && !isSceneFile(path);
 
 /**
  * Every file the Code panel can show, by project path, with its text on disk: the scripts, and

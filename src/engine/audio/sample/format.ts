@@ -10,6 +10,7 @@
  */
 import { colourNoteJson, readColourNote } from "../markColour";
 import { deepEqual } from "../deepEqual";
+import { parseMeter } from "../meter";
 import { effectsToJson, parseEffects } from "../effects/catalogue";
 import { curveToJson, IdScope, isFiniteNumber, isRecord, LenientReader, type JsonRecord } from "../lenientRead";
 import { loopBehaviourToJson, parseLoopBehaviour } from "../playlist/loopBehaviour";
@@ -63,7 +64,6 @@ export const DEFAULT_PEAK_TARGET = -1;
 /** The name a marker type gets when none is given (exit, hit and entry have fixed names in the Studio). */
 export const MARKER_DEFAULT_NAMES: Record<MarkerType, string> = { note: "Marker", exit: "Exit", hit: "Hit point", cue: "cue", entry: "Entry" };
 
-const METER = /^\d{1,2}\/\d{1,2}$/;
 const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
 
 /** True for a derived-sample asset path. */
@@ -171,13 +171,6 @@ function parseMarker(raw: unknown, where: string, r: LenientReader, ids: IdScope
   const note = r.optStr(raw.note, `${where}.note`);
   if (note !== undefined && note !== "") marker.note = note;
   return marker;
-}
-
-function parseMeter(raw: unknown, where: string, r: LenientReader): string {
-  if (raw === undefined) return "4/4";
-  if (typeof raw === "string" && METER.test(raw) && !raw.split("/").some((n) => Number(n) === 0)) return raw;
-  r.problem(where, 'must be a meter like "4/4"; using "4/4".');
-  return "4/4";
 }
 
 function parseTempo(raw: unknown, where: string, r: LenientReader): SampleTempo | null {

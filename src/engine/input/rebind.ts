@@ -27,6 +27,7 @@ import type { MappingSpec } from "./contextTypes";
 import { DEFAULT_CONTEXT } from "./contexts";
 import { knownContexts, playerTable, resolveAction, type CompiledContext, type CompiledMapping } from "./evaluate";
 import { InputPlayer, familyName } from "./players";
+import { modifierPart, partsOf } from "./mappingShape";
 import { addMapping, profileOf, removeMapping, replaceAddition, setControls, type MappingRef } from "./profiles";
 import { controlGroup, familyGroup, mappingFits, type DeviceGroup } from "./prompts";
 
@@ -147,9 +148,10 @@ export function startRebind(world: World, player: GameObject, action: string, op
       if (found) break;
     }
     if (!found) throw new Error(`rebind: action "${action}" has no ${group} mapping${options.context ? ` in context "${options.context}"` : ""} to rebind; add one with { add: true }.`);
-    const composite = found.source.kind !== "single";
-    const part = options.part ?? (found.source.kind === "modifier" ? "control" : composite ? "" : "control");
+    const parts = partsOf(found.spec);
+    const part = options.part ?? (parts.includes("control") ? "control" : "");
     if (!part) throw new Error(`rebind: action "${action}"'s mapping is a ${found.source.kind} composite; say which part to rebind (options.part).`);
+    if (!parts.includes(part)) throw new Error(`rebind: action "${action}"'s ${found.source.kind} mapping has no "${part}" part; its parts are ${parts.join(", ")}.`);
     const source = found.source;
     const chordable = part === "control" && (source.kind === "single" || source.kind === "modifier");
     const chordWanted = options.chord ?? (source.kind === "modifier" && part === "control");
@@ -279,7 +281,7 @@ function bind(world: World, player: GameObject, token: number, p: Pending, index
     }
   } else {
     const parts: Record<string, string> = { [p.part]: main };
-    modifiers.forEach((m, i) => (parts[`modifier${i}`] = m));
+    modifiers.forEach((m, i) => (parts[modifierPart(i)] = m));
     setControls(profile, p.context, p.target.ref, parts);
   }
   // Every context the player could have active, not only today's: a vehicle's context counts while on foot.

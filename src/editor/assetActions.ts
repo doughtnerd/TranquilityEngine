@@ -3,14 +3,15 @@
 // rule, the check its operation makes), runs, and selects what it made. The panel's context menu,
 // its keys and the menu bar's Edit items only map gestures onto these. Also what a copy of the panel
 // lists, so the menu bar can act on the last-used panel's selection.
-import { fileName, folderOf, listedFiles, searchEntries } from "./assetBrowser";
+import { listedFiles, searchEntries } from "./assetBrowser";
+import { fileName, folderOf, parentFolder } from "./projectPath";
 import { deleteAssets, whyNotDeletable } from "./assetDelete";
 import { entryPath, fileEntries, folderEntry, isFolderEntry, isSliceEntry, sliceEntry, splitSliceEntry, type AssetEntry } from "./assetEntry";
 import { readImportSettings } from "./assetImport";
 import { kindCreators, openAsset } from "./assetKindHost";
 import { assetKind, hasSlices, kindOpens } from "./assetKindLookup";
 import { assetClipboard, duplicateAssets, newFolder, pasteAssets, whyNotMovable, whyNotPaste } from "./assetOps";
-import { lastAssetBrowser, openFolder, parentFolder, renamingAsset, selectedAssets, type AssetBrowserView } from "./assetSelection";
+import { lastAssetBrowser, openFolder, renamingAsset, selectedAssets, type AssetBrowserView } from "./assetSelection";
 import { selectAssets } from "./inspectorTarget";
 import { categorise, OTHER_CATEGORY, type CategorisedEntry } from "./menuCategories";
 import { newScript } from "./newScript";

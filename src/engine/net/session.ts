@@ -21,7 +21,9 @@
  * World's name, and the RPCs and message kinds it defines (with their schemas). The server either
  * accepts with `welcome` (the connection's id and its current tick) or closes the connection with
  * a reason: a version, tick-rate, RPC or message-kind mismatch. Both ends then number RPCs and
- * message kinds the same way (sorted by name), so the wire carries small numbers.
+ * message kinds the same way (sorted by name), so the wire carries small numbers. What's listed and
+ * numbered is the message catalogue's `handshakeSet()` (`catalogue.ts`, ADR 0457): what's defined
+ * now, captured once per connection (a client when it sends its hello, a server when it checks it).
  *
  * ## Ticks (ADR 0033 §7)
  *
@@ -58,8 +60,8 @@
  * ## The internal message API (for replication, T11, and inputs, T12)
  *
  * ```ts
- * // Once, at module level: a message kind, by a name unique across the engine.
- * const SNAPSHOT = registerNetMessage("net.snapshot");
+ * // Once, at module level: a message kind, by a name unique across the engine (`catalogue.ts`).
+ * const SNAPSHOT = defineMessage("net.snapshot");
  *
  * // Sending, in a system of a networked World (sent at the end of the frame):
  * const session = netSession(world);              // null if the World isn't networked
@@ -72,8 +74,8 @@
  * for (const m of session.drain(SNAPSHOT)) applySnapshot(m.peer, m.tick, m.reader());
  * ```
  *
- * - `registerNetMessage(name): number`: a local kind id. Both ends must register the same names
- *   (checked in the handshake).
+ * - `defineMessage(name): number` (`catalogue.ts`): a local kind id. Both ends must define the same
+ *   names (checked in the handshake).
  * - `netSession(world): NetSession | null`.
  * - `session.send(kind, to, channel, body, tick?)`: `to` is a `NetPeer`, a connection node,
  *   `"all"` (every open connection) or `"server"`; `body` is bytes or a function that writes it
@@ -104,6 +106,7 @@
 import { World } from "../core/World";
 import { defineBuiltinSystem, type PredictedRun, type WorldNet } from "../core/systems";
 import type { GameObject } from "../scene/GameObject";
+import { describeKind, handshakeSet, kindName, type HandshakeSet, type RpcEntry } from "./catalogue";
 import { createBitReader, createBitWriter, type BitReader, type BitWriter } from "./codec";
 import { Connection, ConnectionState } from "./connection";
 import { createWorldTransport, transportCanListen, type Channel, type Transport, type TransportConnection, type TransportEvent } from "./Transport";
@@ -163,36 +166,6 @@ const RTT_SMOOTHING = 0.125;
 const OFFSET_SMOOTHING = 0.1;
 /** A clock-offset sample this many ticks off the estimate replaces it instead of nudging it. */
 const OFFSET_SNAP_TICKS = 4;
-
-// --- registries ---------------------------------------------------------------------------------
-
-/** @internal An RPC type as the session sees it (registered by `defineRpc`). */
-export interface RpcEntry {
-  readonly id: string;
-  /** Its id and schema, compared in the handshake: `game.Ready(team:u8)`. */
-  readonly descriptor: string;
-  /** Decode a received body to values (numbers, and strings for `str` fields). */
-  decode(data: Uint8Array): Record<string, number | string>;
-}
-
-const rpcs = new Map<string, RpcEntry>();
-const messageKinds: string[] = [];
-
-/** @internal Make an RPC type known to sessions (by `defineRpc`). A later entry with the same id replaces it. */
-export function registerRpc(entry: RpcEntry): void {
-  rpcs.set(entry.id, entry);
-}
-
-/**
- * @internal Register a message kind for netcode internals (snapshots, acks, inputs). Returns its
- * local id, for `send` and `drain`. Registering a name again returns the same id.
- */
-export function registerNetMessage(name: string): number {
-  const existing = messageKinds.indexOf(name);
-  if (existing >= 0) return existing;
-  messageKinds.push(name);
-  return messageKinds.length - 1;
-}
 
 // --- sessions -----------------------------------------------------------------------------------
 
@@ -295,14 +268,15 @@ export class NetPeer {
     return max === undefined ? undefined : max - MAX_HEADER_BYTES;
   }
 
-  /** Number RPCs and message kinds the same way on both ends: sorted by name. */
-  number(): void {
-    const ids = [...rpcs.keys()].sort();
-    this.rpcIn = ids.map((id) => rpcs.get(id)!);
-    this.rpcOut = new Map(ids.map((id, i) => [id, i]));
-    const names = [...messageKinds].sort();
-    this.kindIn = names.map((n) => messageKinds.indexOf(n));
-    this.kindOut = new Map(names.map((n, i) => [messageKinds.indexOf(n), FIRST_REGISTERED + i]));
+  /** Client: the catalogue as its hello listed it, which it numbers with once welcomed. */
+  hello: HandshakeSet | null = null;
+
+  /** Number RPCs and message kinds the same way on both ends: as the handshake listed them, sorted by name. */
+  number(set: HandshakeSet): void {
+    this.rpcIn = [...set.rpcs];
+    this.rpcOut = new Map(set.rpcs.map((r, i) => [r.id, i]));
+    this.kindIn = [...set.kinds];
+    this.kindOut = new Map(set.kinds.map((local, i) => [local, FIRST_REGISTERED + i]));
   }
 }
 
@@ -623,8 +597,9 @@ export class NetSession implements WorldNet {
 
   /** Queue a registered-kind message (see the top of this file). */
   send(kind: number, to: NetTarget, channel: Channel, body: Uint8Array | ((writer: BitWriter) => void), tick = this.time.serverTick): void {
-    if (!(kind >= 0 && kind < messageKinds.length)) throw new Error(`Unknown net message kind ${kind}; register it with registerNetMessage first.`);
-    this.queue(this.targets(to, `message "${messageKinds[kind]}"`), { channel, kind, tick, body: toBytes(body) });
+    const name = kindName(kind);
+    if (name === undefined) throw new Error(`Unknown net message kind ${kind}; define it with defineMessage first.`);
+    this.queue(this.targets(to, `message "${name}"`), { channel, kind, tick, body: toBytes(body) });
   }
 
   /** @internal Queue an RPC (`RpcDef.send`). */
@@ -662,7 +637,7 @@ export class NetSession implements WorldNet {
       for (const m of peer.outbox.splice(0)) {
         const kind = typeof m.kind === "number" ? peer.kindOut.get(m.kind) : MSG_RPC;
         if (kind === undefined) {
-          console.error(`[myco] Net message "${messageKinds[m.kind as number]}" was registered after World "${this.world.name}" connected; it can't be sent on that connection.`);
+          console.error(`[myco] Net message "${kindName(m.kind as number)}" was defined after World "${this.world.name}" connected; it can't be sent on that connection.`);
           continue;
         }
         let body = m.body;
@@ -824,12 +799,11 @@ export class NetSession implements WorldNet {
     w.writeVarUint(NET_PROTOCOL_VERSION);
     w.writeFloat32(this.tickRate);
     w.writeString(this.world.name);
-    const descriptors = [...rpcs.values()].map((r) => r.descriptor).sort();
-    w.writeVarUint(descriptors.length);
-    for (const d of descriptors) w.writeString(d);
-    const kinds = [...messageKinds].sort();
-    w.writeVarUint(kinds.length);
-    for (const k of kinds) w.writeString(k);
+    const set = (peer.hello = handshakeSet());
+    w.writeVarUint(set.rpcDescriptors.length);
+    for (const d of set.rpcDescriptors) w.writeString(d);
+    w.writeVarUint(set.kindNames.length);
+    for (const k of set.kindNames) w.writeString(k);
     w.writeString(peer.ticket); // ADR 0068: a match World's join ticket ("" for none)
     this.helloSentAt = this.nowMs();
     this.transmit(peer, "reliable", MSG_HELLO, 0, w.finish());
@@ -845,20 +819,20 @@ export class NetSession implements WorldNet {
     // The ticket is optional on the wire: a hello written without one ends here.
     peer.ticket = r.remaining >= 8 ? r.readString() : "";
     const who = `World "${client}"`;
+    const set = handshakeSet();
     let reason = "";
     if (version !== NET_PROTOCOL_VERSION) {
       reason = `Protocol version mismatch: ${who} speaks netcode version ${version}, the server World "${this.world.name}" version ${NET_PROTOCOL_VERSION}.`;
     } else if (Math.abs(tickRate - this.tickRate) > this.tickRate * 1e-4) {
       reason = `Tick rate mismatch: ${who} runs at ${round(tickRate)} ticks per second, the server World "${this.world.name}" at ${round(this.tickRate)}. Linked Worlds must use the same tick rate.`;
     } else {
-      // Input streams carry their schema in their kind's name (`net.input:id(fields)`): a difference
-      // there is the game's definitions, like an RPC's, not the engine's.
-      const isInput = (k: string) => k.startsWith("net.input:");
-      const input = (k: string) => k.slice("net.input:".length);
+      // Input streams carry their schema in their kind's name: a difference there is the game's
+      // definitions, like an RPC's, not the engine's.
+      const family = (names: readonly string[], f: "input" | "engine") => names.map(describeKind).filter((d) => d.family === f).map((d) => d.descriptor);
       reason =
-        setMismatch("RPC", theirRpcs, [...rpcs.values()].map((e) => e.descriptor)) ||
-        setMismatch("input", theirKinds.filter(isInput).map(input), messageKinds.filter(isInput).map(input)) ||
-        setMismatch("message kind", theirKinds.filter((k) => !isInput(k)), messageKinds.filter((k) => !isInput(k)), " (the client and server run different engine versions)");
+        setMismatch("RPC", theirRpcs, set.rpcDescriptors) ||
+        setMismatch("input", family(theirKinds, "input"), family(set.kindNames, "input")) ||
+        setMismatch("message kind", family(theirKinds, "engine"), family(set.kindNames, "engine"), " (the client and server run different engine versions)");
     }
     if (!reason && this.admit) {
       try {
@@ -874,7 +848,7 @@ export class NetSession implements WorldNet {
     }
     peer.id = this.nextConnectionId++;
     peer.state = "open";
-    peer.number();
+    peer.number(set);
     peer.node = this.createNode(`Connection ${peer.id}`, peer.id, ConnectionState.open);
     const w = createBitWriter();
     w.writeVarUint(peer.id);
@@ -887,7 +861,7 @@ export class NetSession implements WorldNet {
     peer.id = r.readVarUint();
     const serverPosition = readPosition(r);
     peer.state = "open";
-    peer.number();
+    peer.number(peer.hello ?? handshakeSet());
     const data = peer.node?.isValid ? peer.node.getData(Connection) : null;
     if (data) {
       data.id = peer.id;
@@ -1257,7 +1231,7 @@ const BUILTIN_KIND_NAMES = ["net.hello", "net.welcome", "net.ping", "net.pong", 
 function wireKindName(peer: NetPeer, kind: number): string {
   if (kind < FIRST_REGISTERED) return BUILTIN_KIND_NAMES[kind] ?? `net.unknown(${kind})`;
   const local = peer.kindIn[kind - FIRST_REGISTERED];
-  return local === undefined ? `net.unknown(${kind})` : messageKinds[local];
+  return (local === undefined ? undefined : kindName(local)) ?? `net.unknown(${kind})`;
 }
 
 // --- built-in systems ---------------------------------------------------------------------------

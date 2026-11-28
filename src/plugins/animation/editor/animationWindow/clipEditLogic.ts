@@ -11,6 +11,7 @@
 //
 // Pure; no DOM.
 import type { AnimSource } from "../../../../engine/animation/animSource";
+import { parseFieldPath } from "../../../../engine/animation/bindingPath";
 import { CURVE_TRACK_WIDTH, TRACK_LIMITS, type Binding, type CurveTrackKind, type DiscreteValue, type Track } from "../../../../engine/animation/tracks";
 import { accept, refuse, type EditResult } from "../../../../editor/sdk";
 import { copyKeysAt, pasteKeys, removeKeys, rippleKeys, scaleKeys, SAME_X, shiftKeys } from "../../../../editor/sdk";
@@ -277,7 +278,7 @@ export function keyField(clip: AnimSource, binding: Binding, value: unknown, t: 
 
 /** A discrete enum track's choices, as the field declares them. */
 function fieldChoices(binding: Binding): readonly (string | number)[] | undefined {
-  const shape = fieldTrackShape(binding.component, binding.field.split(".")[0]!);
+  const shape = fieldTrackShape(binding.component, parseFieldPath(binding.field).head);
   return "next" in shape && shape.next.kind === "discrete" ? shape.next.choices : undefined;
 }
 

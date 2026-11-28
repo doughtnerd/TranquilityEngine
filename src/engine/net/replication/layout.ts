@@ -28,7 +28,7 @@ import { getDataComponentDef, f32, i32, u8, type DataComponentDef, type ScalarTy
 import { getComponentClass, getComponentId, getFields, type ComponentClass } from "../../core/registry";
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
-import { recordCodec, type FieldEncoding, type RecordCodec } from "../codec";
+import { fieldSignature, recordCodec, type FieldEncoding, type RecordCodec } from "../codec";
 import type { Replicated } from "../Replicated";
 import { replicationOf } from "../replication";
 
@@ -88,9 +88,6 @@ export interface Layout {
   /** @internal */ readonly parts: readonly Part[];
   /** @internal Per field: SNAP, LERP or ROTATION. */
   readonly interpolation: Uint8Array;
-  /** @internal Per field: the quantize step (0: none) and the kind, to compare states as the codec does. */
-  readonly steps: Float64Array;
-  readonly kinds: readonly ScalarType["kind"][];
 }
 
 /** Layouts by spec key, with what the spec's components resolved to when each was made (`resolvedFor`). */
@@ -122,7 +119,7 @@ export function behaviorFields(type: ComponentClass): readonly BehaviorField[] {
   return out;
 }
 
-const shapesKey = (fields: readonly FieldShape[]) => fields.map((f) => `${f.kind}${f.quantize ? `/${f.quantize}` : ""}`).join(" ");
+const shapesKey = (fields: readonly FieldShape[]) => fields.map((f) => fieldSignature(f.kind, f.quantize)).join(" ");
 
 function specKey(spec: LayoutSpec): string {
   return `${spec.transform ? "T" : "-"}|${spec.data.map((d) => `${d.id}(${shapesKey(d.fields)})`).join(",")}|${spec.behaviors.map((b) => `${b.id}#${b.index}(${shapesKey(b.fields)})`).join(",")}`;
@@ -158,16 +155,12 @@ export function layoutOf(spec: LayoutSpec): Layout {
   const schema: Record<string, ScalarType> = {};
   const encoding: Record<string, FieldEncoding> = {};
   const interpolation: number[] = [];
-  const steps: number[] = [];
-  const kinds: ScalarType["kind"][] = [];
   const parts: Part[] = [];
   const add = (type: ScalarType, how: number, quantize?: number) => {
     const name = String(interpolation.length);
     schema[name] = type;
     if (quantize !== undefined) encoding[name] = { quantize };
     interpolation.push(how);
-    steps.push(quantize ?? 0);
-    kinds.push(type.kind);
   };
 
   add(i32, SNAP); // ownerId
@@ -211,8 +204,6 @@ export function layoutOf(spec: LayoutSpec): Layout {
     size: interpolation.length,
     parts,
     interpolation: Uint8Array.from(interpolation),
-    steps: Float64Array.from(steps),
-    kinds,
   };
   layouts.set(key, { layout, resolved });
   return layout;
@@ -284,21 +275,10 @@ export function readState(layout: Layout, node: GameObject, rep: Replicated): Gh
   return out;
 }
 
-/** Whether two states would encode the same (the codec's per-field comparison). */
+/** Whether two states would encode the same: the layout's codec sees no changed field (`sameAt`). */
 export function sameState(layout: Layout, a: GhostState, b: GhostState): boolean {
-  for (let i = 0; i < layout.size; i++) {
-    const step = layout.steps[i];
-    const kind = layout.kinds[i];
-    if (step > 0) {
-      if (Math.round(a[i] / step) !== Math.round(b[i] / step)) return false;
-    } else if (kind === "f32") {
-      if (!Object.is(Math.fround(a[i]), Math.fround(b[i]))) return false;
-    } else if (kind === "i32") {
-      if ((a[i] | 0) !== (b[i] | 0)) return false;
-    } else if ((a[i] & 0xff) !== (b[i] & 0xff)) {
-      return false;
-    }
-  }
+  const codec = layout.codec;
+  for (let i = 0; i < layout.size; i++) if (!codec.sameAt(i, a[i], b[i])) return false;
   return true;
 }
 
@@ -528,8 +508,10 @@ export class PredictedPlan {
 
 function fieldSlot(layout: Layout, at: number, part: number, name: string, boolean: boolean): Slot {
   // A quantized value is off by up to half a step; allow one step, so float noise never trips it.
-  if (layout.steps[at] > 0) return { kind: "field", at, part, name, boolean, compare: "step", tolerance: layout.steps[at] };
-  if (layout.kinds[at] === "f32") return { kind: "field", at, part, name, boolean, compare: "relative", tolerance: F32_TOLERANCE };
+  const { codec } = layout;
+  const step = codec.quantizeAt(at);
+  if (step > 0) return { kind: "field", at, part, name, boolean, compare: "step", tolerance: step };
+  if (codec.schema[codec.fields[at]].kind === "f32") return { kind: "field", at, part, name, boolean, compare: "relative", tolerance: F32_TOLERANCE };
   return { kind: "field", at, part, name, boolean, compare: "integer", tolerance: 0 };
 }
 

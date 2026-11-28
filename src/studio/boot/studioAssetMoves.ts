@@ -10,7 +10,7 @@
 //   in the files it owns (asset JSON other than scenes, prefabs and project.json, its open documents through their whole
 //   history, ADR 0302). The editor applies the pending moves to its documents, scenes and prefabs and deletes the file.
 //   A stale editor lock (an editor that crashed) only delays those rewrites to the editor's next open (decision log D6).
-import { fileName } from "../../editor/assetBrowser";
+import { fileName } from "../../editor/projectPath";
 import { assetDocumentsMoved } from "../../editor/assetDocuments";
 import { folderEntry } from "../../editor/assetEntry";
 import { moveAssets, whyNotMovable, whyNotValidName } from "../../editor/assetOps";

@@ -3,6 +3,7 @@
 // - a folder: its project path and "/", `images/`;
 // - a slice of an image (ADR 0040): the image's path, "#" and the slice's name, `images/sheet.png#walk_0`.
 // This module is the only one that knows the encoding.
+import { fileName, folderOf } from "./projectPath";
 import { assetKind, type AssetKind } from "./assetKindLookup";
 
 /** An Assets panel entry. */
@@ -30,8 +31,7 @@ export const entryPath = (entry: AssetEntry) => (isFolderEntry(entry) ? entry.sl
 /** The name the panel shows: a slice's name, else the file or folder name. */
 export function entryName(entry: AssetEntry): string {
   if (isSliceEntry(entry)) return splitSliceEntry(entry).slice;
-  const path = entryPath(entry);
-  return path.slice(path.lastIndexOf("/") + 1);
+  return fileName(entryPath(entry));
 }
 
 /** The entry's kind: "folder", or its asset kind (a slice's is "sprite"). */
@@ -39,8 +39,7 @@ export const entryKind = (entry: AssetEntry): AssetKind | "folder" => (isFolderE
 
 /** The folder an entry is in: `images/a.png` → `images`, `images/` → `""`. */
 export function entryFolder(entry: AssetEntry): string {
-  const path = isSliceEntry(entry) ? splitSliceEntry(entry).image : entryPath(entry);
-  return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  return folderOf(isSliceEntry(entry) ? splitSliceEntry(entry).image : entryPath(entry));
 }
 
 /** The entries that are files or folders: slices are listed, but they aren't files to rename, move, copy or delete. */

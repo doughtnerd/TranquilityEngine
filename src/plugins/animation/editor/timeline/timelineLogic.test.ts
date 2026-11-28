@@ -10,7 +10,7 @@ import {
   setDuration, setEase, splitItem, trimItem,
 } from "./timelineEditLogic";
 import {
-  bindingProblem, blendRegions, breadcrumbs, itemSpan, nestedRefs, nodeChoices, openNested, parseItemId, propertyTimes, relativeNodePath, resolveNode, timelineRows, trackLabel, whyBadNodePath, type NodeLike,
+  bindingProblem, blendRegions, breadcrumbs, itemSpan, nestedRefs, nodeChoices, openNested, parseItemId, propertyTimes, timelineRows, trackLabel, whyBadNodePath, type NodeLike,
 } from "./timelineModelLogic";
 
 const NONE = { nodePath: "", component: "", field: "" };
@@ -371,15 +371,6 @@ describe("bindings resolve against the director's node", () => {
   const trail = node("Trail");
   const hero = node("Hero", trail, node("Sword"));
   const director = node("Director", hero, node("Lamp"));
-
-  it("finds nodes by relative path, \"\" being the director's node", () => {
-    expect(resolveNode(director, "")).toBe(director);
-    expect(resolveNode(director, "Hero/Trail")).toBe(trail);
-    expect(resolveNode(director, "Hero/Nope")).toBeNull();
-    expect(relativeNodePath(director, trail)).toBe("Hero/Trail");
-    expect(relativeNodePath(director, director)).toBe("");
-    expect(relativeNodePath(hero, director)).toBeNull(); // outside the director's subtree
-  });
 
   it("says what is wrong with a binding, naming the missing node and ambiguous names", () => {
     expect(bindingProblem(director, "Hero/Trail")).toBeNull();

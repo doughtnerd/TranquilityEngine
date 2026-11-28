@@ -4,7 +4,7 @@
 // panel has open. The current value of a file is the asset document module's (`readAsset`), so it is one rule.
 // Plugins reach all of it through `editor.assets` (sdk/project.ts).
 import { signal } from "@preact/signals";
-import { fileName } from "./assetBrowser";
+import { fileName } from "./projectPath";
 import { isSliceEntry, splitSliceEntry } from "./assetEntry";
 import { assetKind, opensInCodePanel, opensWithAudioStudio, registeredKind } from "./assetKindLookup";
 import { freePath } from "./freePath";

@@ -235,9 +235,6 @@ export class HitAccumulator implements HitCost {
   }
 }
 
-/** Linear gain of `db` (0 dB is 1). */
-export const dbToGain = (db: number): number => Math.pow(10, db / 20);
-
 /** The node shape the cache needs (a `GameObject`): a collider's owner. */
 export interface OcclusionNode {
   readonly name: string;

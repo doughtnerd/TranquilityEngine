@@ -217,6 +217,12 @@ describe("controls and action types", () => {
     expect(convertMapping(single, "vec2", "button")).toEqual({ mapping: single, note: null });
     expect(mappingControls(toAxis.mapping)).toEqual(["<Keyboard>/a", "<Keyboard>/d"]);
   });
+
+  it("lists each of a chord's modifiers as a control of its own, not one joined path (ADR 0458)", () => {
+    const quicksave: MappingSpec = { action: "save", composite: "modifier", modifier: ["<Keyboard>/control", "<Keyboard>/shift"], control: "<Keyboard>/s" };
+    expect(mappingControls(quicksave)).toEqual(["<Keyboard>/control", "<Keyboard>/shift", "<Keyboard>/s"]);
+    expect(mappingControls({ action: "dash", composite: "modifier", modifier: "<Keyboard>/shift", control: "" })).toEqual(["<Keyboard>/shift"]);
+  });
 });
 
 describe("triggers grouped by how they combine (ADR 0433)", () => {

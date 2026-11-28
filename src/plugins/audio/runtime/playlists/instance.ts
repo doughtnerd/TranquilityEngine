@@ -26,6 +26,7 @@ import { rootProps, voiceControls, HIGHPASS_NONE, LOWPASS_NONE } from "../../../
 import type { PickState } from "../../../../engine/audio/playlist/picks";
 import type { Entry, LoopBehaviour, PlaylistAsset, PlaylistBody, SampleEntry, Stinger } from "../../../../engine/audio/playlist/types";
 import { defaultAttenuation, stretchAttenuation } from "../../../../engine/audio/attenuation/format";
+import { dbToGain, semitonesToRatio } from "../../../../engine/audio/decibels";
 import type { Attenuation as CurveAttenuation } from "../../../../engine/audio/attenuation/types";
 import { World } from "../../../../engine/core/World";
 import { GameBehavior, type Component } from "../../../../engine/core/Component";
@@ -33,7 +34,7 @@ import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { MusicEventHandle } from "../../../../engine/audio/musicTypes";
 import { Camera } from "../../../../engine/render/components";
 import { AudioListener, listenerPose } from "../AudioListener";
-import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
+import { CURVE_DRIVEN_ATTENUATION, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
 import { mediaPlay } from "../media/packages";
 import { generatorsNeedTheCore, isPendingCoreBackend, audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel, type VoiceSpatialOptions } from "../backend";
@@ -121,8 +122,6 @@ const HELD: LoopBehaviour = Object.freeze({ active: "held", exit: "finish", exit
 /** ADR 0342: the loop programs of voices playing a sample's loops (the core runs them; `resend` sends them again). */
 const programs = new WeakMap<LoopRun, readonly VoiceLoop[]>();
 
-const dbToGain = (db: number): number => Math.pow(10, db / 20);
-const stToRatio = (st: number): number => Math.pow(2, st / 12);
 const clampPitch = (p: number): number => Math.min(16, Math.max(0.0625, p));
 
 /** The parameters an instance has: the root's, then any nested playlist's the root doesn't name (16 slots). */
@@ -845,7 +844,7 @@ export class PlaylistInstance implements NodeHost {
   /** The plans' curves at `distance`, into each plan's `at` and its gain factor. */
   private evaluate(p: CurvePlan, distance: number): void {
     evalAttenuation(p.curves, distance, p.at);
-    p.gain.gain = p.volumeCurve ? curveDbToGain(p.at.volumeDb) : 1;
+    p.gain.gain = p.volumeCurve ? dbToGain(p.at.volumeDb) : 1;
   }
 
   /** Metres from the listener to where the instance plays (0 without a position or a listener). */
@@ -864,7 +863,7 @@ export class PlaylistInstance implements NodeHost {
   private sendLevel(p: CurvePlan): number {
     const base = this.options.reverbSend !== undefined && Number.isFinite(this.options.reverbSend) ? this.options.reverbSend : 1;
     const dry = p.volumeCurve ? p.gain.gain : 1;
-    const level = base * curveDbToGain(p.at.reverbSendDb) / (dry > 1e-6 ? dry : 1e-6);
+    const level = base * dbToGain(p.at.reverbSendDb) / (dry > 1e-6 ? dry : 1e-6);
     return Math.min(2, Math.max(0, level));
   }
 
@@ -1077,7 +1076,7 @@ export class PlaylistInstance implements NodeHost {
   private dress(req: PlayRequest, ctx: Ctx): Dressed {
     const c = voiceControls(ctx.props);
     const staticVolume = (req.volume ?? 1) * dbToGain(c.gainDb) * Math.max(0, this.options.volume ?? 1);
-    const staticPitch = clampPitch(stToRatio(c.pitchSt) * this.pitchOption);
+    const staticPitch = clampPitch(semitonesToRatio(c.pitchSt) * this.pitchOption);
     // When it starts: its stamp, else the earliest exact start, else now (heard; voice time and end estimates count from it).
     const start = this.startOf(ctx.at);
     // Time-keyed lanes read from the voice's start; pan and high-pass ones go to the core as voice-time bindings (ABI 4.4).

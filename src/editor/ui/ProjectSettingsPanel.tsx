@@ -1,3 +1,4 @@
+import { isSceneFile } from "../projectPath";
 import type { ComponentChildren } from "preact";
 import { Panel } from "./panel/Panel";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -391,7 +392,7 @@ function ColorField(props: { value: string | undefined; fallback: string; onComm
 function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: EditorProject; problems: readonly SettingsProblem[] }) {
   const { s, draft, project, problems } = props;
   const list = autoloadsOf(draft);
-  const choices = project.files.filter((f) => /\.(scene|prefab)\.json$/.test(f) && !list.includes(f));
+  const choices = project.files.filter((f) => isSceneFile(f) && !list.includes(f));
   const set = (label: string, next: SettingsDraft) => edit(s, label, next);
   return (
     <div class="project-settings-list" role="group" aria-label="Autoload list">

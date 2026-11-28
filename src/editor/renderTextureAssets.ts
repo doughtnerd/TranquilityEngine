@@ -1,7 +1,7 @@
 // Render texture assets in the editor (ADR 0109): creating `*.rendertexture.json` files, and
 // reading and writing them for the Asset Inspector (ui/RenderTextureInspector.tsx).
 import { defaultRenderTexture, formatRenderTexture, parseRenderTexture, type RenderTextureSettings } from "../engine/render/renderTexture";
-import { fileName } from "./assetBrowser";
+import { fileName } from "./projectPath";
 import { freePath } from "./assetOps";
 import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";

@@ -1,5 +1,5 @@
 import type { RenderTextureSettings } from "../../engine/render/renderTexture";
-import { fileName } from "../assetBrowser";
+import { fileName } from "../projectPath";
 import { errorStatus } from "../messages";
 import { readRenderTexture, writeRenderTexture } from "../renderTextureAssets";
 import { currentProject, docVersion, status } from "../state";

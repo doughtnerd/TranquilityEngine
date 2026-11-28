@@ -16,6 +16,8 @@
  * engine values. Rotations keep one hemisphere from key to key (nlerp takes the short way). Pure. Internal.
  */
 import type { Curve, CurveKey } from "../../core/curve";
+import { Quaternion } from "../../core/math";
+import { bracket } from "../compile/keySampling";
 import type { Binding, BoneTrack, CurveTrackKind, QuatKey, Track, Vec3Key } from "../tracks";
 import { TRACK_LIMITS } from "../tracks";
 import { IDENTITY_SPACE, mapRotation, mapScale, mapTranslation, type TrsSpace } from "./space";
@@ -87,16 +89,10 @@ function tangentAt(s: Sampler, i: number, which: 0 | 2): number[] {
 export function evaluateSampler(s: Sampler, t: number, normalize = false): number[] {
   const n = s.times.length;
   if (n === 0) return new Array<number>(s.width).fill(0);
-  if (t <= s.times[0]) return valueAt(s, 0);
-  if (t >= s.times[n - 1]) return valueAt(s, n - 1);
-  let lo = 0, hi = n - 1;
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1;
-    if (s.times[mid] <= t) lo = mid; else hi = mid;
-  }
-  const t0 = s.times[lo], t1 = s.times[hi], dt = t1 - t0;
-  const u = dt > 0 ? (t - t0) / dt : 0;
-  const a = valueAt(s, lo), b = valueAt(s, hi);
+  const { lo, hi, u } = bracket(n, (i) => s.times[i], t);
+  const a = valueAt(s, lo);
+  if (lo === hi) return a;
+  const b = valueAt(s, hi), dt = s.times[hi] - s.times[lo];
   let out: number[];
   if (s.interpolation === "STEP") out = a;
   else if (s.interpolation === "CUBICSPLINE") {
@@ -106,24 +102,14 @@ export function evaluateSampler(s: Sampler, t: number, normalize = false): numbe
     out = a.map((v, k) => h00 * v + h10 * dt * m0[k] + h01 * b[k] + h11 * dt * m1[k]);
   } else if (normalize) {
     // glTF: rotations interpolate spherically.
-    out = slerp(a, b, u);
+    const q = Quaternion.slerp({ x: a[0], y: a[1], z: a[2], w: a[3] }, { x: b[0], y: b[1], z: b[2], w: b[3] }, u);
+    out = [q.x, q.y, q.z, q.w];
   } else out = a.map((v, k) => v + (b[k] - v) * u);
   if (normalize) {
     const len = Math.hypot(...out) || 1;
     out = out.map((v) => v / len);
   }
   return out;
-}
-
-function slerp(a: number[], b: number[], u: number): number[] {
-  let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
-  const bb = dot < 0 ? b.map((v) => -v) : b;
-  dot = Math.abs(dot);
-  if (dot > 0.9995) return a.map((v, k) => v + (bb[k] - v) * u);
-  const theta = Math.acos(Math.min(1, dot));
-  const sin = Math.sin(theta);
-  const wa = Math.sin((1 - u) * theta) / sin, wb = Math.sin(u * theta) / sin;
-  return a.map((v, k) => wa * v + wb * bb[k]);
 }
 
 /** Key times and values for a linear-only track (see the module table), before any value map. */

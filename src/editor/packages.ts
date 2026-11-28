@@ -11,7 +11,8 @@
 import type * as Esbuild from "esbuild-wasm";
 import { resolve as resolveExports } from "resolve.exports";
 import { importSites, typescript, type ImportSite } from "./moduleImports";
-import { PackageResolver, dirname, isNodeBuiltin, join, packageName, type PackageFiles, type PackageJson } from "./packageResolver";
+import { PackageResolver, isNodeBuiltin, join, packageName, type PackageFiles, type PackageJson } from "./packageResolver";
+import { folderOf } from "./projectPath";
 import { isUIRuntimeSpecifier } from "../projectCode/uiModules";
 
 
@@ -78,7 +79,7 @@ function resolverPlugin(resolver: PackageResolver, entries: ReadonlyMap<string, 
       build.onLoad({ filter: /.*/, namespace: "pkg" }, async (args) => {
         const contents = await resolver.read(args.path);
         if (contents === null) return { errors: [{ text: `can't read ${args.path}` }] };
-        return { contents, loader: loaderFor(args.path), resolveDir: dirname(args.path) };
+        return { contents, loader: loaderFor(args.path), resolveDir: folderOf(args.path) };
       });
       build.onLoad({ filter: /.*/, namespace: "empty" }, () => ({ contents: "module.exports = {};", loader: "js" }));
     },
@@ -251,7 +252,7 @@ export async function packageTypes(specifiers: readonly string[], files: Package
   while (queue.length && out.size < MAX_TYPE_FILES) {
     const path = queue.shift()!;
     const info = ts.preProcessFile(out.get(path)!, true, true);
-    const dir = dirname(path);
+    const dir = folderOf(path);
     for (const ref of info.referencedFiles) await add(join(dir, ref.fileName));
     for (const ref of info.typeReferenceDirectives) await typesFor(ref.fileName, dir);
     for (const imp of info.importedFiles) {

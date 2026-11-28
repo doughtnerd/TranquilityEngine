@@ -3,6 +3,7 @@
 
 mod common;
 
+use anim_format::frames::FrameClock;
 use anim_math::AosTransform;
 use anim_rig::aim::{aim, look_at, AimAxes, AimGoal, AimJoint};
 use anim_rig::chain::{ccd, fabrik, ChainGoal};
@@ -290,7 +291,7 @@ fn solvers_do_not_allocate() {
         );
         let curve = RootCurve {
             samples: &roots,
-            sample_dt: 1.0 / 30.0,
+            clock: FrameClock::uniform(30.0, roots.len() as u32),
         };
         let mw = MotionWarp {
             t0: 0.1,
@@ -302,7 +303,7 @@ fn solvers_do_not_allocate() {
         let d = motion_warp_delta(&curve, &mw, 0.2, 0.25);
         let dc = DistanceCurve {
             distance: &distance,
-            sample_dt: 1.0 / 30.0,
+            clock: FrameClock::uniform(30.0, distance.len() as u32),
         };
         let rate = dc.playback_rate(0.3, 1.0 / 60.0, 0.02, 0.5, 2.0) + dc.time_before(0.9, 0.2);
         assert!(d.translation.z.is_finite() && rate.is_finite());

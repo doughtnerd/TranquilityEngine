@@ -6,6 +6,7 @@
 // field lists it; its kind comes from its value (a number, a vector array, a `{x, y, z, w}` rotation, D91).
 //
 // Pure; reads the component registry only.
+import { parseFieldPath } from "../../../../engine/animation/bindingPath";
 import type { DiscreteType, DiscreteValue } from "../../../../engine/animation/tracks";
 import { Color, Quaternion, Vector2, Vector3 } from "../../../../engine/core/math";
 import { AssetRef, getComponentClass, getFields, isFieldAnimatable, resolveChoices, type FieldInfo } from "../../../../engine/core/registry";
@@ -66,8 +67,7 @@ export function fieldTrackShape(type: string, path: string, value?: unknown): Ed
   const cls = getComponentClass(type);
   if (!cls) return refuse(`${type} isn't a registered component`);
   if (!isFieldAnimatable(cls, path)) return refuse(`${title(type)}.${path} isn't animatable`);
-  const dot = path.indexOf(".");
-  if (dot >= 0) {
+  if (parseFieldPath(path).sub.length) {
     const shape = shapeOfValue(value);
     return shape ? accept(shape) : refuse(`${title(type)}.${path} holds no value a track can key`);
   }
@@ -83,16 +83,6 @@ export function fieldTrackShape(type: string, path: string, value?: unknown): Ed
   if (t === Quaternion) return accept({ kind: "quat" });
   if (t === Color) return accept({ kind: "color", width: 4 });
   return refuse(`${title(type)}.${path} has no track kind`);
-}
-
-/** The value at a dotted `sub` path inside `value` (a plain object), or undefined. */
-export function subValue(value: unknown, sub: string): unknown {
-  let v: unknown = value;
-  for (const part of sub.split(".")) {
-    if (!v || typeof v !== "object") return undefined;
-    v = (v as Record<string, unknown>)[part];
-  }
-  return v;
 }
 
 /** The animatable sub-paths a plain-object field lists (D86), `["targetPosition"]` for `spring`; empty for other fields. */

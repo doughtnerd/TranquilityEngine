@@ -2,8 +2,9 @@
 // `animation.Timeline` (`stages/timeline.ts`, before `animation.Gather`) and of the apply stage (`stages/apply/tweens.ts`).
 //
 // - **Loading:** on activation the director starts the World's core and loads its `*.timeline.json`. Until T19's compile
-//   worker makes compiled timelines, the host writes the timeline as a raw `myco.anim@1` clip (`timeline/rawClip.ts`,
-//   D46: a clip used as a timeline) and loads it into the core, keyed by path and content. `subclip` keys' clips load
+//   worker makes compiled timelines, the host writes the timeline as a raw `myco.anim@1` clip (the engine's one raw
+//   clip writer, `compileRawClip`, ADR 0451; D46: a clip used as a timeline) and loads it into the core, keyed by path
+//   and content. `subclip` keys' clips load
 //   with it: another `*.timeline.json` or a `*.anim.json` source (written the same way: their property and keyed tracks),
 //   or a compiled clip file (`acquireFile`), nested up to the core's three levels, and are bound with `timeline_bind`.
 //   A loaded timeline is kept while its path stays, unless one of the files it read changed since
@@ -35,6 +36,7 @@
 //   instance again. Audio and control keys don't fire in edit mode.
 import { parseAnimSource } from "../../../../engine/animation/animSource";
 import { parseTimeline } from "../../../../engine/animation/timeline";
+import { compileRawClip, usesBones, type RawClipSource, type SubclipRef } from "../../../../engine/animation/compile/rawClip";
 import { TRACK_KINDS, CONTROL_ACTIONS } from "../../../../engine/animation/tracks";
 import type { Component } from "../../../../engine/core/Component";
 import { getComponentClass } from "../../../../engine/core/registry";
@@ -70,7 +72,6 @@ import { dispatchControl, type AnimationControl } from "./events/controls";
 import { bindClip, bindingsValid, type BindingTable } from "./properties/bindings";
 import { clipData, type ClipColumn, type ClipData } from "./properties/clipData";
 import type { ClipTrack, ClipTracks } from "./properties/clipTracks";
-import { writeRawClip, type RawClipSource } from "./timeline/rawClip";
 import { resolveTweenTarget, type TweenBinding } from "./tweens/target";
 
 const ACTIVATION = TRACK_KINDS.indexOf("activation");
@@ -89,7 +90,7 @@ interface LoadedClip {
   readonly handle: number;
   readonly path: string;
   /** Per subclip track of this clip: its keys' clip string ids. */
-  readonly subclips: ReadonlyMap<number, readonly { readonly stringId: number; readonly ref: string }[]>;
+  readonly subclips: ReadonlyMap<number, readonly SubclipRef[]>;
 }
 
 interface Loaded {
@@ -124,7 +125,10 @@ function fnv(bytes: Uint8Array): string {
   return h.toString(16);
 }
 
-/** The track list of a `*.timeline.json` or `*.anim.json` file, or null (warned). */
+/**
+ * The timing and track list of a `*.timeline.json` or `*.anim.json` file, or null (warned). A clip source played as a
+ * timeline keeps only these: its additive flag, bone rotation mode and root motion are an Animator's.
+ */
 function sourceOf(path: string): RawClipSource | null {
   let raw: unknown;
   try {
@@ -138,7 +142,8 @@ function sourceOf(path: string): RawClipSource | null {
   }
   const parsed = path.endsWith(".anim.json") ? parseAnimSource(raw, path) : parseTimeline(raw, path);
   for (const p of parsed.problems) warnOnce(`problem:${p}`, `[myco] ${p}`);
-  return parsed.value;
+  const { name, rate, duration, loop, tracks } = parsed.value;
+  return { name, rate, duration, loop, tracks };
 }
 
 interface LoadOut {
@@ -158,8 +163,9 @@ async function loadClip(ns: AnimationWorldCore, ref: string, depth: number, out:
     }
     const src = sourceOf(path);
     if (!src) return null;
-    const written = writeRawClip(src, (curve, rate, end, frames) => ns.core.curveSamples(curve, rate, end, frames));
-    if (written.dropped.length) warnOnce(`dropped:${path}`, `[myco] animation: "${path}" has bone tracks, which a timeline doesn't play (a character's motion comes through its own Animator); left out.`);
+    const written = compileRawClip(src, null, "", (curve, rate, end, frames) => ns.core.curveSamples(curve, rate, end, frames));
+    if (usesBones(src)) warnOnce(`dropped:${path}`, `[myco] animation: "${path}" has bone tracks, which a timeline doesn't play (a character's motion comes through its own Animator); left out.`);
+    for (const p of written.problems) if (!p.includes("bone track")) warnOnce(`written:${path}:${p}`, `[myco] animation: "${path}": ${p}`);
     const handle = ns.acquire(`${path}#raw:${fnv(written.bytes)}`, "clip", { kind: "clip", bytes: written.bytes });
     if (handle === 0) {
       warnOnce(`refused:${path}`, `[myco] animation: the core refused the timeline "${path}" (status ${ns.core.lastStatus()}).`);
