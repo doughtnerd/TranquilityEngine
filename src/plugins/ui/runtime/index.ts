@@ -1,7 +1,7 @@
 // The UI plugin's runtime half (ADR 0069, 0076, 0140): claims the UI Components (canvases, elements,
 // UIView), and registers the lazy UI render feature. The classes, `UICore` and the Babylon
 // GUI drawing stay in core: the adapter reads them from `render/babylon/` (ADR 0075), and the editor's
-// overlays and input routing use the core. `myco` (`src/myco.ts`) exports the public parts from here.
+// overlays and input routing use the core. `myco` exports its public parts (`./public.ts`).
 // Runtime code: never imports from `src/editor/` or Babylon (the feature's code loads on demand).
 import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
 import { isUIComponent, UIAudio, UIButton, UICanvas, UIForm, UIImage, UIInputField, UILabel, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UISvg, UIText, UITextArea, UIToggle, UIVideo } from "../../../engine/ui/components";
@@ -13,15 +13,7 @@ import type { WorldServiceDef } from "../../../engine/core/worldServices";
 import { forgetUIPreferences, loadUIPreferences } from "../../../engine/ui/preferences";
 import { uiManifest } from "../manifest";
 
-export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm, UISvg, UIVideo, UIAudio, type UIButtonType, type UIInputType, type UITextAreaWrap, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UINavigationMode, type UIPositionType, type UITextAlign, type UIWordBreak, type UIWhiteSpaceCollapse, type UITextWrapMode } from "../../../engine/ui/components";
-export { UIActions, UI_CONTEXT_PRIORITY } from "../../../engine/ui/navigation";
-export type { UIMediaEvent, UIMediaEventType, UIMediaSource } from "../../../engine/ui/media";
-export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperSetting, type UIControlMapperSettingKind, type UIControlMapperText } from "./UIControlMapper";
-export type { UITag } from "../../../engine/ui/document/types";
-export { UIView } from "./UIView";
-export { UIPreferences, type UIColorScheme } from "../../../engine/ui/preferences";
-/** A UI element a `UIView`'s component rendered (ADR 0423): `view.query("#play")`. */
-export type { UIHostElement as UIViewElement, UIHostEvent as UIViewEvent } from "../../../engine/ui/host/UIHost";
+export * from "./public";
 
 /**
  * Screen and world UI canvases and their elements; loaded the first time a World

@@ -1,7 +1,11 @@
 // The first-party plugin catalogue (ADR 0275): one entry per first-party plugin (ADR 0133), keyed by its
 // folder, holding its manifest. Every host plans project code against it (`planPluginCode`, ADR 0139),
-// `runtime.ts` maps each entry to its runtime half and `editor.ts` to its editor half, so adding a
-// plugin is one entry here. Manifests only, no plugin code: the exporter and the server plan with it.
+// `runtime.ts` maps each entry to its runtime half and `editor.ts` to its editor half. Everything else about a
+// plugin lives in its folder (ADR 0447): its manifest (with its Components' Add Component categories) and its
+// public runtime surface (`runtime/public.ts`, one `export *` line in `src/myco.ts`). Adding a plugin is this entry
+// and its halves' (the compiler asks for the runtime one) plus that line; `catalogue.test.ts` walks the catalogue
+// and fails on a Component without a category or a public module that doesn't reach `myco`.
+// Manifests only, no plugin code: the exporter and the server plan with it.
 import { animationManifest } from "./animation/manifest";
 import { cameraShakeManifest } from "./camera-shake/manifest";
 import { audioManifest } from "./audio/manifest";

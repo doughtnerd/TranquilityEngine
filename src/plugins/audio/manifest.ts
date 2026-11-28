@@ -9,4 +9,8 @@ export const audioManifest: PluginManifest = {
   description: "Sound playback: AudioSource, AudioListener, the mixer's buses and the Audio helpers.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
+  // Where the Add Component menu lists its Components.
+  componentCategories: {
+    Audio: ["engine.AudioSource", "engine.AudioListener", "engine.AudioOccluder", "engine.AudioReverbZone", "engine.AudioZone", "engine.AudioSpeaker", "engine.AudioPackageLoader"],
+  },
 };

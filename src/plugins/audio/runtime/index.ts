@@ -1,5 +1,5 @@
 // The Audio plugin's runtime half (ADR 0006, 0074, 0097, 0098, 0157): its Components, the audio engine system
-// and the `myco.audio` World service. `myco` (`src/myco.ts`) exports the public parts from here. Runtime
+// and the `myco.audio` World service. `myco` exports its public parts (`./public.ts`). Runtime
 // code: never imports from `src/editor/` or the plugin's `editor/` folder. The mixer and the `audio`
 // settings stay core modules (`src/engine/audio/`).
 import type { RuntimePlugin } from "../../runtimeContext";
@@ -15,17 +15,7 @@ import { AudioPackageLoader } from "./media/AudioPackageLoader";
 import { AUDIO_PACKAGES_SERVICE } from "./media/service";
 import { AudioSpeaker } from "./dialogue/AudioSpeaker";
 
-export { Audio, type OneShotOptions } from "./Audio";
-// ADR 0344: `Audio.snapshot(name)`'s handle.
-export type { AudioSnapshot } from "./Audio";
-// ADR 0166 §1 (Q2): the interactive music types (the engine's `musicTypes.ts`) and the `Calibration` namespace.
-export { Calibration } from "./music/calibration";
-export type { AudioLatency, CalibrationResult, GridPoint, GridSpec, MusicEvent, MusicHandle, MusicKind, MusicPositionAt, MusicSeekResult } from "../../../engine/audio/musicTypes";
-export type { AudioBedDebug, AudioDebugInfo, AudioEventHandle, AudioPlaylistHandle, AudioMarkerEvent, AudioMarkerType, AudioHandle, AudioM3Counters, AudioMemoryDebug, AudioOcclusionDebug, AudioPanner, AudioReason, AudioStatus, AudioVoiceM3Debug, AudioZoneDebug, MusicDebugPending, MusicDebugRow, MusicDebugState, MusicDebugTotals, SendCurve } from "./backend";
-// ADR 0171 §1.2, §1.3 (K0): the capture surface and the M5 debug shapes.
-export type { AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioRecorderDebug } from "./backend";
-export type { AudioCapture, AudioCaptureState } from "./capture/capture";
-export type { AudioTake, AudioTakeState } from "./capture/take";
+export * from "./public";
 export type { TakeExtensionRecord } from "../../../engine/audio/take/extensions";
 
 /**
@@ -38,31 +28,17 @@ export async function readTakeExtensions(file: Uint8Array): Promise<{ project: s
   const opened = await openTakeFile(file);
   return { project: opened.take.meta.project, duration: opened.take.duration, extensions: opened.extensions };
 }
-export { DEFAULT_SEND_CURVE } from "./backend";
-export type { EventOptions } from "./playlists/options";
-export { AudioSource, type Rolloff } from "./AudioSource";
-export { AudioOccluder } from "./AudioOccluder";
-export { AudioReverbZone, ZONE_PRESETS } from "./AudioReverbZone";
+export { ZONE_PRESETS } from "./AudioReverbZone";
 // ADR 0347: audio zones.
-export { AudioZone, AUDIO_ZONE_HEARD, type AudioZoneHeard } from "./AudioZone";
-export { AudioListener } from "./AudioListener";
-export type { Bus } from "../../../engine/audio/mixer";
+export { AUDIO_ZONE_HEARD } from "./AudioZone";
 /** @internal B2: the decoder worker's client (B5 wires the clip registry to it). Not part of the public API (`src/myco.ts` does not export it). */
 export { createDecoderClient, type DecoderClient, type DecodedClip } from "./decoder/decoderClient";
 export { hintFromName } from "./decoder/protocol";
 
-// ADR 0351 §9: audio packages (`Audio.package(name)`) and the component that loads them with a scene.
-export { AudioPackageLoader } from "./media/AudioPackageLoader";
-export type { AudioPackage } from "./media/packages";
-
 // ADR 0354, 0355, 0357: localised audio, voice-over lines, captions and dynamic dialogue.
-export type { AudioLanguage, SetLanguageOptions, AudioLanguageDebug } from "./localisation/languageState";
-export type { AudioLineHandle, AudioLineEvent, LineOptions, LineEnd } from "./localisation/lines";
-export type { AudioViseme } from "./localisation/viseme";
-export type { AudioCaptionEvent } from "./localisation/captions";
-export type { SayOptions, AudioDialogue, AudioDialogueDebug } from "./dialogue/dialogueSystem";
-export type { DialogueMemory } from "./dialogue/memory";
-export { AudioSpeaker };
+export type { SetLanguageOptions, AudioLanguageDebug } from "./localisation/languageState";
+export type { LineEnd } from "./localisation/lines";
+export type { AudioDialogue, AudioDialogueDebug } from "./dialogue/dialogueSystem";
 
 export const audioRuntimePlugin: RuntimePlugin = {
   manifest: audioManifest,

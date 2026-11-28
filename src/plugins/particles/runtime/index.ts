@@ -1,6 +1,6 @@
 // The Particles plugin's runtime half (ADR 0057, 0060, 0135): the ParticleSystem component and the
-// particles render feature, registered when the plugin activates. `myco` (`src/myco.ts`) exports the
-// public parts from here.
+// particles render feature, registered when the plugin activates. `myco` exports its
+// public parts (`./public.ts`).
 // The component class, the effect format and compiler (`src/engine/scene/particle*.ts`) and the
 // effect player (`src/engine/render/babylon/effectPlayer.ts`, `render/particles/`, ADR 0153) stay in core:
 // the asset thumbnails, the particle graph's preview, the editor's overlays and the warm-up use them too
@@ -12,7 +12,7 @@ import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
 import type { RuntimePlugin } from "../../runtimeContext";
 import { particlesManifest } from "../manifest";
 
-export { ParticleSystem, type ParticlePropertyValue } from "../../../engine/render/components";
+export * from "./public";
 
 /**
  * Plays ParticleSystems; loaded the first time a World has one (ADR 0083). The only feature
