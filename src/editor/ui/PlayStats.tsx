@@ -162,7 +162,11 @@ function WorldRows(props: { w: WorldStats; ms: (v: number | null | undefined) =>
           <tr>
             <th>Draw calls</th>
             <td data-stat="draw-calls">{r.drawCalls.toLocaleString()}</td>
-            <td class="sub">tris {r.triangles.toLocaleString()}{r.lines ? ` · lines ${r.lines.toLocaleString()}` : ""}</td>
+            <td class="sub">{r.lines ? `lines ${r.lines.toLocaleString()}` : ""}</td>
+          </tr>
+          <tr>
+            <th>Triangles</th>
+            <td colSpan={2} data-stat="triangles">{r.triangles.toLocaleString()}</td>
           </tr>
           <tr>
             <th>GPU</th>

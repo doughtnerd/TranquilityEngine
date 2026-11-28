@@ -75,6 +75,7 @@ import { FOG_SPEC, FogFeature } from "./fog";
 import { sortingOrder, unknownLayerMessage } from "../sortOrder";
 import { snapToGrid } from "../pixelPerfect";
 import { createEngine } from "./createEngine";
+import { DrawCounter } from "./drawCounter";
 import { PipelineReadiness } from "./pipelineReadiness";
 import type { WarmItem } from "./warmUp";
 import type { WarmContent } from "../../scene/warmUp";
@@ -193,6 +194,8 @@ export class BabylonRenderer {
   private clearColor: Color4;
   private owner: World | null = null;
   private disposed = false;
+  /** The triangles every pass of the last frame drew (shadow passes and all views; `RenderStats.triangles`). */
+  private readonly draws = new DrawCounter();
   /** Editor helpers (stage 8), loaded on first use; an editor World loads them at once. */
   private tools: BabylonEditorViewport | null = null;
   private toolsLoading: Promise<BabylonEditorViewport | null> | null = null;
@@ -215,6 +218,7 @@ export class BabylonRenderer {
     /** Thumbnails (ADR 0153): not a World's surface; null for every other renderer. */
     private readonly thumbnail: ThumbnailPolicy | null = null,
   ) {
+    this.draws.attach(engine);
     const scene = new Scene(engine);
     scene.autoClear = true;
     this.clearColor = clearColorOf(settings.display.backgroundColor);
@@ -532,6 +536,7 @@ export class BabylonRenderer {
     this.graphShared.resolution = [this.engine.getRenderWidth(), this.engine.getRenderHeight()];
     const engine = this.engine;
     engine.beginFrame();
+    this.draws.beginFrame();
     // ADR 0129: the frame plan decides the views; this only maps them to Babylon cameras and passes.
     const cc = this.clearColor;
     const skyFog = this.fog.skyFog();
@@ -823,7 +828,7 @@ export class BabylonRenderer {
       renderTextures: this.renderTextures.state(),
       // Babylon counts the draw calls of the frame being drawn and resets at the next frame's start, so between frames this is the last frame's (0 on NullEngine).
       // Programs: the shader effects the engine has compiled and holds (on WebGPU, each makes its pipelines).
-      stats: { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: compiledEffects(this.engine) },
+      stats: { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: this.draws.triangles, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: compiledEffects(this.engine) },
       cameras,
       drawn: [],
       features,
