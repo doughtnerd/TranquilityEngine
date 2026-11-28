@@ -17,15 +17,23 @@ const TRIANGLE_FAN = 8;
 
 /** Triangles drawn since the last `beginFrame`. */
 export class DrawCounter {
+  /** This frame's triangles so far. */
   private total = 0;
+  /** The last finished frame's (the frame before the latest `beginFrame`). */
+  private last = 0;
 
-  /** Triangles drawn this frame so far (the whole frame once it has ended). */
+  /**
+   * Triangles the last finished frame drew. Not the frame in progress: a slow frame can yield partway (pipelines
+   * compiling), and a reading taken then would see a partial count, while Babylon's draw-call counter reports the last
+   * whole frame too.
+   */
   get triangles(): number {
-    return this.total;
+    return this.last;
   }
 
-  /** Start a frame: the total restarts at 0. */
+  /** Start a frame: the frame before it is finished, and the running total restarts at 0. */
   beginFrame(): void {
+    this.last = this.total;
     this.total = 0;
   }
 

@@ -158,13 +158,13 @@ describe("model import handedness (ADR 0164)", () => {
     }
   });
 
-  it("keys baked copies by facing and reads only the current version (4 since ADR 0371)", async () => {
+  it("keys baked copies by facing and reads only the current version (5 since ADR 0446)", async () => {
     useArrow();
     const data = await loadModel("models/arrow.gltf");
     const forward = { scale: 1, upAxis: "y" as const, normals: "import" as const, facing: "forward" as const };
     const { bytes } = encodeBakedModel(data, forward);
     const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-    expect(new DataView(buffer).getUint32(8, true)).toBe(4);
+    expect(new DataView(buffer).getUint32(8, true)).toBe(5);
     expect(decodeBakedModel(buffer, forward, (p) => p)).not.toBeNull();
     expect(decodeBakedModel(buffer, { ...forward, facing: "back" }, (p) => p)).toBeNull();
     const old = buffer.slice(0);

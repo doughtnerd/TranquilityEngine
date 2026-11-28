@@ -15,6 +15,8 @@ import { isTauri } from "../engine/platform/FileSystem";
 import { installCloseGuard } from "./dialogs";
 import { layout } from "./layout/store";
 import { installMessageLog } from "./messages";
+import { memoryLodCache, setLodHost } from "../engine/scene/lod/cache";
+import { workerLodGenerator } from "../engine/scene/lod/workerGenerator";
 import { prefetchWhenIdle } from "./prefetch";
 import { findSample } from "./samples";
 import { setStartActions, type StartActions } from "./startActions";
@@ -29,6 +31,8 @@ import { forEachChildWindow } from "./windows/editorWindows";
 
 // The core asset kinds (ADR 0143): every per-kind question is answered from the registered kinds.
 registerCoreAssetKinds();
+// Generated LOD levels (ADR 0446): the editor generates them in a worker; games only read baked levels.
+setLodHost({ generate: workerLodGenerator(), cache: memoryLodCache() });
 
 const session = () => import("./session");
 

@@ -194,7 +194,7 @@ describe("glTF animation import (ADR 0371)", () => {
     expect(warn.mock.calls.flat().join("\n")).toMatch(/names bones the skeleton lacks \(roles Spine\)/);
   });
 
-  it("round-trips skins, morphs, tangents, the skeleton, takes and clips through a baked model (version 4)", async () => {
+  it("round-trips skins, morphs, tangents, the skeleton, takes and clips through a baked model (version 5)", async () => {
     const sidecar = { format: "myco.import@1", animation: { clips: { Walk: [{ name: "WalkStart", to: 0.5 }] } } };
     use({ "models/rig.gltf": dataUrl(skinnedGltf()), "models/rig.gltf.meta.json": sidecar });
     const original = await loadModel("models/rig.gltf");
@@ -214,10 +214,10 @@ describe("glTF animation import (ADR 0371)", () => {
     // Baked with other animation settings: refused (the caller loads the file instead).
     expect(decodeBakedModel(bytes.buffer as ArrayBuffer, defaultImportSettings(), (p) => p)).toBeNull();
     // Another version, older or newer, is refused.
-    for (const version of [3, 5]) {
+    for (const version of [4, 6]) {
       const copy = bytes.slice();
       new DataView(copy.buffer).setUint32(8, version, true);
-      expect(() => decodeBakedModel(copy.buffer as ArrayBuffer, settings, (p) => p)).toThrow(new RegExp(`version ${version}; this engine reads 4`));
+      expect(() => decodeBakedModel(copy.buffer as ArrayBuffer, settings, (p) => p)).toThrow(new RegExp(`version ${version}; this engine reads 5`));
     }
   });
 });
