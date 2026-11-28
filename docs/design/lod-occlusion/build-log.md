@@ -43,3 +43,11 @@ Coordinator's log of merges, checks and findings. Newest last.
   (flaky under load); `dragdrop.spec.ts:69` and `hierarchy.spec.ts:54` are the pre-existing master failures.
 - **M1 (LOD, hard switches) and M2 (crossfade, skinned levels, rig LOD) are built.** Open for them: a browser pixel check
   of a fade (no holes), the scene-camera marker and click-to-preview on the LOD bar (T11), and the benchmark run.
+- **T11a merged (68380236):** click-to-preview a level in the scene view (`RenderPolicy.lodPreview`, scene-view selection
+  override), the scene-camera marker on the LOD bar, and `tests/e2e/lod-fade.spec.ts`. **Crossfade pixel check passed**
+  on its first run: the silhouette during a 5 s fade stays within 5 % of the steady areas, and the view settles after.
+  Limitation: the spec can't prove a fade was running at the captures (fade state isn't public), only that no holes
+  appear in the window where it should. The LOD-level debug colouring is not built (needs a hook in the mesh feature).
+  Token name: the editor defines `--lod-culled` (records said `--lodCulled`); the code and CSS agree.
+- **Benchmark:** forest-auto didn't start play within 10 min on software GL under load (a forest frame takes ~47 s);
+  limits raised to 30 min, forest variants to be re-run on an idle machine.
