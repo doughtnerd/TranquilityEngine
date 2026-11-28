@@ -429,6 +429,7 @@ How to use the engine. The user docs (guides, FAQ, news) are written in [wiki/](
 | [0444](decisions/0444-square-tile-maps-collide-as-editable-voxel-colliders-tile-parallax-follows-each-camera-and-animation-keeps-a-clock-per-map.md) | Square tile maps collide as editable voxel colliders per chunk; tile parallax follows each camera; tile animation keeps a clock per map | Accepted |
 | [0446](decisions/0446-meshes-get-import-generated-lod-levels-chosen-per-camera-by-an-lodgroup-with-dithered-crossfade.md) | Meshes get LOD levels generated at import (meshoptimizer), chosen per camera by an `LODGroup`, with dithered crossfade | Accepted |
 | [0447](decisions/0447-occlusion-culling-v1-is-a-cpu-software-depth-buffer-in-a-rust-wasm-simd-core.md) | Occlusion culling v1 is a CPU software depth buffer in a Rust wasm SIMD core | Accepted |
+| [0448](decisions/0448-auto-instanced-meshes-draw-through-per-pass-thin-buffers-while-levels-are-applied.md) | Auto-instanced meshes draw through per-pass thin buffers while levels are applied | Proposed |
 | [0362](decisions/0362-the-ui-fidelity-pass-adds-playback-pause-clip-envelopes-reverse-second-input-curves-occlusion-curves-and-studio-format-fields.md) | The UI fidelity pass adds `pause()`/`resume()` on playback handles, the Amp envelope on clips, reverse clips, sequence marker colour and note, second-input ("And by") curves on voice curves and automation, occlusion curves, Studio fields in `audio.json`, and new loudness target defaults | Accepted |
 
 ## Working with decisions
