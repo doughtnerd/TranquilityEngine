@@ -12,8 +12,8 @@
  * image's flipbook (`subAssetClips.ts`). Keys are read through `keySampling.ts`.
  *
  * - **Timing:** a rate that isn't a positive number is 30 Hz; a duration that isn't one is 0.
- * - **Frames:** `ceil(duration · rate) + 1` (at least 1), frame `i` at `min(i / rate, duration)`, so the last frame
- *   always samples the clip's end.
+ * - **Frames:** `ceil(duration · rate) + 1` (at least 1), frame `i` at `min(i / rate, duration)` (`frames.ts`), so the
+ *   last frame always samples the clip's end.
  * - **Bone tracks** bind by name to `skeleton` (ADR 0371: "Bone tracks target a bone of the Animator's skeleton by
  *   name"): one track per named bone the skeleton has, its bone index the skeleton's. A channel with no keys holds the
  *   bone's rest value; translation and scale interpolate linearly, rotation by the clip's `rotation` (nlerp or slerp,
@@ -37,6 +37,7 @@
 import type { AnimSource, RootMotion } from "../animSource";
 import type { CurveSampler } from "./curveKeys";
 import { inTimeOrder, sampleQuat, sampleVec } from "./keySampling";
+import { frameCount, frameTime } from "./frames";
 import { ByteWriter, encodeStringTable, f32Bits, writeContainer } from "../binaryWriter";
 import type { NodePose } from "../../scene/models";
 import { CONTROL_ACTIONS, CURVE_TRACK_WIDTH, DISCRETE_TYPES, MARKER_KINDS, QUAT_INTERPS, TRACK_KINDS, type Binding } from "../tracks";
@@ -98,8 +99,6 @@ export function importedClipSkeleton(s: { readonly bones: readonly { readonly na
   return { names: s.bones.map((b) => b.name), rest };
 }
 
-/** @internal The frame count of a clip (`ceil(duration · rate) + 1`). */
-export const frameCount = (duration: number, rate: number): number => Math.max(1, Math.ceil(duration * rate - 1e-6) + 1);
 
 // --- the writer -----------------------------------------------------------------------------------------------------
 
@@ -159,7 +158,7 @@ export function compileRawClip(source: RawClipSource, skeleton: ClipSkeleton | n
   const seconds = Number.isFinite(source.duration) && source.duration > 0 ? source.duration : 0;
   const duration = Math.fround(seconds);
   const frames = frameCount(seconds, rate);
-  const times = Array.from({ length: frames }, (_, i) => Math.min(i / rate, seconds));
+  const times = Array.from({ length: frames }, (_, i) => frameTime(i, rate, seconds));
   const clampTime = (t: number) => Math.min(Math.fround(t), duration);
   const subclips = new Map<number, SubclipRef[]>();
   const boneIndex = new Map<string, number>();

@@ -66,6 +66,7 @@ use anim_format::clip::{
     ChannelKind, ChannelMode, ClipView, CompressedView, QuatInterp, RotationFormat, TrackKind,
     CLIP_SLERP,
 };
+use anim_format::frames::FrameClock;
 use anim_format::skeleton::SkeletonView;
 use anim_format::NONE;
 use anim_math::layout::{soa_len, LANES};
@@ -120,16 +121,8 @@ pub enum TrackSample {
     Skipped,
 }
 
-/// Where `t` falls between frames.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct FramePos {
-    /// The earlier frame.
-    pub f0: u32,
-    /// The later frame (`f0` at the end).
-    pub f1: u32,
-    /// The weight of `f1`.
-    pub alpha: f32,
-}
+/// Where `t` falls between frames ([`anim_format::frames`]).
+pub use anim_format::frames::FramePos;
 
 /// Group `g` of an AoS pose packed four bones at a time (lanes past the pose: the default
 /// transform).
@@ -193,8 +186,7 @@ impl<'m> SegmentCache<'m> {
 pub struct ClipSampler<'a> {
     pub(crate) view: ClipView<'a>,
     pub(crate) comp: Option<CompressedView<'a>>,
-    frames: u32,
-    rate: f32,
+    clock: FrameClock,
     bones: usize,
     slerp: bool,
 }
@@ -226,8 +218,7 @@ impl<'a> ClipSampler<'a> {
         Ok(ClipSampler {
             view,
             comp,
-            frames: view.frame_count(),
-            rate: view.sample_rate(),
+            clock: view.frame_clock(),
             bones: view.bone_count() as usize,
             slerp: view.flags() & CLIP_SLERP != 0,
         })
@@ -266,21 +257,12 @@ impl<'a> ClipSampler<'a> {
         n
     }
 
-    /// The frames around `t` seconds: `x = clamp(t · rate, 0, frames − 1)`.
+    /// The frames around `t` seconds: `x = t · rate`, `f0 = floor(x)`, `alpha = x − f0`, held at
+    /// frame 0 before 0 and at the last frame from its time (the clip's duration) on; the last
+    /// segment spans only up to that time ([`FrameClock`], ADR 0451).
+    #[inline]
     pub fn frame_pos(&self, t: f32) -> FramePos {
-        let last = self.frames.saturating_sub(1);
-        let x = t * self.rate;
-        let x = if x >= 0.0 {
-            Lane::min(x, last as f32)
-        } else {
-            0.0
-        };
-        let f0 = (x.floor() as u32).min(last);
-        FramePos {
-            f0,
-            f1: (f0 + 1).min(last),
-            alpha: x - f0 as f32,
-        }
+        self.clock.pos(t)
     }
 
     /// Samples the local pose at `t` seconds into `out` (`soa_len(bone count)` groups; padding

@@ -129,7 +129,7 @@ pub fn bake(
     let bindings = ClipBindings::new(&sampler);
     let bound = bindings.bind(&sampler).map_err(BakeError::Sample)?;
     let frames = source.frame_count().max(1) as usize;
-    let rate = source.sample_rate();
+    let clock = source.frame_clock();
 
     let mut scratch = map.scratch();
     let mut sample_scratch = vec![AosTransform::identity(); sampler.scratch_len()];
@@ -140,7 +140,7 @@ pub fn bake(
     let mut tgt_aos = vec![AosTransform::identity(); nt];
     let mut raw: Vec<Vec<f32>> = vec![Vec::with_capacity(frames * 10); nt];
     for f in 0..frames {
-        let t = f as f32 / rate;
+        let t = clock.time(f as f32);
         bound
             .sample_pose(
                 t,

@@ -10,6 +10,7 @@ import { effect } from "@preact/signals";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { listComponents } from "../../../../engine/editor";
 import type { Timeline } from "../../../../engine/animation/timeline";
+import { snapToFrame } from "../../../../engine/animation/compile/frames";
 import { Assets } from "../../../../engine/scene/Assets";
 import { parseAnimSource } from "../../../../engine/animation/animSource";
 import { parseTimeline } from "../../../../engine/animation/timeline";
@@ -233,7 +234,7 @@ function TimelineEditor(props: { target: Exclude<TimelineTarget, { kind: "none" 
       const lane = row ?? el.querySelector<HTMLElement>("[data-row]");
       const r = lane?.getBoundingClientRect();
       const { tl: cur, rows: rs } = latest.current;
-      const time = r && r.width > 0 ? Math.round((Math.min(Math.max((x - r.left) / r.width, 0), 1) * cur.duration) * cur.rate) / cur.rate : 0;
+      const time = r && r.width > 0 ? snapToFrame(Math.min(Math.max((x - r.left) / r.width, 0), 1) * cur.duration, cur.rate, cur.duration) : 0;
       const hit = rs.find((q) => q.id === row?.dataset.row);
       return { time, row: hit ?? null };
     };

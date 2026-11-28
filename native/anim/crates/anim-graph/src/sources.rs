@@ -589,19 +589,13 @@ fn pose(cx: &mut EvalContext<'_>, at: usize, sub: usize, mask: u32) {
     }
 }
 
-/// The root curve (x, y, z, yaw) at `t` seconds: linear between the frames around it.
+/// The root curve (x, y, z, yaw) at `t` seconds: linear between the frames around it (the last
+/// at the clip's duration).
 fn curve_at(clip: &ClipRef<'_>, t: f32) -> Option<[f32; 4]> {
     let curve = clip.root_curve?;
-    let last = clip.frame_count.checked_sub(1)?;
-    let x = t * clip.sample_rate;
-    let x = if x >= 0.0 {
-        Lane::min(x, last as f32)
-    } else {
-        0.0
-    };
-    let f0 = (Lane::floor(x) as u32).min(last);
-    let f1 = (f0 + 1).min(last);
-    let a = x - f0 as f32;
+    clip.frame_count.checked_sub(1)?;
+    let p = clip.frame_clock().pos(t);
+    let (f0, f1, a) = (p.f0, p.f1, p.alpha);
     let mut out = [0.0f32; 4];
     for (k, o) in out.iter_mut().enumerate() {
         let v0 = curve.get(4 * f0 as usize + k)?;

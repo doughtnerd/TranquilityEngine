@@ -12,6 +12,7 @@
 //   of the scene (a gizmo drag, an Inspector scrub) becomes one undo step on the clip when the step closes.
 import { computed, signal } from "@preact/signals";
 import type { AnimSource } from "../../../../engine/animation/animSource";
+import { snapToFrame } from "../../../../engine/animation/compile/frames";
 import type { Binding } from "../../../../engine/animation/tracks";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import {
@@ -131,7 +132,7 @@ class AnimationSession {
     const clip = this.document.peek()?.value.peek();
     const rate = clip?.rate ?? 30;
     if (clip) this.playhead.setTiming({ duration: clip.duration, looping: this.loop.peek(), known: true });
-    this.playhead.seek(Math.round(t * rate) / rate);
+    this.playhead.seek(snapToFrame(t, rate, clip?.duration));
   }
 
   /** Show the clip at the playhead on the bound Animator (preview on). */

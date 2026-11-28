@@ -35,6 +35,7 @@ mod bytes;
 pub mod clip;
 pub mod container;
 mod error;
+pub mod frames;
 pub mod graph;
 mod macros;
 pub mod posedb;

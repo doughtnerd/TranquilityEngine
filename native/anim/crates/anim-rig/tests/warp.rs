@@ -6,6 +6,7 @@
 
 mod common;
 
+use anim_format::frames::FrameClock;
 use anim_math::{AosQuat, AosTransform, AosVec3};
 use anim_offline::rig as r;
 use anim_rig::pose::ChainJoint;
@@ -59,7 +60,7 @@ fn motion_warp_lands_on_the_target_at_t1() {
     let samples = root_samples();
     let curve = RootCurve {
         samples: &samples,
-        sample_dt: DT,
+        clock: FrameClock::uniform(1.0 / DT, samples.len() as u32),
     };
     let w = warp();
     let end = motion_warp(&curve, &w, w.t1);
@@ -93,7 +94,7 @@ fn motion_warp_is_the_clip_before_t0_and_matches_reference() {
     let samples = root_samples();
     let curve = RootCurve {
         samples: &samples,
-        sample_dt: DT,
+        clock: FrameClock::uniform(1.0 / DT, samples.len() as u32),
     };
     let w = warp();
     for i in 0..=30 {
@@ -141,7 +142,7 @@ fn motion_warp_deltas_accumulate_onto_the_target() {
     let samples = root_samples();
     let curve = RootCurve {
         samples: &samples,
-        sample_dt: DT,
+        clock: FrameClock::uniform(1.0 / DT, samples.len() as u32),
     };
     let w = warp();
     let mut at = motion_warp(&curve, &w, 0.0);
@@ -184,7 +185,7 @@ fn distance_curve_inverts_and_matches_reference() {
     let d = travel();
     let c = DistanceCurve {
         distance: &d,
-        sample_dt: DT,
+        clock: FrameClock::uniform(1.0 / DT, d.len() as u32),
     };
     assert!(
         (d[d.len() - 1] - 1.2).abs() < 1e-5,
@@ -213,7 +214,7 @@ fn distance_warp_rate_and_matching() {
     let d = travel();
     let c = DistanceCurve {
         distance: &d,
-        sample_dt: DT,
+        clock: FrameClock::uniform(1.0 / DT, d.len() as u32),
     };
     // The rate that makes the clip travel what the character travelled.
     let (t, dt) = (0.5f32, 1.0 / 60.0);
@@ -391,4 +392,19 @@ fn heading_angle_is_signed_about_up() {
     assert!((a + core::f32::consts::FRAC_PI_4).abs() < 1e-6);
     assert_eq!(heading_angle(v3(0.0, 1.0, 0.0), v3(1.0, 0.0, 0.0), up), 0.0);
     let _ = AosQuat::identity();
+}
+
+#[test]
+fn distance_curves_honour_a_clamped_last_frame() {
+    // 1.01 s at 30 Hz: 32 frames, the last at 1.01 s; travel 1 m per second of clip time.
+    let d: Vec<f32> = (0..32).map(|i| (i as f32 / 30.0).min(1.01)).collect();
+    let c = DistanceCurve {
+        distance: &d,
+        clock: FrameClock::new(1.01, 30.0, 32),
+    };
+    assert!((c.duration() - 1.01).abs() < 1e-6);
+    assert!((c.distance_at(1.005) - 1.005).abs() < 1e-5);
+    assert!((c.distance_at(1.01) - 1.01).abs() < 1e-6);
+    assert!((c.time_at(1.005) - 1.005).abs() < 1e-5);
+    assert!((c.time_at(5.0) - 1.01).abs() < 1e-6);
 }
