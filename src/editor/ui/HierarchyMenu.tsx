@@ -9,7 +9,7 @@ import { nodeCreateTree } from "../createMenuTree";
 import type { MenuEntry } from "../menuBar";
 import { whyNotInsert, type InsertPlace } from "../nodeInsertion";
 import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisibility";
-import { isInsidePrefab } from "../hierarchyEdit";
+import { isInnerKey, keyExists, parseKey, rootOf } from "../nodeKey";
 import { openScene, selectedKeys, selection, type OpenScene } from "../state";
 import { whyNotEdit } from "../editGate";
 import { resolveUIViewElement, selectedUIViewRef, uiViewRefKey, viewsOn, type UIViewRef } from "../uiViews";
@@ -67,7 +67,7 @@ export function createMenuItems(scene: OpenScene): MenuItem[] {
   const view = uiViewCreateTarget(scene);
   const items: MenuItem[] = view ? [uiViewElementSubmenu("Element in Svelte Component", view), SEPARATOR] : [];
   items.push(...createTree(scene, { kind: "into", key: null }));
-  if (active && scene.doc.has(active.split("/")[0])) items.push(SEPARATOR, { label: "Child of Selection", submenu: createTree(scene, { kind: "into", key: active }) });
+  if (active && keyExists(scene.doc, active)) items.push(SEPARATOR, { label: "Child of Selection", submenu: createTree(scene, { kind: "into", key: active }) });
   return items;
 }
 
@@ -104,7 +104,7 @@ function rowMenuItems(scene: OpenScene, key: string | null, owner?: object): Men
   });
   if (key === null) return [...createTree(scene, { kind: "into", key: null }), SEPARATOR, pasteItem(false)];
   const keys = selectedKeys.value;
-  const inner = keys.some(isInsidePrefab) ? "nodes inside a prefab are edited in the prefab (Open Prefab)" : null;
+  const inner = keys.some(isInnerKey) ? "nodes inside a prefab are edited in the prefab (Open Prefab)" : null;
   const editing = whyNotEdit({ kind: "scene", scene });
   const hiddenOwn = nodeFlags.value.hidden.has(key), lockedOwn = nodeFlags.value.locked.has(key);
   return [
@@ -118,9 +118,9 @@ function rowMenuItems(scene: OpenScene, key: string | null, owner?: object): Men
     SEPARATOR,
     { label: "Rename", shortcut: "F2", disabled: editing, run: () => renameRow(HIERARCHY_TREE, key, owner) },
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: editing ?? inner, run: () => void duplicateSelection() },
-    { label: "Delete", shortcut: "Del", disabled: editing ?? (keys.some(isInsidePrefab) && !keys.every(isInsidePrefab) ? "can't delete nodes inside a prefab together with others" : null), run: () => void deleteSelected() },
-    ...(scene.doc.has(key.split("/")[0]) && scene.doc.isPrefabInstance(key.split("/")[0])
-      ? [SEPARATOR, { label: "Open Prefab", run: () => void openPrefabFrom(key.split("/")) }]
+    { label: "Delete", shortcut: "Del", disabled: editing ?? (keys.some(isInnerKey) && !keys.every(isInnerKey) ? "can't delete nodes inside a prefab together with others" : null), run: () => void deleteSelected() },
+    ...(scene.doc.has(rootOf(key)) && scene.doc.isPrefabInstance(rootOf(key))
+      ? [SEPARATOR, { label: "Open Prefab", run: () => void openPrefabFrom(parseKey(key)) }]
       : []),
     SEPARATOR,
     {

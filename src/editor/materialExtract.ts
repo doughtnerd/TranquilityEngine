@@ -5,7 +5,7 @@
 import { Assets } from "../engine/scene/Assets";
 import { formatMaterial } from "../engine/scene/material";
 import { loadMeshes, materialSlots, DEFAULT_SLOT, type TextureInfo } from "../engine/scene/models";
-import { fileName, folderOf } from "./assetBrowser";
+import { fileName, folderOf } from "./projectPath";
 import { readImportSettings, writeImportSettings } from "./assetImport";
 import type { EditorProject } from "./projects";
 import { readOnlyMessage } from "./readOnly";

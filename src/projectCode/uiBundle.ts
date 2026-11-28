@@ -12,7 +12,8 @@
 import type * as Esbuild from "esbuild-wasm";
 import { importSites, rewriteImports, typescript } from "../editor/moduleImports";
 import type { EsbuildApi } from "../editor/packages";
-import { PackageResolver, dirname, join, type PackageFiles } from "../editor/packageResolver";
+import { PackageResolver, join, type PackageFiles } from "../editor/packageResolver";
+import { folderOf } from "../editor/projectPath";
 import { relativeSpecifier } from "../export/format";
 import { compilerOptions, SCRIPT_EMIT } from "../scriptCompiler.mjs";
 import { BUILTIN_UI_COMPONENTS } from "./builtinUI";
@@ -71,7 +72,7 @@ async function resolveRuntimeImport(resolver: PackageResolver, specifier: string
   // Svelte's `svelte/motion` gets it too, so its `prefersReducedMotion` follows the engine's setting (ADR 0423 wave Z3).
   if (specifier === "svelte/reactivity" && (importer === "" || importer.endsWith("svelte/src/motion/index.js"))) return { file: UI_REACTIVITY_SOURCE };
   if (importer.endsWith(".ts") && (specifier.startsWith("./") || specifier.startsWith("../"))) {
-    const base = join(dirname(importer), specifier);
+    const base = join(folderOf(importer), specifier);
     if (base.startsWith(ENGINE_SOURCE_DIR)) return { host: true };
     const file = await probeTs(resolver, base);
     return file ? { file } : { error: `can't find "${specifier}" from ${importer}` };

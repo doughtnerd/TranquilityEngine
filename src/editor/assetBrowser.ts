@@ -1,5 +1,6 @@
 // Asset browser logic (ADR 0022): the project's files, path helpers and search. No UI here; `ui/Assets.tsx`
 // renders it. The scene nodes adding an asset makes come from its kind and the node insertion (nodeInsertion.ts, ADR 0246), entries' encoding in assetEntry.ts (ADR 0241).
+import { fileName, folderOf } from "./projectPath";
 import { isSidecarPath } from "../engine/scene/importSettings";
 import { assetKind, hasSlices } from "./assetKindLookup";
 import { isSliceEntry, sliceEntry, splitSliceEntry } from "./assetEntry";
@@ -11,11 +12,8 @@ export { assetKind, canAddToScene, opensInCodePanel, type AssetKind, type CoreAs
 /** Files the Assets panel lists: everything but import settings sidecars, which travel with their files. */
 export const listedFiles = (files: readonly string[]) => files.filter((f) => !isSidecarPath(f));
 
-/** The file name of a project path: `images/bird.png` → `bird.png`. */
-export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
-
-/** The folder of a project path: `images/bird.png` → `images`, `project.json` → `""` (the root). */
-export const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+/** Project paths are read by `projectPath.ts` (ADR 0454); these re-exports serve modules not yet moved to it. */
+export { fileName, folderOf } from "./projectPath";
 
 /** Files whose name contains every word of `query` (case-insensitive), across all folders. */
 function searchFiles(files: readonly string[], query: string): string[] {

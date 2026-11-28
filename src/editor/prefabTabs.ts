@@ -2,6 +2,7 @@
 // that was selected in the instance selected in it, and a bar leads back to the scene.
 import { signal } from "@preact/signals";
 import type { NodePath } from "./document";
+import { keyExists } from "./nodeKey";
 import { prefabTarget } from "./prefabs";
 import { switchScene } from "./session";
 import { openScene, openScenes, status } from "./state";
@@ -30,7 +31,7 @@ export async function openPrefabFrom(path: NodePath): Promise<void> {
   const next = new Map(prefabOrigins.peek());
   next.set(target.prefab, scene.path);
   prefabOrigins.value = next;
-  if (target.select && opened.doc.has(target.select.split("/")[0])) select([target.select]);
+  if (target.select && keyExists(opened.doc, target.select)) select([target.select]);
   status.value = { kind: "info", text: `Editing ${target.prefab}. Save writes the prefab; Back returns to ${scene.path.split("/").pop()}.` };
 }
 

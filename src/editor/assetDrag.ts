@@ -7,6 +7,7 @@
 import { signal } from "@preact/signals";
 import { viewport } from "../engine/editor";
 import type { SceneDocument } from "./document";
+import { isInnerKey, parseKey } from "./nodeKey";
 import { addAssets, whyNotAddAssets, type AssetAddTarget } from "./addAssets";
 import { dropRowName, hierarchyDropAt, type HierarchyDrop } from "./hierarchyDrop";
 import { whyNotInsert } from "./nodeInsertion";
@@ -87,7 +88,7 @@ function targetAt(clientX: number, clientY: number, doc: Document = document): A
 function nodeDropTarget(paths: readonly string[], drop: HierarchyDrop, point: AssetDropPoint): AssetDropTarget | null {
   const scene = openScene.value;
   if (!scene || drop.mode !== "into" || drop.row === null) return null;
-  const path = drop.row.split("/");
+  const path = parseKey(drop.row);
   for (const c of nodeAssetDrops.list()) {
     const label = c.label(scene, path, paths);
     if (label !== null) return { kind: "plugin", spec: { accepts: () => true, label: () => label, drop: () => c.drop(scene, path, paths) }, label, point };
@@ -192,7 +193,7 @@ export function dropDescription(drag: AssetDrag, doc: SceneDocument | null): str
   if (t.kind === "folder") return `Move ${name} to ${t.folder || "the project folder"}`;
   const row = dropRowName(doc, t.drop.row);
   switch (t.drop.mode) {
-    case "into": return `Add ${name} as a child of ${row}${t.drop.row?.includes("/") ? " (an override of its prefab instance)" : ""}`;
+    case "into": return `Add ${name} as a child of ${row}${t.drop.row !== null && isInnerKey(t.drop.row) ? " (an override of its prefab instance)" : ""}`;
     case "before": return `Add ${name} above ${row}`;
     case "after": return `Add ${name} below ${row}`;
     default: return `Add ${name} to the scene`;

@@ -2,6 +2,7 @@
 import { batch, computed, signal, type ReadonlySignal } from "@preact/signals";
 import type { GameObject } from "../engine";
 import type { CommandStack, NodePath, SceneDocument, WorldSync } from "./document";
+import { keyExists, parseKey } from "./nodeKey";
 import type { OrbitCamera, ViewMode } from "./OrbitCamera";
 import type { EditorProject } from "./projects";
 import type { HierarchyEntry } from "./selectionModel";
@@ -109,7 +110,7 @@ export const playState = signal<"edit" | "starting" | "playing">("edit");
  */
 export function selectedPath(): NodePath | null {
   const key = selection.value;
-  return key ? key.split("/") : null;
+  return key ? parseKey(key) : null;
 }
 
 /** The World node showing the active selected node, if it still exists. */
@@ -124,8 +125,8 @@ export function selectedNodes(): { key: string; path: NodePath; node: GameObject
   if (!scene) return [];
   const out: { key: string; path: NodePath; node: GameObject }[] = [];
   for (const key of selectedKeys.value) {
-    const path = key.split("/");
-    const node = scene.doc.has(path[0]) ? scene.sync.nodeFor(path) : null;
+    const path = parseKey(key);
+    const node = keyExists(scene.doc, key) ? scene.sync.nodeFor(path) : null;
     if (node) out.push({ key, path, node });
   }
   return out;
