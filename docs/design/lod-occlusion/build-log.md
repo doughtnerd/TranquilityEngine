@@ -93,3 +93,13 @@ Coordinator's log of merges, checks and findings. Newest last.
 
   Static now meets "JS CPU ≤ baseline" within the noise (LOD lower in two rounds of three), with 4× fewer triangles.
   The fly-through is still 1.8×: level-switch churn and Babylon's per-instance work, which ADR 0448 (Proposed) targets.
+- **ADR 0448 built (stage 1 of 0449).** Auto batches draw through per-pass thin buffers while levels apply, outside
+  the editor's picking. Interleaved, forest (ms p50 per round, SwiftShader):
+
+  | Path | No LOD | LOD | Mean no LOD → LOD |
+  |---|---|---|---|
+  | static | 35.9, 38.5, 38.5 | 28.3, 22.5, 23.7 | 37.6 → **24.8** (−34 %) |
+  | fly | 37.8, 39.0, 34.9 | 31.9, 34.8, 31.0 | 37.2 → **32.6** (−12 %) |
+
+  LOD p99 on the fly-through: 45–61 ms (no LOD 60–72; before 0448, LOD 190–235). Triangles: static 61.4M → 15.2M,
+  fly 48.1M → 16.4M. 0446's target "JS CPU ≤ baseline with LODs on" now holds on both forest paths.
