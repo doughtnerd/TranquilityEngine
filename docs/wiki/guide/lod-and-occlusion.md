@@ -1,14 +1,16 @@
-# Levels of detail
+# Levels of detail and occlusion culling
 
 Levels of detail (LOD) let distant objects draw with fewer triangles. A model gets cheaper versions of each mesh, called
 **levels**, generated when you import it. An **LOD Group** on the placed model picks a level per camera by how tall the
 object looks on screen, and stops drawing it when it gets too small. It works like Unity's LODGroup, except that you
 don't model the levels yourself.
 
-The design is in [ADR 0459](../../decisions/0459-meshes-get-import-generated-lod-levels-chosen-per-camera-by-an-lodgroup-with-dithered-crossfade.md).
-Occlusion culling, which skips objects hidden behind others, is designed in
-[ADR 0460](../../decisions/0460-occlusion-culling-v1-is-a-cpu-software-depth-buffer-in-a-rust-wasm-simd-core.md) and not
-switched on yet. This guide is about LOD.
+**Occlusion culling** skips objects hidden behind others, such as a room behind a wall. It is on by default for
+perspective game cameras. See [Occlusion culling](#occlusion-culling) below.
+
+The designs are in [ADR 0459](../../decisions/0459-meshes-get-import-generated-lod-levels-chosen-per-camera-by-an-lodgroup-with-dithered-crossfade.md)
+(LOD) and [ADR 0460](../../decisions/0460-occlusion-culling-v1-is-a-cpu-software-depth-buffer-in-a-rust-wasm-simd-core.md)
+(occlusion).
 
 ## Getting started
 
@@ -32,7 +34,7 @@ for levels. The import panel suggests it for meshes of 2,000 triangles or more.
 | **Permissive** | Let hard edges and UV seams collapse. Boxy, flat-shaded models (buildings, crates) need it: without it their levels stop at about 60 % of the triangles, and the panel warns you. |
 | **Lock borders** | Keep open edges exactly where they are, for terrain tiles that must meet their neighbours. |
 | **Pixel error** | How many pixels of error a level may show at 1080p before the group switches to a finer one. It sets the automatic transition heights. 1 is a good default. |
-| **Occluder** | For occlusion culling (not switched on yet): which level stands in for the model when it hides other objects. |
+| **Occluder** | For occlusion culling: which level stands in for the model when it hides other objects. **Auto** and **LOD** use the coarsest level; **None** never occludes. |
 
 Levels are generated once and cached in your project's `.myco/lod/` folder, so reopening a project doesn't generate them
 again. Exported games read levels baked into their `.mycomesh` files and never run the simplifier.
@@ -68,6 +70,72 @@ why something isn't drawn: `"drawn"`, `"lodCulled"`, `"offScreen"` or `"occluded
   - **LOD crossfade:** whether switches blend. The Low tier switches at once.
 - **Animated characters:** set an Animator's **LOD metric** to **LOD Group**, and its update rate follows the group:
   every frame at level 0, every second frame at level 1, every fourth at level 2 and below.
+
+## Occlusion culling
+
+Each frame the engine draws the big, solid objects in front of the camera into a small depth image, called the
+**occlusion buffer**. Then it checks every other object against it. An object completely behind what's already there
+isn't drawn. Its `LODGroup.visibility` reads `"occluded"`.
+
+It runs on the CPU, so it works the same in every browser. It needs WebAssembly SIMD, which every current browser has.
+Without it, occlusion stays off and everything draws.
+
+In v1, occlusion runs in scenes that have at least one **LOD Group**.
+
+### What occludes: `MeshRenderer.occlusion`
+
+| Value | Hides others | Can be hidden |
+|---|---|---|
+| **Auto** (default) | Yes, when it has occluder geometry, an opaque material, and is at least 2 buffer pixels wide on screen | Yes |
+| **Occluder** | Yes, when it has occluder geometry and an opaque material, however narrow | Yes |
+| **Occludee** | No | Yes |
+| **None** | No | No: always drawn |
+
+- **Occluder geometry** is the model's coarsest generated level, or the mesh itself when it has 512 triangles or fewer
+  (built-in cubes and planes, simple walls). A big model without levels can't hide anything.
+- **Transparent and cut-out materials** never hide anything.
+- **Skinned meshes** can be hidden but never hide others.
+- Scripts may change `occlusion` at any time. A door can occlude while it's closed and not while it's open.
+
+The Inspector shows what **Auto** does beside the field: **Occluder + occludee**, or **Occludee only** with the reason
+(no occluder geometry, a transparent material, or too narrow on screen).
+
+### Cameras
+
+- `Camera.occlusionCulling` turns it on or off per camera. It's on by default, and it only works for perspective cameras
+  drawing to the screen.
+- Orthographic cameras, render-texture cameras, reflection probes and the camera preview inset never occlusion-cull.
+- **Shadows are never occlusion-culled.** An object hidden from the camera can still cast a shadow you can see.
+- When a camera culls less than 10 % for a second, occlusion pauses for a second, then tries again. A forest stops paying
+  for it.
+
+### Quality tiers
+
+Project Settings > Graphics has three fields per tier:
+
+| Field | Low | Medium | High | Ultra | Meaning |
+|---|---|---|---|---|---|
+| **Occlusion buffer** | Off | Low | Low | High | The buffer's size: low is 256×128, high 320×180. Off turns occlusion off. |
+| **Occluder budget** | 0 | 10,000 | 10,000 | 20,000 | The most occluder triangles drawn per view. The biggest occluders on screen come first. |
+| **Occlusion views** | 1 | 1 | 1 | 1 | How many views run occlusion each frame. 1 is the main camera. |
+
+## Debug tools in the scene view
+
+The Scene toolbar's **View** menu holds the visibility tools. They only change the scene view, never the game.
+
+- **Occlusion culling:** the scene view culls like a game camera. It is off by default, so editing shows everything.
+  While it's on, the scene view takes one of the tier's occlusion views.
+- **Freeze culling:** keeps the scene view's current LOD levels and hidden objects while you fly the camera. Fly behind
+  a wall to see what was culled.
+- **Validator:** draws what occlusion hid anyway, in red. Red you can see means something was hidden that shouldn't be.
+- **Visibility debug:**
+  - **LOD levels** tints each object by the level it draws, in the LOD bar's colours.
+  - **Occlusion** shows the occlusion buffer as a grey image in the scene view's corner, red boxes around what it
+    culled, and its numbers: occluders, triangles, objects tested, culled, and milliseconds. It shows the scene view's
+    own buffer while **Occlusion culling** is on, and otherwise the main camera's.
+
+The Play Stats panel has an **Occlusion** table with the same numbers for the running game. A script or tool can read
+them from the render diagnostics: `occlusion: { views, occluders, triangles, tested, culled, ms }`.
 
 ## Why does my object disappear, or not change?
 

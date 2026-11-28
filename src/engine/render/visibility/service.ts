@@ -33,6 +33,29 @@ import { LOD_CULLED, type LodMember, type LodVisibility, type ViewKey, type Visi
 import { cameraView } from "./views";
 import { loadOcclusionCore, type OcclusionCoreLoader, type WasmOcclusionCore } from "./occlusion/core";
 import { occluderGeometry, opaqueMaterial, worldOccluder, type OccluderGeometry, type WorldOccluder } from "./occlusion/occluders";
+import { effectiveOcclusionRole, type EffectiveOcclusionRole } from "./occlusion/role";
+
+/**
+ * One view's last occlusion run for the editor's debug view (ADR 0460 §6): its statistics, the core's buffer and the
+ * culled groups' world boxes. Engine types only.
+ */
+export interface OcclusionDebug {
+  readonly key: ViewKey;
+  readonly kind: VisibilityView["kind"];
+  readonly stats: NonNullable<VisibilityStats["occlusion"]>;
+  /** The buffer: 1/w per pixel (0 where nothing was drawn), row by row from the top; null when nothing was rasterised. */
+  readonly depth: { readonly width: number; readonly height: number; readonly data: Float32Array } | null;
+  /** The culled groups' world boxes, 6 floats each (min xyz, max xyz). */
+  readonly culled: Float32Array;
+}
+
+/** The scene view's debugging tools (ADR 0460 §6), as the renderer hands them over each frame. */
+export interface SceneViewTools {
+  /** Keep the scene view's last visibility set (levels and hidden bits) while its camera moves. */
+  readonly freeze: boolean;
+  /** Keep each occlusion run's buffer and culled boxes for `occlusionDebug`. */
+  readonly capture: boolean;
+}
 
 /** The service's id (ADR 0135). */
 export const VISIBILITY_SERVICE_ID = "myco.visibility";
@@ -146,6 +169,14 @@ export class VisibilityService {
   private occ = { triangles: new Float32Array(0), errors: new Float32Array(0), neighbors: new Uint32Array(0), boxes: new Float32Array(0), hidden: new Uint8Array(0), groups: [] as number[] };
   /** The editor's level preview (ADR 0459 §7): applied to scene views only. */
   private lodPreview: { group: LODGroup; level: number } | null = null;
+  /** The scene view's tools (`setSceneViewTools`). */
+  private tools: SceneViewTools = { freeze: false, capture: false };
+  /** Each view's last occlusion run while capturing, by view key (dropped when a run doesn't happen). */
+  private readonly debugCaptures = new Map<ViewKey, OcclusionDebug>();
+  /** Whether the scene view last asked for occlusion: it then keeps one of the tier's `occlusionViews` for itself. */
+  private sceneWantsOcclusion = false;
+  /** The last view occlusion ran for, and its buffer height (the Inspector's width test, `occlusionRoleOf`). */
+  private lastOcclusion: { view: VisibilityView; height: number } | null = null;
 
   constructor(
     private readonly world: World,
@@ -262,6 +293,48 @@ export class VisibilityService {
     return null;
   }
 
+  /**
+   * The scene view's debugging tools (ADR 0460 §6): freezing keeps its last visibility set, levels and hidden bits,
+   * while the camera moves (views of other kinds select as usual); capturing keeps each occlusion run for
+   * `occlusionDebug`. The renderer hands them over from its render policy each frame.
+   */
+  setSceneViewTools(tools: SceneViewTools): void {
+    if (tools.freeze === this.tools.freeze && tools.capture === this.tools.capture) return;
+    this.tools = { freeze: tools.freeze, capture: tools.capture };
+    if (!tools.capture) this.debugCaptures.clear();
+  }
+
+  /**
+   * The last occlusion run of the view the debug view shows (ADR 0460 §6): the scene view's when it ran occlusion,
+   * else the main camera's, else any view's; null when none ran or capturing is off.
+   */
+  occlusionDebug(): OcclusionDebug | null {
+    const mainKey = this.mainEntry?.result.view.key;
+    let main: OcclusionDebug | null = null, any: OcclusionDebug | null = null;
+    for (const d of this.debugCaptures.values()) {
+      if (d.kind === "sceneView") return d;
+      if (d.key === mainKey) main = d;
+      any ??= d;
+    }
+    return main ?? any;
+  }
+
+  /**
+   * What a member's `occlusion` does now (ADR 0460 §3, §6; the Inspector shows it): occluder and occludee, or occludee
+   * only and why. The width test uses the last view occlusion ran for; before any, it passes.
+   */
+  occlusionRoleOf(member: LodMember): EffectiveOcclusionRole {
+    const role = member.occlusion;
+    if (!(member instanceof MeshRenderer)) return effectiveOcclusionRole(role, { skinned: true, geometry: false, opaque: false, widthPx: null });
+    const m = this.members.get(member as Member);
+    const meshes = m?.meshes ?? member.lodMeshes();
+    if (!meshes) return effectiveOcclusionRole(role, { geometry: false, opaque: false, widthPx: null });
+    const info = m ? this.occluderInfo(m, member, meshes) : occluderFacts(member, meshes);
+    const last = this.lastOcclusion;
+    const widthPx = m && last && m.bounds.hasLocal ? occluderWidthPx(m.bounds, last.view, last.height) : null;
+    return effectiveOcclusionRole(role, { geometry: info.geometries.length > 0, opaque: info.opaque, widthPx });
+  }
+
   /** The statistics of a view's last selection (`LODGroup`s only), or null when it hasn't been selected. */
   stats(key: ViewKey): VisibilityStats | null {
     return this.views.get(key)?.stats ?? null;
@@ -278,6 +351,7 @@ export class VisibilityService {
     this.members.clear();
     this.groups.clear();
     this.views.clear();
+    this.debugCaptures.clear();
     this.mainEntry = null;
   }
 
@@ -508,6 +582,14 @@ export class VisibilityService {
   private run(view: VisibilityView): ViewEntry {
     const groups = this.groupCount, slots = this.slotCount;
     let v = this.views.get(view.key);
+    if (view.kind === "sceneView") {
+      this.sceneWantsOcclusion = view.occlusion;
+      // Frozen (ADR 0460 §6): the last set again, levels and hidden bits, wherever the camera is now.
+      if (this.tools.freeze && v && v.groupOut.levels.length >= groups && v.result.levels.length >= slots) {
+        v.generation = this.generation;
+        return v;
+      }
+    }
     if (!v || v.groupOut.levels.length < groups || v.result.levels.length < slots) {
       const gn = Math.max(groups, 16), sn = Math.max(slots, 16);
       v = {
@@ -527,6 +609,7 @@ export class VisibilityService {
     const preview = view.kind === "sceneView" && this.lodPreview ? this.previewOf(this.lodPreview) : null;
     selectLevels(view, this.input as SelectionGroups, tier, this.state, out, this.now, preview);
     const occlusion = this.occlude(view, v, tier);
+    if (!occlusion) this.debugCaptures.delete(view.key);
     const r = v.result;
     const levels = r.levels as Uint8Array, casters = r.casterLevels as Uint8Array, hidden = r.hidden as Uint8Array, fade = r.fade as Float32Array;
     const fadeLevels = v.fadeLevels, fadeFrom = out.fadeFrom!;
@@ -572,7 +655,10 @@ export class VisibilityService {
       this.occlusionGeneration = this.generation;
       this.occlusionViewsRun = 0;
     }
-    if (this.occlusionViewsRun >= tier.occlusionViews) return null;
+    // The scene view, while its toggle is on, keeps one of the tier's views for itself (ADR 0460 §4): an editor World's
+    // main camera, selected first each frame, would otherwise take the only one.
+    const limit = view.kind !== "sceneView" && this.sceneWantsOcclusion ? tier.occlusionViews - 1 : tier.occlusionViews;
+    if (this.occlusionViewsRun >= limit) return null;
     const [width, height] = tier.occlusionBuffer === "high" ? [320, 180] : [256, 128];
     const core = this.occlusionCore;
     if (!core) {
@@ -591,7 +677,7 @@ export class VisibilityService {
     const out = v.groupOut;
     const world = this.world;
     const ex = view.position[0], ey = view.position[1], ez = view.position[2];
-    const halfHeight = height / 2;
+    this.lastOcclusion = { view, height };
     // 1–2. Occluders: in the frustum and drawn, opaque, with geometry; "auto" ones only while at least 2 buffer pixels
     // wide; biggest on screen first, up to the tier's triangle budget.
     const candidates = this.candidates, sizes = this.candidateSize, order = this.candidateOrder;
@@ -602,15 +688,12 @@ export class VisibilityService {
       if ((role !== "auto" && role !== "occluder") || !(m.member instanceof MeshRenderer)) continue;
       const g = m.group!.index;
       if (out.hidden[g] || out.levels[g] === LOD_CULLED || !m.meshes || !m.bounds.hasLocal) continue;
-      const info = this.occluderInfo(m, m.member);
-      if (!info) continue;
-      const s = m.bounds.sphere, w = m.bounds.world;
+      const info = this.occluderInfo(m, m.member, m.meshes);
+      const widthPx = role === "auto" ? occluderWidthPx(m.bounds, view, height) : null;
+      if (!effectiveOcclusionRole(role, { geometry: info.geometries.length > 0, opaque: info.opaque, widthPx }).occluder) continue;
+      const s = m.bounds.sphere;
       const dx = s[0] - ex, dy = s[1] - ey, dz = s[2] - ez;
       const d = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz) - s[3], view.near);
-      if (role === "auto") {
-        const narrowest = Math.min(w[3] - w[0], w[4] - w[1], w[5] - w[2]);
-        if ((narrowest / d) * view.sy * halfHeight < 2) continue;
-      }
       candidates.push(m);
       sizes.push(s[3] / d);
     }
@@ -668,8 +751,9 @@ export class VisibilityService {
     }
     const hidden = scratch.hidden.subarray(0, groups.length);
     hidden.fill(0);
-    let culled = 0, tested = 0;
+    let culled = 0, tested = 0, rasterised = false;
     if (n > 0 && groups.length > 0) {
+      rasterised = true;
       const run = core.occlude(view, { near: view.near, far: view.far, sx: view.sx, sy: view.sy, eye: view.position }, scratch.triangles.subarray(0, n * 9), scratch.errors.subarray(0, n), scratch.neighbors.subarray(0, n * 3), scratch.boxes.subarray(0, groups.length * 6), hidden);
       tested = run.tested;
       for (let k = 0; k < groups.length; k++) {
@@ -685,35 +769,21 @@ export class VisibilityService {
         v.lowFrames = BACKOFF_FRAMES - 1;
       }
     } else v.lowFrames = 0;
-    return { occluders, triangles: n, tested, culled, ms: performance.now() - start };
+    const stats = { occluders, triangles: n, tested, culled, ms: performance.now() - start };
+    if (this.tools.capture) {
+      const boxes = new Float32Array(culled * 6);
+      for (let k = 0, c = 0; k < groups.length; k++) if (hidden[k]) boxes.set(scratch.boxes.subarray(k * 6, k * 6 + 6), 6 * c++);
+      this.debugCaptures.set(view.key, { key: view.key, kind: view.kind, stats, depth: rasterised ? core.depth() : null, culled: boxes });
+    }
+    return stats;
   }
 
   /** What a renderer could occlude with (`MemberEntry.occluderInfo`), worked out again when its meshes or material change; null for nothing. */
-  private occluderInfo(m: MemberEntry, r: MeshRenderer): MemberEntry["occluderInfo"] {
-    const meshes = m.meshes!;
-    const path = r.materials[0] || r.material;
-    let raw: unknown = null;
-    if (path) {
-      try {
-        raw = Assets.get(path);
-      } catch {
-        raw = undefined;
-      }
-    }
-    let info = m.occluderInfo;
-    if (!info || info.meshes !== meshes || info.path !== path || info.raw !== raw) {
-      const geometries: OccluderGeometry[] = [];
-      let triangles = 0;
-      for (const mesh of meshes) {
-        const geo = occluderGeometry(mesh);
-        if (geo) {
-          geometries.push(geo);
-          triangles += geo.indices.length / 3;
-        }
-      }
-      info = m.occluderInfo = { meshes, path, raw, geometries, triangles, opaque: geometries.length > 0 && opaqueMaterial(path, meshes) };
-    }
-    return info.opaque ? info : null;
+  private occluderInfo(m: MemberEntry, r: MeshRenderer, meshes: readonly ModelMesh[]): OccluderInfo {
+    const info = m.occluderInfo;
+    const { path, raw } = materialOf(r);
+    if (info && info.meshes === meshes && info.path === path && info.raw === raw) return info;
+    return (m.occluderInfo = occluderFacts(r, meshes));
   }
 
   private growOccluders(n: number): void {
@@ -741,6 +811,45 @@ export class VisibilityService {
 /** Frames of low culling before occlusion pauses, and frames it pauses for (ADR 0460 §4). */
 const BACKOFF_FRAMES = 60;
 
+type OccluderInfo = NonNullable<MemberEntry["occluderInfo"]>;
+
+/** A renderer's slot 0 material asset path (empty: the models' own surfaces) and the asset's parsed value now. */
+function materialOf(r: MeshRenderer): { path: string; raw: unknown } {
+  const path = r.materials[0] || r.material;
+  let raw: unknown = null;
+  if (path) {
+    try {
+      raw = Assets.get(path);
+    } catch {
+      raw = undefined;
+    }
+  }
+  return { path, raw };
+}
+
+/** What a renderer drawing `meshes` could occlude with (ADR 0460 §3): its meshes' occluder geometry, their triangles, and whether its material is opaque. */
+function occluderFacts(r: MeshRenderer, meshes: readonly ModelMesh[]): OccluderInfo {
+  const { path, raw } = materialOf(r);
+  const geometries: OccluderGeometry[] = [];
+  let triangles = 0;
+  for (const mesh of meshes) {
+    const geo = occluderGeometry(mesh);
+    if (geo) {
+      geometries.push(geo);
+      triangles += geo.indices.length / 3;
+    }
+  }
+  return { meshes, path, raw, geometries, triangles, opaque: opaqueMaterial(path, meshes) };
+}
+
+/** A renderer's narrowest world-box side on screen, in pixels of a buffer `height` high (the width test, ADR 0460 §3). */
+function occluderWidthPx(b: RendererBounds, view: VisibilityView, height: number): number {
+  const s = b.sphere, w = b.world;
+  const d = Math.max(Math.hypot(s[0] - view.position[0], s[1] - view.position[1], s[2] - view.position[2]) - s[3], view.near);
+  const narrowest = Math.min(w[3] - w[0], w[4] - w[1], w[5] - w[2]);
+  return (narrowest / d) * view.sy * (height / 2);
+}
+
 /** The World's main camera: the enabled `Camera` with the lowest depth (the first such, as `Camera.main`). */
 function mainCamera(world: World): Camera | null {
   let best: Camera | null = null;
@@ -763,6 +872,19 @@ function sameView(a: VisibilityView, b: VisibilityView): boolean {
 /** @internal The World's visibility stage, or null while it isn't running there (no `LODGroup` yet). */
 export function visibilityService(world: World): VisibilityService | null {
   return (_worldServiceOf(world, VISIBILITY_SERVICE_ID) as VisibilityService | null) ?? null;
+}
+
+/**
+ * @internal What a renderer's `occlusion` does now (ADR 0460 §6, the Inspector): the stage's answer while its World runs
+ * one, else the same rule without the width test (nothing has been drawn with occlusion to measure it by).
+ */
+export function occlusionRoleOf(renderer: MeshRenderer): EffectiveOcclusionRole {
+  const service = renderer.node.isValid ? visibilityService(renderer.node.world) : null;
+  if (service) return service.occlusionRoleOf(renderer);
+  const meshes = renderer.lodMeshes();
+  if (!meshes) return effectiveOcclusionRole(renderer.occlusion, { geometry: false, opaque: false, widthPx: null });
+  const info = occluderFacts(renderer, meshes);
+  return effectiveOcclusionRole(renderer.occlusion, { geometry: info.geometries.length > 0, opaque: info.opaque, widthPx: null });
 }
 
 _registerWorldService<null, VisibilityService>({

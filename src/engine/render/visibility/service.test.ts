@@ -9,7 +9,7 @@ import { Assets, Engine, GameObject, Graphics, Quaternion } from "../../index";
 import type { ModelMesh } from "../../scene/models";
 import { Camera, LODGroup, MeshRenderer } from "../components";
 import { registerLodMemberType } from "./lodMember";
-import { VISIBILITY_SERVICE_ID, visibilityService, type VisibilityService } from "./service";
+import { occlusionRoleOf, VISIBILITY_SERVICE_ID, visibilityService, type VisibilityService } from "./service";
 import { LOD_CULLED, type LodMember, type OcclusionRole } from "./types";
 import { cameraView, makeView } from "./views";
 import { loadOcclusionCore } from "./occlusion/core";
@@ -461,5 +461,119 @@ describe("occlusion in the visibility service (ADR 0460)", () => {
     expect(service.stats(key)!.occlusion).not.toBeNull(); // the retry
     engine.step(1 / 60);
     expect(service.stats(key)!.occlusion).toBeNull(); // still low: paused again
+  });
+
+  /** A scene view at z looking along +Z (as the camera), 128 pixels high, with occlusion as given. */
+  const sceneView = (z: number, occlusion: boolean) =>
+    makeView({ key: "orbit/sceneView", kind: "sceneView", position: [0, 0, z], right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1], projection: "perspective", fovY: Math.PI / 2, orthoHalfHeight: 0, near: 0.1, far: 100, widthPx: 128, heightPx: 128, persistent: true, occlusion });
+
+  it("runs occlusion for the scene view only while it asks, keeping one of the tier's views for it ahead of the main camera", async () => {
+    Graphics.quality = "High"; // occlusionViews 1
+    const { engine, service, group, renderer } = await setup();
+    place(group, 0, 0, 8);
+    wall(4);
+    await stepLoaded(engine);
+    const slot = service.slotOf(renderer);
+    expect(service.select(sceneView(0, false)).hidden[slot]).toBe(0); // the toggle off: editing shows everything
+    expect(service.stats("orbit/sceneView")!.occlusion).toBeNull();
+    expect(service.select(sceneView(0, true)).hidden[slot]).toBe(2); // the toggle on: occluded
+    expect(service.stats("orbit/sceneView")!.occlusion!.culled).toBe(1);
+    // The next frame the main camera (selected first) leaves the only view to the scene view.
+    engine.step(1 / 60);
+    expect(service.stats(service.main!.view.key)!.occlusion).toBeNull();
+    expect(group.visibility).toBe("drawn");
+    expect(service.select(sceneView(0, true)).hidden[slot]).toBe(2);
+    // Off again: the main camera has it back.
+    service.select(sceneView(0, false));
+    engine.step(1 / 60);
+    expect(group.visibility).toBe("occluded");
+  });
+
+  it("freezes the scene view's last set (levels and hidden bits) while its camera moves, and lets other views select", async () => {
+    Graphics.quality = "High";
+    const { engine, service, group, renderer } = await setup();
+    place(group, 0, 0, 8);
+    wall(4);
+    await stepLoaded(engine);
+    const slot = service.slotOf(renderer);
+    service.select(sceneView(0, true)); // asks for occlusion: from the next frame the main camera leaves it the view
+    engine.step(1 / 60);
+    const before = service.select(sceneView(0, true));
+    expect([before.hidden[slot], before.levels[slot]]).toEqual([2, 2]);
+    service.setSceneViewTools({ freeze: true, capture: false });
+    engine.step(1 / 60);
+    const frozen = service.select(sceneView(7.5, true)); // past the wall, close to the group: drawn at LOD0 unfrozen
+    expect([frozen.hidden[slot], frozen.levels[slot]]).toEqual([2, 2]);
+    expect(service.select(makeView({ ...sceneViewSpec(7.5), key: "cam/camera", kind: "camera" })).hidden[slot]).toBe(0);
+    service.setSceneViewTools({ freeze: false, capture: false });
+    engine.step(1 / 60);
+    const live = service.select(sceneView(7.5, true));
+    expect([live.hidden[slot], live.levels[slot]]).toEqual([0, 0]);
+  });
+
+  it("keeps each occlusion run's buffer and culled boxes while capturing, the scene view's first", async () => {
+    Graphics.quality = "High";
+    const { engine, service, group } = await setup();
+    place(group, 0, 0, 8);
+    wall(4);
+    await stepLoaded(engine);
+    expect(service.occlusionDebug()).toBeNull(); // not capturing
+    service.setSceneViewTools({ freeze: false, capture: true });
+    engine.step(1 / 60);
+    const main = service.occlusionDebug()!;
+    expect(main.kind).toBe("camera");
+    expect(main.stats.culled).toBe(1);
+    expect(main.depth).toMatchObject({ width: 256, height: 128 });
+    expect(main.depth!.data.some((v) => v > 0)).toBe(true); // the wall
+    expect(main.culled.length).toBe(6);
+    expect(main.culled[2]).toBeCloseTo(7.5, 1); // the group's box: z from 7.5 to 8.5
+    expect(main.culled[5]).toBeCloseTo(8.5, 1);
+    service.select(sceneView(0, true));
+    engine.step(1 / 60);
+    service.select(sceneView(0, true));
+    expect(service.occlusionDebug()!.kind).toBe("sceneView");
+    service.setSceneViewTools({ freeze: false, capture: false });
+    expect(service.occlusionDebug()).toBeNull();
+  });
+
+  it("says each renderer's effective role, with the width test of the last view occlusion ran for", async () => {
+    Graphics.quality = "High";
+    const { engine, service, group, renderer } = await setup();
+    place(group, 0, 0, 8);
+    renderer.mesh = "builtin:cube";
+    const w = wall(4);
+    expect(occlusionRoleOf(w)).toEqual({ occluder: true, occludee: true, reason: null }); // before any run: the width test passes
+    await stepLoaded(engine);
+    expect(service.occlusionRoleOf(w)).toEqual({ occluder: true, occludee: true, reason: null });
+    w.node.transform!.scale.set(20, 20, 0.001);
+    engine.step(1 / 60);
+    expect(occlusionRoleOf(w)).toEqual({ occluder: false, occludee: true, reason: "narrow" });
+    w.occlusion = "occluder";
+    expect(occlusionRoleOf(w)).toEqual({ occluder: true, occludee: true, reason: null });
+    Assets.addSource(Assets.fromObject({ "glass2.material.json": { format: "myco.material@1", color: "#ffffff80" } }));
+    w.material = "glass2.material.json";
+    expect(occlusionRoleOf(w)).toEqual({ occluder: false, occludee: true, reason: "transparent" });
+    w.occlusion = "none";
+    expect(occlusionRoleOf(w)).toEqual({ occluder: false, occludee: false, reason: null });
+    expect(service.occlusionRoleOf(new LevelsProbe())).toEqual({ occluder: false, occludee: true, reason: "skinned" });
+  });
+});
+
+/** A bare view frame at z looking along +Z, 128 pixels high, for `makeView`. */
+function sceneViewSpec(z: number) {
+  return { position: [0, 0, z] as [number, number, number], right: [1, 0, 0] as [number, number, number], up: [0, 1, 0] as [number, number, number], forward: [0, 0, 1] as [number, number, number], projection: "perspective" as const, fovY: Math.PI / 2, orthoHalfHeight: 0, near: 0.1, far: 100, widthPx: 128, heightPx: 128, persistent: true, occlusion: false };
+}
+
+describe("occlusionRoleOf without the visibility stage", () => {
+  it("applies the rule without the width test: a cube occludes, a model of over 512 triangles without levels doesn't", async () => {
+    const engine = await Engine.create({ headless: true });
+    engines.push(engine);
+    const cube = GameObject.create("cube").addComponent(MeshRenderer);
+    expect(visibilityService(engine.world)).toBeNull();
+    expect(occlusionRoleOf(cube)).toEqual({ occluder: true, occludee: true, reason: null });
+    const sphere = GameObject.create("sphere").addBehavior(MeshRenderer, { mesh: "builtin:sphere" });
+    const role = occlusionRoleOf(sphere);
+    expect(role.occludee).toBe(true);
+    expect(role.occluder).toBe((sphere.lodMeshes()?.[0]?.data.indices.length ?? 0) / 3 <= 512);
   });
 });

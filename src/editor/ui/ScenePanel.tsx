@@ -7,7 +7,7 @@ import { cleanSnap, snapSettings } from "../sceneTools";
 import { openScene, pickTool, playState, sceneCamera, setViewMode, snapping, tool, viewMode, type Tool } from "../state";
 import { ViewportDropHighlight } from "./AssetDragOverlay";
 import { MoveIcon, RotateIcon, ScaleIcon, SelectIcon } from "./toolIcons";
-import { CameraPreviewFrame, SceneToolButtons } from "./SceneTools";
+import { CameraPreviewFrame, OcclusionDebugInset, SceneToolButtons } from "./SceneTools";
 import { PanelExtensions } from "./panelExtensions";
 import { SceneTabs } from "./SceneTabs";
 
@@ -75,6 +75,7 @@ export function ScenePanel() {
           <div ref={host} class="viewport-host" />
           <ViewportHint />
           <CameraPreviewFrame />
+          <OcclusionDebugInset />
           <PanelExtensions panel="scene" />
           <ViewportDropHighlight />
         </div>

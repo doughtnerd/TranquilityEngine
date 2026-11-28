@@ -1,0 +1,10 @@
+/* The effective occlusion role beside MeshRenderer.occlusion (ADR 0460 §6). */
+.occlusion-role {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}

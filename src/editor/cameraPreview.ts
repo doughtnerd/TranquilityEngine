@@ -3,9 +3,14 @@
 // draws the inset's frame, `previewFrame`; the engine renders into the canvas under it).
 import { computed, effect, signal } from "@preact/signals";
 import { Camera, type Engine, type GameObject } from "../engine";
-import { viewport } from "../engine/editor";
-import { cameraPreviewEnabled, cleanSnap, installSceneToolKeys, lighting2DShown, snapSettings } from "./sceneTools";
+import { addEditorOverlay, removeEditorOverlay, viewport } from "../engine/editor";
+import { boxLines } from "./visibilityDebugLogic";
+import { cameraPreviewEnabled, cleanDebugMode, cleanSnap, freezeCulling, installSceneToolKeys, lighting2DShown, occlusionValidator, sceneOcclusion, snapSettings, visibilityDebug } from "./sceneTools";
+import { theme, visibilityColors } from "./theme";
 import { docVersion, playState, selectedWorldNode } from "./state";
+
+/** The overlay id of the occlusion debug view's culled boxes (ADR 0460 §6). */
+const CULLED_OVERLAY = "myco.visibility.culled";
 
 /** The inset's frame element in the Scene panel, while it's shown. */
 export const previewFrame = signal<HTMLElement | null>(null);
@@ -30,11 +35,34 @@ export function installSceneView(engine: Engine): () => void {
   });
   const stopPreview = effect(() => viewport(world).setCameraPreview(previewCamera.value?.getBehavior(Camera) ?? null, previewFrame.value));
   const stopLighting = effect(() => viewport(world).setLighting2D(lighting2DShown.value));
+  // The View menu's visibility tools (ADR 0460 §6), tinted from the theme's --lod0..7 and --danger tokens.
+  const stopVisibility = effect(() => {
+    const colors = visibilityColors(theme.value);
+    viewport(world).setSceneVisibility({
+      occlusion: sceneOcclusion.value === true,
+      freeze: freezeCulling.value === true,
+      validator: occlusionValidator.value === true,
+      debug: cleanDebugMode(visibilityDebug.value),
+      colors: { levels: colors.levels, occluded: colors.occluded },
+    });
+  });
+  // The occlusion debug view's red boxes: what the last run culled, through the editor overlay.
+  const stopCulledBoxes = effect(() => {
+    if (cleanDebugMode(visibilityDebug.value) !== "occlusion") return removeEditorOverlay(world, CULLED_OVERLAY);
+    const color = visibilityColors(theme.value).occluded;
+    addEditorOverlay(world, CULLED_OVERLAY, () => {
+      const debug = viewport(world).occlusionDebug(world);
+      return { lines: debug ? boxLines(debug.culled, color) : [], handles: [] };
+    });
+  });
   const stopKeys = typeof window === "undefined" ? () => {} : installSceneToolKeys(window);
   return () => {
     stopGrid();
     stopPreview();
     stopLighting();
+    stopVisibility();
+    stopCulledBoxes();
+    removeEditorOverlay(world, CULLED_OVERLAY);
     stopKeys();
     viewport(world).setCameraPreview(null, null);
   };

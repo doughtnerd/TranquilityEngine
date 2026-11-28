@@ -24,6 +24,9 @@ import { BabylonMaterialLibrary } from "./materialLibrary";
 import { BabylonMeshes, POOL_FRAMES } from "./meshes";
 import { BATCH_RETAIN_SECONDS, FREE_FRAMES } from "./meshBatches";
 import { LOD_FADE_ATTRIBUTE } from "./lodFade";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
+import { SCENE_VISIBILITY_OFF, type SceneVisibilityTools } from "../renderPolicy";
+import { loadOcclusionCore } from "../visibility/occlusion/core";
 
 /** A bumpy sphere as an OBJ (latitude-longitude grid with normals and UVs). */
 function bumpyObj(rows = 16, columns = 24): string {
@@ -64,6 +67,8 @@ describe("levels per view in the mesh feature (ADR 0459 §3)", () => {
    * per-pass thin buffers from the first frame levels apply (ADR 0461).
    */
   let picking = false;
+  /** The render policy's scene-view visibility tools the feature reads (ADR 0460 §6). */
+  let tools: SceneVisibilityTools = SCENE_VISIBILITY_OFF;
 
   beforeEach(async () => {
     setLodHost({ generate: generateLods, cache: memoryLodCache() });
@@ -84,7 +89,8 @@ describe("levels per view in the mesh feature (ADR 0459 §3)", () => {
     scene = new BabylonScene(nullEngine);
     picking = false;
     lib = new BabylonMaterialLibrary(scene, { editorPicking: () => picking });
-    feature = new BabylonMeshes({ scene, materials: lib, probes: { any: false, lookup: () => null } });
+    tools = SCENE_VISIBILITY_OFF;
+    feature = new BabylonMeshes({ scene, materials: lib, probes: { any: false, lookup: () => null }, sceneVisibility: () => tools });
   });
   afterEach(() => {
     Material._resetShared();
@@ -449,5 +455,113 @@ describe("levels per view in the mesh feature (ADR 0459 §3)", () => {
       frame(0.2);
       expect(drawnTriangles(listOf(prepare(), 0))).toEqual([tris(1), tris(1)]);
     });
+  });
+});
+
+describe("the scene view's debug tints and occlusion diagnostics in the mesh feature (ADR 0459 §7, 0460 §6)", () => {
+  let engine: Engine;
+  let nullEngine: NullEngine;
+  let scene: BabylonScene;
+  let lib: BabylonMaterialLibrary;
+  let feature: BabylonMeshes;
+  let tools: SceneVisibilityTools = SCENE_VISIBILITY_OFF;
+  const LEVELS = [0x110000, 0x002200, 0x000033];
+  const OCCLUDED = 0xff0000;
+
+  beforeEach(async () => {
+    setLodHost({ generate: generateLods, cache: memoryLodCache() });
+    Assets.clearSources();
+    Assets.addSource(
+      Assets.fromObject({
+        "s.json": { format: "myco.scene@1", nodes: [] },
+        "models/rock.obj": `data:text/plain;base64,${Buffer.from(bumpyObj()).toString("base64")}`,
+        "models/rock.obj.meta.json": { format: "myco.import@1", lod: DEFAULT_LOD_SETTINGS },
+      }),
+    );
+    engine = await Engine.create({ headless: true });
+    await SceneManager.load("s.json");
+    await loadMeshes(ROCK);
+    nullEngine = new NullEngine();
+    scene = new BabylonScene(nullEngine);
+    lib = new BabylonMaterialLibrary(scene, { editorPicking: () => true });
+    tools = SCENE_VISIBILITY_OFF;
+    feature = new BabylonMeshes({ scene, materials: lib, probes: { any: false, lookup: () => null }, sceneVisibility: () => tools });
+    Graphics.quality = "High"; // a 256×128 occlusion buffer, one occlusion view
+  });
+  afterEach(() => {
+    Graphics.quality = Graphics.defaultQuality;
+    Material._resetShared();
+    feature.dispose();
+    lib.dispose();
+    scene.dispose();
+    nullEngine.dispose();
+    engine.dispose();
+    setLodHost(null);
+    Assets.clearSources();
+  });
+
+  const frame = () => {
+    engine.step(1 / 60);
+    feature.sync(engine.world);
+  };
+  /** A view at the origin looking along +Z (90°, 1080 pixels), of `kind`. */
+  const view = (key: string, kind: "camera" | "sceneView", occlusion = false): VisibilityView =>
+    makeView({ key, kind, position: [0, 0, 0], right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1], projection: "perspective", fovY: Math.PI / 2, orthoHalfHeight: 0, near: 0.1, far: 1000, widthPx: 1080, heightPx: 1080, persistent: true, occlusion });
+  const listOf = (drawing: ReturnType<BabylonMeshes["prepareViews"]>, i: number) => {
+    const out: AbstractMesh[] = [];
+    drawing!.meshes(i, out);
+    return out;
+  };
+  /** The tint each listed mesh draws with (0xRRGGBB of a debug material's diffuse colour), or null for its own material. */
+  const tints = (list: readonly AbstractMesh[]) =>
+    list.map((m) => {
+      const mat = (m instanceof InstancedMesh ? m.sourceMesh : m).material;
+      return mat instanceof StandardMaterial && mat.name.startsWith("myco-tint-") ? parseInt(mat.diffuseColor.toHexString().slice(1), 16) : null;
+    });
+
+  it("tints each renderer by its level in scene views only, and the validator draws what occlusion hid in its colour", async () => {
+    const node = GameObject.create("rock");
+    node.transform!.position.set(0, 0, 8);
+    const g = node.addComponent(LODGroup);
+    g.levels = [0.5, 0.2, 0.05];
+    g.size = 1; // at 8 m: level 2
+    GameObject.create("rock-mesh", { parent: node }).addBehavior(MeshRenderer, { mesh: ROCK });
+    const s = (await _startWorldService(engine.world, VISIBILITY_SERVICE_ID)) as VisibilityService;
+    const views = (occlusion: boolean): FeatureView[] =>
+      [view("orbit/sceneView", "sceneView", occlusion), view("cam/camera", "camera")].map((v) => ({ camera: null, visibility: v, result: s.select(v) }));
+    frame();
+    // Off: both views draw the rock's own material.
+    let drawing = feature.prepareViews(views(false), null);
+    expect([tints(listOf(drawing, 0)), tints(listOf(drawing, 1))]).toEqual([[null], [null]]);
+    // LOD levels: the scene view tints level 2 in the third colour; the game view doesn't change.
+    tools = { ...SCENE_VISIBILITY_OFF, debug: "lodLevels", colors: { levels: LEVELS, occluded: OCCLUDED } };
+    frame();
+    drawing = feature.prepareViews(views(false), null);
+    expect([tints(listOf(drawing, 0)), tints(listOf(drawing, 1))]).toEqual([[LEVELS[2]], [null]]);
+    const shown = [...feature.drawn()][0].shape;
+    expect(shown?.kind === "meshes" && shown.meshes).toEqual(listOf(drawing, 0)); // picking and outlines see the tint
+    // A wall between: the scene view with occlusion hides the rock; the validator draws it anyway, in red.
+    const wall = GameObject.create("wall").addComponent(MeshRenderer);
+    wall.node.transform!.scale.set(20, 20, 0.5);
+    wall.node.transform!.position.set(0, 0, 4);
+    tools = { ...SCENE_VISIBILITY_OFF, occlusion: true, colors: { levels: LEVELS, occluded: OCCLUDED } };
+    frame();
+    feature.prepareViews(views(true), null); // loads the occlusion core
+    await loadOcclusionCore(256, 128);
+    await Promise.resolve();
+    frame();
+    feature.prepareViews(views(true), null);
+    frame();
+    drawing = feature.prepareViews(views(true), null);
+    const rockOf = (list: readonly AbstractMesh[]) => list.filter((m) => !m.name.includes("wall"));
+    expect(rockOf(listOf(drawing, 0))).toEqual([]); // occluded
+    expect(rockOf(listOf(drawing, 1)).length).toBe(1); // the game view has no occlusion here
+    expect(feature.diagnostics()).toMatchObject({ occlusion: { views: 1, culled: 1 } });
+    expect((feature.diagnostics() as { occlusion: { triangles: number } }).occlusion.triangles).toBeGreaterThan(0);
+    tools = { ...tools, validator: true };
+    frame();
+    drawing = feature.prepareViews(views(true), null);
+    expect(tints(rockOf(listOf(drawing, 0)))).toEqual([OCCLUDED]);
+    expect(tints(rockOf(listOf(drawing, 1)))).toEqual([null]);
   });
 });

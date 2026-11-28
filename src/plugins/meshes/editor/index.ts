@@ -9,7 +9,17 @@ import { materialLibraryReferences, modelReferences } from "./modelReferences";
 import { disabledCamerasNote, modelNodeTemplates } from "./modelNodes";
 import { LargePreview, type EditorPlugin } from "../../../editor/sdk";
 import { meshesManifest } from "../manifest";
-import type { ComponentInfo } from "../../../engine/editor";
+import { renderDiagnostics, type ComponentInfo } from "../../../engine/editor";
+import type { World } from "../../../engine/core/World";
+import { OcclusionRoleAdornment } from "./OcclusionRole";
+import { occlusionOf, occlusionRows } from "./occlusionLogic";
+import type { PlayStatsRow } from "../../../editor/sdk";
+
+/** The Occlusion table of a World (ADR 0460 §6): the render diagnostics' occlusion totals, or nothing while no view ran it. */
+function occlusionTableRows(world: World): readonly PlayStatsRow[] | null {
+  const o = occlusionOf(renderDiagnostics(world)?.features?.meshes); // the meshes feature's part (its spec's name)
+  return o ? occlusionRows(o) : null;
+}
 
 /** A file with a swatch: an .obj's material library. */
 const MTL_ICON = "M7 3h7l5 5v13H7zM14 3v5h5M10 13h6v5h-6z";
@@ -56,6 +66,9 @@ export const meshesEditorPlugin: EditorPlugin = {
     // An .obj's material library: not a model, but it names the model's textures (ADR 0148). Its thumbnail is the
     // model renderer's: the models module loads a library as a sphere per material.
     context.registerAssetKind({ id: "mtl", extensions: [".mtl"], label: "Material Library", icon: MTL_ICON, references: materialLibraryReferences, preview: "model" });
+    // ADR 0460 §6: MeshRenderer.occlusion's effective role beside the field, and the Play Stats panel's Occlusion table.
+    context.registerFieldAdornment({ id: "myco.meshes.occlusionRole", view: OcclusionRoleAdornment });
+    context.registerPlayStatsTable({ id: "myco.meshes.occlusion", title: "Occlusion", rows: occlusionTableRows });
   },
 };
 

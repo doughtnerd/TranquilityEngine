@@ -47,3 +47,7 @@
   font-size: var(--fs-sm);
 }
 .editor.playing .camera-preview { display: none; }
+
+/* The View popover's visibility debug choices (ADR 0460 §6). */
+.view-menu-debug { margin: 4px 0 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 3px; display: grid; gap: 4px; }
+.view-menu-debug legend { color: var(--muted); padding: 0 2px; }

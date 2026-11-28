@@ -50,6 +50,18 @@ describe("viewport handle render policy (ADR 0129)", () => {
     expect(handle.lodScreenHeight(node)).toBeNull(); // the scene view hasn't drawn
   });
 
+  it("setSceneVisibility hands the scene view's visibility tools to the policy, unset fields keeping their value (ADR 0460 §6)", () => {
+    const { port, handle } = setup(true);
+    expect(port.policy.sceneVisibility).toMatchObject({ occlusion: false, freeze: false, validator: false, debug: "none" }); // all off by default
+    handle.setSceneVisibility({ occlusion: true, colors: { levels: [1, 2], occluded: 3 } });
+    expect(port.policy.sceneVisibility).toEqual({ occlusion: true, freeze: false, validator: false, debug: "none", colors: { levels: [1, 2], occluded: 3 } });
+    handle.setSceneVisibility({ freeze: true, validator: true, debug: "lodLevels" });
+    expect(port.policy.sceneVisibility).toEqual({ occlusion: true, freeze: true, validator: true, debug: "lodLevels", colors: { levels: [1, 2], occluded: 3 } });
+    handle.setSceneVisibility({ occlusion: false, debug: "occlusion" });
+    expect(port.policy.sceneVisibility).toMatchObject({ occlusion: false, freeze: true, debug: "occlusion" });
+    expect(handle.occlusionDebug(engine.world)).toBeNull(); // no visibility stage in this World
+  });
+
   it("a non-eager handle sets nothing at construction and perObject once, on first use", () => {
     const { port, handle } = setup(false);
     expect(port.calls).toEqual([]);

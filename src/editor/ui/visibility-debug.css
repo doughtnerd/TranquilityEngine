@@ -1,0 +1,29 @@
+/* The occlusion debug view's inset (ADR 0460 §6): bottom-left of the scene view (the camera preview is bottom-right). */
+.visibility-debug {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  width: clamp(160px, 26%, 320px);
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px var(--shadow);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  pointer-events: none; /* the scene view underneath keeps its clicks */
+}
+.visibility-debug-depth {
+  display: block;
+  width: 100%;
+  image-rendering: pixelated;
+  border: 1px solid var(--border);
+}
+.visibility-debug-depth[hidden] { display: none; }
+.visibility-debug-source { margin: 4px 0 2px; color: var(--muted); }
+.visibility-debug-readout { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; margin: 0; }
+.visibility-debug-row { display: flex; justify-content: space-between; gap: 4px; }
+.visibility-debug-row dt { color: var(--muted); }
+.visibility-debug-row dd { margin: 0; font-variant-numeric: tabular-nums; }
+.visibility-debug-empty { margin: 2px; color: var(--muted); }
+.editor.playing .visibility-debug { display: none; }

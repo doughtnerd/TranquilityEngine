@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { actionLabel, alignTargets, minNodes, runAlign, whyNotAlign, type AlignAction, type Axis } from "../align";
 import { statusSentence } from "../editGate";
 import { previewCamera, previewFrame, selectedCamera } from "../cameraPreview";
-import { cameraPreviewEnabled, cleanSnap, gizmoPivot, gizmoSpace, lighting2DShown, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, type SnapSettings } from "../sceneTools";
+import { cameraPreviewEnabled, cleanDebugMode, cleanSnap, freezeCulling, gizmoPivot, gizmoSpace, lighting2DShown, occlusionValidator, sceneOcclusion, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, visibilityDebug, type SnapSettings, type VisibilityDebugMode } from "../sceneTools";
 import { docVersion, openScene, sceneCamera, selectedKeys, viewMode } from "../state";
 import { rotationAngles } from "../preferences";
 import { previewedQuality, previewQuality, qualityTiers } from "../graphicsPreview";
@@ -39,6 +39,9 @@ export function SceneToolButtons() {
         </Popover>
       </div>
       <AlignMenu />
+      <Popover label="View" buttonClass="view-menu" buttonText="View ▾" title="Visibility tools: occlusion culling, freeze culling, the validator and debug views">
+        <ViewMenu />
+      </Popover>
       <SceneToolbarItems />
       <button
         class={`camera-preview-toggle toggle${cameraPreviewEnabled.value ? " active" : ""}`}
@@ -240,6 +243,50 @@ function AlignMenu() {
       </div>
     </Popover>
   );
+}
+
+const DEBUG_MODES: { mode: VisibilityDebugMode; label: string; title: string }[] = [
+  { mode: "none", label: "None", title: "Draw the scene as it is" },
+  { mode: "lodLevels", label: "LOD levels", title: "Tint each renderer by the LOD level it draws (the LOD bar's colours)" },
+  { mode: "occlusion", label: "Occlusion", title: "Show the occlusion buffer, what it culled (red boxes) and its numbers" },
+];
+
+/**
+ * The View popover (ADR 0460 §4, §6, 0459 §7): occlusion culling for the scene view (off by default, so editing shows
+ * everything), freeze culling, the validator, and the visibility debug view.
+ */
+function ViewMenu() {
+  const debug = cleanDebugMode(visibilityDebug.value);
+  const check = (label: string, title: string, value: boolean, set: (on: boolean) => void) => (
+    <label class="snap-row check" title={title}>
+      <input type="checkbox" checked={value} aria-label={label} onChange={(e) => set((e.currentTarget as HTMLInputElement).checked)} />
+      <span>{label}</span>
+    </label>
+  );
+  return (
+    <div class="snap-form view-menu-form">
+      {check("Occlusion culling", "Hide what the scene view can't see behind occluders, as game cameras do", sceneOcclusion.value === true, (on) => (sceneOcclusion.value = on))}
+      {check("Freeze culling", "Keep the scene view's current LOD levels and hidden objects while the camera moves", freezeCulling.value === true, (on) => (freezeCulling.value = on))}
+      {check("Validator", "Draw what occlusion hid anyway, in red: red you can see is a false occlusion", occlusionValidator.value === true, (on) => (occlusionValidator.value = on))}
+      <fieldset class="view-menu-debug">
+        <legend>Visibility debug</legend>
+        {DEBUG_MODES.map((m) => (
+          <label key={m.mode} class="snap-row check" title={m.title}>
+            <input type="radio" name="visibility-debug" checked={debug === m.mode} aria-label={m.label} onChange={() => (visibilityDebug.value = m.mode)} />
+            <span>{m.label}</span>
+          </label>
+        ))}
+      </fieldset>
+    </div>
+  );
+}
+
+/** The occlusion debug view's inset (ADR 0460 §6): the buffer as a grey depth image and the readout, in a corner of the scene view. */
+const LazyDebugInset = lazyComponent(() => import("./VisibilityDebugInset").then((m) => m.VisibilityDebugInset), null);
+
+/** The occlusion debug inset while the View menu's debug view is "Occlusion" (its code loads the first time). */
+export function OcclusionDebugInset() {
+  return cleanDebugMode(visibilityDebug.value) === "occlusion" ? <LazyDebugInset /> : null;
 }
 
 /** The camera preview's frame: the engine draws what the selected camera sees into the canvas under it. */

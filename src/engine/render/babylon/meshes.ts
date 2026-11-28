@@ -18,8 +18,15 @@
  * complement. Fade drawables are kept per view, as each instance carries that view's value, and pooled like levels.
  * A renderer whose material can't fade (or that draws `off`) shows whichever level shows more instead. Renderers in a
  * crossfading group reserve their fade batches ahead of the first fade, so it doesn't make Babylon meshes.
+ *
+ * **The scene view's debug tints (ADR 0459 §7, 0460 §6).** In a view of kind `"sceneView"`, the render policy's
+ * `sceneVisibility` can draw each renderer in a flat tint batch instead of its own: by its LOD level ("LOD levels"), or,
+ * with the validator, what occlusion hid, depth-tested in the validator's colour, so a false occlusion shows. Tint
+ * drawables are kept per colour and level and pooled like levels. Game views never see them.
  */
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
+import { Color3 } from "@babylonjs/core/Maths/math.color.js";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import type { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
@@ -30,6 +37,7 @@ import type { MaterialInstancing } from "../../scene/material";
 import { beginMeshLookups, drawnVariant, endMeshLookups, materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import { MeshRenderer } from "../components";
 import type { DrawnMaterial } from "../RenderSurface";
+import type { SceneVisibilityTools } from "../renderPolicy";
 import { visibilityService } from "../visibility/service";
 import { outgoingOf } from "../visibility/select";
 import { LOD_CULLED, type VisibilityResult, type VisibilityStats } from "../visibility/types";
@@ -53,6 +61,18 @@ export interface BabylonMeshHost {
   readonly probes: { readonly any: boolean; lookup(x: number, y: number, z: number): ProbeHit | null };
   /** A mesh drew with a probe's reflection this frame (the renderer counts them for diagnostics). Optional. */
   reflected?(): void;
+  /** The scene view's visibility tools from the render policy (ADR 0460 §6); absent: none. */
+  sceneVisibility?(): SceneVisibilityTools;
+}
+
+/** The diagnostics' occlusion part (ADR 0460 §6): views it ran for this frame, and their totals. */
+interface OcclusionTotals {
+  views: number;
+  occluders: number;
+  triangles: number;
+  tested: number;
+  culled: number;
+  ms: number;
 }
 
 /** Seconds a level's drawable is kept after the last view drew it (ADR 0459 §3). */
@@ -86,6 +106,8 @@ interface MeshEntry {
   levels: (LevelDrawable | undefined)[][];
   /** Per view key, per model mesh, its fade drawables by level (ADR 0459 §4). */
   fades: Map<string, (LevelDrawable | undefined)[][]>;
+  /** Its scene-view tint drawables (`"i:level:colour"` → drawable), for the debug tints. */
+  tints: Map<string, LevelDrawable>;
   /** The fade batches it reserved (every level of every model mesh), while its group crossfades. */
   reserved: DrawKey[];
   /** Per model mesh, the batch it wants at LOD0 (a copy; a level's swaps in the level's mesh). */
@@ -124,6 +146,12 @@ function fadeable(key: DrawKey | undefined): boolean {
 function* allDrawables(e: MeshEntry): Iterable<LevelDrawable> {
   for (const part of e.levels) for (const ld of part) if (ld) yield ld;
   for (const perView of e.fades.values()) for (const part of perView) for (const ld of part ?? []) if (ld) yield ld;
+  yield* e.tints.values();
+}
+
+/** The tint for a group level: its colour, the last one past the list (ADR 0459 §7). */
+function levelTint(colors: readonly number[], level: number): number {
+  return colors.length ? colors[Math.min(level, colors.length - 1)] : 0xffffff;
 }
 
 /** @internal Draws every MeshRenderer, batched for GPU instancing (ADR 0108), with levels chosen per view (ADR 0459). */
@@ -147,6 +175,10 @@ export class BabylonMeshes implements BabylonFeature {
   private readonly casterMeshes: AbstractMesh[] = [];
   /** The first view's visibility statistics at the last `prepareViews` (the `lod` diagnostics). */
   private stats: VisibilityStats | null = null;
+  /** The occlusion totals over this frame's views at the last `prepareViews`, or null when no view ran it. */
+  private occlusion: OcclusionTotals | null = null;
+  /** The debug tints' materials by colour (0xRRGGBB, and whether flat). */
+  private readonly tintMaterials = new Map<string, StandardMaterial>();
   private readonly drawing: ViewDrawing;
 
   constructor(private readonly host: BabylonMeshHost) {
@@ -168,7 +200,10 @@ export class BabylonMeshes implements BabylonFeature {
     this.perView = this.preparedAt === this.syncs;
     this.syncs++;
     this.batches.setPassMode(this.perView);
-    if (!this.perView) this.stats = null;
+    if (!this.perView) {
+      this.stats = null;
+      this.occlusion = null;
+    }
     this.host.materials.beginSync();
     beginMeshLookups();
     try {
@@ -206,6 +241,9 @@ export class BabylonMeshes implements BabylonFeature {
     const use = (r: MeshRenderer, e: MeshEntry, i: number, level: number): Drawable => touch(this.levelDrawable(r, e, i, meshLevel(e.sources![i], level)));
     // Each view's outgoing levels during fades (ADR 0459 §4).
     const fadeFrom = views.map((v) => (v.result ? service.fadeLevels(v.result) : null));
+    // The scene view's debug tints (ADR 0459 §7, 0460 §6): only views of kind "sceneView" use them.
+    const tools = this.host.sceneVisibility?.() ?? null;
+    const tinting = tools && (tools.debug === "lodLevels" || tools.validator) ? views.map((v) => v.visibility.kind === "sceneView") : null;
     for (const [r, e] of this.meshRenderers) {
       e.shown.length = 0;
       const n = e.sources?.length ?? 0;
@@ -219,7 +257,13 @@ export class BabylonMeshes implements BabylonFeature {
         const result = views[k].result;
         const pass = views[k].visibility.key;
         let level = 0, from = LOD_CULLED, f = 0;
+        const tint = tinting?.[k] ? tools : null;
         if (result && slot >= 0 && slot < result.levels.length) {
+          // Validator (ADR 0460 §6): what occlusion hid (2) draws anyway, in its colour.
+          if (tint?.validator && result.hidden[slot] === 2 && result.levels[slot] !== LOD_CULLED) {
+            this.drawTinted(r, e, result.levels[slot], tint.colors.occluded, true, pass, lists[k], k === 0, frame);
+            continue;
+          }
           if (result.hidden[slot]) {
             // Off this view: its drawable at its level, if it has one, stays enabled (unlisted) and pooled, as without
             // levels per view, so turning the camera doesn't toggle and remake Babylon instances.
@@ -237,6 +281,11 @@ export class BabylonMeshes implements BabylonFeature {
           else f = 0;
         }
         if (f === 0 && level === LOD_CULLED) continue;
+        if (tint?.debug === "lodLevels" && level !== LOD_CULLED) {
+          // LOD levels (ADR 0459 §7): its (incoming) level whole, in that level's tint.
+          this.drawTinted(r, e, level, levelTint(tint.colors.levels, level), false, pass, lists[k], k === 0, frame);
+          continue;
+        }
         const list = lists[k];
         for (let i = 0; i < n; i++) {
           const src = e.sources![i];
@@ -283,7 +332,62 @@ export class BabylonMeshes implements BabylonFeature {
     this.batches.passMeshes(CASTERS_PASS, casterMeshes);
     const first = views[0]?.visibility.key;
     this.stats = first !== undefined ? service.stats(first) : null;
+    // Occlusion over every view that ran it this frame (ADR 0460 §6).
+    let occ: OcclusionTotals | null = null;
+    for (const v of views) {
+      const o = v.result ? service.stats(v.visibility.key)?.occlusion : null;
+      if (!o) continue;
+      occ ??= { views: 0, occluders: 0, triangles: 0, tested: 0, culled: 0, ms: 0 };
+      occ.views++;
+      occ.occluders += o.occluders;
+      occ.triangles += o.triangles;
+      occ.tested += o.tested;
+      occ.culled += o.culled;
+      occ.ms += o.ms;
+    }
+    this.occlusion = occ;
     return this.drawing;
+  }
+
+  /** Draw every model mesh of a renderer at group level `level` in tint `color` (flat for the validator) in one pass. */
+  private drawTinted(r: MeshRenderer, e: MeshEntry, level: number, color: number, flat: boolean, pass: string, list: AbstractMesh[], first: boolean, frame: number): void {
+    const n = e.sources!.length;
+    for (let i = 0; i < n; i++) {
+      const ld = this.tintDrawable(r, e, i, meshLevel(e.sources![i], level), color, flat);
+      ld.used = this.now;
+      ld.frame = frame;
+      this.batches.add(ld.d, pass, list);
+      if (first) e.shown.push(ld.d);
+    }
+  }
+
+  /** A renderer mesh's tint drawable at `level` (of its model mesh) in `color`, acquired on first use at its matrix. */
+  private tintDrawable(r: MeshRenderer, e: MeshEntry, i: number, level: number, color: number, flat: boolean): LevelDrawable {
+    const id = `${i}:${level}:${color}:${flat ? 1 : 0}`;
+    let ld = e.tints.get(id);
+    if (ld) return ld;
+    const src = e.sources![i];
+    const key: DrawKey = { ...e.keys[i], material: this.tintMaterial(color, flat), applyFog: false };
+    if (level > 0) key.src = src.lods!.levels[level].mesh;
+    if (e.matrix) Matrix.FromArrayToRef(e.matrix as unknown as number[], 0, tmpMatrix);
+    const d = this.batches.acquire(key, `${r.node.name}:${src.name}:lod${level}:tint`, e.matrix ? tmpMatrix : undefined);
+    e.tints.set(id, (ld = { d, used: this.now, frame: -1 }));
+    return ld;
+  }
+
+  /** The debug tints' material in `color`: lit (the LOD levels, shapes stay readable), or flat and unlit (the validator). */
+  private tintMaterial(color: number, flat: boolean): StandardMaterial {
+    const id = `${color}:${flat ? 1 : 0}`;
+    let m = this.tintMaterials.get(id);
+    if (m) return m;
+    const c = new Color3(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255);
+    m = new StandardMaterial(`myco-tint-${color.toString(16).padStart(6, "0")}${flat ? "-flat" : ""}`, this.host.scene);
+    m.diffuseColor = c;
+    m.specularColor = Color3.Black();
+    m.emissiveColor = flat ? c : c.scale(0.25);
+    m.disableLighting = flat;
+    this.tintMaterials.set(id, m);
+    return m;
   }
 
   /**
@@ -297,6 +401,7 @@ export class BabylonMeshes implements BabylonFeature {
       if (ld) ld.d.setEnabled(active && ld.frame === frame);
     }
     if (e.fades.size) for (const perView of e.fades.values()) for (const part of perView) for (const ld of part ?? []) ld?.d.setEnabled(active && ld.frame === frame);
+    for (const ld of e.tints.values()) ld.d.setEnabled(active && ld.frame === frame);
     e.meshes.length = 0;
     for (const d of e.shown) if (d.mesh) e.meshes.push(d.mesh);
   }
@@ -314,6 +419,8 @@ export class BabylonMeshes implements BabylonFeature {
   dispose(): void {
     this.batches.dispose();
     this.meshRenderers.clear();
+    for (const m of this.tintMaterials.values()) m.dispose();
+    this.tintMaterials.clear();
   }
 
   /**
@@ -335,11 +442,14 @@ export class BabylonMeshes implements BabylonFeature {
     return true;
   }
 
-  /** ADR 0154, 0459 §3: the main view's level statistics while levels are applied per view, else nothing. */
+  /**
+   * ADR 0154, 0459 §3, 0460 §6: the main view's level statistics while levels are applied per view, and occlusion's
+   * totals over the views it ran for this frame (`views`: how many); else nothing.
+   */
   diagnostics(): unknown {
     const s = this.stats;
     if (!s) return undefined;
-    return { lod: { groups: s.groups, perLevel: [...s.perLevel], culled: s.lodCulled, fading: s.fading }, ...(s.occlusion ? { occlusion: { ...s.occlusion } } : {}) };
+    return { lod: { groups: s.groups, perLevel: [...s.perLevel], culled: s.lodCulled, fading: s.fading }, ...(this.occlusion ? { occlusion: { ...this.occlusion } } : {}) };
   }
 
   /** The renderer that owns a drawn mesh or batch source (`describe`, for the variant report), or null. */
@@ -416,6 +526,12 @@ export class BabylonMeshes implements BabylonFeature {
         }
         if (!any) e.fades.delete(view);
       }
+      // Tint drawables (the scene view's debug tints) too.
+      for (const [id, ld] of e.tints) {
+        if (!this.expired(ld)) continue;
+        this.batches.release(ld.d, true);
+        e.tints.delete(id);
+      }
     }
   }
 
@@ -453,10 +569,20 @@ export class BabylonMeshes implements BabylonFeature {
     }
   }
 
+  /** Give back a model mesh's tint drawables (-1: every model mesh's). */
+  private releaseTints(e: MeshEntry, i: number): void {
+    for (const [id, ld] of e.tints) {
+      if (i >= 0 && !id.startsWith(`${i}:`)) continue;
+      this.batches.release(ld.d, true);
+      e.tints.delete(id);
+    }
+  }
+
   private releaseAll(e: MeshEntry): void {
     for (const part of e.levels) for (const ld of part) if (ld) this.batches.release(ld.d);
     for (const perView of e.fades.values()) for (const part of perView) for (const ld of part ?? []) if (ld) this.batches.release(ld.d);
     e.fades.clear();
+    this.releaseTints(e, -1);
     this.unreserveFades(e);
     e.levels = [];
     e.keys = [];
@@ -498,7 +624,7 @@ export class BabylonMeshes implements BabylonFeature {
     const { materials, probes } = this.host;
     let entry = this.meshRenderers.get(r);
     if (!entry) {
-      entry = { meshes: [], shown: [], levels: [], fades: new Map(), reserved: [], keys: [], sources: null, material: null, slotList: [], matrix: null };
+      entry = { meshes: [], shown: [], levels: [], fades: new Map(), tints: new Map(), reserved: [], keys: [], sources: null, material: null, slotList: [], matrix: null };
       this.meshRenderers.set(r, entry);
     }
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
@@ -543,6 +669,7 @@ export class BabylonMeshes implements BabylonFeature {
         for (const ld of entry!.levels[i] ?? []) if (ld) this.batches.release(ld.d);
         entry!.levels[i] = [];
         this.releaseFades(entry!, i);
+        this.releaseTints(entry!, i);
         this.unreserveFades(entry!); // reserved again for the new batches by the next `prepareViews`
         entry!.keys[i] = { ...key };
         changed = true;
@@ -550,6 +677,8 @@ export class BabylonMeshes implements BabylonFeature {
       const part = entry!.levels[i]!;
       const fades: LevelDrawable[] = [];
       for (const perView of entry!.fades.values()) for (const ld of perView[i] ?? []) if (ld) fades.push(ld);
+      // Tint drawables move and switch off with the rest (keyed "i:…").
+      if (entry!.tints.size) for (const [id, ld] of entry!.tints) if (id.startsWith(`${i}:`)) fades.push(ld);
       if (moved && entry!.matrix) {
         Matrix.FromArrayToRef(entry!.matrix as unknown as number[], 0, tmpMatrix);
         for (const ld of part) ld?.d.setMatrix(tmpMatrix);
