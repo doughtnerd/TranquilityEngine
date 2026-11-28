@@ -1,6 +1,6 @@
 /**
  * The renderer-neutral UI core's contract (ADR 0076): layout with Yoga, pointer and keyboard routing,
- * and input fields' typing, in `UICore.ts`; drawn by a backend's drawing layer
+ * and input fields' typing (through a text entry port, ADR 0449), in `UICore.ts`; drawn by a backend's drawing layer
  * (`render/babylon/ui.ts`) from what `elements()` and `canvases()` report. Nothing here is public API.
  *
  * Coordinates:
@@ -19,6 +19,7 @@ import type { UIRect } from "./layout";
 import type { UIAffine } from "./transform2d";
 import type { UIFilterStep } from "./filters";
 import type { UIInlineLayout } from "./text/inlineLayout";
+import type { UITextEntry } from "./textEntry";
 
 export type { UIInlineLayout } from "./text/inlineLayout";
 
@@ -170,6 +171,11 @@ export interface UICoreOptions {
    */
   passive?: boolean;
   host?: UICoreHost;
+  /**
+   * ADR 0449: how the player's typing reaches input fields and editable texts. Default: hidden DOM elements
+   * (`domTextEntry`), which make nothing without a `document` (Node: nothing types).
+   */
+  textEntry?: UITextEntry;
 }
 
 /** A canvas as laid out in the last `sync`. */
@@ -379,8 +385,6 @@ export interface UICoreLike {
   readonly hasScreenUI: boolean;
   /** Tests and the editor: an element's rectangle in canvas CSS pixels (screen canvases only; null otherwise or before layout). */
   rectOf(c: UIComponentType): { x: number; y: number; width: number; height: number } | null;
-  /** Tests: the element the pointer goes to at a canvas CSS point (ADR 0385): the button or input field it presses, else the element that only blocks it; null when it reaches the game. */
-  hitTest(x: number, y: number): UIComponentType | null;
   /** Editor (ADR 0077): every drawn element (canvases excepted) under a canvas CSS point, topmost first. */
   pickAll(x: number, y: number, ray?: UIPickRay | null): UIComponentType[];
   /** Editor (ADR 0117): the canvases under a point, topmost first: world canvases by their rect, screen canvases by their frame's edge strip only. */

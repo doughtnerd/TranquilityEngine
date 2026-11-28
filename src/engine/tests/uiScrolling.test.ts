@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, Input } from "../index";
 import { UIButton, UIPanel, UIText } from "../ui/components";
 import { World } from "../core/World";
-import { UIPointer, stubDocument } from "./uiPointer";
+import { UIPointer, stubDocument, pointerTargetAt } from "./uiPointer";
 import { buildUI, loadUITestSupport, uiAs, type TestUI } from "./uiMarkup";
 
 // ADR 0427: elements scroll with `overflow: auto | scroll`: layout, clipping and drawing offsets, hit-testing, the
@@ -61,8 +61,8 @@ describe("layout and drawing (ADR 0427)", () => {
     expect(p.core.rectOf(doc.query("#r0")!.component)).toMatchObject({ y: -60 });
     expect(p.core.rectOf(doc.query("#r2")!.component)).toMatchObject({ y: 20 });
     // The pointer at (90, 50) is over row 2 now (it starts at 20 on screen); rows scrolled out of the clip aren't hit.
-    expect(p.core.hitTest(90, 50)).toBe(doc.query("#r2")!.component);
-    expect(p.core.hitTest(90, 110)).toBeNull();
+    expect(pointerTargetAt(p.core, 90, 50)).toBe(doc.query("#r2")!.component);
+    expect(pointerTargetAt(p.core, 90, 110)).toBeNull();
     // The editor's outline follows the offset too.
     expect(p.core.cornersOf(doc.query("#r2")!.component)!.points[0]).toEqual([0, 20]);
     // A script asking for more than the content has is clamped at the next layout.

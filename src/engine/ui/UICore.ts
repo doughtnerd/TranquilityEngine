@@ -1,13 +1,13 @@
 /**
  * The renderer-neutral UI core (ADR 0076): mirrors a World's UI components into a layout tree (Taffy, ADR 0434), lays it
  * out, routes the pointer and keyboard to UI before game scripts run, and takes input fields' typing
- * through a hidden DOM `<input>`. A backend's drawing layer draws what `canvases()` and `elements()`
+ * through the text entry it's given (ADR 0449: `textEntry.ts`; hidden DOM elements by default, `domTextEntry.ts`). A backend's drawing layer draws what `canvases()` and `elements()`
  * report, including each text element's resolved text run (ADR 0271), which is what it measured.
  * What each element kind is comes from `elementKinds.ts`. Nothing here is public API (ADR 0010).
  *
  * The layout engine loads asynchronously (WebAssembly): the constructor starts the load and `sync` lays nothing
- * out until it's ready (`await core.ready` to wait). Without a `document` (Node) there is no typing
- * element; routing and layout work all the same.
+ * out until it's ready (`await core.ready` to wait). Without a `document` (Node) the default text entry makes no
+ * boxes, so nothing types; routing and layout work all the same.
  */
 import { LayoutTree, layoutEngineLoaded, loadLayoutEngine, type LayoutContent, type LayoutEdge, type LayoutFlexDirection, type LayoutItems, type LayoutBox, type LayoutNode, type LayoutWrap, type MeasureInput } from "./taffy/layoutTree";
 import { Mat4, Vector2 } from "../core/math";
@@ -28,7 +28,8 @@ import { advanceUIScrolling, canMove, uiEndScrollGesture, uiResnap, uiScrollBy, 
 import { applyAffine, boundsOf, compose, invert, localTransform, multiply, transformRect, type UIAffine, type UITransformFields } from "./transform2d";
 import { backdropFilterFields, filterStepsOf, transformFilterSteps, type UIFilterFields, type UIFilterStep } from "./filters";
 import { INLINE_ASCENT, INLINE_DESCENT, caretAt, indexAt, inlineFont, layoutInline, selectionRects, type RunMeasure, type UIInlineLayout } from "./text/inlineLayout";
-import { applyInlineEdit } from "./text/inlineEdit";
+import { UITextEntryBridge, type UITextEdit } from "./textEntry";
+import { domTextEntry } from "./domTextEntry";
 
 export { canvasScale, uiLength } from "./layout";
 
@@ -147,7 +148,7 @@ interface Entry {
 }
 
 /** ADR 0429: an editable text being edited: its selection (`anchor` to `focus`, offsets in its text), the hidden text area's text, what's shown. */
-interface EditState {
+interface EditState extends UITextEdit {
   readonly entry: Entry;
   anchor: number;
   focus: number;
@@ -398,18 +399,10 @@ export class UICore implements UICoreLike {
   private elementList: UILaidOutElement[] = [];
   private screenList: CanvasEntry[] = [];
 
-  // Typing: one hidden DOM <input>, shared by whichever field is focused.
-  private dom: HTMLInputElement | null = null;
-  /** ADR 0428: the hidden elements made so far: a one-line `<input>` and a `<textarea>`. */
-  private readonly doms: { line?: HTMLInputElement; area?: HTMLInputElement } = {};
-  private active: UIInputField | null = null;
-  /** ADR 0429: the editable text being edited, and the one the hidden text area holds. */
+  /** Typing (ADR 0449): the text entry's boxes, shared by whichever field (or editable text) is focused. */
+  private readonly typing: UITextEntryBridge;
+  /** ADR 0429: the editable text being edited. */
   private editing: EditState | null = null;
-  private editActive: UIText | null = null;
-  private programmatic = false;
-  private detachDom: (() => void) | null = null;
-  /** Keys the hidden input took since the last routing (Tab, Escape leaving a field), claimed from the game until released. */
-  private swallowed: string[] = [];
   /** The pointer's position at the last routing: moving it ends navigation's focus colours (ADR 0340). */
   private lastPointer: { x: number; y: number } | null = null;
   /** ADR 0426: the raycast target under the pointer at the last routing (pointerover/out/enter/leave follow it). */
@@ -434,6 +427,12 @@ export class UICore implements UICoreLike {
     this.interactiveMode = options.interactive ?? true;
     this.host = options.host ?? {};
     this.passive = options.passive ?? false;
+    this.typing = new UITextEntryBridge(options.textEntry ?? domTextEntry(), {
+      world: () => this.world,
+      pointerHeld: () => this.pointerHeld,
+      editing: () => this.editing,
+      endEditing: () => this.endEditing(),
+    });
     this.removeHook = this.passive ? () => undefined : devices.addRouter((pointer) => this.route(pointer));
     // With the layout engine loaded already (another core loaded it), lay out from the first sync: a World that
     // syncs only when something changes (the editor's) may not sync again for a while.
@@ -477,15 +476,12 @@ export class UICore implements UICoreLike {
 
   /** The caret index in a focused input field's text, or null when it isn't the one being typed in. */
   caretOf(c: UIInputField): number | null {
-    if (!this.dom || this.active !== c) return null;
-    return this.dom.selectionStart ?? this.dom.value.length;
+    return this.typing.caretOf(c);
   }
 
   /** ADR 0432: the selection (`[start, end)`) in the input field being typed in, or null when it isn't the one or nothing is selected. */
   selectionOf(c: UIInputField): readonly [number, number] | null {
-    if (!this.dom || this.active !== c) return null;
-    const s = this.dom.selectionStart, e = this.dom.selectionEnd;
-    return s !== null && e !== null && e > s ? [s, e] : null;
+    return this.typing.selectionOf(c);
   }
 
   rectOf(c: UIComponentType): { x: number; y: number; width: number; height: number } | null {
@@ -495,11 +491,6 @@ export class UICore implements UICoreLike {
     const s = canvas.scale;
     const b = entry.box;
     return { x: b.x * s, y: b.y * s, width: b.width * s, height: b.height * s };
-  }
-
-  hitTest(x: number, y: number): UIComponentType | null {
-    const hit = this.hit(x, y);
-    return hit ? (hit.handler ?? hit.target).comp : null;
   }
 
   // --- Sync -----------------------------------------------------------------------------------
@@ -559,7 +550,7 @@ export class UICore implements UICoreLike {
     }
     this.collectResults(world, canvases);
     if (!this.passive && !this.relayingOut) this.noteScrolls(world);
-    this.syncDom();
+    this.syncTyping();
   }
 
   /**
@@ -606,7 +597,7 @@ export class UICore implements UICoreLike {
     if (this.activeScroller === entry) this.activeScroller = null;
     if (this.gesture && (this.gesture.target === entry || this.gesture.source === entry || this.gesture.scroller === entry || this.gesture.dropTarget === entry)) this.gesture = null;
     this.lastScroll.delete(entry);
-    if (this.active === c) this.unfocusDom();
+    this.typing.release(c);
     if (this.editing?.entry === entry) this.endEditing();
     // Freeing a layout node takes it out of its parent and leaves its children without one.
     if (entry.parent) {
@@ -624,13 +615,8 @@ export class UICore implements UICoreLike {
     this.removeHook();
     if (this.world && uiInteractions(this.world).layout === this) uiInteractions(this.world).layout = null;
     for (const c of [...this.entries.keys()]) this.release(c);
-    this.unfocusDom();
     this.editing = null;
-    this.editActive = null;
-    this.detachDom?.();
-    this.detachDom = null;
-    this.doms.line = this.doms.area = undefined;
-    this.dom = null;
+    this.typing.dispose();
     this.tree?.free();
     this.tree = null;
     this.disposed = true;
@@ -1337,184 +1323,16 @@ export class UICore implements UICoreLike {
     return null;
   }
 
-  /** The hidden element a field types in: an `<input>`, or (ADR 0428) a `<textarea>` for a text area, where Enter starts a line. */
-  private ensureDom(multiline = false): HTMLInputElement | null {
-    const have = multiline ? this.doms.area : this.doms.line;
-    if (have) return have;
-    if (typeof document === "undefined" || !document.body) return null;
-    const el = document.createElement(multiline ? "textarea" : "input") as HTMLInputElement;
-    if (!multiline) el.type = "text";
-    el.autocomplete = "off";
-    el.setAttribute("aria-hidden", "true");
-    el.tabIndex = -1;
-    el.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;";
-    // The player's typing: the value now, the change event for the World's next frame (ADR 0309).
-    const onInput = () => {
-      // ADR 0429: an editable text's edit goes into its runs' components; `input` follows in the next frame.
-      if (this.editing && this.editActive && this.dom === el) return this.editInput(el);
-      const c = this.active;
-      if (!c) return;
-      let v = el.value;
-      if (c.maxLength > 0 && v.length > c.maxLength) {
-        v = v.slice(0, c.maxLength);
-        el.value = v;
-      }
-      if (v === c.value) return;
-      c.value = v;
-      uiInteractions(c._world).record("change", c);
-    };
-    // Enter submits; Tab, Shift+Tab and Escape leave the field through navigation (ADR 0340), and their
-    // presses stay the UI's until released, so the game (and the `ui` context) never sees them as new ones.
-    const onKey = (e: KeyboardEvent) => {
-      // ADR 0429: Escape leaves an editable text (Enter starts a line in it); Tab leaves it for navigation.
-      if (this.editing && this.editActive && this.dom === el && !e.isComposing && e.keyCode !== 229) {
-        if (e.key === "Escape" || e.key === "Tab") {
-          if (e.key === "Tab") e.preventDefault?.();
-          this.swallowed.push(e.key === "Tab" ? "tab" : "escape");
-          this.endEditing();
-          if (e.key === "Tab" && this.world) uiInteractions(this.world).request(e.shiftKey ? "previous" : "next");
-        }
-        return;
-      }
-      const c = this.active;
-      if (!c) return;
-      // While an IME composes (CJK, ADR 0356), Enter picks its candidate and Escape drops the composition.
-      if (e.isComposing || e.keyCode === 229) return;
-      const log = uiInteractions(c._world);
-      if (e.key === "Enter") {
-        if (!multiline) log.record("submit", c);
-      } else if (e.key === "Escape") {
-        this.swallowed.push("escape");
-        log.request("cancel");
-      } else if (e.key === "Tab") {
-        e.preventDefault?.(); // not the browser's focus change
-        this.swallowed.push("tab");
-        if (e.shiftKey) this.swallowed.push("shift");
-        log.request(e.shiftKey ? "previous" : "next");
-      }
-    };
-    const onBlur = () => {
-      if (!this.programmatic && this.editing && this.editActive && !this.pointerHeld) return this.endEditing();
-      if (this.programmatic || !this.active) return;
-      // A press on the canvas takes DOM focus first; routing re-focuses the field that press hit.
-      if (this.pointerHeld) return;
-      uiInteractions(this.active._world).blur(this.active, "script");
-    };
-    el.addEventListener("input", onInput);
-    el.addEventListener("keydown", onKey);
-    el.addEventListener("blur", onBlur);
-    const before = this.detachDom;
-    this.detachDom = () => {
-      before?.();
-      el.removeEventListener("input", onInput);
-      el.removeEventListener("keydown", onKey);
-      el.removeEventListener("blur", onBlur);
-      el.remove();
-    };
-    document.body.appendChild(el);
-    if (multiline) this.doms.area = el;
-    else this.doms.line = el;
-    return el;
-  }
-
-  /** Move DOM focus to or from the wanted field's hidden input, and mirror `value` and `maxLength` into it. */
-  private syncDom(): void {
-    if (this.passive || typeof document === "undefined") return;
-    // ADR 0429: an editable text being edited holds the hidden text area (its runs' text, images as U+FFFC).
+  /** Mirror typing into the text entry's box (ADR 0449): the editable text being edited, else the field that should type. */
+  private syncTyping(): void {
+    if (this.passive) return;
     const ed = this.editing;
     if (ed && (!this.entries.has(ed.entry.comp) || !ed.entry.canvas || !ed.entry.box.visible || !ed.entry.run?.runs || !(ed.entry.comp as UIText).contentEditable)) this.endEditing();
-    if (this.editing) return this.syncEditDom(this.editing);
-    if (this.editActive) {
-      this.editActive = null;
-      this.unfocusDom();
-    }
-    const want = this.wantedField();
-    const wantComp = want ? (want.comp as UIInputField) : null;
-    if (!wantComp) {
-      if (this.active) this.unfocusDom();
-      return;
-    }
-    const el = this.ensureDom(want!.kind === "textarea");
-    if (!el) return;
-    if (this.dom !== el) {
-      this.dom = el;
-      this.active = null; // the other hidden element: take the value and focus over
-    }
-    if (this.active !== wantComp) {
-      this.active = wantComp;
-      el.value = wantComp.value;
-      this.programmatic = true;
-      el.focus();
-      this.programmatic = false;
-      el.setSelectionRange(el.value.length, el.value.length);
-    } else if (document.activeElement !== el) {
-      this.programmatic = true;
-      el.focus();
-      this.programmatic = false;
-    }
-    if (wantComp.maxLength > 0) el.maxLength = wantComp.maxLength;
-    else el.removeAttribute("maxlength");
-    const dir = want!.run?.direction ?? "ltr"; // the language's direction (ADR 0356 §5): the IME and selection follow it
-    if (el.dir !== dir) el.dir = dir;
-    if (el.value !== wantComp.value) el.value = wantComp.value; // a script changed it
+    const want = this.editing ? null : this.wantedField();
+    this.typing.sync(want ? { field: want.comp as UIInputField, multiline: want.kind === "textarea", direction: want.run?.direction ?? "ltr" } : null, this.editing);
   }
 
   // --- Editable text (ADR 0429) ----------------------------------------------------------------
-
-  /** The text area an editable text types in: its text mirrored, focused, and the selection either way between them. */
-  private syncEditDom(ed: EditState): void {
-    const el = this.ensureDom(true);
-    if (!el) return;
-    this.dom = el;
-    this.active = null;
-    const run = ed.entry.run!;
-    const comp = ed.entry.comp as UIText;
-    if (this.editActive !== comp) {
-      this.editActive = comp;
-      el.value = ed.text = run.text;
-      el.removeAttribute("maxlength");
-      this.programmatic = true;
-      el.focus();
-      this.programmatic = false;
-      ed.selectionChanged = true;
-    } else if (document.activeElement !== el) {
-      this.programmatic = true;
-      el.focus();
-      this.programmatic = false;
-    }
-    if (run.text !== ed.text && el.value === ed.text) {
-      // A script changed the text (or an edit couldn't go in whole: an image stays): take it as it is now.
-      el.value = ed.text = run.text;
-      ed.anchor = Math.min(ed.anchor, run.text.length);
-      ed.focus = Math.min(ed.focus, run.text.length);
-      ed.selectionChanged = true;
-    }
-    if (el.dir !== run.direction) el.dir = run.direction;
-    if (ed.selectionChanged) {
-      ed.selectionChanged = false;
-      const a = Math.min(ed.anchor, ed.focus), b = Math.max(ed.anchor, ed.focus);
-      el.setSelectionRange(a, b, ed.anchor > ed.focus ? "backward" : "forward");
-    } else {
-      // The player moved the caret or the selection with the keys (or the IME did).
-      const s = el.selectionStart ?? el.value.length, e = el.selectionEnd ?? s;
-      const backward = el.selectionDirection === "backward";
-      ed.anchor = backward ? e : s;
-      ed.focus = backward ? s : e;
-    }
-  }
-
-  /** The player typed in an editable text: the edit goes into its runs' components; `input` is sent in the next routing. */
-  private editInput(el: HTMLInputElement): void {
-    const ed = this.editing!;
-    const next = el.value;
-    if (next === ed.text || !ed.entry.run?.runs) return;
-    applyInlineEdit(ed.entry.comp as UIText, ed.entry.run.runs, ed.text, next);
-    ed.text = next;
-    const s = el.selectionStart ?? next.length, e = el.selectionEnd ?? s;
-    ed.anchor = s;
-    ed.focus = e;
-    uiInteractions(ed.entry.comp._world).queue(uiEventRecord("input", ed.entry.comp));
-  }
 
   /** The editable text a press on `e` edits: the text it is or is a run of, when that text is editable. */
   private editableOf(e: Entry | null): Entry | null {
@@ -1554,10 +1372,7 @@ export class UICore implements UICoreLike {
     if (!ed) return;
     this.editing = null;
     if (this.entries.has(ed.entry.comp)) uiInteractions(ed.entry.comp._world).queue(uiEventRecord("blur", ed.entry.comp));
-    if (this.editActive) {
-      this.editActive = null;
-      this.unfocusDom();
-    }
+    this.typing.stopEditing();
   }
 
   /** What an editable text being edited shows (the same object while nothing changes), or null for any other element. */
@@ -1572,16 +1387,6 @@ export class UICore implements UICoreLike {
     ed.shownAnchor = ed.anchor;
     ed.shownFocus = ed.focus;
     return ed.shown;
-  }
-
-  private unfocusDom(): void {
-    const el = this.dom;
-    this.active = null;
-    if (el && typeof document !== "undefined" && document.activeElement === el) {
-      this.programmatic = true;
-      el.blur();
-      this.programmatic = false;
-    }
   }
 
   // --- Pointer routing ------------------------------------------------------------------------
@@ -1601,8 +1406,7 @@ export class UICore implements UICoreLike {
   private route(raw: PointerFrame): InputClaim | void {
     this.pointerHeld = raw.down(0) || raw.held(0);
     const world = this.world;
-    const keys = this.swallowed;
-    this.swallowed = [];
+    const keys = this.typing.takeKeys();
     if (this.disposed || !world) return;
     const log = uiInteractions(world);
     if (!this.interactiveMode || !world._takesInput) {

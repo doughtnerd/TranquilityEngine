@@ -104,7 +104,6 @@ class FakeCore implements UICoreLike {
   canvases() { return this.cs; }
   elements() { return this.es.map((e) => ({ ...e, text: textRunOf(e.comp) })); }
   rectOf() { return null; }
-  hitTest() { return null; }
   pickAll() { return []; }
   pickCanvases() { return []; }
   cornersOf() { return null; }

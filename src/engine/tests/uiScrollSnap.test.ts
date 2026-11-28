@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, Input } from "../index";
 import { UIButton, UIPanel } from "../ui/components";
 import { World } from "../core/World";
-import { UIPointer, stubDocument } from "./uiPointer";
+import { UIPointer, stubDocument, pointerTargetAt } from "./uiPointer";
 import { buildUI, loadUITestSupport, uiAs, type TestUI } from "./uiMarkup";
 
 // ADR 0432, scrolling: CSS Scroll Snap (wheel, touch momentum, keys, scrollTo/scrollBy, scrollIntoView and navigation,
@@ -272,12 +272,12 @@ describe("scrolling from the end (ADR 0432)", () => {
     expect([s.minY, s.maxY]).toEqual([-300, 0]);
     // Row 0 is at the bottom (60–100), row 1 above it.
     expect(p.core.rectOf(doc.query("#r0")!.component)).toMatchObject({ y: 60 });
-    expect(p.core.hitTest(90, 80)).toBe(doc.query("#r0")!.component);
+    expect(pointerTargetAt(p.core, 90, 80)).toBe(doc.query("#r0")!.component);
     expect(s.barY!.thumb.y).toBe(75); // at the end of the track: 25 long in 100
     p.wheel(panel(doc), 0, -50);
     frame(p);
     expect(el.scrollTop).toBe(-50);
-    expect(p.core.hitTest(90, 80)).toBe(doc.query("#r1")!.component); // row 1 (at 20–60) moved down 50
+    expect(pointerTargetAt(p.core, 90, 80)).toBe(doc.query("#r1")!.component); // row 1 (at 20–60) moved down 50
     p.wheel(panel(doc), 0, 50);
     frame(p);
     expect(el.scrollTop).toBe(0); // can't go past the end
