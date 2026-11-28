@@ -37,6 +37,8 @@ export interface ModelLods {
   readonly levels: readonly ModelLodLevel[];
   readonly occluder: OccluderStandIn | null;
   readonly bounds: Bounds6;
+  /** The sidecar's `pixelError`, which derives automatic transition heights (ADR 0446 §2). */
+  readonly pixelError: number;
 }
 
 /** One level's generation settings in the sidecar (ADR 0446 §1). */

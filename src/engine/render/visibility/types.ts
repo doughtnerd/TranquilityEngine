@@ -63,6 +63,11 @@ export interface VisibilityResult {
   readonly view: VisibilityView;
   /** Per renderer slot: the level to draw, or `LOD_CULLED`. */
   readonly levels: Uint8Array;
+  /**
+   * Per renderer slot, for shadow casters (main view only, ADR 0446 §3): the level casters draw, or `LOD_CULLED` when
+   * the renderer casts no shadow. LOD-culled groups cast at their coarsest level up to the tier's `shadowDistance`.
+   */
+  readonly casterLevels: Uint8Array;
   /** Per renderer slot: 1 when off-screen or occluded in this view (drawn otherwise, at `levels`). */
   readonly hidden: Uint8Array;
   /** Per renderer slot, during a crossfade: the fade value (0 steady; see ADR 0446 §4 for the sign convention). */
