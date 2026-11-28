@@ -210,15 +210,17 @@ const idByClass = new Map<ComponentClass, string>();
 
 let replacing = false;
 
-/** @internal What scripts registered while loading (ADR 0030): component, data component, system and input stream ids. */
+/** @internal What scripts registered while loading (ADR 0030): component, data component, system, input stream and RPC ids. */
 export interface ScriptRegistrations {
   components: string[];
   data: string[];
   systems: string[];
   inputs: string[];
+  /** RPC type ids (`defineRpc`; ADR 0457: forgotten with the script, so the handshake stops listing them). */
+  rpcs: string[];
 }
 
-let recorded: { components: Set<string>; data: Set<string>; systems: Set<string>; inputs: Set<string> } | null = null;
+let recorded: { [K in keyof ScriptRegistrations]: Set<string> } | null = null;
 
 /**
  * @internal Editor (ADR 0030): while on, registering a component, data component or system
@@ -227,7 +229,7 @@ let recorded: { components: Set<string>; data: Set<string>; systems: Set<string>
  */
 export function _setReplacingRegistrations(on: boolean): void {
   replacing = on;
-  if (on) recorded = { components: new Set(), data: new Set(), systems: new Set(), inputs: new Set() };
+  if (on) recorded = { components: new Set(), data: new Set(), systems: new Set(), inputs: new Set(), rpcs: new Set() };
 }
 
 /** @internal True while the editor is (re)loading project scripts (see `_setReplacingRegistrations`). */
@@ -240,9 +242,9 @@ export function _recordRegistration(kind: keyof ScriptRegistrations, id: string)
 
 /** @internal What was registered since replacing was last switched on. */
 export function _takeRecordedRegistrations(): ScriptRegistrations {
-  const r = recorded ?? { components: new Set(), data: new Set(), systems: new Set(), inputs: new Set() };
+  const r = recorded ?? { components: new Set(), data: new Set(), systems: new Set(), inputs: new Set(), rpcs: new Set() };
   recorded = null;
-  return { components: [...r.components], data: [...r.data], systems: [...r.systems], inputs: [...r.inputs] };
+  return { components: [...r.components], data: [...r.data], systems: [...r.systems], inputs: [...r.inputs], rpcs: [...r.rpcs] };
 }
 
 /** Classes the editor build registered that a script's registration replaced: put back when the script's goes. */

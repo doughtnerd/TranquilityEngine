@@ -28,6 +28,7 @@ import { inputStreams, setNetConditions, writeWorldInput, type NetPeerInfo, type
 import { bootstrapTopology } from "../engine/core/bootstrapTopology";
 import { uniqueName } from "../engine/core/uniqueName";
 import { transportCanListen } from "../engine/net/Transport";
+import { describeKind } from "../engine/net/catalogue";
 
 export const MAX_CLIENTS = 4;
 export const MAX_THIN_CLIENTS = 8;
@@ -266,7 +267,7 @@ export const TRAFFIC_CATEGORIES: readonly TrafficCategory[] = ["snapshots", "ack
 function trafficCategory(kind: string): TrafficCategory {
   if (kind === "net.snapshot" || kind === "net.ghosts") return "snapshots";
   if (kind === "net.snapshotAck") return "acks";
-  if (kind.startsWith("net.input:")) return "inputs";
+  if (describeKind(kind).family === "input") return "inputs";
   if (kind === "net.rpc") return "RPCs";
   if (kind === "net.ping" || kind === "net.pong") return "pings";
   if (kind === "net.hello" || kind === "net.welcome") return "handshake";
