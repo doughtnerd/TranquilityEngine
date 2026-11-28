@@ -8,7 +8,6 @@
 // (each model mesh draws min(level, its last level)), as meshes that share the draw's skinned vertex buffer and
 // skeleton. Hidden and LOD-culled renderers are left out of that view's list; casters follow the main view's
 // `casterLevels`. Without the stage the feature draws level 0 as it always did.
-import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { Component } from "../../../../../engine/core/Component";
 import type { World } from "../../../../../engine/core/World";
 import { PICK_ORDER, type BabylonFeature, type BabylonFeatureFactory, type DrawnDescription, type DrawnNode, type FeatureView, type ViewDrawing } from "../../../../../engine/render/babylon/feature";
@@ -17,6 +16,9 @@ import { visibilityService } from "../../../../../engine/render/visibility/servi
 import { LOD_CULLED, type VisibilityResult } from "../../../../../engine/render/visibility/types";
 import { SkinnedMeshRenderer } from "../../components/SkinnedMeshRenderer";
 import { SkinningSync } from "./sync";
+
+/** A drawn Babylon mesh, as the feature interface names it (Babylon is imported only inside the backend, ADR 0075). */
+type AbstractMesh = Parameters<NonNullable<BabylonFeature["casters"]>>[0][number];
 
 type Casters = Parameters<NonNullable<BabylonFeature["casters"]>>[0];
 
