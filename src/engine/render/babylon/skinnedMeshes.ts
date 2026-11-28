@@ -35,6 +35,17 @@ import type { SkinnedDraw, SkinnedDraws } from "../skinning/skinnedDraws";
 import { FeedbackSkinRuns, JsSkinRuns, WebGpuSkinRuns, type SkinExecutor, type SkinPalette, type SkinRun, type SkinRuns } from "../skinning/skinRuns";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 
+/**
+ * @internal What a skinned draw adds over `SkinnedDraw` for its model mesh's LOD levels (ADR 0446 §6): each level is a
+ * mesh of its own that shares the draw's skinned and static vertex buffers (so one dispatch skins every level), its
+ * bounds and its world matrix. The animation plugin's sync reads it structurally (`SkinnedLevels` in its `sync.ts`).
+ */
+export interface BabylonSkinnedLevels {
+  readonly levelCount: number;
+  levelMesh(level: number): Mesh;
+  showLevels(mask: number | null): void;
+}
+
 /** @internal The mesh a skinned draw is (so a plugin's feature names no Babylon type). */
 export type BabylonSkinnedMesh = Mesh;
 
@@ -176,13 +187,22 @@ export class BabylonSkinnedMeshes implements SkinnedDraws<Mesh> {
   }
 }
 
-class BabylonSkinnedDraw implements SkinnedDraw<Mesh> {
+class BabylonSkinnedDraw implements SkinnedDraw<Mesh>, BabylonSkinnedLevels {
   readonly mesh: Mesh;
   private readonly skinned: { buffer: Buffer; update?: () => void; release(): void };
   private readonly matrix = new Matrix();
   private readonly bounds: BoundingInfo;
   private material: SlotRequest | null = null;
   private disposed = false;
+  /** The static streams (UVs, colours), one `VertexBuffer` shared by every level's mesh. */
+  private readonly statics: VertexBuffer[] = [];
+  /** Level meshes by level (0 is `mesh`), made on first ask; they share the skinned and static vertex buffers. */
+  private readonly meshes: (Mesh | undefined)[] = [];
+  /** Per-view drawing: the levels enabled (bit i), or null for level 0 only. */
+  private shown: number | null = null;
+  private on = true;
+  private receive = true;
+  readonly levelCount: number;
 
   constructor(
     private readonly owner: BabylonSkinnedMeshes,
@@ -200,10 +220,17 @@ class BabylonSkinnedDraw implements SkinnedDraw<Mesh> {
       if (kind === VertexBuffer.TangentKind && !source.geometry.tangents) continue; // the material derives tangents itself
       mesh.setVerticesBuffer(this.skinned.buffer.createVertexBuffer(kind, offset, size, SKIN_STRIDE, false, true), true, n);
     }
-    if (d.uvs) mesh.setVerticesData(VertexBuffer.UVKind, d.uvs, false);
-    if (d.uvs2) mesh.setVerticesData(VertexBuffer.UV2Kind, d.uvs2, false);
-    if (d.colors) mesh.setVerticesData(VertexBuffer.ColorKind, d.colors, false);
+    // Static streams are `VertexBuffer`s of their own, shared by this mesh and its levels' (ADR 0446 §1, §6).
+    const engine = scene.getEngine();
+    for (const [kind, data, size] of [[VertexBuffer.UVKind, d.uvs, 2], [VertexBuffer.UV2Kind, d.uvs2, 2], [VertexBuffer.ColorKind, d.colors, 4]] as const) {
+      if (!data || !data.length) continue;
+      const shared = new VertexBuffer(engine, data as Float32Array, kind, false, false, size);
+      this.statics.push(shared);
+      mesh.setVerticesBuffer(shared, true, n);
+    }
     mesh.setIndices(d.indices, n);
+    this.levelCount = model.lods?.levels.length ?? 1;
+    this.meshes[0] = mesh;
     mesh.isPickable = true;
     this.bounds = new BoundingInfo(new Vector3(-1, -1, -1), new Vector3(1, 1, 1), mesh.getWorldMatrix());
     mesh.setBoundingInfo(this.bounds);
@@ -228,41 +255,91 @@ class BabylonSkinnedDraw implements SkinnedDraw<Mesh> {
     this.owner.noteDispatch();
   }
 
+  /** The mesh drawing `level` (0 is `mesh`): a mesh of its own sharing this draw's vertex buffers and bounds, made on first ask. */
+  levelMesh(level: number): Mesh {
+    const l = Math.max(0, Math.min(level, this.levelCount - 1));
+    let m = this.meshes[l];
+    if (m) return m;
+    const model = this.source.model.lods!.levels[l].mesh;
+    const d = model.data;
+    const base = this.mesh;
+    const n = vertexCount(this.source.geometry);
+    m = this.meshes[l] = new Mesh(`${base.name}:lod${l}`, base.getScene());
+    for (const [kind] of SKINNED_KINDS) {
+      const b = base.getVertexBuffer(kind);
+      if (b) m.setVerticesBuffer(b, true, n);
+    }
+    for (const b of this.statics) m.setVerticesBuffer(b, true, n);
+    m.setIndices(d.indices, n);
+    m.isPickable = true;
+    m.setBoundingInfo(this.bounds);
+    m.receiveShadows = this.receive;
+    m.freezeWorldMatrix(this.matrix);
+    if (this.material) this.applyMaterial(m, l);
+    m.setEnabled(false);
+    this.applyEnabled();
+    return m;
+  }
+
+  showLevels(mask: number | null): void {
+    this.shown = mask;
+    this.applyEnabled();
+  }
+
+  /** Enable the meshes the draw is on for: level 0 alone, or the levels `showLevels` named. */
+  private applyEnabled(): void {
+    for (let l = 0; l < this.meshes.length; l++) {
+      const m = this.meshes[l];
+      if (!m) continue;
+      const on = this.on && (this.shown === null ? l === 0 : (this.shown & (1 << l)) !== 0);
+      if (m.isEnabled(false) !== on) m.setEnabled(on);
+    }
+  }
+
   setWorldMatrix(m: ArrayLike<number>, offset: number): void {
     Matrix.FromArrayToRef(m as unknown as number[], offset, this.matrix);
-    this.mesh.freezeWorldMatrix(this.matrix);
+    for (const mesh of this.meshes) mesh?.freezeWorldMatrix(this.matrix);
   }
 
   setBounds(b: Box6): void {
-    // The same BoundingInfo, rebuilt in place (no objects a frame).
+    // The same BoundingInfo, rebuilt in place (no objects a frame), shared by every level's mesh.
     boundsMin.set(b[0], b[1], b[2]);
     boundsMax.set(b[3], b[4], b[5]);
     this.bounds.reConstruct(boundsMin, boundsMax, this.mesh.getWorldMatrix());
-    if (this.mesh.getBoundingInfo() !== this.bounds) this.mesh.setBoundingInfo(this.bounds);
+    for (const mesh of this.meshes) if (mesh && mesh.getBoundingInfo() !== this.bounds) mesh.setBoundingInfo(this.bounds);
   }
 
   setEnabled(enabled: boolean): void {
-    if (this.mesh.isEnabled(false) !== enabled) this.mesh.setEnabled(enabled);
+    this.on = enabled;
+    this.applyEnabled();
   }
 
   setShadows(_cast: boolean, receive: boolean): void {
     // Casting is the render feature's `casters`; receiving is the mesh's flag.
-    this.mesh.receiveShadows = receive;
+    this.receive = receive;
+    for (const mesh of this.meshes) if (mesh) mesh.receiveShadows = receive;
   }
 
   setMaterials(request: SlotRequest): void {
     if (this.material && sameRequest(this.material, request)) return;
     this.material = { mesh: request.mesh, material: request.material, materials: request.materials ? [...request.materials] : undefined };
-    const pick = this.owner.materialLibrary.slotMaterials(request, [this.source.model]);
-    this.mesh.material = pick(this.source.model, this.mesh) as BabylonMaterial;
+    this.meshes.forEach((m, l) => m && this.applyMaterial(m, l));
+  }
+
+  /** The request's materials on a level's mesh, picked for that level's groups (a level has LOD0's surfaces). */
+  private applyMaterial(mesh: Mesh, level: number): void {
+    const model = level === 0 ? this.source.model : this.source.model.lods!.levels[level].mesh;
+    const pick = this.owner.materialLibrary.slotMaterials(this.material!, [model]);
+    mesh.material = pick(model, mesh) as BabylonMaterial;
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.mesh.dispose(false, false);
+    for (const m of this.meshes) m?.dispose(false, false);
     this.run.dispose();
     this.skinned.release();
+    for (const b of this.statics) b.dispose();
     this.owner.forget(this);
   }
 }
