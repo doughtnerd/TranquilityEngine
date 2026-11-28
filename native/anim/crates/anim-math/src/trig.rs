@@ -87,3 +87,21 @@ pub fn atan2<L: Lane>(y: L, x: L) -> L {
     let a = L::select(x.lt(zero), L::splat(core::f32::consts::PI) - a, a);
     L::select(y.lt(zero), -a, a)
 }
+
+/// `2^x` for `x` in about `[−100, 100]` (clamped to f32's normal range). Deterministic: `2^round(x)`
+/// (exact, built from the exponent bits) times the degree-7 Taylor series of `e^(r·ln 2)` for the
+/// remainder `r` in `[−½, ½]` (truncation error under 6e-9 relative). Used by the Penner easings
+/// (`myco-tween`, moved out of this crate's former `ease` module, ADR 0424 spike) and `anim-match`'s
+/// springs.
+pub fn exp2(x: f32) -> f32 {
+    let n = x.round_even().clamp(-126.0, 127.0);
+    let y = (x - n) * core::f32::consts::LN_2;
+    // Horner over 1/k!, k = 7..0.
+    let p = 1.0
+        + y * (1.0
+            + y * (0.5
+                + y * (1.0 / 6.0
+                    + y * (1.0 / 24.0
+                        + y * (1.0 / 120.0 + y * (1.0 / 720.0 + y * (1.0 / 5040.0)))))));
+    p * f32::from_bits(((n as i32 + 127) as u32) << 23)
+}

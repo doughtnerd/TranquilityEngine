@@ -41,8 +41,8 @@ Game developers write scripts that feel like Unity: a class extends `GameBehavio
 ├───────────────┬───────────────┬──────────────┬───────────────┤
 │ Render        │ Physics       │ Audio        │ Input         │
 │ Babylon.js,   │ Rapier 2D/3D  │ Howler       │ DOM events,   │
-│ Yoga (UI)     │ (PhysX 3D     │              │ gamepad API   │
-│               │ later)        │              │               │
+│ Taffy (UI)    │               │              │ gamepad API   │
+│               │               │              │               │
 ├───────────────┴───────────────┴──────────────┴───────────────┤
 │ Platform adapter: browser | Tauri (files, window, Storage)   │
 └──────────────────────────────────────────────────────────────┘
@@ -65,7 +65,7 @@ src/engine/
   scene/       GameObject (node), Transform, SceneInstance, SceneManager, scene/prefab loader, migrations
   scripting/   GameBehavior, lifecycle system, waits, Time
   render/      Babylon.js renderer backend (render/babylon/), Camera, SpriteRenderer, MeshRenderer, Light, ParticleSystem (a renderer-neutral simulation), render sync
-  ui/          UI components and the renderer-neutral UI core (Yoga layout, input routing)
+  ui/          UI components and the renderer-neutral UI core (Taffy layout, ADR 0434; input routing)
   physics/     physics interface, Rapier backend, RigidBody, Collider, CharacterController, physics sync
   audio/       Howler (with its spatial audio), AudioSource, AudioListener
   input/       keyboard, mouse, gamepad, action mapping

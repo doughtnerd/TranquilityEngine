@@ -1,5 +1,5 @@
 // Why each voice played, from what a capture records (ADR 0348 "Why it played"; spec §4.6.5, §4.6.6): the game's
-// request starts a playlist instance (`eventStart`: the instance and its asset), each playlist level then decides
+// request starts a playlist instance (`eventStart`: the instance, its asset and, ADR 0435, its cause), each playlist level then decides
 // (`pick`: depth, playlist, type, the entry chosen, a Switch's label, a Blend's heaviest entries), and the core starts a
 // voice. A capture doesn't tie a voice to its instance, but the sink records them in that order at the same instant, so a
 // voice (or a refusal) belongs to the newest instance started at its instant before it in record order. A voice a
@@ -20,6 +20,18 @@ export interface Pick {
   readonly weights: readonly { readonly entry: number; readonly weight: number }[];
 }
 
+/** ADR 0435: what in the game asked for an instance (each null when the capture doesn't say). */
+export interface InstanceCause {
+  /** The request: "Audio.play", "AudioSource", "AudioZone", "Audio.line", `Audio.say("Greet")`. */
+  readonly trigger: string | null;
+  /** The GameObject's path from the World root ("/Player/Bike"). */
+  readonly node: string | null;
+  /** The behaviour hook that asked ("BikeAudio.onCollisionEnter"). */
+  readonly behaviour: string | null;
+  /** The defined system that was running. */
+  readonly system: string | null;
+}
+
 /** A playlist instance the game started, and the decisions under it. */
 export interface InstanceDecisions {
   readonly instance: number;
@@ -29,6 +41,8 @@ export interface InstanceDecisions {
   readonly start: number;
   readonly seq: number;
   readonly picks: readonly Pick[];
+  /** What in the game asked for it (ADR 0435), or null for a capture from before it. */
+  readonly cause: InstanceCause | null;
 }
 
 /** How close (seconds) a voice's start must be to its instance's: the same audio quantum. */
@@ -36,12 +50,15 @@ const SAME_INSTANT = 0.03;
 
 /** The instances of `events` (eventStart and its picks), by record order. */
 export function instanceDecisions(events: readonly CaptureEventAt[], names: CaptureNames, origin: number): InstanceDecisions[] {
-  const out: { instance: number; asset: string; start: number; seq: number; picks: Pick[] }[] = [];
+  const out: { instance: number; asset: string; start: number; seq: number; picks: Pick[]; cause: InstanceCause | null }[] = [];
   const open = new Map<number, (typeof out)[number]>();
   const sorted = [...events].sort((a, b) => a.seq - b.seq);
   for (const { seq, seconds, event: e } of sorted) {
     if (e.type === "eventStart") {
-      const d = { instance: e.instance, asset: names.event(e.asset, seconds), start: seconds - origin, seq, picks: [] as Pick[] };
+      const c = e.cause;
+      const name = (id: number | null) => (id === null ? null : names.parameter(id, seconds));
+      const cause = c ? { trigger: name(c.trigger), node: name(c.node), behaviour: name(c.behaviour), system: name(c.system) } : null;
+      const d = { instance: e.instance, asset: names.event(e.asset, seconds), start: seconds - origin, seq, picks: [] as Pick[], cause };
       out.push(d);
       open.set(e.instance, d);
     } else if (e.type === "pick") {

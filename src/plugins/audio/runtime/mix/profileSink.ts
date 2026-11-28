@@ -36,7 +36,8 @@ export interface ProfileSink {
   voiceReal(id: number, reason: ProfileRealReason): void;
   voiceRefused(clip: string, busRef: number, reason: ProfileRefusedReason): void;
   voiceQueued(clip: string, busRef: number, reason: ProfileQueuedReason): void;
-  eventStart(instance: number, asset: string): void;
+  /** A playlist instance started; `cause` (ADR 0435) says what in the game asked for it, when known. */
+  eventStart(instance: number, asset: string, cause?: ProfileCause | null): void;
   eventStop(instance: number): void;
   parameter(name: string, value: number, instance: number | null): void;
   snapshot(name: string, seconds: number): void;
@@ -94,6 +95,21 @@ export interface ProfilePick {
   label: string | null;
   /** A Blend's two heaviest entries, heaviest first: `[entry, weight]`. */
   weights: readonly (readonly [number, number])[] | null;
+}
+
+/**
+ * ADR 0435: what in the game asked for a playlist instance (the "Why it played" chain's game step): the request, and the
+ * GameObject, behaviour hook and defined system it came from, each null when unknown.
+ */
+export interface ProfileCause {
+  /** The request: "Audio.play", "AudioSource", "AudioZone", "Audio.playLine". */
+  trigger: string;
+  /** The GameObject it is for, as its path of names from the World root ("/Player/Bike"). */
+  node: string | null;
+  /** The behaviour hook running when it was asked ("BikeAudio.onCollisionEnter"). */
+  behaviour: string | null;
+  /** The defined system running when it was asked. */
+  system: string | null;
 }
 
 const noop = (): void => {};

@@ -6,13 +6,18 @@
  * are what `Assets.json`, `Assets.text` and `Assets.url` read.
  *
  * - **json**: `.json` files load parsed (scenes, prefabs, materials, sidecars, data).
- * - **text**: code and text files load as their contents: UI documents and stylesheets (ADR 0077),
+ * - **text**: code and text files load as their contents: Svelte components and stylesheets (ADR 0423),
  *   shader code (ADR 0106), JavaScript and TypeScript tool modules, Markdown and plain text.
  * - **url**: everything else (images, audio, models, fonts, LUTs, baked data) loads as a URL the
  *   host serves its bytes from (a blob URL in the editor, a build URL in the player, a `file:` URL
  *   on the dedicated server).
  *
- * TypeScript sources (`.ts`, `.tsx`) aren't project files: scripts are read and compiled apart (ADR 0030).
+ * TypeScript sources (`.ts`, `.tsx`) aren't project files: scripts are read and compiled apart (ADR 0030). A `.tsx`
+ * whose text is XML is a Tiled tileset (ADR 0438), not TypeScript: `isTiledTilesetText` tells them apart, so a host
+ * that reads a `.tsx` (`isTsxPath`) keeps it as a project file and never hands it to the script build.
+ * Svelte UI sources (ADR 0423: `.svelte` components and `.svelte.ts` rune modules) are text files, which
+ * the project code linker compiles; a host serves the compiled module as the asset value once it has.
+
  * No imports, so the desktop editor's Projects window (ADR 0059) can use it without the engine.
  */
 
@@ -23,7 +28,8 @@ export type ProjectFileKind = "json" | "text" | "url";
 const SKIPPED_FOLDERS: ReadonlySet<string> = new Set(["node_modules", "dist", "target", "test-results", "playwright-report"]);
 
 /** Extensions (lower case) of the files that load as text. */
-const TEXT_EXTENSIONS: ReadonlySet<string> = new Set(["js", "mjs", "cjs", "mts", "cts", "md", "txt", "xml", "css", "wgsl", "glsl"]);
+const TEXT_EXTENSIONS: ReadonlySet<string> = new Set(["js", "mjs", "cjs", "mts", "cts", "md", "txt", "xml", "css", "wgsl", "glsl", "svelte"]);
+
 
 /** A path's extension, lower case, without the dot ("" if none; a leading dot, as in `.env`, isn't one). */
 export function extensionOf(path: string): string {
@@ -34,7 +40,9 @@ export function extensionOf(path: string): string {
 
 /** How the file at `path` loads: parsed JSON, its text, or a URL. */
 export function projectFileKind(path: string): ProjectFileKind {
+  if (/\.svelte\.ts$/i.test(path)) return "text"; // a rune module (ADR 0423), wherever it is: the linker compiles it from its text
   const ext = extensionOf(path);
+
   return ext === "json" ? "json" : TEXT_EXTENSIONS.has(ext) ? "text" : "url";
 }
 
@@ -45,12 +53,34 @@ export function skipsFolder(name: string): boolean {
 
 /**
  * True if the project-relative ("/"-separated) `path` is a project file: no part of it hidden or a
- * skipped folder, and not TypeScript source (scripts are read apart).
+ * skipped folder, and not TypeScript source (scripts are read apart) other than a Svelte rune module
+ * (`*.svelte.ts`, ADR 0423), which is UI code beside its components.
  */
 export function isProjectFile(path: string): boolean {
   const parts = path.split("/");
   if (parts.some((p, i) => p === "" || p.startsWith(".") || (i < parts.length - 1 && SKIPPED_FOLDERS.has(p)))) return false;
-  return !/\.tsx?$/i.test(path);
+  return /\.svelte\.ts$/i.test(path) || !/\.tsx?$/i.test(path);
+}
+
+/** True for a `.tsx` path: TypeScript, or a Tiled XML tileset, which only its text tells apart (`isTiledTilesetText`). */
+export const isTsxPath = (path: string): boolean => /\.tsx$/i.test(path);
+
+/**
+ * True if a `.tsx` file's text is a Tiled tileset (ADR 0438): after any byte order mark and whitespace it starts with
+ * `<?xml` or `<tileset`, which no TypeScript file can. Such a file is a project file (it loads as a URL), not a script.
+ */
+export function isTiledTilesetText(text: string): boolean {
+  const t = text.replace(/^\uFEFF/, "").trimStart();
+  return t.startsWith("<?xml") || t.startsWith("<tileset");
+}
+
+/**
+ * Whether a file whose text a host has read is a project file: `isProjectFile`, and a `.tsx` that is a Tiled
+ * tileset (`isTiledTilesetText`) rather than TypeScript.
+ */
+export function isProjectFileText(path: string, text: string): boolean {
+  if (isTsxPath(path)) return isProjectFile(path.slice(0, -4)) && isTiledTilesetText(text);
+  return isProjectFile(path);
 }
 
 /** A host's I/O for `loadProjectFiles`. */

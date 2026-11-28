@@ -1,0 +1,39 @@
+{
+  "type": "map",
+  "version": "1.10",
+  "tiledversion": "1.11.0",
+  "orientation": "orthogonal",
+  "renderorder": "right-down",
+  "width": 3,
+  "height": 2,
+  "tilewidth": 16,
+  "tileheight": 16,
+  "infinite": false,
+  "tilesets": [
+    { "firstgid": 1, "source": "terrain.tsx" },
+    { "firstgid": 100, "source": "water.tsj" }
+  ],
+  "properties": [
+    { "name": "spawn", "type": "class", "propertytype": "SpawnInfo", "value": { "count": 2, "kind": "slime", "nested": { "on": true } } },
+    { "name": "target", "type": "object", "value": 0 }
+  ],
+  "layers": [
+    { "id": 1, "name": "Zlib", "type": "tilelayer", "x": 0, "y": 0, "width": 3, "height": 2, "opacity": 1, "visible": true, "encoding": "base64", "compression": "zlib", "data": "eJxjZGBgYGKAAGYGBgZGBoYGEBsAAwQAiA==" },
+    { "id": 2, "name": "Gzip", "type": "tilelayer", "x": 0, "y": 0, "width": 3, "height": 2, "opacity": 1, "visible": true, "encoding": "base64", "compression": "gzip", "data": "H4sIAAAAAAAAAw3ENwEAAAgAIBxBjGL/VMoBNJItBuI7h6LSmhgAAAA=" },
+    { "id": 3, "name": "Plain", "type": "tilelayer", "x": 0, "y": 0, "width": 3, "height": 2, "opacity": 1, "visible": true, "encoding": "base64", "data": "BQAAAAAAAAAAAAAAAAAAAAAAAAAGAAAA" },
+    { "id": 4, "name": "Csv", "type": "tilelayer", "x": 0, "y": 0, "width": 3, "height": 2, "opacity": 1, "visible": true, "data": [0, 0, 1, 0, 0, 0] },
+    {
+      "id": 5, "name": "Group", "type": "group", "offsetx": 2, "opacity": 1, "visible": true,
+      "layers": [
+        {
+          "id": 6, "name": "Objs", "type": "objectgroup", "offsetx": 1, "opacity": 1, "visible": true, "draworder": "topdown",
+          "objects": [
+            { "id": 1, "name": "w", "type": "", "gid": 100, "x": 0, "y": 16, "width": 16, "height": 16, "rotation": 0, "visible": true },
+            { "id": 2, "name": "p", "type": "", "point": true, "x": 3, "y": 4, "width": 0, "height": 0, "rotation": 0, "visible": true,
+              "properties": [{ "name": "c", "type": "color", "value": "#ff00ff00" }] }
+          ]
+        }
+      ]
+    }
+  ]
+}

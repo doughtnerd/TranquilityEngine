@@ -5,9 +5,11 @@
 //! The rule:
 //! - Files: every `*.rs`, `Cargo.toml`, `Cargo.lock` and `rust-toolchain.toml` under the root
 //!   (`native/audio/`), skipping any directory named `target`, `vectors` or `tests` at any depth.
-//! - Shared crates (ADR 0370, T70): the same files under `../common/` (`native/common/`, the
-//!   crates the audio and animation cores both link, such as `myco-curve`), keyed `../common/` plus
-//!   their path below it, with the same skips. A root without a `../common/` hashes as before.
+//! - Shared crates (ADR 0370, T70): the same files under each `../common/<crate>/` the audio core
+//!   links ([`SHARED_CRATES`]: `native/common/curve`, `myco-curve`), keyed `../common/` plus their
+//!   path below it, with the same skips. Other shared crates (the animation core's `myco-wire` and
+//!   `myco-tween`, ADR 0424) aren't hashed: they never reach the audio wasm. A root without a
+//!   `../common/` hashes as before.
 //! - Each file's key is its path relative to the root with `/` separators. Files are taken in
 //!   ascending byte order of their keys.
 //! - Contents are normalised by replacing every `\r\n` with `\n` (a Windows checkout with
@@ -27,6 +29,10 @@ pub const SKIPPED_DIRS: [&str; 3] = ["target", "vectors", "tests"];
 /// File names hashed besides `*.rs`.
 pub const HASHED_NAMES: [&str; 3] = ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml"];
 
+/// The crates under `../common/` that the audio core links, so hashes (add one when a crate here
+/// gains a path dependency on another shared crate).
+pub const SHARED_CRATES: [&str; 1] = ["curve"];
+
 /// The hashed files under `root` as `(key, path)`: `key` relative to `root` with `/` separators,
 /// sorted by `key` in ascending byte order.
 ///
@@ -36,7 +42,10 @@ pub const HASHED_NAMES: [&str; 3] = ["Cargo.toml", "Cargo.lock", "rust-toolchain
 pub fn hashed_files(root: &Path) -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
     collect(root, "", &mut out);
-    collect(&root.join("..").join("common"), "../common", &mut out);
+    for krate in SHARED_CRATES {
+        let prefix = format!("../common/{krate}");
+        collect(&root.join("..").join("common").join(krate), &prefix, &mut out);
+    }
     out.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
     out
 }
@@ -70,15 +79,12 @@ fn collect(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
 }
 
 /// What a build script watches for the shared crates (`cargo:rerun-if-changed`): each entry of
-/// each `../common/<crate>/` that the hash can see (not the skipped directories, which hold
-/// `target/`, so cargo never scans build output).
+/// each hashed `../common/<crate>/` ([`SHARED_CRATES`]) that the hash can see (not the skipped
+/// directories, which hold `target/`, so cargo never scans build output).
 pub fn shared_watch(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let Ok(crates) = fs::read_dir(root.join("..").join("common")) else {
-        return out;
-    };
-    for krate in crates.flatten() {
-        let Ok(entries) = fs::read_dir(krate.path()) else {
+    for krate in SHARED_CRATES {
+        let Ok(entries) = fs::read_dir(root.join("..").join("common").join(krate)) else {
             continue;
         };
         for entry in entries.flatten() {

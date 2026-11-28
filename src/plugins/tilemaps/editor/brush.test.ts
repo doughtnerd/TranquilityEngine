@@ -7,7 +7,7 @@ import { tilemapsEditorPlugin } from ".";
 import { openSceneFile } from "../../../editor/project";
 import { editor } from "../../../editor/sdk";
 import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools } from "../../../editor/testing";
-import { activeLayer, beginStroke, brushFlags, brushRandom, brushStamp, brushTerrain, brushTool, commitTilemap, flipBrush, footprintAt, pickBrushTool, rerollVariants, type BrushTool } from "./brush";
+import { activeLayer, beginStroke, brushFlags, brushFrame, brushLayers, brushRandom, brushStamp, brushTerrain, brushTool, commitTilemap, flipBrush, footprintAt, pickBrushTool, rerollVariants, type BrushTool } from "./brush";
 import type { Cell } from "../runtime/brushes";
 import { compose, TURN_CLOCKWISE as TURN } from "../runtime/tileFlips";
 
@@ -52,6 +52,8 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     Assets.addSource(tiles);
     openSceneFile(engine, DEMO_SCENE);
     brushStamp.value = { width: 1, height: 1, values: [1] };
+    brushLayers.value = null;
+    brushFrame.value = null;
     brushRandom.value = false;
     brushTerrain.value = null;
     brushFlags.value = 0;
@@ -256,5 +258,114 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     map.clearAll();
     stroke(map, "pencil", [0, 5], [2, 5]);
     expect([map.getTile(0, 5), map.getTile(1, 5), map.getTile(2, 5)]).toEqual([11, 12, 13]);
+  });
+
+  it("on a hexagonal map, flips tiles but not a stamp's layout, doesn't turn, and fills across every side (ADR 0437)", () => {
+    const { map } = newMap();
+    map.gridShape = "hexagonal";
+    brushStamp.value = { width: 2, height: 1, values: [1, 2] };
+    flipBrush("rotate", map);
+    expect(brushFlags.value).toBe(0);
+    flipBrush("x", map);
+    expect(footprintAt("pencil", [0, 0], map)).toEqual({ x0: 0, y0: 0, x1: 2, y1: 1 });
+    stroke(map, "pencil", [0, 0]);
+    expect(block(map, 0, 0, 2, 1)).toEqual([[cellValue(1, FLIP_X), cellValue(2, FLIP_X)]]);
+    // A turn picked elsewhere (the palette) keeps only its flips on a hexagonal map: no tile is turned diagonally.
+    brushFlags.value = TURN;
+    stroke(map, "pencil", [0, 4]);
+    expect(block(map, 0, 4, 2, 1)).toEqual([[cellValue(1, TURN & ~FLIP_DIAGONAL), cellValue(2, TURN & ~FLIP_DIAGONAL)]]);
+    // (0, 10) and its north-west neighbour (-1, 11) share a side on the hexagonal grid, though not in offset coordinates.
+    brushFlags.value = 0;
+    map.setTile(0, 10, 3);
+    map.setTile(-1, 11, 3);
+    brushStamp.value = { width: 1, height: 1, values: [4] };
+    stroke(map, "fill", [0, 10]);
+    expect([map.getTile(0, 10), map.getTile(-1, 11)]).toEqual([4, 4]);
+  });
+
+  /**
+   * The map's tiles as `id@dx,dy`: each tile's centre (Tilemap.cellToLocal) relative to tile 1's, so two sets of cells
+   * compare equal when they have the same shape on screen wherever they are.
+   */
+  const shapeOf = (map: Tilemap): string[] => {
+    const cells = [...map.tiles(0)];
+    const one = cells.find((t) => t.id === 1)!;
+    const o = map.cellToLocal(one.x, one.y);
+    return cells
+      .map((t) => {
+        const p = map.cellToLocal(t.x, t.y);
+        return `${t.id}@${(p.x - o.x).toFixed(4)},${(p.y - o.y).toFixed(4)}`;
+      })
+      .sort();
+  };
+
+  const LATTICE_GRIDS = (["staggered", "hexagonal"] as const).flatMap((shape) =>
+    (["y", "x"] as const).flatMap((axis) => (["odd", "even"] as const).map((index) => ({ shape, axis, index }))),
+  );
+  for (const { shape, axis, index } of LATTICE_GRIDS) {
+    it(`keeps a picked stamp's shape painted an odd number of rows or columns away on a ${shape} map (axis ${axis}, ${index}) (ADR 0444)`, () => {
+      const { map } = newMap();
+      map.gridShape = shape;
+      map.staggerAxis = axis;
+      map.staggerIndex = index;
+      // A 2 × 2 block of four tiles, picked with its bottom-left on (2, 2).
+      map.setTile(2, 2, 1);
+      map.setTile(3, 2, 2);
+      map.setTile(2, 3, 3);
+      map.setTile(3, 3, 4);
+      const picked = shapeOf(map);
+      stroke(map, "pick", [2, 2], [3, 3]);
+      expect(brushStamp.value).toEqual({ width: 2, height: 2, values: [1, 2, 3, 4] });
+      for (const at of [[5, 5], [6, 6], [5, 6], [-3, 0]] as Cell[]) {
+        map.clearAll();
+        const footprint = footprintAt("pencil", at, map);
+        stroke(map, "pencil", at);
+        expect(shapeOf(map)).toEqual(picked);
+        // The footprint is the cells painted.
+        const painted = [...map.tiles(0)].map((t) => `${t.x},${t.y}`).sort();
+        expect(footprint.cells?.map(([x, y]) => `${x},${y}`).sort()).toEqual(painted);
+      }
+      // Laid out cell for cell (a palette block, no frame), the same block an odd number of rows (columns) away has another shape.
+      brushFrame.value = null;
+      map.clearAll();
+      stroke(map, "pencil", [5, 5]);
+      expect(shapeOf(map)).not.toEqual(picked);
+    });
+  }
+
+  it("tiles a picked stamp over a rectangle on a staggered map, every placement keeping its shape (ADR 0444)", () => {
+    const { map } = newMap();
+    map.gridShape = "staggered";
+    // A 1 × 2 column, 1 below 2, picked from an unshifted row.
+    map.setTile(0, 0, 1);
+    map.setTile(0, 1, 2);
+    const a = map.cellToLocal(0, 0), b = map.cellToLocal(0, 1);
+    stroke(map, "pick", [0, 0], [0, 1]);
+    map.clearAll();
+    // From row 1 (a shifted row), four columns wide and two rows high: the stamp's pattern fills the rectangle, row 1
+    // with 1s and row 2 with 2s, each 1's 2 where the picked stamp had it (the last column's lies outside the rectangle).
+    stroke(map, "rect", [0, 1], [3, 2]);
+    const twos = [...map.tiles(0)].filter((t) => t.id === 2).map((t) => map.cellToLocal(t.x, t.y));
+    expect(twos).toHaveLength(4);
+    for (let x = 0; x <= 3; x++) expect(map.getTile(x, 1)).toBe(1);
+    for (let x = 0; x <= 2; x++) {
+      const p = map.cellToLocal(x, 1);
+      expect(twos.some((q) => Math.abs(q.x - p.x - (b.x - a.x)) < 1e-6 && Math.abs(q.y - p.y - (b.y - a.y)) < 1e-6)).toBe(true);
+    }
+  });
+
+  it("paints square and isometric stamps cell for cell, with a rectangle footprint (ADR 0444)", () => {
+    for (const shape of ["square", "isometric"] as const) {
+      const { map } = newMap();
+      map.gridShape = shape;
+      map.setTile(2, 2, 1);
+      map.setTile(3, 3, 4);
+      stroke(map, "pick", [2, 2], [3, 3]);
+      expect(brushFrame.value).toBeNull();
+      map.clearAll();
+      expect(footprintAt("pencil", [5, 6], map)).toEqual({ x0: 5, y0: 6, x1: 7, y1: 8 });
+      stroke(map, "pencil", [5, 6]);
+      expect([map.getTile(5, 6), map.getTile(6, 7)]).toEqual([1, 4]);
+    }
   });
 });

@@ -9,7 +9,7 @@ import { withMember } from "./jsonMember";
 import { uniqueName } from "../engine/core/uniqueName";
 
 /** The top-level keys the shell's own Project panel categories edit (the Worlds panel edits `bootstrap`). */
-const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "autoload", "graphics", "plugins", "build"] as const;
+const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "input", "autoload", "graphics", "plugins", "build"] as const;
 
 /** Keys no settings section may own: `bootstrap` (the Worlds panel's) and `audio`, which moved to `audio.json` (ADR 0344; the Audio Studio edits it). */
 const RESERVED_KEYS: readonly string[] = ["bootstrap", "audio"];
@@ -80,9 +80,11 @@ export function withSettings(text: string, draft: SettingsDraft, previous: Proje
 
 export const sortingLayersOf = (d: SettingsDraft): string[] => d.render?.sortingLayers ?? defaultSettings.render.sortingLayers;
 export const autoloadsOf = (d: SettingsDraft): string[] => d.autoload ?? [];
+/** The y-sorted sorting layers (ADR 0440), as written. */
+export const ySortedLayersOf = (d: SettingsDraft): string[] => (Array.isArray(d.render?.ySortedLayers) ? d.render.ySortedLayers : []);
 
 /** Set one value in a section (undefined removes it, so the default applies); drops a section left empty. */
-export function setValue<S extends "display" | "time" | "physics" | "render" | "build">(draft: SettingsDraft, section: S, key: string, value: unknown): SettingsDraft {
+export function setValue<S extends "display" | "time" | "physics" | "render" | "build" | "input">(draft: SettingsDraft, section: S, key: string, value: unknown): SettingsDraft {
   const next: Record<string, unknown> = { ...(draft[section] ?? {}) };
   if (value === undefined) delete next[key];
   else next[key] = value;
@@ -105,15 +107,51 @@ function moved<T>(list: readonly T[], index: number, by: number): T[] {
 }
 
 export const addSortingLayer = (d: SettingsDraft) => setValue(d, "render", "sortingLayers", [...sortingLayersOf(d), uniqueName("Layer", sortingLayersOf(d))]);
-export const renameSortingLayer = (d: SettingsDraft, index: number, name: string) =>
-  setValue(d, "render", "sortingLayers", sortingLayersOf(d).map((l, i) => (i === index ? name : l)));
-export const removeSortingLayer = (d: SettingsDraft, index: number) => setValue(d, "render", "sortingLayers", sortingLayersOf(d).filter((_, i) => i !== index));
+/** Write the y-sorted layers (ADR 0440); none removes the key. */
+const withYSorted = (d: SettingsDraft, names: string[]) => setValue(d, "render", "ySortedLayers", names.length ? names : undefined);
+/** Rename a sorting layer; a y-sorted one stays y-sorted. */
+export const renameSortingLayer = (d: SettingsDraft, index: number, name: string): SettingsDraft => {
+  const from = sortingLayersOf(d)[index];
+  const next = setValue(d, "render", "sortingLayers", sortingLayersOf(d).map((l, i) => (i === index ? name : l)));
+  return ySortedLayersOf(d).includes(from) ? withYSorted(next, ySortedLayersOf(d).map((l) => (l === from ? name : l))) : next;
+};
+/** Remove a sorting layer, and its y-sorting. */
+export const removeSortingLayer = (d: SettingsDraft, index: number): SettingsDraft => {
+  const gone = sortingLayersOf(d)[index];
+  const next = setValue(d, "render", "sortingLayers", sortingLayersOf(d).filter((_, i) => i !== index));
+  return ySortedLayersOf(d).includes(gone) ? withYSorted(next, ySortedLayersOf(d).filter((l) => l !== gone)) : next;
+};
+/** Whether a sorting layer is y-sorted (ADR 0440). */
+export const isYSortedLayer = (d: SettingsDraft, index: number): boolean => ySortedLayersOf(d).includes(sortingLayersOf(d)[index]);
+/** Y-sort a sorting layer or stop (ADR 0440): kept in sorting layer order. */
+export const setYSortedLayer = (d: SettingsDraft, index: number, on: boolean): SettingsDraft => {
+  const name = sortingLayersOf(d)[index];
+  const set = new Set(ySortedLayersOf(d));
+  if (on) set.add(name);
+  else set.delete(name);
+  return withYSorted(d, sortingLayersOf(d).filter((l) => set.has(l)));
+};
 /** Move a sorting layer towards the back (-1) or front (+1). */
 export const moveSortingLayer = (d: SettingsDraft, index: number, by: number) => setValue(d, "render", "sortingLayers", moved(sortingLayersOf(d), index, by));
 
 export const addAutoload = (d: SettingsDraft, path: string): SettingsDraft => ({ ...d, autoload: [...autoloadsOf(d), path] });
 export const removeAutoload = (d: SettingsDraft, index: number): SettingsDraft => ({ ...d, autoload: autoloadsOf(d).filter((_, i) => i !== index) });
 export const moveAutoload = (d: SettingsDraft, index: number, by: number): SettingsDraft => ({ ...d, autoload: moved(autoloadsOf(d), index, by) });
+
+// --- action set files (ADR 0433) -------------------------------------------------------------------
+
+/** The draft's `input.actionSets`: the action set files defined at boot, in order. */
+export const actionSetsOf = (d: SettingsDraft): string[] => {
+  const input = d.input;
+  const list = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>).actionSets : undefined;
+  return Array.isArray(list) ? list.filter((p): p is string => typeof p === "string") : [];
+};
+const withActionSets = (d: SettingsDraft, list: string[]): SettingsDraft => setValue(d, "input", "actionSets", list);
+/** Add an action set file at the end of the list (no change when it's listed already). */
+export const addActionSet = (d: SettingsDraft, path: string): SettingsDraft => (actionSetsOf(d).includes(path) ? d : withActionSets(d, [...actionSetsOf(d), path]));
+export const removeActionSet = (d: SettingsDraft, index: number): SettingsDraft => withActionSets(d, actionSetsOf(d).filter((_, i) => i !== index));
+/** Move the action set at `index` to position `to` (a drag drops it there; ↑ ↓ move by one). */
+export const moveActionSetTo = (d: SettingsDraft, index: number, to: number): SettingsDraft => withActionSets(d, moved(actionSetsOf(d), index, to - index));
 
 // --- graphics quality tiers (ADR 0050) ------------------------------------------------------------
 

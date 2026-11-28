@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Assets, BoxCollider2D, Engine, FLIP_DIAGONAL, FLIP_X, GameObject, RigidBody2D, SceneManager, Tilemap, TilemapChanges, TilemapCollider2D, getComponentClass } from "../../../myco";
+import { Assets, BoxCollider2D, CharacterController2D, Engine, FLIP_DIAGONAL, FLIP_X, GameObject, RigidBody2D, SceneManager, Tilemap, TilemapChanges, ShapeCollider2D, getComponentClass } from "../../../myco";
 import { missingBlobMasks, paintTerrain } from "./autotile";
 import { floodCells, lineCells, rectCells } from "./brushes";
 import { greedyRectangles, rowRuns, traceOutlines } from "./cellRegions";
 import { buildTileShapes } from "./collision";
 import { CHUNK_CELLS, cellToChunk, cellValue, decodeChunk, encodeChunk, migrateLayer, newLayer, FLIP_Y } from "./format";
-import { buildChunkMeshes, type TileFrame } from "./mesh";
+import { buildChunkMeshes, writeTileQuad, type TileFrame } from "./mesh";
 import { blobMasks, canonicalBlob, maskToPattern, neighbourMask, patternScore, pickTerrainTile, sidesPattern } from "./neighbourPatterns";
 import { flipPoint, rotateClockwise, sourceCorner } from "./tileFlips";
 import { Tileset, legacyTileUuid, newTileset, parseTileset, pickWeighted, tileAnchor, type TileDef } from "./tileset";
@@ -178,6 +178,26 @@ describe("chunk meshes (ADR 0103)", () => {
     expect(sourceCorner(0, 0, FLIP_DIAGONAL | FLIP_X)).toEqual([0, 1]); // turned clockwise: top-left shows the bottom-left
     expect(sourceCorner(0, 0, FLIP_Y)).toEqual([0, 1]);
   });
+
+  it("splits a texture's tiles into groups, says each quad's cell, and rewrites a quad as a fresh build lays it out (ADR 0437, 0440)", () => {
+    const cells = new Int32Array(CHUNK_CELLS);
+    cells[0] = 1;
+    cells[1] = cellValue(2, FLIP_X);
+    cells[17] = 1;
+    const frames: Record<number, TileFrame> = { 1: { texture: "a.png", uv: [0, 0, 0.5, 0.5], size: [1, 1] }, 2: { texture: "a.png", uv: [0.5, 0, 1, 0.5], size: [1, 2] } };
+    const meshes = buildChunkMeshes(cells, 0, 0, { x: 1, y: 1 }, (id) => frames[id] ?? null, (i) => `row${Math.floor(i / 16)}`);
+    expect(meshes.map((m) => [m.texture, m.group, Array.from(m.cells)])).toEqual([["a.png", "row0", [0, 1]], ["a.png", "row1", [17]]]);
+    // Without groups: one mesh per texture, as before.
+    expect(buildChunkMeshes(cells, 0, 0, { x: 1, y: 1 }, (id) => frames[id] ?? null).map((m) => m.quads)).toEqual([3]);
+    // Rewriting quad 1 with tile 1's frame gives what a build with tile 1 there would.
+    const [row0] = meshes;
+    writeTileQuad(row0.positions, row0.uvs, 1, { x: 1, y: 1 }, 1, 0, frames[1], FLIP_X);
+    const swapped = cells.slice();
+    swapped[1] = cellValue(1, FLIP_X);
+    const [fresh] = buildChunkMeshes(swapped, 0, 0, { x: 1, y: 1 }, (id) => frames[id] ?? null, (i) => `row${Math.floor(i / 16)}`);
+    expect(Array.from(row0.positions)).toEqual(Array.from(fresh.positions));
+    expect(Array.from(row0.uvs)).toEqual(Array.from(fresh.uvs));
+  });
 });
 
 describe("brushes (ADR 0103)", () => {
@@ -214,7 +234,7 @@ const steps = (engine: Engine, n: number) => {
 describe("Tilemap component (ADR 0103)", () => {
   it("is registered and loads cells from scene data", async () => {
     expect(getComponentClass("engine.Tilemap")).toBe(Tilemap);
-    expect(getComponentClass("engine.TilemapCollider2D")).toBe(TilemapCollider2D);
+    expect(getComponentClass("engine.ShapeCollider2D")).toBe(ShapeCollider2D);
     await setup([{ id: "m", name: "map", components: [{ type: "engine.Transform", data: { position: [10, 0, 0] } }, { type: "engine.Tilemap", data: { tileset: "asset:tiles.tileset.json", cellSize: [0.5, 0.5], layers: [{ name: "G", chunks: { "0,0": "1*3", "-1,0": "0*15,4" } }] } }] }]);
     const map = GameObject.findObjectOfType(Tilemap)!;
     expect(map.getTile(0, 0)).toBe(1);
@@ -258,12 +278,12 @@ describe("Tilemap component (ADR 0103)", () => {
   });
 });
 
-describe("TilemapCollider2D on Rapier (ADR 0105)", () => {
+describe("ShapeCollider2D on Rapier (ADR 0105)", () => {
   function level(engine: Engine, mode: "rectangles" | "outline" = "rectangles") {
     const node = GameObject.create("map");
     const map = node.addBehavior(Tilemap, { tileset: "tiles.tileset.json" });
     map.fillRect(-10, -1, 20, 1, 1); // floor at y = -1..0
-    node.addBehavior(TilemapCollider2D, { mode });
+    node.addBehavior(ShapeCollider2D, { mode });
     void engine;
     return map;
   }
@@ -314,7 +334,7 @@ describe("TilemapCollider2D on Rapier (ADR 0105)", () => {
     const node = GameObject.create("map");
     const map = node.addBehavior(Tilemap, { tileset: "tiles.tileset.json" });
     map.fillRect(-3, 2, 6, 1, 2); // a one-way platform at y = 2..3
-    node.addBehavior(TilemapCollider2D);
+    node.addBehavior(ShapeCollider2D);
     const { b, rb } = box(0, 0);
     steps(engine, 2);
     rb.velocity = { x: 0, y: 12 }; // jump up through it
@@ -325,6 +345,52 @@ describe("TilemapCollider2D on Rapier (ADR 0105)", () => {
     }
     expect(maxY).toBeGreaterThan(3.4);
     expect(b.transform!.worldPosition.y).toBeCloseTo(3.4, 1); // landed on top
+  });
+
+  it("a CharacterController2D jumps up through one-way tiles and stands on them (ADR 0439)", async () => {
+    const engine = await setup();
+    const map = level(engine); // floor top at y = 0
+    map.fillRect(-3, 3, 6, 1, 2); // a one-way platform at y = 3..4
+    const player = GameObject.create("player");
+    player.transform!.position = [0, 1.05, 0]; // capsule 2 tall: feet at y − 1
+    const cc = player.addBehavior(CharacterController2D);
+    let vy = 0, maxY = -Infinity;
+    const frame = () => {
+      vy -= 10 / 60;
+      cc.move({ x: 0, y: vy / 60 });
+      if (cc.isGrounded && vy < 0) vy = 0;
+      engine.step(1 / 60);
+      maxY = Math.max(maxY, player.transform!.worldPosition.y);
+    };
+    for (let i = 0; i < 30; i++) frame();
+    expect(cc.isGrounded).toBe(true);
+    vy = 12;
+    for (let i = 0; i < 240; i++) frame();
+    expect(maxY).toBeGreaterThan(5.5);
+    expect(cc.isGrounded).toBe(true);
+    expect(player.transform!.worldPosition.y).toBeCloseTo(5, 1); // feet on the tiles' top at 4
+  });
+
+  it("oneWay on the collider makes every tile one-way (ADR 0439)", async () => {
+    const engine = await setup();
+    const node = GameObject.create("map");
+    const map = node.addBehavior(Tilemap, { tileset: "tiles.tileset.json" });
+    map.fillRect(-3, 2, 6, 1, 1); // "full" tiles at y = 2..3, solid by themselves
+    map.fillRect(-10, -3, 20, 1, 1); // and a floor at y = -3..-2
+    node.addBehavior(ShapeCollider2D, { oneWay: true });
+    const { b, rb } = box(0, 0);
+    steps(engine, 2);
+    rb.velocity = { x: 0, y: 12 };
+    let maxY = -Infinity;
+    for (let i = 0; i < 180; i++) {
+      engine.step(1 / 60);
+      maxY = Math.max(maxY, b.transform!.worldPosition.y);
+    }
+    expect(maxY).toBeGreaterThan(3.4);
+    expect(b.transform!.worldPosition.y).toBeCloseTo(3.4, 1); // up through the full tiles, landed on top
+    rb.dropThrough();
+    steps(engine, 120);
+    expect(b.transform!.worldPosition.y).toBeCloseTo(-1.6, 1); // dropped through onto the floor, one-way too
   });
 });
 
@@ -347,5 +413,42 @@ describe("tile anchors (ADR 0119)", () => {
     expect(tileAnchor(tileset, tileset.tiles[0])).toEqual([0, 1]);
     expect(tileAnchor(tileset, tileset.tiles[1])).toEqual([0.5, 0]);
     expect(tileAnchor(newTileset(), { id: 1, uuid: legacyTileUuid(1), sprite: "", collision: "none" })).toEqual([0, 0]);
+  });
+});
+
+describe("Tilemap.replaceTile (ADR 0442)", () => {
+  it("replaces a tile by another, keeping flip flags, in one layer or every layer, and reports each cell", async () => {
+    await setup();
+    const node = GameObject.create("map");
+    const map = node.addBehavior(Tilemap, { tileset: "tiles.tileset.json" });
+    map.layers = [newLayer("A"), newLayer("B")];
+    map.setTile(0, 0, 1);
+    map.setTile(1, 0, 1, 0, FLIP_X | FLIP_DIAGONAL);
+    map.setTile(2, 0, 2);
+    map.setTile(0, 5, 1, "B", FLIP_Y);
+    const seen: [number, number, number][] = [];
+    const stop = map.onTileChanged((c) => seen.push([c.layer, c.previous, c.value]));
+    // Only layer A.
+    expect(map.replaceTile(1, 4, "A")).toBe(2);
+    expect(map.getCell(0, 0)).toBe(4);
+    expect(map.getCell(1, 0)).toBe(cellValue(4, FLIP_X | FLIP_DIAGONAL));
+    expect(map.getTile(2, 0)).toBe(2);
+    expect(map.getCell(0, 5, "B")).toBe(cellValue(1, FLIP_Y));
+    expect(seen).toEqual([
+      [0, 1, 4],
+      [0, cellValue(1, FLIP_X | FLIP_DIAGONAL), cellValue(4, FLIP_X | FLIP_DIAGONAL)],
+    ]);
+    // Every layer; replacing a tile by itself or a tile nobody uses changes nothing.
+    expect(map.replaceTile(1, 3)).toBe(1);
+    expect(map.getCell(0, 5, 1)).toBe(cellValue(3, FLIP_Y));
+    expect(map.replaceTile(3, 3)).toBe(0);
+    expect(map.replaceTile(2, 2, 1)).toBe(0);
+    // 0 clears; the saved layers agree.
+    expect(map.replaceTile(4, 0)).toBe(2);
+    expect([...map.tiles(0)].map((t) => t.id)).toEqual([2]);
+    expect(Object.values(map.toLayerData()[0].palette)).toHaveLength(1);
+    stop();
+    expect(() => map.replaceTile(1, 2, "nope")).toThrow(/no layer/);
+    expect(() => map.replaceTile(2, 99)).toThrow();
   });
 });

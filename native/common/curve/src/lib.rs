@@ -35,8 +35,23 @@
 //! There is no lane (SIMD) form: an evaluation is a binary search plus, for Bézier, a bisection,
 //! both branchy and per curve, and the cores evaluate a curve once per control quantum, tween or
 //! sample, so four lanes would buy nothing.
+//!
+//! # Feature `alloc`
+//!
+//! Off by default. It adds [`parse_keys`] (the host's flat key floats read, checked and baked into
+//! a `Vec<Key<f32>>`), for hosts that keep curves as slices: the animation core (`anim-sample`'s
+//! `curve`) and the tween crate (`myco-tween`'s curve store, ADR 0424). The audio core keeps fixed
+//! [`Curve`] tables and links this crate without it.
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+#[cfg(feature = "alloc")]
+mod parse;
+#[cfg(feature = "alloc")]
+pub use parse::{parse_keys, CurveError, KEY_FLOATS, MAX_KEYS};
 
 use core::ops::{Add, Div, Mul, Sub};
 

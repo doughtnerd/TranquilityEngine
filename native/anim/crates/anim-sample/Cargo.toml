@@ -11,8 +11,9 @@ anim-math.workspace = true
 anim-format.workspace = true
 # Sync markers and their phase (`anim_pose::sync`).
 anim-pose.workspace = true
-# T70: the engine curve evaluator, shared with the audio core (ADR 0370; `native/common/curve`).
-myco-curve = { path = "../../../common/curve" }
+# T70: the engine curve evaluator, shared with the audio core (ADR 0370; `native/common/curve`), with
+# its key parser (feature `alloc`, ADR 0424), re-exported by `curve`.
+myco-curve = { path = "../../../common/curve", features = ["alloc"] }
 
 [dev-dependencies]
 anim-offline.workspace = true

@@ -23,6 +23,8 @@ import type {
   QueryShape2D,
   ShapeDesc2D,
   Vec2,
+  VoxelChange2D,
+  VoxelLink2D,
 } from "../../physics/runtime";
 
 type P2 = Pose<Dim2>;
@@ -159,6 +161,7 @@ class Character implements BackendCharacter<Dim2> {
   constructor(
     readonly kcc: RAPIER.KinematicCharacterController,
     private readonly rapier: RAPIER.World,
+    private readonly oneWay: OneWayPlatforms,
   ) {}
   configure(s: CharacterSettings): void {
     const kcc = this.kcc;
@@ -180,11 +183,14 @@ class Character implements BackendCharacter<Dim2> {
     // dependent, and only while moving); the core carries characters on platforms instead. Pushing
     // bodies scales its impulses by that timestep, so it runs as a second pass at the real one.
     const filter = RAPIER.QueryFilterFlags.EXCLUDE_SENSORS;
-    if (this.push) kcc.computeColliderMovement(col, v2(motion), filter, groups); // applies the impulses; its movement isn't used
+    // One-way colliders it is below, moving up through or dropping through don't block it (ADR 0439). The predicate
+    // covers the whole computation: the sweep, the slide, the step-up and the ground snap.
+    const passes = this.oneWay.moverFilter(col, motion.x, motion.y);
+    if (this.push) kcc.computeColliderMovement(col, v2(motion), filter, groups, passes); // applies the impulses; its movement isn't used
     const dt = this.rapier.timestep;
     kcc.setApplyImpulsesToDynamicBodies(false);
     this.rapier.timestep = 1e-6;
-    kcc.computeColliderMovement(col, v2(motion), filter, groups);
+    kcc.computeColliderMovement(col, v2(motion), filter, groups, passes);
     this.rapier.timestep = dt;
     kcc.setApplyImpulsesToDynamicBodies(this.push);
     const hits = [];
@@ -206,13 +212,95 @@ interface OneWay {
   base: number;
 }
 
-/** One-way platforms (ADR 0105): a contact-pair hook lets bodies through from below. */
+/** A collider on a body that can move, as it was before the step: Rapier's world can't be read from inside a hook. */
+interface Moving {
+  x: number;
+  y: number;
+  rotation: number;
+  vx: number;
+  vy: number;
+  /** Its body's handle. */
+  body: number;
+  shape: RAPIER.Shape;
+}
+
+/** How long a body dropping through a one-way collider may take before the collider holds it again (ADR 0439). */
+const DROP_SECONDS = 0.5;
+/** How near a body counts as standing on a one-way collider, for `dropThrough` and for keeping a pair dropping. */
+const DROP_TOUCH = 0.1;
+
+/**
+ * Where `shape`, placed at `(x, y)` and turned by `rotation`, spans along the unit direction `(ux, uy)`: written to
+ * `out` as `[lowest, highest]`. Shapes without points to measure (heightfields, voxels) count as their centre.
+ */
+function spanAlong(shape: RAPIER.Shape, x: number, y: number, rotation: number, ux: number, uy: number, out: [number, number]): void {
+  const c = Math.cos(rotation), s = Math.sin(rotation);
+  const centre = x * ux + y * uy;
+  // The shape's local x and y axes, along the direction.
+  const ax = c * ux + s * uy, ay = -s * ux + c * uy;
+  const around = (half: number) => {
+    out[0] = centre - half;
+    out[1] = centre + half;
+  };
+  const points = (v: ArrayLike<number>, round: number) => {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i + 1 < v.length; i += 2) {
+      const d = v[i]! * ax + v[i + 1]! * ay;
+      if (d < lo) lo = d;
+      if (d > hi) hi = d;
+    }
+    if (lo > hi) lo = hi = 0;
+    out[0] = centre + lo - round;
+    out[1] = centre + hi + round;
+  };
+  if (shape instanceof RAPIER.Ball) around(shape.radius);
+  else if (shape instanceof RAPIER.Cuboid) around(Math.abs(shape.halfExtents.x * ax) + Math.abs(shape.halfExtents.y * ay));
+  else if (shape instanceof RAPIER.RoundCuboid) around(Math.abs(shape.halfExtents.x * ax) + Math.abs(shape.halfExtents.y * ay) + shape.borderRadius);
+  else if (shape instanceof RAPIER.Capsule) around(Math.abs(shape.halfHeight * ay) + shape.radius);
+  else if (shape instanceof RAPIER.ConvexPolygon || shape instanceof RAPIER.Polyline || shape instanceof RAPIER.TriMesh) points(shape.vertices, 0);
+  else if (shape instanceof RAPIER.RoundConvexPolygon) points(shape.vertices, shape.borderRadius);
+  else if (shape instanceof RAPIER.Segment) points([shape.a.x, shape.a.y, shape.b.x, shape.b.y], 0);
+  else if (shape instanceof RAPIER.Triangle) points([shape.a.x, shape.a.y, shape.b.x, shape.b.y, shape.c.x, shape.c.y], 0);
+  else if (shape instanceof RAPIER.RoundTriangle) points([shape.a.x, shape.a.y, shape.b.x, shape.b.y, shape.c.x, shape.c.y], shape.borderRadius);
+  else if (shape instanceof RAPIER.Compound) {
+    let lo = Infinity, hi = -Infinity;
+    shape.shapes.forEach((part, i) => {
+      const p = shape.positions[i] ?? { x: 0, y: 0 };
+      spanAlong(part, x + p.x * c - p.y * s, y + p.x * s + p.y * c, rotation + (shape.rotations[i] ?? 0), ux, uy, out);
+      lo = Math.min(lo, out[0]);
+      hi = Math.max(hi, out[1]);
+    });
+    if (lo > hi) around(0);
+    else [out[0], out[1]] = [lo, hi];
+  } else around(0);
+}
+
+/**
+ * One-way colliders (ADR 0105, 0439). A contact-pair hook lets rigid bodies through from below; character controllers
+ * and collider casts get the same rule as a query predicate (`moverFilter`). Both read the record per collider here,
+ * and both let a body through while the pair is marked dropping (`dropThrough`).
+ *
+ * The rule: a body collides with a one-way collider only if its bottom is at or above the collider's top, within
+ * 0.02 units and one step of travel, and it isn't moving up relative to it. A rigid body that landed that way keeps
+ * colliding while the two touch, however far a hard landing sinks it in.
+ */
 class OneWayPlatforms {
   /** One-way colliders by handle. */
   readonly byHandle = new Map<number, OneWay>();
   private dt = 1 / 60;
-  /** Bodies' colliders as they were before the step: Rapier's world can't be read from inside a hook. */
-  private readonly snapshot = new Map<number, { x: number; y: number; hx: number; hy: number; vx: number; vy: number }>();
+  /** Simulated time, for the drop marks' timeout. */
+  private time = 0;
+  /** Colliders on bodies that can move, as they were before the step. */
+  private readonly snapshot = new Map<number, Moving>();
+  /** Dropping pairs: a body's handle → the one-way colliders it is dropping through → when each mark lapses. */
+  private readonly dropping = new Map<number, Map<number, number>>();
+  /**
+   * Pairs that collided in the last step (a one-way collider → the colliders resting on it), which keep colliding while
+   * the hook still sees them; `landing` gathers this step's.
+   */
+  private landed = new Map<number, Set<number>>();
+  private landing = new Map<number, Set<number>>();
+  private readonly span: [number, number] = [0, 0];
   readonly hooks: RAPIER.PhysicsHooks = {
     filterContactPair: (c1, c2) => this.filter(c1, c2),
     filterIntersectionPair: () => true,
@@ -220,25 +308,45 @@ class OneWayPlatforms {
 
   constructor(private readonly rapier: RAPIER.World) {}
 
-  /** Before each step: note the timestep and, with one-way platforms about, every moving collider's pose and velocity. */
+  /**
+   * Before each step: note the timestep and, with one-way colliders about, every moving collider's pose and
+   * velocity, then clear the drop marks that are done.
+   */
   beforeStep(dt: number): void {
     this.dt = dt;
+    this.time += dt;
     this.snapshot.clear();
-    if (!this.byHandle.size) return;
+    [this.landed, this.landing] = [this.landing, this.landed];
+    this.landing.clear();
+    if (!this.byHandle.size) {
+      this.dropping.clear();
+      this.landed.clear();
+      return;
+    }
     this.rapier.forEachCollider((col) => {
       const body = col.parent();
       if (!body || body.isFixed()) return;
       const p = col.translation();
-      const he = col.halfExtents();
-      const r = he ? 0 : col.shapeType() === RAPIER.ShapeType.Ball ? col.radius() : 0;
       const v = body.linvel();
-      this.snapshot.set(col.handle, { x: p.x, y: p.y, hx: he ? he.x : r, hy: he ? he.y : r, vx: v.x, vy: v.y });
+      this.snapshot.set(col.handle, { x: p.x, y: p.y, rotation: col.rotation(), vx: v.x, vy: v.y, body: body.handle, shape: col.shape });
     });
+    if (this.dropping.size) this.clearDrops();
+  }
+
+  /** The collider's top along its up, `ahead` seconds after the snapshot: its top when built, moved with its body. */
+  private topOf(handle: number, ow: OneWay, ahead: number): number {
+    const pv = this.snapshot.get(handle);
+    return pv ? ow.top + (pv.x + pv.vx * ahead) * ow.upX + (pv.y + pv.vy * ahead) * ow.upY - ow.base : ow.top;
+  }
+
+  private isDropping(body: number, platform: number): boolean {
+    return this.dropping.get(body)?.has(platform) ?? false;
   }
 
   /**
    * The contact-pair hook: a one-way platform collides only with bodies above its top that aren't
-   * moving up through it. Only one-way colliders turn the hook on, so other pairs never reach here.
+   * moving up through it or dropping through it. Only one-way colliders turn the hook on, so other pairs never
+   * reach here.
    */
   private filter(c1: number, c2: number): RAPIER.SolverFlags | null {
     let platformHandle = c1, other = c2;
@@ -251,17 +359,98 @@ class OneWayPlatforms {
     if (!platform || this.byHandle.has(other)) return RAPIER.SolverFlags.COMPUTE_IMPULSE;
     const o = this.snapshot.get(other);
     if (!o) return RAPIER.SolverFlags.COMPUTE_IMPULSE; // a static collider
-    const { upX, upY } = platform;
-    const bottom = o.x * upX + o.y * upY - (Math.abs(o.hx * upX) + Math.abs(o.hy * upY));
-    let rel = o.vx * upX + o.vy * upY;
-    const pv = this.snapshot.get(platformHandle); // a platform on a moving body
-    let top = platform.top;
-    if (pv) {
-      rel -= pv.vx * upX + pv.vy * upY;
-      top += pv.x * upX + pv.y * upY - platform.base;
+    if (this.isDropping(o.body, platformHandle)) return RAPIER.SolverFlags.EMPTY;
+    // A body that landed on it stays on it while they touch: a hard landing sinks it in further than the tolerance,
+    // and the solver's push back out reads as moving up.
+    if (!this.landed.get(platformHandle)?.has(other)) {
+      const { upX, upY } = platform;
+      spanAlong(o.shape, o.x, o.y, o.rotation, upX, upY, this.span);
+      const bottom = this.span[0];
+      let rel = o.vx * upX + o.vy * upY;
+      const pv = this.snapshot.get(platformHandle); // a platform on a moving body
+      if (pv) rel -= pv.vx * upX + pv.vy * upY;
+      const top = this.topOf(platformHandle, platform, 0);
+      const tolerance = 0.02 + Math.abs(rel) * this.dt;
+      if (rel > 0.01 || bottom < top - tolerance) return RAPIER.SolverFlags.EMPTY;
     }
-    const tolerance = 0.02 + Math.abs(rel) * this.dt;
-    return rel > 0.01 || bottom < top - tolerance ? RAPIER.SolverFlags.EMPTY : RAPIER.SolverFlags.COMPUTE_IMPULSE;
+    let on = this.landing.get(platformHandle);
+    if (!on) this.landing.set(platformHandle, (on = new Set()));
+    on.add(other);
+    return RAPIER.SolverFlags.COMPUTE_IMPULSE;
+  }
+
+  /**
+   * A query predicate for `col` about to move by `(mx, my)` (a character controller's move, a collider cast): it
+   * rejects a one-way collider that `col` is below, moving up through or dropping through, by the hook's rule. It
+   * reads only what is noted here (the predicate runs inside Rapier's query, which can't be re-entered). Undefined
+   * while there are no one-way colliders, so queries don't cross into JavaScript per candidate.
+   */
+  moverFilter(col: RAPIER.Collider, mx: number, my: number): ((other: RAPIER.Collider) => boolean) | undefined {
+    if (!this.byHandle.size) return undefined;
+    const t = col.translation(), rotation = col.rotation(), shape = col.shape, body = col.parent()?.handle ?? -1;
+    const span = this.span;
+    return (other) => {
+      const ow = this.byHandle.get(other.handle);
+      if (!ow) return true;
+      if (this.isDropping(body, other.handle)) return false;
+      const { upX, upY } = ow;
+      const pv = this.snapshot.get(other.handle);
+      // The move's travel along up relative to the platform's over a step; the platform as it is after the step.
+      const rel = mx * upX + my * upY - (pv ? (pv.vx * upX + pv.vy * upY) * this.dt : 0);
+      spanAlong(shape, t.x, t.y, rotation, upX, upY, span);
+      return !(rel > 0.01 * this.dt || span[0] < this.topOf(other.handle, ow, this.dt) - (0.02 + Math.abs(rel)));
+    };
+  }
+
+  /** Mark every one-way collider `rb` stands on or overlaps now as dropping for it (ADR 0439). */
+  dropThrough(rb: RAPIER.RigidBody): void {
+    if (!this.byHandle.size) return;
+    let pairs = this.dropping.get(rb.handle);
+    for (const handle of this.byHandle.keys()) {
+      const platform = this.rapier.getCollider(handle);
+      if (!platform || platform.parent()?.handle === rb.handle || !this.touches(rb, platform)) continue;
+      if (!pairs) this.dropping.set(rb.handle, (pairs = new Map()));
+      pairs.set(handle, this.time + DROP_SECONDS);
+    }
+    if (pairs) rb.wakeUp(); // a body resting on the plank may be asleep
+  }
+
+  /** Whether one of `rb`'s solid colliders is within `DROP_TOUCH` of `platform` (or overlaps it). */
+  private touches(rb: RAPIER.RigidBody, platform: RAPIER.Collider): boolean {
+    for (let i = 0, n = rb.numColliders(); i < n; i++) {
+      const col = rb.collider(i);
+      if (!col.isSensor() && col.contactCollider(platform, DROP_TOUCH) !== null) return true;
+    }
+    return false;
+  }
+
+  /**
+   * End the drop marks that are done: the mark lapsed, either side is gone, the two no longer touch, or the body's top
+   * is below the collider's top (from there the rule lets it through anyway, and a platform further down holds it).
+   */
+  private clearDrops(): void {
+    for (const [bodyHandle, pairs] of this.dropping) {
+      const rb = this.rapier.getRigidBody(bodyHandle);
+      for (const [handle, until] of pairs) {
+        const ow = this.byHandle.get(handle);
+        const platform = ow && this.rapier.getCollider(handle);
+        if (!rb || !ow || !platform || this.time > until + 1e-9 || !this.touches(rb, platform) || this.topAlong(rb, ow) < this.topOf(handle, ow, 0)) pairs.delete(handle);
+      }
+      if (!pairs.size) this.dropping.delete(bodyHandle);
+    }
+  }
+
+  /** The highest extent of `rb`'s solid colliders along the platform's up. */
+  private topAlong(rb: RAPIER.RigidBody, ow: OneWay): number {
+    let top = -Infinity;
+    for (let i = 0, n = rb.numColliders(); i < n; i++) {
+      const col = rb.collider(i);
+      if (col.isSensor()) continue;
+      const p = col.translation();
+      spanAlong(col.shape, p.x, p.y, col.rotation(), ow.upX, ow.upY, this.span);
+      top = Math.max(top, this.span[1]);
+    }
+    return top;
   }
 }
 
@@ -338,6 +527,8 @@ export class RapierWorld2D implements PhysicsWorld2DBackend {
         const positions = s.parts.map((p) => v2(p.offset)), rotations = s.parts.map(() => 0);
         return s.fixInternalEdges ? RAPIER.ColliderDesc.compound(shapes, positions, rotations, RAPIER.CompoundFlags.FIX_INTERNAL_EDGES) : RAPIER.ColliderDesc.compound(shapes, positions, rotations);
       }
+      case "voxels":
+        return RAPIER.ColliderDesc.voxels(s.cells, v2(s.size));
     }
   }
 
@@ -382,6 +573,19 @@ export class RapierWorld2D implements PhysicsWorld2DBackend {
     if (live) this.rapier.removeCollider(live, true);
   }
 
+  setVoxels(c: BackendCollider<Dim2>, changes: readonly VoxelChange2D[], neighbours: readonly VoxelLink2D[]): void {
+    const col = (c as Collider).c;
+    for (const { x, y, filled } of changes) col.setVoxel(x, y, filled);
+    for (const n of neighbours) {
+      const other = (n.collider as Collider).c;
+      for (const { x, y } of changes) col.propagateVoxelChange(other, x, y, n.shift.x, n.shift.y);
+    }
+  }
+
+  linkVoxels(a: BackendCollider<Dim2>, b: BackendCollider<Dim2>, shift: Vec2): void {
+    (a as Collider).c.combineVoxelStates((b as Collider).c, shift.x, shift.y);
+  }
+
   createJoint(d: JointDesc<Dim2>): BackendJoint {
     let data: RAPIER.JointData;
     switch (d.kind) {
@@ -416,7 +620,12 @@ export class RapierWorld2D implements PhysicsWorld2DBackend {
   }
 
   createCharacter(): BackendCharacter<Dim2> {
-    return new Character(this.rapier.createCharacterController(0.02), this.rapier);
+    return new Character(this.rapier.createCharacterController(0.02), this.rapier, this.oneWay);
+  }
+
+  dropThrough(body: BackendBody<Dim2>): void {
+    const b = body as Body;
+    if (!b.removed) this.oneWay.dropThrough(b.rb);
   }
 
   removeCharacter(c: BackendCharacter<Dim2>): void {
@@ -471,7 +680,9 @@ export class RapierWorld2D implements PhysicsWorld2DBackend {
 
   castCollider(c: BackendCollider<Dim2>, direction: Vec2, maxDistance: number, groups: number, exclude: BackendBody<Dim2> | null) {
     const col = (c as Collider).c;
-    const hit = this.rapier.castShape(col.translation(), col.rotation(), v2(direction), col.shape, 0, maxDistance, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, groups, col, (exclude as Body | null)?.rb);
+    // One-way colliders the sweep would pass through don't count (ADR 0439): a controller under or dropping through a plank isn't standing on it.
+    const passes = this.oneWay.moverFilter(col, direction.x * maxDistance, direction.y * maxDistance);
+    const hit = this.rapier.castShape(col.translation(), col.rotation(), v2(direction), col.shape, 0, maxDistance, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, groups, col, (exclude as Body | null)?.rb, passes);
     if (!hit) return null;
     const parent = hit.collider.parent();
     return { collider: hit.collider.handle, body: parent ? (this.bodies.get(parent.handle) ?? null) : null };
@@ -492,6 +703,6 @@ export class RapierWorld2D implements PhysicsWorld2DBackend {
 
 /** The Rapier 2D backend (ADR 0137). */
 export const rapier2DBackend: PhysicsBackend2D = {
-  capabilities: { characterController: true, jointMotors: true, continuousCollision: true, oneWayPlatforms: true, meshColliders: false },
+  capabilities: { characterController: true, jointMotors: true, continuousCollision: true, oneWayPlatforms: true, meshColliders: false, voxelColliders: true },
   createWorld: (options) => new RapierWorld2D(options),
 };

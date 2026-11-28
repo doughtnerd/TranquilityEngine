@@ -9,7 +9,7 @@ import { formatClock } from "../../components/replayControlsModel";
 import { addMarker, addRegion, deleteNote, editNote, moveNote, noteColourCss, setRegionSpan } from "./notesEdits";
 import { FIXTURE_DURATION, FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
 import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeEmptyCopy, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
-import { busStrip, instanceParametersAt, parameterRows, playheadSummary, valueText } from "./takeInspectorModel";
+import { busStrip, instanceParametersAt, mixerStripRows, parameterRows, playheadSummary, valueText } from "./takeInspectorModel";
 import { findInstance, labelSegments, parameterText, pathLabel, pathTitle, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
 import { frameIndexAt, pictureStrip, visibleFrames } from "../../components/filmstripModel";
 
@@ -222,6 +222,42 @@ describe("the inspector's values", () => {
     expect(s.liveDb).toBeCloseTo(-12.04, 1);
     expect(s.text).toBe("−6.0 dB · live −12.0 dB");
     expect(busStrip({ name: "SFX", authored: 1, runtime: 1, duck: 1, peak: 0 })).toMatchObject({ text: "0.0 dB", peakDb: null });
+  });
+
+  describe("the Mixer strip's rows", () => {
+    const live = { runtime: 1, duck: 1, peak: 0.5 };
+    const recorded = { runtime: 0.5, duck: 0.5, peak: 0.25 };
+    const buses = [
+      { name: "Music", authored: 1, live, recorded },
+      { name: "SFX", authored: 0.5, live, recorded: null },
+      { name: "Voice", authored: 1, live: null, recorded: null },
+    ];
+
+    it("shows each bus as the take recorded it at the playhead", () => {
+      const [music] = mixerStripRows(buses, true);
+      expect(music).toMatchObject({ name: "Music", authoredDb: 0, recorded: true, text: "0.0 dB · take −12.0 dB" });
+      expect(music!.liveDb).toBeCloseTo(-12.04, 1);
+      expect(music!.peakDb).toBeCloseTo(-12.04, 1);
+    });
+
+    it("falls back to the runtime for a bus the take has no reading of, then to the authored level alone", () => {
+      const [, sfx, voice] = mixerStripRows(buses, true);
+      expect(sfx).toMatchObject({ recorded: false, text: "−6.0 dB" });
+      expect(sfx!.peakDb).toBeCloseTo(-6.02, 1);
+      expect(voice).toMatchObject({ recorded: false, liveDb: 0, peakDb: null, text: "0.0 dB" });
+    });
+
+    it("shows the runtime's levels away from the playhead (the replay playing)", () => {
+      const rows = mixerStripRows(buses, false);
+      expect(rows.map((r) => r.recorded)).toEqual([false, false, false]);
+      expect(rows[0]).toMatchObject({ liveDb: 0, text: "0.0 dB" });
+    });
+
+    it("moves with the playhead: a later reading gives a later level", () => {
+      const at = (gains: typeof recorded) => mixerStripRows([{ name: "Music", authored: 1, live, recorded: gains }], true)[0]!.liveDb;
+      expect(at({ runtime: 1, duck: 1, peak: 0.5 })).toBe(0);
+      expect(at({ runtime: 1, duck: 0.5, peak: 0.5 })).toBeCloseTo(-6.02, 1);
+    });
   });
 });
 

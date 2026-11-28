@@ -1,0 +1,32 @@
+# Myco's UI layout engine (ADR 0434): Taffy (CSS flexbox, grid and block layout) behind a handle-based
+# boundary shaped for the UI core, compiled to WebAssembly. `npm run build:layout` (build.mjs) writes
+# src/engine/ui/taffy/wasm/, which is committed, so the engine builds without Rust.
+# Crates: layout-core (the tree, style setters and measure callback, plain Rust, `cargo test`) →
+# layout-wasm (the wasm-bindgen boundary).
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+layout-core = { path = "crates/layout-core" }
+# Flexbox, grid and block layout over our own node store (layout-core/src/tree.rs), with calc() resolved
+# there; no TaffyTree, float layout, detailed grid info or serde.
+taffy = { version = "=0.16.0", default-features = false, features = ["std", "flexbox", "grid", "block_layout", "content_size", "calc"] }
+# The pin native/nav and native/tween use (build.mjs checks wasm-bindgen-cli against it).
+wasm-bindgen = "=0.2.130"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+
+[profile.dev]
+panic = "abort"

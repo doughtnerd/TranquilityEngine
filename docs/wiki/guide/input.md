@@ -215,22 +215,22 @@ The engine draws a glyph for every icon key a prompt gives: keycaps with the key
 ```ts
 const prompt = this.input.prompt("jump")!;         // follows the device the player last used
 const glyph = InputGlyphs.get(prompt.icons[0])!;   // or InputGlyphs.of(prompt) for every control
-hint.getComponent(UIImage)!.image = glyph.asset;   // "asset:@myco/glyphs/xbox/buttonSouth.svg"
+(view.query("#jump-hint")!.component as UIImage).image = glyph.asset; // "asset:@myco/glyphs/xbox/buttonSouth.svg"
 img.src = glyph.url;                               // an HTML <img>; glyph.svg is the markup
 ```
 
-`glyph.asset` works wherever a texture asset does: `UIImage.image`, a UI document's `<Image image="asset:@myco/glyphs/keyboard/space.svg">`, sprites. Glyphs are 64 pixels high; keycaps with long labels are wider (`glyph.width`).
+`glyph.asset` works wherever a texture asset does: a component's `<img src="asset:@myco/glyphs/keyboard/space.svg">` (or a prop, `<img src={jumpGlyph}>` with `view.props.jumpGlyph = glyph.asset`), an image element's `image` field, sprites. Glyphs are 64 pixels high; keycaps with long labels are wider (`glyph.width`).
 
 ### A rebinding screen
 
-**UIControlMapper** (Add Component › UI) is a ready-made controls screen. Put it on a node under a `UICanvas` (without one it makes its own):
+**UIControlMapper** (Add Component › UI) is a ready-made controls screen, drawn by a built-in Svelte component (`@myco/ui/ControlMapper.svelte`) on a `UIView` it makes as its node's child. Put it on any node and it draws on a screen canvas of its own; under a game's canvas, its canvas takes that canvas's settings and draws just above it:
 
 - One row per action (`actions`: a comma-separated list, empty for every action but the engine's UI actions), one per part for a d-pad or axis composite ("Move Up"…), with a **Keyboard** and a **Gamepad** cell. Each shows the binding's glyphs and label; the gamepad column follows the pad the player last used.
 - Every cell and button is a focusable `UIButton`, so the game UI's [keyboard and gamepad navigation](ui.md#keyboard-and-gamepad-navigation) drives the screen: the arrow keys, d-pad or left stick move focus, and Enter, Space or the south button press the focused button. The screen takes focus when it appears, so a d-pad player can start without clicking. The focused button has an `accentColor` border, after mouse use too.
 - Click a cell (or press Enter or the south button on it), then press the new key or button. While it waits, presses don't move focus. **Escape** cancels; after `timeout` seconds (default 10) it gives up.
 - An empty cell ("—") on an action's row adds a binding for that device the same way (`rebind` with `add: true`).
 - **Delete** or **Backspace** on the focused cell unbinds it, as does the **Unbind** button (which acts on the binding cell last focused). Unbinding one part of a d-pad or axis removes the device's whole binding.
-- Without a `UICanvas` above it, the mapper makes a screen canvas that takes focus when it appears, is driven only by the mapper's `player`, and keeps focus in the screen when `modal` is on. Under your own canvas, it focuses its first cell when it appears, unless something on that canvas already has focus; set that canvas's `modal` to keep focus in it.
+- With no canvas above it, the mapper makes a screen canvas that takes focus when it appears, is driven only by the mapper's `player`, and keeps focus in the screen when `modal` is on. Inside a document's canvas, it focuses its first cell when it appears, unless something on that canvas already has focus; set that canvas's `modal` (`<Canvas modal>`) to keep focus in it.
 - A chord is one cell ("Shift + B", with both glyphs). Its rebind takes the keys or buttons held together: hold them, then let go. A chord with a different number of modifiers replaces the binding.
 - A conflict is shown in the status line ("B is also bound to Bomb.") and conflicting cells turn `warningColor`.
 - **Reset to defaults** calls `resetBindings`; **Save** calls `saveBindings(profile)`. The button row's words are `text.unbind`, `text.reset` and `text.save`.
@@ -295,13 +295,16 @@ Load saved bindings with `player.loadBindings()` when the game starts.
 
 ## In the editor
 
-- **New contexts:** the Assets panel's New… menu has **New Input Context**, which writes `New Input Context.input.json` in the folder the panel shows.
-- **Editing a context:** select the file to edit it in the Inspector, or double-click it to open the **Input Context** panel. For each mapping, pick:
-  - the action;
-  - its controls: one control, a d-pad, an axis or a chord. Type a path, pick one from the list by device, or click **Bind** and press it: a key, a mouse button, a touch, a pen button, or a gamepad button or stick. Bind reads the engine's own devices, so every gamepad works, including the desktop editor's (SDL) and controllers opened over WebHID, while editing or playing. Escape, or clicking **Cancel**, cancels.
+- **The Input dialog** (File › Input…, or double-click an `.actions.json` or `.input.json` file) shows every action set and context. The list on the left has the sets (sets from scripts are read-only) and the contexts, A to Z; **+** adds one and leaves its name selected for typing. Right-click an entry, or press F2, to rename, duplicate, copy its id or delete it (`default` and sets from scripts can't be renamed or deleted).
+- **New action sets:** **New Action Set** (the Assets panel's New… menu, or + in the dialog) writes an `*.actions.json` file with one button action and adds it to `project.json`'s `input.actionSets`.
+- **An action set** lists its actions with their type and consume setting, and where each is mapped; click a context to go to the mapping. An action nothing maps is flagged, with **Map it in default**. Changing an action's type converts its controls in every context (a d-pad becomes an axis by keeping left and right, an axis becomes a d-pad, either becomes a single control for a button) and says what changed. **Networking** turns on sending the set to the server and sets the resent ticks and each analog action's precision, with the upload each costs.
+- **A context** shows its name, the nodes whose InputContext turns it on, and its mappings. For each mapping, pick:
+  - the action, from a searchable list grouped by set. Typing a name no set has offers **Create "name" in** each of your sets, or **New set…**: the action is made with a type that suits the mapping's control.
+  - its controls: one control, a d-pad, an axis or a chord. Type a path, pick one from the list by device, or click **Bind** and press it: a key, a mouse button, a touch, a pen button, or a gamepad button or stick. Bind reads the engine's own devices, so every gamepad works, including the desktop editor's (SDL) and controllers opened over WebHID, while editing or playing. Escape, or clicking **Cancel**, cancels. A control that doesn't suit the action's type (a key as a vec2's only control) is flagged.
   - its modifiers, its triggers and their type, and whether it consumes its controls.
 
-  Under each mapping are the problems Play would report: an unknown action, a bad control path, bad parameters. Edits undo like any asset's, and a running game picks up the saved file.
+  Under each mapping are the problems Play would report: an unknown action, a bad control path, bad parameters. `default` also shows the controls scripts give in `defineActions`, read-only.
+- **Undo** in the dialog covers every file it edits, as one history with branches (Undo, Redo and History in its header, or Ctrl+Z / Ctrl+Shift+Z). Edits are saved at once; while the game runs, the footer says **Live**: a running game picks up the saved files.
 - **InputContext's `context` field** lists the project's `*.input.json` files and the contexts your scripts register.
 - **Input Debugger panel** (Window › Input Debugger): while playing, pick a World to see:
   - its devices and players;

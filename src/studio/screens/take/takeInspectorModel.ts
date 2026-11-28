@@ -1,7 +1,9 @@
 // What the Take screen's Inspector and Mixer strip show (ADR 0348 "the inspector's authored-versus-live values from the
 // replaying runtime"): an instance's parameters at the playhead as the take recorded them beside what the replaying
 // instance reports now (its handle's `getParameter`), and each bus's authored level beside its live one (`Audio.bus`:
-// authored volume × script volume × ducking) with its peak. Pure: the panels pass the readings in.
+// authored volume × script volume × ducking) with its peak, or beside the level the take recorded at the playhead while
+// the replay isn't playing (owner's defect list: the Mixer panel shows the bus levels at the playhead). Pure: the panels
+// pass the readings in.
 import { gainToDb } from "../../../engine/audio/project/gain";
 import type { Take } from "../../../engine/audio/take/reader";
 import { formatDb } from "../../components/faderModel";
@@ -56,13 +58,49 @@ export interface BusStrip {
   readonly text: string;
 }
 
-/** A bus's strip: authored and live levels in dB, its peak. */
-export function busStrip(r: BusReading): BusStrip {
+/**
+ * A bus's strip: authored and live levels in dB, its peak. `liveWord` names where the live level comes from in the text
+ * ("live" for the runtime now, "take" for the take's recording at the playhead).
+ */
+export function busStrip(r: BusReading, liveWord = "live"): BusStrip {
   const authoredDb = gainToDb(r.authored);
   const liveDb = gainToDb(r.authored * r.runtime * r.duck);
   const peakDb = r.peak > 0 ? gainToDb(r.peak) : null;
   const differs = Math.abs(liveDb - authoredDb) >= 0.05;
-  return { name: r.name, authoredDb, liveDb, peakDb, text: differs ? `${formatDb(authoredDb)} dB · live ${formatDb(liveDb)} dB` : `${formatDb(authoredDb)} dB` };
+  return { name: r.name, authoredDb, liveDb, peakDb, text: differs ? `${formatDb(authoredDb)} dB · ${liveWord} ${formatDb(liveDb)} dB` : `${formatDb(authoredDb)} dB` };
+}
+
+/** A bus's gains as one source has them, linear: the script volume, the ducking and the peak. */
+export interface BusGains {
+  readonly runtime: number;
+  readonly duck: number;
+  readonly peak: number;
+}
+
+/** One bus for the Mixer strip: its authored level, what the runtime reports now and what the take recorded at the playhead (null: unknown). */
+export interface StripSource {
+  readonly name: string;
+  readonly authored: number;
+  readonly live: BusGains | null;
+  readonly recorded: BusGains | null;
+}
+
+/** A strip and whether its levels are the take's recording at the playhead (else the runtime's now). */
+export interface MixerStripRow extends BusStrip {
+  readonly recorded: boolean;
+}
+
+/**
+ * The Mixer strip's rows. `atPlayhead` (a take is open and its replay isn't playing, or there is no runtime to read): each
+ * bus as the take recorded it at the playhead, so a scrub moves the levels. Otherwise, or for a bus the take has no
+ * reading of, what the runtime reports now; with neither, the authored level alone.
+ */
+export function mixerStripRows(buses: readonly StripSource[], atPlayhead: boolean): MixerStripRow[] {
+  return buses.map((b) => {
+    const recorded = atPlayhead && b.recorded !== null;
+    const g = (recorded ? b.recorded : b.live) ?? { runtime: 1, duck: 1, peak: 0 };
+    return { ...busStrip({ name: b.name, authored: b.authored, runtime: g.runtime, duck: g.duck, peak: g.peak }, recorded ? "take" : "live"), recorded };
+  });
 }
 
 /** A value for the table: numbers to two places, labels as they are, "—" for none. */

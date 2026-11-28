@@ -4,23 +4,30 @@
  * materials (`materials2D.ts`) their material, from the batch's texture, material asset, sorting layer, blend, mask and
  * tint: shared by batches asking for the same, lit by the sorting layer's 2D lights or not, replaced in place when the
  * 2D lighting changes. Knows nothing of tiles or bones: the features (tiles, 2D lines and decals, skinned sprites with
- * `setTriangles`, updated in place each frame, light volumes) decide what the geometry is.
+ * `setTriangles`, updated in place each frame, light volumes) decide what the geometry is. Either call with the same
+ * texture, vertex count and `indices` array as before moves the vertices in place (an animated tile's frame, ADR 0437).
  *
  * A deforming mesh (`setTriangles`) whose material has a normal map gets a 2D tangent per vertex, worked out here from
  * its positions and UVs (`tangents2D`) each time it moves, so the normals follow its bones or its line; quads
  * (`setQuads`) turn their normal map by the batch's matrix.
+ *
+ * Camera listeners (ADR 0444) run from the scene's before-camera-render observable, which the renderer's frame graph
+ * raises before each camera's render pass. A matrix set from a listener freezes the mesh's world matrix to a copy for that
+ * camera; after the scene has drawn, those batches are frozen back to their own matrix.
  */
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
+import type { Observer } from "@babylonjs/core/Misc/observable.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../scene/Assets";
 import { authoredSize } from "../../scene/importSettings";
 import { tangents2D } from "../lights2D/tangents";
 import type { QuadBatch, QuadBatchHost, QuadBlend, QuadMask } from "../quadBatches";
-import { placeInLayer } from "./layeredQuads";
+import { placeInLayer, withinOrder } from "./layeredQuads";
 import { TANGENT_2D_ATTRIBUTE } from "./lights2DMaterial";
 import type { BabylonMaterials2D, Material2D, Material2DRequest, Tint2D } from "./materials2D";
 
@@ -40,8 +47,50 @@ const HEX = /^#[0-9a-f]{6}$/i;
 /** @internal */
 export class BabylonQuadBatches implements QuadBatchHost {
   private readonly batches = new Set<BabylonQuadBatch>();
+  private readonly cameraListeners = new Set<(cameraWorldPosition: readonly [number, number, number]) => void>();
+  /** While a camera listener runs: matrices set now are for that camera only. */
+  private inCamera = false;
+  /** Batches holding a camera's matrix, frozen back to their own after the scene draws. */
+  private readonly perCamera = new Set<BabylonQuadBatch>();
+  private beforeCamera: Observer<Camera> | null = null;
+  private afterRender: Observer<Scene> | null = null;
 
   constructor(private readonly deps: BabylonQuadBatchDeps) {}
+
+  onCameraRender(listener: (cameraWorldPosition: readonly [number, number, number]) => void): () => void {
+    const scene = this.deps.scene;
+    this.cameraListeners.add(listener);
+    this.beforeCamera ??= scene.onBeforeCameraRenderObservable.add((camera) => this.notifyCamera(camera));
+    this.afterRender ??= scene.onAfterRenderObservable.add(() => this.restoreMatrices());
+    return () => void this.cameraListeners.delete(listener);
+  }
+
+  private notifyCamera(camera: Camera): void {
+    if (!this.cameraListeners.size) return;
+    const p = camera.globalPosition;
+    const position: readonly [number, number, number] = [p.x, p.y, p.z];
+    this.inCamera = true;
+    try {
+      for (const listener of this.cameraListeners) listener(position);
+    } finally {
+      this.inCamera = false;
+    }
+  }
+
+  private restoreMatrices(): void {
+    for (const b of this.perCamera) b.restoreMatrix();
+    this.perCamera.clear();
+  }
+
+  /** @internal Whether a camera listener is running (a matrix set now is for that camera only). */
+  get settingCameraMatrix(): boolean {
+    return this.inCamera;
+  }
+
+  /** @internal A batch now holds a camera's matrix. */
+  holdsCameraMatrix(b: BabylonQuadBatch): void {
+    this.perCamera.add(b);
+  }
 
   createBatch(name: string): QuadBatch {
     const b = new BabylonQuadBatch(this, name);
@@ -79,22 +128,29 @@ export class BabylonQuadBatches implements QuadBatchHost {
   /** @internal */
   forget(b: BabylonQuadBatch): void {
     this.batches.delete(b);
+    this.perCamera.delete(b);
   }
 
   dispose(): void {
     for (const b of [...this.batches]) b.dispose();
+    this.cameraListeners.clear();
+    this.beforeCamera?.remove();
+    this.afterRender?.remove();
+    this.beforeCamera = this.afterRender = null;
   }
 }
 
 class BabylonQuadBatch implements QuadBatch {
   mesh: Mesh | null = null;
   private texture = "";
-  /** What the mesh was built from (`setTriangles` only moves the vertices of an updatable mesh with the same indices). */
+  /** What the mesh was built from (`setQuads` and `setTriangles` only move the vertices of an updatable mesh with the same indices). */
   private indices: Uint32Array | null = null;
   private positions: Float32Array | null = null;
   private uvs: Float32Array | null = null;
   private vertexFloats = 0;
   private updatable = false;
+  /** Built by `setTriangles`: a deforming mesh, which gets 2D tangents when its material has a normal map. */
+  private deforming = false;
   private tint: Tint2D = { r: 1, g: 1, b: 1, a: 1 };
   private color = "#ffffff";
   private opacity = 1;
@@ -108,6 +164,9 @@ class BabylonQuadBatch implements QuadBatch {
   /** The per-vertex tangents the mesh has, reused while the vertex count holds; null: none (the matrix turns the normal map). */
   private tangents: Float32Array | null = null;
   private readonly matrix = Matrix.Identity();
+  /** The matrix for the camera drawing now (ADR 0444), set from a camera listener; the mesh holds it while `cameraHeld`. */
+  private readonly cameraMatrix = Matrix.Identity();
+  private cameraHeld = false;
   private order = 0;
   private visible = false;
   private disposed = false;
@@ -118,24 +177,36 @@ class BabylonQuadBatch implements QuadBatch {
   ) {}
 
   setQuads(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void {
-    this.build(texture, positions, uvs, indices, colors ?? null, false);
+    // ADR 0437: the same texture, vertex count and `indices` array again (an animated tile's frame) moves the vertices in
+    // place. A static mesh is rebuilt once with updatable buffers the first time, then updated in place.
+    if (this.sameGeometry(texture, positions, indices) && this.updatable) this.update(positions, uvs, colors ?? null, false);
+    else this.build(texture, positions, uvs, indices, colors ?? null, this.sameGeometry(texture, positions, indices), false);
   }
 
   setTriangles(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void {
-    const mesh = this.mesh;
-    if (mesh && this.updatable && texture === this.texture && indices === this.indices && positions.length === this.vertexFloats) {
-      mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
-      mesh.updateVerticesData(VertexBuffer.UVKind, uvs); // a 2D ribbon's texture moves along it (ADR 0396)
-      this.positions = positions;
-      this.uvs = uvs;
-      this.applyColors(mesh, colors ?? null);
-      this.applyTangents();
-      return;
-    }
-    this.build(texture, positions, uvs, indices, colors ?? null, true);
+    if (this.sameGeometry(texture, positions, indices) && this.updatable) this.update(positions, uvs, colors ?? null, true);
+    else this.build(texture, positions, uvs, indices, colors ?? null, true, true);
   }
 
-  private build(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors: Float32Array | null, updatable: boolean): void {
+  /** Whether the mesh was built from this texture, vertex count and `indices` array (so only its vertices move). */
+  private sameGeometry(texture: string, positions: Float32Array, indices: Uint32Array): boolean {
+    return !!this.mesh && texture === this.texture && indices === this.indices && positions.length === this.vertexFloats;
+  }
+
+  /** Move an updatable mesh's vertices (and their UVs and colours) in place. */
+  private update(positions: Float32Array, uvs: Float32Array, colors: Float32Array | null, deforming: boolean): void {
+    const mesh = this.mesh!;
+    mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
+    mesh.updateVerticesData(VertexBuffer.UVKind, uvs); // a 2D ribbon's texture moves along it (ADR 0396); a tile's frame changes (ADR 0437)
+    this.positions = positions;
+    this.uvs = uvs;
+    this.deforming = deforming;
+    this.applyColors(mesh, colors);
+    this.applyTangents();
+  }
+
+  /** `updatable`: its buffers can be updated in place; `deforming`: triangles that move (they get 2D tangents, ADR 0399). */
+  private build(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors: Float32Array | null, updatable: boolean, deforming: boolean): void {
     if (this.disposed) return;
     this.mesh?.dispose();
     this.mesh = null;
@@ -146,6 +217,7 @@ class BabylonQuadBatch implements QuadBatch {
     this.uvs = uvs;
     this.vertexFloats = positions.length;
     this.updatable = updatable;
+    this.deforming = deforming;
     if (indices.length >= 3) {
       const mesh = new Mesh(this.name, this.owner.scene);
       const data = new VertexData();
@@ -157,7 +229,7 @@ class BabylonQuadBatch implements QuadBatch {
       this.applyColors(mesh, colors);
       mesh.alwaysSelectAsActiveMesh = true;
       placeInLayer(mesh, this.order);
-      mesh.freezeWorldMatrix(this.matrix);
+      mesh.freezeWorldMatrix(this.cameraHeld ? this.cameraMatrix : this.matrix);
       mesh.setEnabled(this.visible);
       this.mesh = mesh;
     }
@@ -190,7 +262,7 @@ class BabylonQuadBatch implements QuadBatch {
   private applyTangents(): void {
     const mesh = this.mesh;
     if (!mesh) return;
-    if (!this.updatable || !this.look?.normalMapped || !this.positions || !this.uvs || !this.indices) {
+    if (!this.deforming || !this.look?.normalMapped || !this.positions || !this.uvs || !this.indices) {
       if (this.tangents) mesh.removeVerticesData(TANGENT_2D_ATTRIBUTE);
       this.tangents = null;
       return;
@@ -203,14 +275,32 @@ class BabylonQuadBatch implements QuadBatch {
 
   setMatrix(m: ArrayLike<number>, offset = 0): void {
     Matrix.FromArrayToRef(m as unknown as number[], offset, tmp);
-    if (tmp.equals(this.matrix)) return;
+    if (this.owner.settingCameraMatrix) {
+      // ADR 0444: for the camera about to draw only (the mesh shares the matrix it's frozen to, so this is a copy).
+      if (this.cameraHeld && tmp.equals(this.cameraMatrix)) return;
+      if (!this.cameraHeld && tmp.equals(this.matrix)) return;
+      this.cameraMatrix.copyFrom(tmp);
+      this.cameraHeld = true;
+      this.owner.holdsCameraMatrix(this);
+      this.mesh?.freezeWorldMatrix(this.cameraMatrix);
+      return;
+    }
+    if (tmp.equals(this.matrix) && !this.cameraHeld) return;
     this.matrix.copyFrom(tmp);
+    this.cameraHeld = false;
     this.mesh?.freezeWorldMatrix(this.matrix);
   }
 
-  setOrder(sortingLayer: string, orderInLayer: number): void {
+  /** @internal After the frame: back to its own matrix (ADR 0444). */
+  restoreMatrix(): void {
+    if (!this.cameraHeld) return;
+    this.cameraHeld = false;
+    this.mesh?.freezeWorldMatrix(this.matrix);
+  }
+
+  setOrder(sortingLayer: string, orderInLayer: number, within = 0): void {
     if (this.disposed) return;
-    this.order = this.owner.sortOrder(sortingLayer, orderInLayer);
+    this.order = this.owner.sortOrder(sortingLayer, orderInLayer) + withinOrder(within);
     if (this.mesh) placeInLayer(this.mesh, this.order);
     if (sortingLayer === this.sortingLayer) return;
     this.sortingLayer = sortingLayer;
@@ -269,7 +359,7 @@ class BabylonQuadBatch implements QuadBatch {
     const mesh = this.mesh;
     if (!mesh || !this.look) return;
     if (mesh.material !== this.look.material) mesh.material = this.look.material;
-    if (!!this.tangents !== (this.updatable && this.look.normalMapped)) this.applyTangents();
+    if (!!this.tangents !== (this.deforming && this.look.normalMapped)) this.applyTangents();
   }
 
   dispose(): void {

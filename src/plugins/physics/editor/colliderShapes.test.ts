@@ -96,7 +96,7 @@ describe("every entry of the collider shape table (ADR 0288)", () => {
     expect(COLLIDER_SHAPES.map((s) => s.type).sort()).toEqual(Object.keys(FIELDS).sort());
     expect(colliderShapeOf(new BoxCollider2D() as Collider2D)?.type).toBe("engine.BoxCollider2D");
     expect(colliderShapeOf(new CapsuleCollider() as Collider)?.type).toBe("engine.CapsuleCollider");
-    expect(colliderShapeFor("engine.TilemapCollider2D")).toBeUndefined();
+    expect(colliderShapeFor("engine.ShapeCollider2D")).toBeUndefined();
   });
 
   for (const shape of shapes2D) {

@@ -1,10 +1,11 @@
 // Stories (ADR 0219) for the Inspector's Localise control over the fixture project: pick a key by searching its text
-// (with the French preview), extract literal text to a table under the suggested key, and a bound field with Unlink.
+// (with the French preview), extract literal text to a table under the suggested key, and keyed text with Unlink
+// (ADR 0356 §9, 0423 wave F: Svelte UI's literal text).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";
 import { fixtureProject } from "./localisationFixture";
-import { keyMatches, keyPreview, suggestKey, suggestTable } from "./localiseModel";
+import { keyMatches, keyPreview, suggestKey, suggestTable } from "./localiseKeys";
 import { LocaliseControl } from "./LocaliseControl";
 
 const meta: Meta = { title: "Editor/Localisation/Localise control" };
@@ -24,8 +25,8 @@ function Demo(props: { literal: string | null }) {
         literal={props.literal}
         findKeys={(s) => keyMatches(project, s, "fr")}
         tables={project.tables.map((t) => t.path)}
-        suggestedTable={suggestTable(project, "ui/menu.ui.xml")}
-        suggestedKey={suggestKey(project, "ui/menu.ui.xml", "hint", "Text", "text")}
+        suggestedTable={suggestTable(project, "ui/Menu.svelte")}
+        suggestedKey={suggestKey(project, "ui/Menu.svelte", "hint", "p", "text")}
         disabled={null}
         onPick={setBound}
         onUnlink={() => setBound(null)}

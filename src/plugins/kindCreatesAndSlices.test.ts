@@ -22,16 +22,19 @@ describe("the New… menu's file entries (ADR 0149)", () => {
       ["rendertexture", "New Render Texture"],
       ["strings", "New String Table"], // ADR 0356: string tables are a core kind
       ["inputContext", "New Input Context"],
+      ["actionSet", "New Action Set"], // ADR 0433
     ]);
   });
 
   it("include an active plugin's creates after the core ones, and drop them when it is disabled", () => {
     const labels = kindCreators().map((c) => c.label);
     expect(labels.slice(0, 2)).toEqual(["New Scene", "New Render Texture"]);
-    expect(labels).toContain("New UI Document");
+    expect(labels).not.toContain("New UI Document"); // retired with UI documents (ADR 0423 wave D)
+    expect(labels).toContain("New Svelte Component"); // ADR 0423
     expect(labels).toContain("New Material");
     halves.off();
-    expect(kindCreators().map((c) => c.label)).not.toContain("New UI Document");
+    expect(kindCreators().map((c) => c.label)).not.toContain("New Svelte Component");
+
     expect(kindCreators().map((c) => c.label)).not.toContain("New Material");
   });
 });

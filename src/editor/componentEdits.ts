@@ -9,7 +9,7 @@
 import { pluginTitle } from "../plugins/manifest";
 import { isRuntimePluginActive, pluginOfComponent, runtimePluginManifest } from "../plugins/runtimeContext";
 import type { GameObject } from "../engine";
-import { componentCatalog, type ComponentInfo, isEditableComponent, listComponents, meshLocalBounds, viewport } from "../engine/editor";
+import { componentCatalog as engineCatalog, type ComponentInfo, type ComponentTypeInfo, isEditableComponent, listComponents, meshLocalBounds, viewport } from "../engine/editor";
 import { MoveComponent, type ComponentEntry, type NodePath, type SceneDocument } from "./document";
 import { originOf, writeAddComponent, writeProperty, writeRemoveComponent } from "./overrideWriter";
 import type { OpenScene } from "./state";
@@ -17,13 +17,23 @@ import { editableNow } from "./editGate";
 import { undoStep } from "./undoStep";
 
 /** Components a node can have only one of. Colliders, audio sources and scripts can repeat. */
-const SINGLE = new Set(["engine.RigidBody2D", "engine.SpriteRenderer", "engine.Camera", "engine.Text", "engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField"]);
+const SINGLE = new Set(["engine.RigidBody2D", "engine.SpriteRenderer", "engine.Camera"]);
+
+/** The UI element types only a UIView renders (ADR 0421, 0423): never added by hand. */
+const VIEW_ONLY = new Set([
+  "engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField",
+  // ADR 0428: form elements.
+  "engine.UITextArea", "engine.UIToggle", "engine.UIRadio", "engine.UISlider", "engine.UISelect", "engine.UIOption", "engine.UIProgress", "engine.UIMeter", "engine.UILabel", "engine.UIForm",
+  // ADR 0430: inline SVG and media.
+  "engine.UISvg", "engine.UIVideo", "engine.UIAudio",
+]);
 
 const shortName = (type: string) => type.replace(/^[^.]*\./, "");
 
 /** Why `type` can't be added to `node`, or null if it can. */
 export function whyNotAddable(node: GameObject, type: string): string | null {
   if (!isEditableComponent(type)) return `${shortName(type)} is managed by the engine`;
+  if (VIEW_ONLY.has(type)) return `${shortName(type)} comes from a UIView: write the element in its Svelte component`;
   const existing = listComponents(node).find((c) => c.type === type);
   if (existing && (SINGLE.has(type) || existing.kind === "data")) return `it already has a ${shortName(type)}`;
   return null;
@@ -208,4 +218,7 @@ export function removeMissingComponent(scene: OpenScene, path: NodePath, type: s
   return true;
 }
 
-export { componentCatalog };
+/** The types Add Component offers: the engine's catalog without the UI element types documents build (ADR 0421). */
+export function componentCatalog(): ComponentTypeInfo[] {
+  return engineCatalog().filter((t) => !VIEW_ONLY.has(t.id));
+}

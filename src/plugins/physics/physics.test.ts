@@ -86,7 +86,7 @@ describe("one description per physics dimension (ADR 0283)", () => {
     expect(new Set([...ids2d, ...ids3d]).size).toBe(ids2d.length + ids3d.length);
     const table: [string, PhysicsDimension | null][] = [
       ["engine.RigidBody2D", "2d"],
-      ["engine.TilemapCollider2D", "2d"],
+      ["engine.ShapeCollider2D", "2d"],
       ["engine.SpringJoint2D", "2d"],
       ["engine.RigidBody", "3d"],
       ["engine.MeshCollider", "3d"],

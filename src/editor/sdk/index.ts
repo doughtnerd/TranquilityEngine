@@ -82,6 +82,8 @@ export { EmptyState, type EmptyStateProps } from "../ui/EmptyState";
 export { UndoToasts, createToastQueue, UNDO_TOAST_MS, type Toast, type ToastQueue, type ToastRequest } from "../ui/UndoToast";
 export { ContextMenu, SEPARATOR, tidyEntries, type ContextMenuProps, type MenuEntry, type MenuItem } from "../ui/ContextMenu";
 export { MoveToDialog, type MoveToDialogProps, type MovingItem } from "../ui/MoveToDialog";
+// The kit's dialog frame (header with × close, body, footer with summary and buttons), for a plugin's own dialogs (ADR 0438's import dialog).
+export { KitDialog, type KitDialogProps } from "../ui/KitDialog";
 export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from "../ui/SegmentedControl";
 export { Chip, type ChipProps, type ChipTone } from "../ui/Chip";
 export { HistoryPopover, type HistoryPopoverProps } from "../ui/HistoryPopover";
@@ -89,6 +91,8 @@ export { KeyboardShortcutsDialog, type KeyboardShortcutsDialogProps, type Shortc
 // The 3D shape kit (ADR 0295): pose maths, wireframes, the face, radius and blend-shell handle rules and the axis drag
 // that 3D handle gizmos build their shape tables from.
 export * as shapeKit3d from "../shapeKit3d";
+// Point editing for polygons (ADR 0439): handles, hit tests and what a press does, shared by outline and collision editors.
+export { hitHandle, insidePolygon, pointHandles, pointIndex, pressPoints, type PointPress, type V2 } from "../polygonEdit";
 // One refused-or-next result and the one place it is applied (ADR 0307, 0313); one parameter list and its cards (ADR 0304).
 export { accept, refuse, refusalOf, mapEdit, placeEdit, applyEdit, applyToDocument, applyToSettings, type EditResult } from "./editResult";
 export { parameterList, type ParameterHolder, type ParameterKind, type ParameterList, type ParameterRangePatch } from "./parameterList";

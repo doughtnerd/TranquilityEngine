@@ -3,9 +3,10 @@ import { inLiveWorld } from "./liveWorld";
 import { captureView, pixelsNear, type ViewCapture } from "./viewCapture";
 
 // Keyboard focus navigation of game UI (ADR 0340, docs/wiki/guide/ui.md "Keyboard and gamepad navigation"), played for real: a
-// screen canvas with `autoFocus` and four buttons in a 2×2 grid. The arrow keys move focus spatially, Tab and Shift+Tab in
-// tree order, Enter clicks the focused button and Escape cancels on the canvas, all read through the public `myco` API
-// (`UIButton.focused`, `UICanvas`, `InputPlayers`) and a script that counts clicks and cancels. While a button has focus,
+// UIView's screen canvas with `autoFocus` and four buttons in a 2×2 grid, written as a Svelte component (game UI comes only
+// from UI views, ADR 0421, 0423). The arrow keys move focus spatially, Tab and Shift+Tab in tree order, Enter clicks the
+// focused button and Escape cancels on the canvas, all read through the public `myco` API (`UIView.query`,
+// `UIButton.focused`, `UICanvas`, `InputPlayers`) and a script that counts clicks and cancels. While a button has focus,
 // the arrows are the UI's: a game action bound to them doesn't see them. The focused button is drawn in its `focusColor`.
 test.describe.configure({ timeout: 90_000 }); // opening a project compiles its scripts, and Play type-checks them
 
@@ -15,23 +16,20 @@ const ACTIONS = `import { button, defineActions } from "myco";
 export const NavActions = defineActions("game.NavActions", { right: button("<Keyboard>/arrowright") });
 `;
 
-/** Counts the grid's clicks and the canvas's cancels, and shows them in the Status text (what the spec reads). */
-const PROBE = `import { GameBehavior, GameObject, UIButton, UICanvas, UIText, behavior, field } from "myco";
+/** Counts the grid's clicks and the canvas's cancels, and shows them in the #status text (what the spec reads). */
+const PROBE = `import { GameBehavior, UIButton, UICanvas, UIText, UIView, behavior } from "myco";
 
 @behavior("game.MenuProbe")
 export class MenuProbe extends GameBehavior {
-  @field(GameObject) a: GameObject | null = null;
-  @field(GameObject) b: GameObject | null = null;
-  @field(GameObject) c: GameObject | null = null;
-  @field(GameObject) d: GameObject | null = null;
-  @field(GameObject) status: GameObject | null = null;
   private readonly clicks: Record<string, number> = { a: 0, b: 0, c: 0, d: 0 };
   private cancels = 0;
 
   update(): void {
-    for (const name of ["a", "b", "c", "d"] as const) if (this[name]?.getComponent(UIButton)?.clicked) this.clicks[name]++;
-    if (this.gameObject.getComponent(UICanvas)?.canceled) this.cancels++;
-    const text = this.status?.getComponent(UIText);
+    const ui = this.gameObject.getComponent(UIView);
+    if (!ui?.root) return;
+    for (const name of ["a", "b", "c", "d"]) if ((ui.query("#" + name)?.component as UIButton | undefined)?.clicked) this.clicks[name]++;
+    if ((ui.root.component as UICanvas).canceled) this.cancels++;
+    const text = ui.query("#status")?.component as UIText | undefined;
     if (text) text.text = \`a\${this.clicks.a} b\${this.clicks.b} c\${this.clicks.c} d\${this.clicks.d} cancel\${this.cancels}\`;
   }
 }
@@ -41,9 +39,23 @@ export class MenuProbe extends GameBehavior {
 const FOCUS: [number, number, number] = [255, 0, 255];
 
 const node = (id: string, parent: string | null, components: object[]) => ({ id, name: id, ...(parent ? { parent } : {}), components: [{ type: "engine.Transform", data: {} }, ...components] });
-const button = (id: string, parent: string) => node(id, parent, [{ type: "engine.UIButton", data: { width: 220, height: 120, backgroundColor: [0.2, 0.2, 0.2, 1], focusColor: [1, 0, 1, 1] } }]);
 
-/** A camera and a screen canvas: a column holding two rows of two buttons (a b / c d) and a status line. */
+/** A column holding two rows of two buttons (a b / c d) and a status line, on the view's screen canvas. */
+const MENU = `<div id="screen">
+  <div class="row"><button id="a"></button><button id="b"></button></div>
+  <div class="row"><button id="c"></button><button id="d"></button></div>
+  <p id="status"></p>
+</div>
+
+<style>
+  #screen { width: 100%; height: 100%; flex-direction: column; justify-content: center; align-items: center; gap: 60px; }
+  .row { flex-direction: row; gap: 200px; }
+  button { width: 220px; height: 120px; background-color: #333333; focus-color: #ff00ff; }
+  #status { font-size: 24px; }
+</style>
+`;
+
+/** A camera and the menu's view, with the probe beside it. */
 const SCENE = JSON.stringify({
   format: "myco.scene@4",
   settings: { physics: "2d" },
@@ -57,17 +69,9 @@ const SCENE = JSON.stringify({
       ],
     },
     node("menu", null, [
-      { type: "engine.UICanvas", data: { autoFocus: true } },
-      { type: "game.MenuProbe", data: { a: { $node: "a" }, b: { $node: "b" }, c: { $node: "c" }, d: { $node: "d" }, status: { $node: "status" } } },
+      { type: "engine.UIView", data: { component: "asset:ui/Menu.svelte", autoFocus: true } },
+      { type: "game.MenuProbe", data: {} },
     ]),
-    node("screen", "menu", [{ type: "engine.UIPanel", data: { width: "100%", height: "100%", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 60 } }]),
-    node("top", "screen", [{ type: "engine.UIPanel", data: { flexDirection: "row", gap: 200 } }]),
-    button("a", "top"),
-    button("b", "top"),
-    node("bottom", "screen", [{ type: "engine.UIPanel", data: { flexDirection: "row", gap: 200 } }]),
-    button("c", "bottom"),
-    button("d", "bottom"),
-    node("status", "screen", [{ type: "engine.UIText", data: { text: "", fontSize: 24 } }]),
   ],
 });
 
@@ -125,14 +129,14 @@ test("arrow keys and Tab move focus between a canvas's buttons, Enter clicks, Es
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await openEditor(page, { files: { "scripts/navActions.ts": ACTIONS, "scripts/menuProbe.ts": PROBE, "scenes/main.scene.json": SCENE } });
+  await openEditor(page, { files: { "scripts/navActions.ts": ACTIONS, "scripts/menuProbe.ts": PROBE, "ui/Menu.svelte": MENU, "scenes/main.scene.json": SCENE } });
   await play(page);
   const view = page.locator("#game-view canvas").first();
   // Keys go to the game from the window; take the page's focus off the Stop button (Enter would press it) without a
   // press in the game view, which would take the UI's focus away.
   await view.focus();
 
-  // autoFocus: the canvas's first button has focus as the game starts.
+  // autoFocus: the view's first button has focus as the game starts.
   await expect.poll(() => focused(page), { timeout: 15_000 }).toEqual(["a"]);
   await expect.poll(() => status(page)).toBe("a0 b0 c0 d0 cancel0");
   // The arrows move focus spatially: right to b, down to d, left to c, up to a.
@@ -208,36 +212,24 @@ test("arrow keys and Tab move focus between a canvas's buttons, Enter clicks, Es
   expect(errors).toEqual([]);
 });
 
-/** A pause menu as a UI document: auto-focus on Options, Resume and Quit wrapping round through nav-up and nav-down, a title that can't take focus. */
-const PAUSE = `<Canvas auto-focus first-selected="options">
-  <Panel width="100%" height="100%" flex-direction="column" justify-content="center" align-items="center" gap="16">
-    <Button id="title" focusable="false" width="260" height="50">Paused</Button>
-    <Button id="resume" nav-up="quit" width="260" height="50">Resume</Button>
-    <Button id="options" width="260" height="50">Options</Button>
-    <Button id="quit" nav-down="resume" width="260" height="50">Quit</Button>
-    <Text id="log">-</Text>
-  </Panel>
-</Canvas>`;
+/**
+ * A pause menu as a Svelte component (its view auto-focuses Options, its `firstSelected`): Resume and Quit wrapping round
+ * through nav-up and nav-down, a title that can't take focus, and handlers logging focus, clicks and Escape (bubbling out of the view to `<svelte:window>`) into its #log text.
+ */
+const PAUSE = `<script lang="ts">
+  let lines: string[] = $state([]);
+  const write = (line: string) => (lines = [...lines, line]);
+</script>
 
-/** Logs the document's focus, click and cancel handlers into its #log text (what the spec reads). */
-const PAUSE_PROBE = `import { GameBehavior, UIDocument, UIText, behavior } from "myco";
+<svelte:window onkeydown={(e) => e.key === "Escape" && write("cancel")} />
 
-@behavior("game.PauseProbe")
-export class PauseProbe extends GameBehavior {
-  private readonly lines: string[] = [];
-
-  async start(): Promise<void> {
-    const doc = this.gameObject.getComponent(UIDocument)!;
-    await doc.ready;
-    const write = (line: string) => {
-      this.lines.push(line);
-      const text = doc.query("#log")?.node.getComponent(UIText);
-      if (text) text.text = this.lines.slice(-6).join(", ");
-    };
-    for (const id of ["resume", "options", "quit"]) doc.query("#" + id)!.on("focus", () => write("focus " + id)).on("click", () => write("click " + id));
-    doc.root!.on("cancel", () => write("cancel"));
-  }
-}
+<div width="100%" height="100%" flex-direction="column" justify-content="center" align-items="center" gap="16">
+  <button id="title" focusable="false" width="260" height="50">Paused</button>
+  <button id="resume" nav-up="quit" width="260" height="50" onfocus={() => write("focus resume")} onclick={() => write("click resume")}>Resume</button>
+  <button id="options" width="260" height="50" onfocus={() => write("focus options")} onclick={() => write("click options")}>Options</button>
+  <button id="quit" nav-down="resume" width="260" height="50" onfocus={() => write("focus quit")} onclick={() => write("click quit")}>Quit</button>
+  <p id="log">{lines.slice(-6).join(", ") || "-"}</p>
+</div>
 `;
 
 const PAUSE_SCENE = JSON.stringify({
@@ -252,37 +244,34 @@ const PAUSE_SCENE = JSON.stringify({
         { type: "engine.Camera", data: { projection: "orthographic", orthographicSize: 10, backgroundColor: "#4ec0ca" } },
       ],
     },
-    node("pause", null, [
-      { type: "engine.UIDocument", data: { document: "asset:ui/pause.ui.xml" } },
-      { type: "game.PauseProbe", data: {} },
-    ]),
+    node("pause", null, [{ type: "engine.UIView", data: { component: "asset:ui/Pause.svelte", autoFocus: true, firstSelected: "options" } }]),
   ],
 });
 
 type PauseState = { focused: string[]; log: string };
 
-/** Which of the document's buttons has focus, and its #log text, through `UIDocument.query`. */
+/** Which of the view's buttons has focus, and its #log text, through `UIView.query`. */
 const pauseState = (page: Page): Promise<PauseState | null> =>
   inLiveWorld(page, null, (w, { myco, componentsOf }) => {
     if (!w) return null;
-    type El = { focused: boolean; node: { getComponent(t: unknown): { text: string } | null } };
-    const doc = componentsOf<{ query(s: string): El | null }>(w.root, myco.UIDocument)[0];
-    const log = doc?.query("#log")?.node.getComponent(myco.UIText);
-    if (!doc || !log) return null;
-    return { focused: ["title", "resume", "options", "quit"].filter((id) => doc.query(`#${id}`)?.focused), log: log.text };
+    type El = { component: { focused?: boolean; text?: string } };
+    const view = componentsOf<{ query(s: string): El | null }>(w.root, myco.UIView)[0];
+    const log = view?.query("#log")?.component.text;
+    if (!view || log === undefined) return null;
+    return { focused: ["title", "resume", "options", "quit"].filter((id) => view.query(`#${id}`)?.component.focused), log };
   });
 
-test("a UI document's auto-focus, first-selected, nav-up and nav-down, focusable and handlers drive keyboard navigation", async ({ page }) => {
+test("a Svelte view's auto-focus, first-selected, nav-up and nav-down, focusable and handlers drive keyboard navigation", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await openEditor(page, { files: { "ui/pause.ui.xml": PAUSE, "scripts/pauseProbe.ts": PAUSE_PROBE, "scenes/main.scene.json": PAUSE_SCENE } });
+  await openEditor(page, { files: { "ui/Pause.svelte": PAUSE, "scenes/main.scene.json": PAUSE_SCENE } });
   await play(page);
   await page.locator("#game-view canvas").first().focus(); // off the Stop button, without a press in the game
 
-  // auto-focus on first-selected.
+  // auto-focus on the view's firstSelected.
   await expect.poll(async () => (await pauseState(page))?.focused, { timeout: 15_000 }).toEqual(["options"]);
   // Down to Quit, then nav-down wraps to Resume; up from Resume, nav-up wraps to Quit; the title never takes focus.
   for (const [key, to] of [["ArrowDown", "quit"], ["ArrowDown", "resume"], ["ArrowUp", "quit"], ["ArrowUp", "options"], ["ArrowUp", "resume"]] as const) {
@@ -290,7 +279,7 @@ test("a UI document's auto-focus, first-selected, nav-up and nav-down, focusable
     await page.keyboard.press(key);
     await expect.poll(async () => (await pauseState(page))?.focused, { message: `${key} focuses ${to}` }).toEqual([to]);
   }
-  // Enter clicks Resume through its click handler; Escape runs the root's cancel handler.
+  // Enter clicks Resume through its click handler; Escape reaches the window's keydown handler.
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await pauseState(page))?.log).toMatch(/focus resume, click resume$/);
   await page.keyboard.press("Escape");

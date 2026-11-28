@@ -23,7 +23,7 @@ const layersOf = (d: SettingsDraft): string[] => physicsSettings.read(d).layers;
 
 /** The physics Components with a `layer` field: every collider type and both character controllers (a script's own `layer` field is left alone). */
 export const LAYERED_COMPONENTS = [
-  "engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D", "engine.TilemapCollider2D", "engine.CharacterController2D",
+  "engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D", "engine.ShapeCollider2D", "engine.CharacterController2D",
   "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider", "engine.MeshCollider", "engine.CharacterController",
 ] as const;
 

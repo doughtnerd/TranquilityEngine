@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tileset version="1.10" tiledversion="1.11.0" name="terrain" tilewidth="16" tileheight="16" spacing="2" margin="1" tilecount="12" columns="4">
+ <tileoffset x="0" y="4"/>
+ <grid orientation="orthogonal" width="16" height="16"/>
+ <properties>
+  <property name="author" value="tests"/>
+ </properties>
+ <image source="../images/terrain.png" width="72" height="54"/>
+ <tile id="0" class="Solid">
+  <properties>
+   <property name="friction" type="float" value="0.5"/>
+   <property name="solid" type="bool" value="true"/>
+   <property name="hint" type="file" value="notes/solid.txt"/>
+  </properties>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="0" y="0" width="16" height="4">
+    <properties>
+     <property name="oneWay" type="bool" value="true"/>
+    </properties>
+   </object>
+   <object id="2" x="0" y="8" width="8" height="8">
+    <ellipse/>
+   </object>
+   <object id="3" x="8" y="16">
+    <polygon points="0,0 8,0 8,-8"/>
+   </object>
+   <object id="4" x="4" y="4">
+    <point/>
+   </object>
+  </objectgroup>
+ </tile>
+ <tile id="1" probability="0.25">
+  <animation>
+   <frame tileid="1" duration="100"/>
+   <frame tileid="2" duration="250"/>
+  </animation>
+ </tile>
+ <wangsets>
+  <wangset name="Ground" type="corner" tile="-1">
+   <wangcolor name="Grass" color="#7cb342" tile="-1" probability="1"/>
+   <wangtile tileid="4" wangid="0,1,0,1,0,1,0,1"/>
+   <wangtile tileid="5" wangid="0,1,0,1,0,0,0,0"/>
+  </wangset>
+  <wangset name="Mix" type="edge" tile="-1">
+   <wangcolor name="Sand" color="#ffeeaa" tile="-1" probability="1"/>
+   <wangcolor name="Water" color="#2255ff" tile="-1" probability="1"/>
+   <wangcolor name="Rock" color="#888888" tile="-1" probability="1"/>
+   <wangtile tileid="6" wangid="1,0,1,0,0,0,0,0"/>
+   <wangtile tileid="7" wangid="1,0,2,0,1,0,2,0"/>
+  </wangset>
+ </wangsets>
+</tileset>

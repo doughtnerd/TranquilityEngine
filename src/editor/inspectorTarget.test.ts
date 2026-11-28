@@ -21,7 +21,7 @@ import { endLiveInspection, inspectWorld } from "./runtimeInspect";
 import { editor } from "./sdk/editor";
 import { currentProject, openScene, playState, sceneCamera, selectedKeys, selectedUIElement } from "./state";
 import { ROOT, demoFolder, useCoreAssetKinds } from "./testing";
-import { uiRefKey, type UIElementRef } from "./uiDocuments";
+import { uiViewRefKey, type UIViewRef } from "./uiViews";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 // Materials, shader graphs and particle effects have Inspector views through their plugins (ADR 0134).
@@ -35,7 +35,7 @@ const INSPECTED = [
   "images/flag.png",
   "audio/thunder.wav",
 ];
-const HUD: UIElementRef = { host: "bird", index: 0, path: "0" };
+const HUD: UIViewRef = { host: "bird", index: 0, file: "ui/Hud.svelte", line: 1, column: 0, nth: 0 };
 
 let project: EditorProject;
 
@@ -187,13 +187,13 @@ describe("assets (the Assets panel)", () => {
   });
 });
 
-describe("a UI document element", () => {
+describe("a UI element a view rendered", () => {
   it("shows the element and clears the nodes and the assets", () => {
     select(["bird"]);
     selectUIElement(HUD);
     expect(selectedKeys.value).toEqual([]);
-    expect(selectedUIElement.value).toBe(uiRefKey(HUD));
-    expect(inspectorTarget.value).toEqual({ kind: "uiElement", ref: HUD });
+    expect(selectedUIElement.value).toBe(uiViewRefKey(HUD));
+    expect(inspectorTarget.value).toEqual({ kind: "uiViewElement", ref: HUD });
     selectAssets(["scenes/main.scene.json"]);
     selectUIElement(HUD);
     expect(selectedAssets.value).toEqual([]);
@@ -232,7 +232,7 @@ describe("a bone of a Skeleton (ADR 0373)", () => {
     selectBone(scene, ["bird"], "Head", "test.bones");
     expect(selectedAssets.value).toEqual([]);
     selectUIElement(HUD);
-    expect(kind()).toBe("uiElement");
+    expect(kind()).toBe("uiViewElement");
     selectBone(scene, ["bird"], "Head", "test.bones");
     showSceneSettings();
     expect(kind()).toBe("sceneSettings");

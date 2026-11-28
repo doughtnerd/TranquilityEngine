@@ -1,22 +1,27 @@
 // The Projects tab of an application's projects screen (ADR 0380), the same in Myco Engine and Biosonic: New
 // Project…, Add from Folder…, a search over the recent projects, the newest as "Continue where you left off" and the
-// rest under "All projects", each with Open and a ⋯ menu (Remove from list; Edit location note for a browser folder,
+// rest under "All projects", each with Open and a ⋯ menu (Remove from List; Edit location note for a browser folder,
 // whose real path a browser can't see, ADR 0116). The list is the shared recent projects (`recentProjects()`); each
-// entry is checked when the tab shows, and a missing folder can't be opened. Opening goes through `startActions()`,
-// which the page sets for its app.
+// entry is checked when the tab shows, and a missing folder can't be opened: its Open becomes Remove from List.
+// Removing only takes the entry off the list (the folder stays), says so in a toast with Undo, and moves focus to the
+// next project's ⋯ (or the toolbar when none is left); the card under "Continue where you left off" then shows the
+// next most recent project, or goes. Opening goes through `startActions()`, which the page sets for its app.
 import { signal } from "@preact/signals";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { NO_FOLDERS_NOTE, canOpenFolders, projectFileSystem } from "../../projectFs";
 import { locationOf, recentProjects, type RecentProject, type RecentState } from "../../recentProjects";
 import { startActions } from "../../startActions";
 import { ContextMenu, type MenuEntry } from "../ContextMenu";
 import { openNewProjectDialog } from "../NewProjectDialog";
-import { openedWhen, searchRows, splitLatest } from "./appProjectsLogic";
+import { UndoToasts, createToastQueue } from "../UndoToast";
+import { openedWhen, removeFromList, searchRows, splitLatest } from "./appProjectsLogic";
 
 /** Each recent project's state, checked when the tab shows (by entry id). */
 const states = signal<ReadonlyMap<string, RecentState>>(new Map());
 /** The entry being opened, so its buttons say so and the others wait. */
 const busy = signal<string | null>(null);
+/** "Removed … from the list · Undo". */
+const toasts = createToastQueue();
 
 async function checkAll(list: readonly RecentProject[]): Promise<void> {
   const fs = await projectFileSystem();
@@ -38,6 +43,8 @@ async function reopen(entry: RecentProject): Promise<void> {
 
 const searchText = (e: RecentProject) => ({ name: e.name, where: locationOf(e) });
 
+const REMOVE_TITLE = "Take it off this list. The folder and its files stay on disk.";
+
 export function ProjectsTab() {
   const version = recentProjects().version.value;
   const can = canOpenFolders();
@@ -47,6 +54,7 @@ export function ProjectsTab() {
   const [query, setQuery] = useState("");
   const [menu, setMenu] = useState<{ entry: RecentProject; at: Element } | null>(null);
   const [labelling, setLabelling] = useState<string | null>(null);
+  const root = useRef<HTMLDivElement>(null);
 
   const found = searchRows(all, query, searchText);
   const searching = query.trim() !== "";
@@ -54,13 +62,59 @@ export function ProjectsTab() {
   const listed = searching ? (latest ? [latest, ...rest] : []) : rest;
   const stateOf = (e: RecentProject) => states.value.get(e.id) ?? "unknown";
 
+  /** Take `entry` off the list, then focus the ⋯ of the project now in its place (or the one before; the toolbar when none is left). */
+  const forget = async (entry: RecentProject) => {
+    const mores = () => [...(root.current?.querySelectorAll<HTMLButtonElement>(".ap-more") ?? [])];
+    const at = mores().findIndex((b) => b.dataset.entry === entry.id);
+    if (!(await removeFromList(recentProjects(), entry, toasts))) return;
+    requestAnimationFrame(() => {
+      const left = mores();
+      const next = left[Math.min(Math.max(at, 0), left.length - 1)] ?? root.current?.querySelector<HTMLButtonElement>(".ap-toolbar button:not(:disabled)");
+      next?.focus();
+    });
+  };
+
   const menuEntries = (entry: RecentProject): MenuEntry[] => [
     ...(entry.kind === "handle" ? [{ id: "label", label: "Edit Location Note…", title: "Note where this folder is (browsers can't show its path)", run: () => setLabelling(entry.id) }] : []),
-    { id: "remove", label: "Remove from List", title: "Take it off this list (the folder stays)", run: () => void recentProjects().remove(entry.id) },
+    { id: "remove", label: "Remove from List", detail: "The folder stays on disk", title: REMOVE_TITLE, run: () => void forget(entry) },
   ];
 
+  const moreButton = (e: RecentProject) => (
+    <button type="button" class="ap-more" data-entry={e.id} aria-label={`More actions for ${e.name}`} aria-haspopup="menu" title="More actions" onClick={(ev) => setMenu({ entry: e, at: ev.currentTarget })}>
+      ⋯
+    </button>
+  );
+  /** A missing project's one action: take it off the list. */
+  const removeButton = (e: RecentProject, cls: string) => (
+    <button type="button" class={cls} aria-label={`Remove ${e.name} from the list`} title={`${locationOf(e)} is gone (or no longer has a project.json). ${REMOVE_TITLE}`} onClick={() => void forget(e)}>
+      Remove from List
+    </button>
+  );
+
+  /** A browser folder's location note, typed in place after Edit Location Note…. */
+  const labelInput = (e: RecentProject) =>
+    labelling === e.id && (
+      <input
+        class="ap-label-input"
+        type="text"
+        aria-label={`Location note for ${e.name}`}
+        placeholder="e.g. ~/games/flappy"
+        value={e.label ?? ""}
+        maxLength={200}
+        ref={(el) => el?.focus()}
+        onKeyDown={(ev) => {
+          if (ev.key === "Escape") setLabelling(null);
+          if (ev.key === "Enter") ev.currentTarget.blur();
+        }}
+        onBlur={(ev) => {
+          recentProjects().setLabel(e.id, ev.currentTarget.value);
+          setLabelling(null);
+        }}
+      />
+    );
+
   return (
-    <div class="ap-stack">
+    <div class="ap-stack" ref={root}>
       <div class="ap-toolbar">
         <button type="button" class="ap-primary" disabled={!can} onClick={openNewProjectDialog}>
           New Project…
@@ -89,9 +143,15 @@ export function ProjectsTab() {
                   {STATE_NOTE[stateOf(latest)] ? <span class={`ap-state ${stateOf(latest)}`}>{STATE_NOTE[stateOf(latest)]}</span> : `Opened ${openedWhen(latest.lastOpened)}`}
                 </p>
               </div>
-              <button type="button" class="ap-primary ap-big" aria-label={`Open ${latest.name}`} disabled={busy.value !== null || stateOf(latest) === "missing"} onClick={() => void reopen(latest)}>
-                {busy.value === latest.id ? "Opening…" : "Open"}
-              </button>
+              {stateOf(latest) === "missing" ? (
+                removeButton(latest, "ap-button ap-big")
+              ) : (
+                <button type="button" class="ap-primary ap-big" aria-label={`Open ${latest.name}`} disabled={busy.value !== null} onClick={() => void reopen(latest)}>
+                  {busy.value === latest.id ? "Opening…" : "Open"}
+                </button>
+              )}
+              {moreButton(latest)}
+              {labelInput(latest)}
             </div>
           </section>
         )}
@@ -119,31 +179,15 @@ export function ProjectsTab() {
                         </span>
                       </div>
                       <span class="ap-row-meta">{STATE_NOTE[state] ? <span class={`ap-state ${state}`}>{STATE_NOTE[state]}</span> : busy.value === e.id ? "Opening…" : openedWhen(e.lastOpened)}</span>
-                      <button type="button" class="ap-button" aria-label={`Open ${e.name}`} title={state === "missing" ? `${e.path} is gone (or no longer has a project.json)` : `Open ${e.name}`} disabled={busy.value !== null || state === "missing"} onClick={() => void reopen(e)}>
-                        Open
-                      </button>
-                      <button type="button" class="ap-more" aria-label={`More actions for ${e.name}`} aria-haspopup="menu" onClick={(ev) => setMenu({ entry: e, at: ev.currentTarget })}>
-                        ⋯
-                      </button>
-                      {labelling === e.id && (
-                        <input
-                          class="ap-label-input"
-                          type="text"
-                          aria-label={`Location note for ${e.name}`}
-                          placeholder="e.g. ~/games/flappy"
-                          value={e.label ?? ""}
-                          maxLength={200}
-                          ref={(el) => el?.focus()}
-                          onKeyDown={(ev) => {
-                            if (ev.key === "Escape") setLabelling(null);
-                            if (ev.key === "Enter") ev.currentTarget.blur();
-                          }}
-                          onBlur={(ev) => {
-                            recentProjects().setLabel(e.id, ev.currentTarget.value);
-                            setLabelling(null);
-                          }}
-                        />
+                      {state === "missing" ? (
+                        removeButton(e, "ap-button")
+                      ) : (
+                        <button type="button" class="ap-button" aria-label={`Open ${e.name}`} title={`Open ${e.name}`} disabled={busy.value !== null} onClick={() => void reopen(e)}>
+                          Open
+                        </button>
                       )}
+                      {moreButton(e)}
+                      {labelInput(e)}
                     </li>
                   );
                 })}
@@ -153,6 +197,7 @@ export function ProjectsTab() {
         )}
       </div>
       {menu && <ContextMenu entries={menuEntries(menu.entry)} at={menu.at} label={`${menu.entry.name} menu`} onClose={() => setMenu(null)} />}
+      <UndoToasts queue={toasts} />
     </div>
   );
 }

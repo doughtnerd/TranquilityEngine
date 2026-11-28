@@ -19,7 +19,7 @@ useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 // Sky assets are the Sky plugin's (ADR 0134), its kind `referencedAs` environment; materials and
 // shader graphs are the Materials plugin's, `referencedAs` material.
-// Models, environment maps, cubemaps, LUTs and UI documents: the Meshes, Environment, Post-processing and UI plugins' (ADR 0140).
+// Models, environment maps, cubemaps, LUTs and Svelte components: the Meshes, Environment, Post-processing and UI plugins' (ADR 0140).
 const RENDER_PLUGINS = [meshesEditorPlugin, environmentEditorPlugin, postProcessingEditorPlugin, uiEditorPlugin];
 beforeAll(() => activatePlugins([materialsEditorPlugin, skyEditorPlugin, particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin, ...RENDER_PLUGINS]));
 afterAll(() => {
@@ -45,7 +45,7 @@ const FILES = [
   "env/box.cubemap.json",
   "tiles/grass.tileset.json",
   "fonts/Pirata.ttf",
-  "ui/menu.ui.xml",
+  "ui/Menu.svelte",
   "main.nav.bin",
   "main.scene.json",
   "enemy.prefab.json",
@@ -72,7 +72,7 @@ describe("assetsForKinds", () => {
     expect(offered("envmap")).toEqual(["env/probe.env"]);
     expect(offered("tileset")).toEqual(["tiles/grass.tileset.json"]);
     expect(offered("font")).toEqual(["fonts/Pirata.ttf"]);
-    expect(offered("uidocument")).toEqual(["ui/menu.ui.xml"]);
+    expect(offered("svelte")).toEqual(["ui/Menu.svelte"]);
     expect(offered("navbake")).toEqual(["main.nav.bin"]);
     expect(offered("scene")).toEqual(["main.scene.json"]);
     expect(offered("prefab")).toEqual(["enemy.prefab.json"]);

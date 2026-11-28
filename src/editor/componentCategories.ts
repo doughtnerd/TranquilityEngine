@@ -29,16 +29,18 @@ const BY_NAME: Readonly<Record<string, string>> = {
   Fog: "Rendering",
   Sky: "Rendering",
   PostProcessing: "Rendering",
+  CameraShake: "Rendering",
+  ShakeImpulseSource: "Rendering",
   ReflectionProbe: "Rendering",
   ParticleSystem: "Rendering",
-  Text: "Rendering",
   WaterSurface: "Rendering",
   Tilemap: "Rendering",
+  MapObject: "Rendering",
   LineRenderer: "Rendering", // ADR 0396
   TrailRenderer: "Rendering",
   DecalProjector: "Rendering", // ADR 0395
   Decal2D: "Rendering",
-  TilemapCollider2D: "Physics 2D",
+  ShapeCollider2D: "Physics 2D",
   BoxCollider2D: "Physics 2D",
   CircleCollider2D: "Physics 2D",
   EdgeCollider2D: "Physics 2D",
@@ -71,14 +73,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   AudioSpeaker: "Audio", // ADR 0355
   AudioPackageLoader: "Audio", // ADR 0351
   SubtitleDisplay: "UI", // ADR 0357
-  UICanvas: "UI",
-  UIPanel: "UI",
-  UIText: "UI",
-  UIImage: "UI",
-  UIButton: "UI",
-  UIInputField: "UI",
-  UIDocument: "UI",
-  LocalizedText: "UI", // ADR 0356 §4
+  UIView: "UI",
   UIControlMapper: "UI",
 };
 

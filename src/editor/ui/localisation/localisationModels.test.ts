@@ -1,18 +1,23 @@
 // ADR 0356 §8, §9 (T7): the Localisation panel's models — the project's tables and ownership, the Strings grid (rows,
-// status, search and filters, ICU problems, refused-or-next edits), the Report (gathering and the fit check) and the
-// Exchange (export files, import preview and writes) — and the `strings` asset kind's format, through their interfaces.
-import { describe, expect, it } from "vitest";
+// status, search and filters, ICU problems, refused-or-next edits), the Report (gathering, Svelte UI's unkeyed text with
+// dismissals, and the fit check), the Inspector's Localise keys and the Exchange (export files, import preview and
+// writes) — and the `strings` asset kind's format, through their interfaces.
+import { beforeAll, describe, expect, it } from "vitest";
 import { gatherKeys } from "../../../engine/localisation/exchange/gather";
 import { estimateText } from "../../../engine/ui/layout";
+import { UI_LINE_HEIGHT } from "../../../engine/ui/elementKinds";
+import { UI_FONT_FAMILY } from "../../../engine/ui/fonts";
+import { unkeyedId, unkeyedTextIn } from "../../uiEdit/svelteStrings";
+import { loadSvelteParser, parseSvelte } from "../../uiEdit/svelteText";
 import { parseLanguages } from "../../../engine/localisation/languages";
 import { effectiveStatus } from "../../../engine/localisation/strings/translation";
 import { textHash } from "../../../engine/localisation/textHash";
 import type { EditResult } from "../../sdk/editResult";
 import { exportFiles, formatOfFile, importPreviewOf, importWrites, previewSummary } from "./exchangeModel";
-import { fitCheck } from "./fitCheck";
 import { exchangeProjectOf, studioOwnedTables, tableAccess } from "./localisationData";
-import { keyMatches, keyPreview, suggestKey, suggestTable } from "./localiseModel";
+import { extractToTable, keyMatches, keyPreview, suggestKey, suggestTable, unlinkText } from "./localiseKeys";
 import { localisationReport } from "./reportModel";
+import { fitCheck, type FitTarget } from "./textFit";
 import { stringsFormat } from "./stringsKind";
 import {
   addKey, ALL_STRINGS, copyKeyName, deleteKey, duplicateKey, filterRows, renameKey, setMaxLength, setNotes, setReferenceText, setReviewed, setTranslation, stringRows,
@@ -33,7 +38,7 @@ const FILES: [string, unknown][] = [
   ["strings/menu.de.strings.json", { format: "myco.translation@1", language: "de", strings: { "menu.start": { text: "Los" } } }],
   ["audio/vo/ch1.lines.json", { format: "myco.lines@1", lines: [{ key: "intro_01" }] }],
   ["audio/vo/ch1.strings.json", { format: "myco.strings@1", language: "en", strings: [{ key: "intro_01", text: "Hello." }] }],
-  ["ui/menu.ui.xml", '<Canvas><Text id="start" width="60" height="20" t:text="menu.start"/><Text id="quit" width="400" t:text="menu.quit"/><Text t:text="hud.coins"/></Canvas>'],
+  ["ui/Menu.svelte", '<script lang="ts">\n  import { t } from "myco";\n</script>\n\n<p id="start">{t("menu.start")}</p>\n<p id="quit">{t("menu.quit")}</p>\n<p>{t("hud.coins", { count: 3 })}</p>\n'],
 ];
 
 const project = () => exchangeProjectOf(languages, FILES);
@@ -135,34 +140,64 @@ describe("the Strings grid", () => {
 });
 
 describe("the Report", () => {
-  it("lists counts and the gathering's lists, with the fit check's overflows", () => {
+  beforeAll(() => loadSvelteParser());
+
+  const run = { fontSize: 16, fontWeight: "400", fontFamily: UI_FONT_FAMILY, lineHeight: UI_LINE_HEIGHT, wrap: "word" as const };
+  const target = (where: string, key: string, box: FitTarget["box"]): FitTarget => ({ path: "ui/Menu.svelte", where, line: 5, key, run, box });
+
+  it("lists counts and the gathering's lists, Svelte UI's unkeyed text (minus dismissed), and the fit check's overflows", () => {
     const gather = gatherKeys({ files: FILES, languages });
-    const fit = fitCheck({ project: project(), documents: [["ui/menu.ui.xml", FILES[5][1] as string]], read: () => null, measure: estimateText, languages: ["en", "fr", "qps-ploc"] });
+    const fit = fitCheck({ project: project(), targets: [target("#start", "menu.start", { width: 60, height: 20 }), target("#quit", "menu.quit", { width: 400, height: null }), target("<p>", "hud.coins", { width: null, height: null })], unrendered: 2, measure: estimateText, languages: ["en", "fr", "qps-ploc"] });
     expect(fit.checked).toBe(2);
-    expect(fit.skipped).toBe(1);
+    expect(fit.skipped).toBe(3);
     expect(fit.overflows.map((o) => [o.where, o.language, o.reason])).toEqual([["#start", "fr", "lines"], ["#start", "qps-ploc", "lines"]]);
-    const report = localisationReport(gather, fit);
+    const hud = `<p id="hint">Press any key</p>\n<input placeholder="Your name" />\n`;
+    const unkeyed = unkeyedTextIn("ui/Hud.svelte", parseSvelte(hud));
+    const report = localisationReport(gather, { unkeyed, ignore: [unkeyedId(unkeyed[1])], fit });
+    const section = (id: string) => report.sections.find((s) => s.id === id)!;
+    expect(section("unkeyed").rows.map((r) => [r.key, r.detail, r.path, r.line, r.dismiss])).toEqual([["Press any key", "ui/Hud.svelte #hint", "ui/Hud.svelte", 1, "ui/Hud.svelte|#hint|text|Press any key"]]);
+    expect(section("fit").rows[0]).toMatchObject({ key: "menu.start", path: "ui/Menu.svelte", line: 5 });
+    expect(section("fit").rows[0].detail).toMatch(/^fr: \d+ px tall, box 20 px · ui\/Menu.svelte #start$/);
+    expect(report.issues).toBe(6);
+    expect(localisationReport(gather).sections.some((s) => s.id === "fit")).toBe(false);
+  });
+
+  it("lists counts and the gathering's lists", () => {
+    const gather = gatherKeys({ files: FILES, languages });
+    const report = localisationReport(gather);
     expect(report.languages.map((l) => [l.language, l.translated, l.needsReview, l.missing])).toEqual([["fr", 2, 1, 1], ["de", 1, 0, 3]]);
     const section = (id: string) => report.sections.find((s) => s.id === id)!;
     expect(section("missing").rows.map((r) => [r.key, r.detail])).toEqual([["intro_01", "missing in fr, de"], ["menu.quit", "missing in de"], ["hud.coins", "missing in de"]]);
     expect(section("unused").rows).toEqual([]);
-    expect(section("fit").rows[0].detail).toMatch(/^fr: \d+ px tall, box 20 px · ui\/menu.ui.xml #start$/);
-    expect(report.issues).toBe(5);
-    expect(localisationReport(gather, null).sections.some((s) => s.id === "fit")).toBe(false);
+    expect(report.sections.map((x) => x.id)).toEqual(["missing", "undefined", "unused", "unkeyed", "duplicates"]);
+    expect(report.issues).toBe(3);
   });
 });
 
 describe("the Inspector's Localise control", () => {
-  it("finds keys by name or text with previews in the preview language, and suggests keys and tables", () => {
+  it("finds keys by name or text with previews in the preview language, and suggests keys and tables from the component", () => {
     const p = project();
     expect(keyMatches(p, "quitter", "fr").map((m) => [m.key, m.preview])).toEqual([["menu.quit", "Quitter"]]);
     expect(keyMatches(p, "menu.start", "de")[0]).toEqual({ key: "menu.start", table: "strings/menu.strings.json", preview: "Los" });
     expect(keyPreview(p, "menu.quit", "qps-ploc")).toBe("Quit game");
     expect(keyPreview(p, "nope", "fr")).toBeNull();
-    expect(suggestKey(p, "ui/menu.ui.xml", "start", "Text", "text")).toBe("menu.start_2");
-    expect(suggestKey(p, "ui/hud.ui.xml", null, "InputField", "placeholder")).toBe("hud.placeholder_inputfield");
-    expect(suggestTable(p, "ui/menu.ui.xml")).toBe("strings/menu.strings.json");
-    expect(suggestTable(p, "ui/hud.ui.xml")).toBe("audio/vo/ch1.strings.json");
+    expect(suggestKey(p, "ui/Menu.svelte", "start", "p", "text")).toBe("menu.start_2");
+    expect(suggestKey(p, "ui/PauseMenu.svelte", "name", "input", "placeholder")).toBe("pauseMenu.name_placeholder");
+    expect(suggestKey(p, "ui/Hud.svelte", null, "input", "placeholder")).toBe("hud.placeholder_input");
+    expect(suggestTable(p, "ui/Menu.svelte")).toBe("strings/menu.strings.json");
+    expect(suggestTable(p, "ui/Hud.svelte")).toBe("audio/vo/ch1.strings.json");
+  });
+
+  it("extracts literal text to a table under a new key, refusing taken keys and empty text; Unlink gives plain messages' text back", () => {
+    const p = project();
+    const table = ok(extractToTable(p, "strings/menu.strings.json", FILES[0][1], "menu.hint", "Press any key"));
+    expect(table.strings.at(-1)).toEqual({ key: "menu.hint", text: "Press any key", tags: [], examples: {} });
+    expect(ok(extractToTable(p, "strings/hud.strings.json", undefined, "hud.title", "Score")).strings).toEqual([{ key: "hud.title", text: "Score", tags: [], examples: {} }]);
+    expect(no(extractToTable(p, "strings/menu.strings.json", FILES[0][1], "menu.quit", "Quit"))).toMatch(/key of strings\/menu.strings.json already/);
+    expect(no(extractToTable(p, "strings/menu.strings.json", FILES[0][1], "menu.x", "  "))).toMatch(/no text/);
+    expect(ok(unlinkText(p, "menu.quit"))).toBe("Quit game");
+    expect(no(unlinkText(p, "hud.coins"))).toMatch(/takes arguments \(count\)/);
+    expect(no(unlinkText(p, "nope"))).toMatch(/no table defines/);
   });
 });
 

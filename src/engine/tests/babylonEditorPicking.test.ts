@@ -12,8 +12,10 @@ import { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRend
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
-import { Assets, Camera, Engine, GameObject, SceneManager } from "../index";
-import { ParticleSystem } from "../render/components";
+import { Assets, Camera, Engine, GameObject, SceneManager, Vector2 } from "../index";
+import { ParticleSystem, SpriteRenderer } from "../render/components";
+import { BabylonSprites } from "../render/babylon/sprites";
+import { BabylonMaterials2D } from "../render/babylon/materials2D";
 import type { BabylonEditorContext, EditorDrawn } from "../render/babylon/editorContext";
 import { PICK_ORDER } from "../render/babylon/feature";
 import { BabylonEditorViewport } from "../render/babylon/editorViewport";
@@ -84,7 +86,6 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     drawn.push({ component: { node } as never, shape: { kind: "meshes", meshes: [mesh as Mesh] }, order: PICK_ORDER.depthTested, ...more });
     return node;
   };
-  const text = (node: GameObject, rect: { left: number; top: number; right: number; bottom: number }) => drawn.push({ component: { node } as never, shape: { kind: "rect", rect }, order: PICK_ORDER.screen });
   const world = () => World.require();
 
   it("picks a sprite by order, not depth, and meshes nearest first below every sprite", () => {
@@ -96,6 +97,36 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     expect(queries.pick(400, 300)).toEqual([back, front, near, far]);
   });
 
+  it("picks the sprite drawn on top in a y-sorted layer: the lower one (ADR 0440), from the sprite feature's places", () => {
+    camera();
+    const pickSprites = (ySortedLayers: string[]) => {
+      const sprites = new BabylonSprites({
+        scene,
+        pixelsPerUnit: () => 100,
+        sortingLayers: () => ["Default"],
+        ySortedLayers: () => ySortedLayers,
+        texture: () => null,
+        materials2D: new BabylonMaterials2D({ scene, library: { texture: () => null } }),
+        drawPolicy: () => "perObject", // the editor's scene view: a quad per sprite
+        warnOnce: () => {},
+      });
+      sprites.sync(world());
+      drawn = [];
+      for (const d of sprites.drawn()) if (d.shape?.kind === "quad") drawn.push({ component: d.component, shape: d.shape, order: d.order });
+      const picked = queries.pick(400, 300);
+      sprites.dispose();
+      return picked;
+    };
+    // Overlapping at the canvas centre; the higher one comes first in the World.
+    const high = GameObject.create("high");
+    high.transform!.position.set(0, 0.5, 0);
+    high.addBehavior(SpriteRenderer, { size: new Vector2(2, 2) });
+    const low = GameObject.create("low");
+    low.addBehavior(SpriteRenderer, { size: new Vector2(2, 2) });
+    expect(pickSprites(["Default"])).toEqual([low, high]);
+    expect(pickSprites([])).toEqual([high, low]); // not y-sorted: one order, so the first drawn
+  });
+
   it("returns nothing for a miss or an empty canvas, and without a view camera", () => {
     expect(queries.pick(400, 300)).toEqual([]); // no camera
     camera();
@@ -104,7 +135,7 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     expect(queries.pick(400, 300)).toHaveLength(1);
   });
 
-  it("puts icons above sprites and text above icons, without duplicates", () => {
+  it("puts icons above sprites, without duplicates", () => {
     camera();
     const s = sprite("s", 100, [0, 0, 0]);
     World.require().setEditMode(s.entity, true);
@@ -114,9 +145,7 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     icon.transform!.position.set(-1, 0, 0); // 60 px left of the sprite's centre, within reach of (300, 300)
     icon.addBehavior(Camera);
     queries.sync(world());
-    const label = GameObject.create("label");
-    text(label, { left: 390, top: 290, right: 410, bottom: 310 });
-    expect(queries.pick(400, 300)).toEqual([label, s]); // text, then the sprite (its own icon and its quad, listed once)
+    expect(queries.pick(400, 300)).toEqual([s]); // its own icon and its quad, listed once
     expect(queries.pick(345, 300)).toEqual([icon, s]); // the camera icon, then the sprite under it
   });
 
@@ -235,13 +264,6 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     expect(rect(b).right).toBeCloseTo(400 - 2 * 60);
     expect(rect(plain)).toEqual({ left: 400, right: 400, top: 300 - 120, bottom: 300 - 120 });
     expect(out.map((o) => o.node)[0]).toBe(root); // parents first
-  });
-
-  it("uses a screen-space text's own rectangle in screenBounds", () => {
-    camera();
-    const label = GameObject.create("label");
-    text(label, { left: 10, top: 20, right: 110, bottom: 60 });
-    expect(queries.screenBounds(label)[0].rect).toEqual({ left: 10, top: 20, right: 110, bottom: 60 });
   });
 
   it("measures the world box around everything drawn for a node: its meshes and its sprite's quad", () => {

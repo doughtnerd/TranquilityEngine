@@ -1,6 +1,6 @@
 # 0005. Physics backend: Rapier now, PhysX for 3D later, behind an engine interface
 
-- **Status:** Accepted
+- **Status:** Accepted; partly superseded by 0445 (the PhysX plan: Rapier stays the only backend)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

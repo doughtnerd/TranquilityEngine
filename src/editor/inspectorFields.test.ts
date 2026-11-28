@@ -83,14 +83,14 @@ describe("list fields in the document", () => {
 
   it("resolve node items, and deleting a node sets only its items to None", () => {
     const { doc, stack } = scene();
-    stack.execute(new SetField("ceiling", "test.inspector.Route", "stops", [{ $node: "bird" }, { $node: "score" }, { $node: "bird" }]));
-    expect(target("ceiling").node.getBehavior(Route)!.stops.map((n) => n?.name)).toEqual(["Bird", "ScoreLabel", "Bird"]);
+    stack.execute(new SetField("ceiling", "test.inspector.Route", "stops", [{ $node: "bird" }, { $node: "hud" }, { $node: "bird" }]));
+    expect(target("ceiling").node.getBehavior(Route)!.stops.map((n) => n?.name)).toEqual(["Bird", "HUD", "Bird"]);
     const refs = doc.references().filter((r) => r.field === "stops");
-    expect(refs.map((r) => [r.to, r.element])).toEqual([["bird", 0], ["score", 1], ["bird", 2]]);
+    expect(refs.map((r) => [r.to, r.element])).toEqual([["bird", 0], ["hud", 1], ["bird", 2]]);
     deleteNodes(scene(), ["bird"]);
-    expect(doc.fieldValue("ceiling", "test.inspector.Route", "stops")).toEqual([null, { $node: "score" }, null]);
+    expect(doc.fieldValue("ceiling", "test.inspector.Route", "stops")).toEqual([null, { $node: "hud" }, null]);
     stack.undo();
-    expect(doc.fieldValue("ceiling", "test.inspector.Route", "stops")).toEqual([{ $node: "bird" }, { $node: "score" }, { $node: "bird" }]);
+    expect(doc.fieldValue("ceiling", "test.inspector.Route", "stops")).toEqual([{ $node: "bird" }, { $node: "hud" }, { $node: "bird" }]);
     // The World's references point at the restored node again.
     expect(target("ceiling").node.getBehavior(Route)!.stops[0]).toBe(target("bird").node);
   });

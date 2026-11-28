@@ -73,7 +73,7 @@ describe("menu bar", () => {
     const m = buildMenus(state(), actions());
     expect(item(m, "file", "New Project…").disabled).toBeFalsy();
     expect(item(m, "file", "Open Project…").disabled).toBeFalsy();
-    for (const l of ["Save", "New Scene", "Build and Export…", "Project Settings", "Close Project"]) expect(item(m, "file", l).disabled, l).toBeTruthy();
+    for (const l of ["Save", "New Scene", "Build and Export…", "Project Settings", "Input…", "Close Project"]) expect(item(m, "file", l).disabled, l).toBeTruthy();
     expect(menu(m, "file").items.some((i) => i.label === "Reload Scripts")).toBe(false);
     expect(item(m, "edit", "Settings…").disabled).toBeFalsy();
     expect(item(m, "window", "Reset Layout").disabled).toBeFalsy();
@@ -199,5 +199,13 @@ describe("menu bar", () => {
     const a = actions();
     item(buildMenus(state({ project }), a), "file", "Project Settings").run!();
     expect(a.showPanel).toHaveBeenCalledWith("project");
+  });
+
+  it("Input… opens the Input dialog, beside Project Settings (ADR 0433)", () => {
+    const a = actions();
+    const file = menu(buildMenus(state({ project }), a), "file").items.map((i) => i.label);
+    expect(file.indexOf("Input…")).toBe(file.indexOf("Project Settings") + 1);
+    item(buildMenus(state({ project }), a), "file", "Input…").run!();
+    expect(a.openInput).toHaveBeenCalled();
   });
 });

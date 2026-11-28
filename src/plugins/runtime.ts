@@ -3,6 +3,7 @@
 // `Engine.create`; nothing here may import from `src/editor/` or a plugin's `editor/` folder.
 import { animationRuntimePlugin } from "./animation/runtime";
 import { audioRuntimePlugin } from "./audio/runtime";
+import { cameraShakeRuntimePlugin } from "./camera-shake/runtime";
 import { FIRST_PARTY_KEYS, type FirstPartyPlugin } from "./catalogue";
 import { decalsRuntimePlugin } from "./decals/runtime";
 import { environmentRuntimePlugin } from "./environment/runtime";
@@ -43,6 +44,7 @@ const RUNTIME_HALVES: { readonly [K in FirstPartyPlugin]: RuntimePlugin } = {
   environment: environmentRuntimePlugin,
   lights2d: lights2dRuntimePlugin,
   "post-processing": postProcessingRuntimePlugin,
+  "camera-shake": cameraShakeRuntimePlugin,
   audio: audioRuntimePlugin,
   subtitles: subtitlesRuntimePlugin,
   animation: animationRuntimePlugin,

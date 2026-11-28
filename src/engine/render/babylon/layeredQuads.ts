@@ -12,6 +12,9 @@
  *   - each further sprite run of the same order (another texture) sits `RUN_STEP` past the run before,
  *     so runs of one order sort deterministically and stay below the next order (whole or fractional,
  *     as long as the orders are further apart than their runs' steps);
+ *   - in a y-sorted sorting layer (ADR 0440) a draw's order also carries its height (`drawPlace`, `sortOrder.ts`):
+ *     higher draws sit lower within their order in layer. Sprites there each sit at their own place, so they batch
+ *     only with sprites of the same material at the same height (further runs at one place step by `Y_SORTED_RUN_STEP`);
  *   - a 3D decal volume (`placeDecal`, ADR 0395) sits in a band below every 2D draw order and particle value, by
  *     its decal order: decals draw first among transparent meshes, right after the opaque scene they land on;
  *   - a particle mesh (`placeParticles`) sits by its emitter's `renderOrder`: 0 at Babylon's default
@@ -68,6 +71,15 @@ export function lightLayeredQuads(material: PBRMaterial, setup: LitQuadSetup): v
 
 /** How far apart runs of one draw order sit in `alphaIndex`. */
 const RUN_STEP = 1e-4;
+/**
+ * How far apart runs at one place of a y-sorted layer sit (ADR 0440): far below the step between two heights a
+ * thousandth of a unit apart (`withinOrder(ySortFraction(y))` moves 2.5e-6 per unit), so they stay below the next height.
+ */
+const Y_SORTED_RUN_STEP = 1e-9;
+
+// How far into its draw order a 2D draw sits (ADR 0437, 0440): renderer-neutral, in `sortOrder.ts` so picking ranks
+// by the same places. Sprite runs of one order step by `RUN_STEP` on top of it.
+export { WITHIN_SPAN, withinOrder } from "../sortOrder";
 
 /** Put a mesh drawing 2D content (a lone sprite, a quad batch) at draw order `order` (`sortingOrder`'s value). */
 export function placeInLayer(mesh: AbstractMesh, order: number): void {
@@ -174,8 +186,13 @@ export class QuadMaskPlugin extends MycoMaterialPlugin {
 export interface SpriteItem {
   /** Its batch material (`batchedSpriteMaterial`: the instances' UV rectangles and colours); sprites sharing it share runs. */
   material: Material;
-  /** Draw order: sorting layer index × 10000 + order in layer. */
+  /**
+   * Draw order: sorting layer index × 10000 + order in layer; in a y-sorted layer (ADR 0440) plus its height's offset into
+   * that order (`drawPlace`), so each sprite sits at its own place and only sprites at the same place share runs.
+   */
   order: number;
+  /** In a y-sorted layer (ADR 0440): runs at one place step by a far smaller amount, so they stay below the next height. */
+  ySorted?: boolean;
   /** World matrix, column-major (Babylon's layout). */
   matrix: Float32Array;
   /** Linear tint and alpha. */
@@ -317,7 +334,8 @@ export class SpriteBatcher {
     // Its order, or a step past the previous run when that has the same order (any number: orders aren't
     // only whole ones). The last item of the previous run is the one before this run's first.
     const order = sorted[start].order;
-    run.mesh.alphaIndex = start > 0 && sorted[start - 1].order === order ? this.runs[index - 1].mesh.alphaIndex + RUN_STEP : order;
+    const step = sorted[start].ySorted ? Y_SORTED_RUN_STEP : RUN_STEP;
+    run.mesh.alphaIndex = start > 0 && sorted[start - 1].order === order ? this.runs[index - 1].mesh.alphaIndex + step : order;
     run.mesh.thinInstanceCount = n;
     run.mesh.thinInstanceBufferUpdated("matrix");
     run.mesh.thinInstanceBufferUpdated("instanceColor");

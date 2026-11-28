@@ -14,10 +14,10 @@
 // Needs the toolchain pinned in rust-toolchain.toml and `rustup target add wasm32-unknown-unknown`.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { meter, METER_VERSION } from "../../src/engine/wasm/meter.js";
+import { wasmBuildEnv } from "../rustflags.mjs";
 import { encoderSourceHash } from "./crates/audio-encode/sourceHash.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
@@ -77,15 +77,18 @@ const OFFLINE_LIMIT = 256 * 1024;
  *  1.5 MB of ADR 0351 was an estimate, and per CLAUDE.md a tripwire is raised with a reason rather than trading speed
  *  (`-Os` would save ≈ 270 KB at the cost of SIMD resampling). Fetched only by the editor, the Studio and the export. */
 const ENCODER_LIMIT = 1792 * 1024;
-/** Only +simd128 here: --import-memory and the 256 KB stack are link args in audio-wasm's build.rs. */
-const WASM_RUSTFLAGS = "-C target-feature=+simd128";
+/** Only +simd128 here: --import-memory and the 256 KB stack are link args in audio-wasm's build.rs. Every wasm build
+ *  passes them through `wasmBuildEnv` (../rustflags.mjs), which adds the path remapping that makes the wasm the same
+ *  from any checkout (ADR 0432): the repository root becomes `/myco`, CARGO_HOME `/cargo` (symphonia's and libm's panic
+ *  locations name registry sources, the mixer's native/common). */
+const WASM_RUSTFLAGS = ["-C", "target-feature=+simd128"];
 /** Pages of the Memory the hash read instantiates the wasm with (enough for its data and stack). */
 const READ_MEMORY_PAGES = 64;
 
-/** Runs `cmd args` in native/audio with inherited stdio; `env` adds variables. */
-function run(cmd, args, env = {}) {
+/** Runs `cmd args` in native/audio with inherited stdio, in `env` (this process's by default). */
+function run(cmd, args, env = process.env) {
   try {
-    execFileSync(cmd, args, { cwd: root, stdio: "inherit", env: { ...process.env, ...env } });
+    execFileSync(cmd, args, { cwd: root, stdio: "inherit", env });
   } catch {
     console.error(`[build:audio] \`${cmd} ${args.join(" ")}\` failed; the output above says why.`);
     process.exit(1);
@@ -125,22 +128,17 @@ function genWire() {
 /** Builds audio-wasm for wasm32 in release; returns the built .wasm's path. */
 function buildWasm() {
   const args = ["build", "-p", "audio-wasm", "--target", TARGET, "--release"];
-  run("cargo", args, { CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: WASM_RUSTFLAGS });
+  run("cargo", args, wasmBuildEnv(WASM_RUSTFLAGS));
   return fileURLToPath(new URL(`target/${TARGET}/release/myco_audio.wasm`, import.meta.url));
 }
 
 /** Builds audio-decode (M1b) for wasm32 in release; returns the built .wasm's path. Its build.rs
- *  adds `--strip-all`; memory is exported (the decoder runs alone in a worker). symphonia's panic
- *  locations name its sources under CARGO_HOME, so that prefix is remapped to `/cargo` (the wasm
- *  then doesn't depend on where the registry lives). CARGO_ENCODED_RUSTFLAGS takes precedence over
- *  the target's RUSTFLAGS and keeps a path with spaces in one argument. */
+ *  adds `--strip-all`; memory is exported (the decoder runs alone in a worker). */
 function buildDecoder({ aac }) {
-  const cargoHome = process.env.CARGO_HOME ?? join(homedir(), ".cargo");
-  const flags = [...WASM_RUSTFLAGS.split(" "), `--remap-path-prefix=${cargoHome}=/cargo`];
   const args = ["build", "-p", "audio-decode", "--target", TARGET, "--release"];
   // B4: the AAC build has its own target directory, so the two builds don't rebuild each other.
   if (aac) args.push("--features", "aac", "--target-dir", "target/aac");
-  run("cargo", args, { CARGO_ENCODED_RUSTFLAGS: flags.join("\x1f") });
+  run("cargo", args, wasmBuildEnv(WASM_RUSTFLAGS));
   return fileURLToPath(new URL(`${aac ? "target/aac" : "target"}/${TARGET}/release/myco_audio_decode.wasm`, import.meta.url));
 }
 
@@ -185,7 +183,7 @@ function smokeDecoder(path, { aac, label }) {
 /** Builds audio-offline (ADR 0342's offline render) for wasm32 in release; returns the built .wasm's path. Its build.rs
  *  adds `--strip-all`; memory is exported (the render runs alone). */
 function buildOffline() {
-  run("cargo", ["build", "-p", "audio-offline", "--target", TARGET, "--release"], { CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: WASM_RUSTFLAGS });
+  run("cargo", ["build", "-p", "audio-offline", "--target", TARGET, "--release"], wasmBuildEnv(WASM_RUSTFLAGS));
   return fileURLToPath(new URL(`target/${TARGET}/release/myco_audio_offline.wasm`, import.meta.url));
 }
 
@@ -244,13 +242,11 @@ function hasTarget(target) {
 }
 
 /** Builds audio-encode (ADR 0351 A2) for wasm32-wasip1 in release with wasi-sdk's clang at `sdk`; returns the built
- *  .wasm's path. +simd128 for Rust (here) and C (its build.rs; 0359 §1); CARGO_HOME is remapped as for the decoder. */
+ *  .wasm's path. +simd128 for Rust (here) and C (its build.rs; 0359 §1); paths are remapped as for the other modules. */
 function buildEncoder(sdk) {
-  const cargoHome = process.env.CARGO_HOME ?? join(homedir(), ".cargo");
-  const flags = [...WASM_RUSTFLAGS.split(" "), `--remap-path-prefix=${cargoHome}=/cargo`];
   const exe = process.platform === "win32" ? ".exe" : "";
   run("cargo", ["build", "-p", "audio-encode", "--lib", "--release", "--target", ENCODE_TARGET, "--target-dir", "target/encode"], {
-    CARGO_ENCODED_RUSTFLAGS: flags.join("\x1f"),
+    ...wasmBuildEnv(WASM_RUSTFLAGS),
     CC_wasm32_wasip1: join(sdk, "bin", `clang${exe}`),
     AR_wasm32_wasip1: join(sdk, "bin", `llvm-ar${exe}`),
   });
@@ -390,8 +386,17 @@ function encoderStep(decoderPath) {
   writeEncodeJson(hash, bytes);
 }
 
-/** Runs `wasm-opt -O3` on `path` in place if wasm-opt is on PATH; logs a skip otherwise. */
+/**
+ * Runs `wasm-opt -O3` on `path` in place when MYCO_WASM_OPT=1 (and wasm-opt is on PATH). Off by default (ADR 0432): it
+ * used to run whenever wasm-opt was on PATH, so the committed modules depended on the builder's machine; the committed
+ * ones are built without it. Pinning Binaryen so every build runs the same pass is a separate, pending decision (the
+ * UI program plan's notes).
+ */
 function optimize(path) {
+  if (process.env.MYCO_WASM_OPT !== "1") {
+    console.log(`[build:audio] wasm-opt off (MYCO_WASM_OPT=1 runs it; not for committed builds): ${path}`);
+    return;
+  }
   try {
     execFileSync("wasm-opt", ["--version"], { stdio: "ignore" });
   } catch {
@@ -443,9 +448,7 @@ function writeHashJson(identity, bytes) {
  *  instruction counter (src/engine/wasm/meter.js) and writes it with metered.json (the source hash it was built
  *  from) to tools/audio-bench/metered/. Test-only: never copied into a build, not size-gated. */
 function buildMetered(sourceHash) {
-  run("cargo", ["build", "-p", "audio-bench", "--lib", "--release", "--target", TARGET, "--target-dir", "target/bench"], {
-    CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: WASM_RUSTFLAGS,
-  });
+  run("cargo", ["build", "-p", "audio-bench", "--lib", "--release", "--target", TARGET, "--target-dir", "target/bench"], wasmBuildEnv(WASM_RUSTFLAGS));
   const built = fileURLToPath(new URL(`target/bench/${TARGET}/release/audio_bench.wasm`, import.meta.url));
   let metered;
   try {

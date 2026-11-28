@@ -47,7 +47,7 @@ describe("the Hierarchy's Create menu (ADR 0146)", () => {
     expect(map.components).toEqual([
       { type: "engine.Transform", data: { position: [1, 2, 0] } },
       { type: "engine.Tilemap", data: { tileset: "asset:t.tileset.json" } },
-      { type: "engine.TilemapCollider2D", data: {} },
+      { type: "engine.ShapeCollider2D", data: {} },
     ]);
     expect(made("particle-system").components![1]).toEqual({ type: "engine.ParticleSystem", data: {} });
     expect(hierarchyCreateEntries.get("particle-system")!.createAsset).toBeTypeOf("function");

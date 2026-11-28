@@ -30,7 +30,7 @@ describe("noBackendNote", () => {
   it("finds a Component's dimension from the runtime's descriptions, and never notes Buoyancy (its kinematic mode needs no backend)", () => {
     const no2d = state(0, 1), no3d = state(1, 0);
     expect(noBackendNote("engine.RigidBody2D", no2d)).toBe(NO_BACKEND_NOTE);
-    expect(noBackendNote("engine.TilemapCollider2D", no2d)).toBe(NO_BACKEND_NOTE);
+    expect(noBackendNote("engine.ShapeCollider2D", no2d)).toBe(NO_BACKEND_NOTE);
     expect(noBackendNote("engine.RigidBody", no2d)).toBeNull();
     expect(noBackendNote("engine.MeshCollider", no3d)).toBe(NO_BACKEND_NOTE);
     expect(noBackendNote("engine.Buoyancy", no2d)).toBeNull();

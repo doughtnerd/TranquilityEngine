@@ -10,7 +10,7 @@ import { performanceClock, TakeReplay, type ReplayTarget } from "../../runtime/t
 import { addMarker, moveNote, type NotesEdit } from "./notesEdits";
 import { InstanceDetails, MixerStrip, NoteDetails, PlayheadValues, PropertyCards } from "./TakeInspector";
 import type { PropertyCard } from "./takePlaylists";
-import { busStrip, instanceParametersAt, parameterRows } from "./takeInspectorModel";
+import { busStrip, instanceParametersAt, mixerStripRows, parameterRows } from "./takeInspectorModel";
 import { FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
 import { TakeList } from "./TakeList";
 import type { TakeSelection } from "./takeScreen";
@@ -395,5 +395,31 @@ export const Mixer: Story = {
   ),
   play: async ({ canvasElement }) => {
     await expect(within(canvasElement).getByText(/live −/)).toBeVisible();
+  },
+};
+
+/** The replay paused: each bus as the take recorded it at the playhead (a scrub moves it), with the time it is from. */
+export const MixerAtPlayhead: Story = {
+  render: () => (
+    <div style={{ width: "600px", height: "220px" }}>
+      <MixerStrip
+        running
+        at={12.5}
+        onOpenMixer={fn()}
+        strips={mixerStripRows(
+          [
+            { name: "Master", authored: 1, live: null, recorded: { runtime: 1, duck: 1, peak: 0.7 } },
+            { name: "Music", authored: 0.5, live: null, recorded: { runtime: 1, duck: 0.5, peak: 0.2 } },
+            { name: "Dialogue", authored: 1, live: { runtime: 1, duck: 1, peak: 0.4 }, recorded: null },
+          ],
+          true,
+        )}
+      />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByText("Recorded at 12.500 s")).toBeVisible();
+    await expect(c.getByText(/take −/)).toBeVisible();
   },
 };

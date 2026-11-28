@@ -3,23 +3,30 @@ import { Panel } from "./panel/Panel";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDraftText } from "./draftText";
 import { ANTIALIAS_MODES, LIGHTS_2D_QUALITIES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
-import { defaultSettings } from "../../engine/core/settings";
+import { defaultSettings, INPUT_JOIN_POLICIES } from "../../engine/core/settings";
+import { inputActionSets } from "../../engine/editor";
 import { allPluginManifests } from "../../plugins/thirdPartyEditor";
 import { RENAMED_PLUGINS } from "../../plugins/enabled";
 import { usePanelHistory } from "../activeHistory";
+import { actionSetRow, codeActionSets, unlistedActionSets } from "../actionSetList";
+import { createAsset } from "../assetKindHost";
 import { projectSettingsCategory } from "../preferences";
 import { projectSettingsSections, type ProjectSettingsSectionContribution, type ProjectSettingsSectionProps } from "../sdk/contributions";
 import type { ProjectSectionSession } from "../projectSection";
 import { projectSettings } from "../projectSettingsInstance";
 import {
+  actionSetsOf,
+  addActionSet,
   addAutoload,
   addSortingLayer,
   addTier,
   autoloadsOf,
   graphicsOf,
+  moveActionSetTo,
   moveAutoload,
   moveSortingLayer,
   moveTier,
+  removeActionSet,
   removeAutoload,
   removeSortingLayer,
   removeTier,
@@ -34,12 +41,15 @@ import {
   settingsWarnings,
   setValue,
   sortingLayersOf,
+  isYSortedLayer,
+  setYSortedLayer,
   type SettingsDraft,
   type SettingsProblem,
   type TierValueKey,
 } from "../projectSettingsModel";
 import type { EditorProject } from "../projects";
 import { currentProject, docVersion } from "../state";
+import { SortableList } from "./SortableList";
 import { PluginsSection } from "./PluginsSection";
 import { ProjectSectionToolbar } from "./ProjectSectionToolbar";
 import { lazyComponent, type LazyComponent } from "./lazy";
@@ -156,11 +166,21 @@ export function ProjectSettingsPanel() {
                 onRename={(i, v) => set(`Rename sorting layer to ${v}`, renameSortingLayer(draft, i, v))}
                 onRemove={(i) => set("Remove sorting layer", removeSortingLayer(draft, i))}
                 onMove={(i, by) => set("Reorder sorting layers", moveSortingLayer(draft, i, by))}
+                check={{
+                  title: "Y-sort",
+                  description: "Draws with the same order in layer sort by height: higher ones first, so lower ones draw over them (ADR 0440).",
+                  checked: (i) => isYSortedLayer(draft, i),
+                  onChange: (i, on) => set(on ? "Y-sort sorting layer" : "Stop y-sorting sorting layer", setYSortedLayer(draft, i, on)),
+                }}
               />
             </Section>
 
             <Section title="Graphics">
               <Tiers draft={draft} problems={problemsAt("graphics")} set={set} />
+            </Section>
+
+            <Section title="Input">
+              <InputSettings s={s} draft={draft} project={project} problems={problems} />
             </Section>
 
             <Section title="Plugins">
@@ -213,7 +233,7 @@ export function ProjectSettingsPanel() {
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
 
 /** The settings categories, in order (Unity-style list). A category's title is its id. */
-const BUILTIN_CATEGORIES = ["Project", "Display", "Time", "Rendering", "Graphics", "Plugins", "Autoloads", "Build"] as const;
+const BUILTIN_CATEGORIES = ["Project", "Display", "Time", "Rendering", "Graphics", "Input", "Plugins", "Autoloads", "Build"] as const;
 
 /** The categories in order: the built-in ones, with each registered section (a plugin's, ADR 0133) after the one it names, else last. */
 function categories(): string[] {
@@ -244,6 +264,8 @@ function categoryOf(field: string): string {
       return "Rendering";
     case "autoload":
       return "Autoloads";
+    case "input":
+      return "Input";
     default:
       return projectSettingsSections.list().find((c) => c.id === head)?.title ?? head[0].toUpperCase() + head.slice(1);
   }
@@ -407,6 +429,118 @@ function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: Editor
         </select>
       )}
     </div>
+  );
+}
+
+/** Input players (ADR 0337) and the action sets (ADR 0433): the files in load order, then the sets scripts define. */
+function InputSettings(props: { s: PanelState; draft: SettingsDraft; project: EditorProject; problems: readonly SettingsProblem[] }) {
+  const { s, draft, project, problems } = props;
+  const input = (draft.input ?? {}) as { join?: string; maxPlayers?: number };
+  const defaults = defaultSettings.input;
+  const at = (field: string) => problems.filter((p) => p.field === field || p.field.startsWith(`${field}.`));
+  const set = (label: string, next: SettingsDraft) => edit(s, label, next);
+  const paths = actionSetsOf(draft);
+  const rows = paths.map((path) => actionSetRow(path, project.files.includes(path), () => project.assets.get(path)));
+  const fromScripts = codeActionSets(inputActionSets(), rows);
+  const choices = unlistedActionSets(project.files, paths);
+  const create = async () => {
+    const path = await createAsset("actionSet"); // nothing when the kind isn't registered
+    if (path) edit(s, `Add action set ${path}`, addActionSet(s.draft, path));
+  };
+  return (
+    <>
+      <Row label="Join" problems={at("input.join")}>
+        <select
+          aria-label="Input join"
+          value={input.join ?? defaults.join}
+          onChange={(e) => {
+            const v = (e.currentTarget as HTMLSelectElement).value;
+            set("Set input join", setValue(draft, "input", "join", v === defaults.join ? undefined : v));
+          }}
+        >
+          {INPUT_JOIN_POLICIES.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label="Max players" problems={at("input.maxPlayers")}>
+        <NumberField id="ps-maxplayers" label="Max players" value={input.maxPlayers} placeholder={String(defaults.maxPlayers)} onCommit={(v) => set("Set max players", setValue(draft, "input", "maxPlayers", v))} />
+      </Row>
+
+      <h5 class="project-settings-subhead">Action sets</h5>
+      <p class="project-settings-hint">Defined in this order at startup. A set here replaces a script's set with the same id.</p>
+      {rows.length === 0 && <p class="project-settings-none">None</p>}
+      <SortableList
+        class="action-set-list"
+        label="Action sets"
+        items={rows}
+        disabled={!project.canSave}
+        itemKey={(r) => r.path}
+        itemLabel={(r) => r.path}
+        rowClass={(r, i) => (r.problem || at(`input.actionSets.${i}`).length > 0 ? "invalid" : undefined)}
+        onMove={(from, to) => set("Reorder action sets", moveActionSetTo(draft, from, to))}
+        renderItem={(r, i) => (
+          <>
+            <span class="action-set-index">{i + 1}</span>
+            <span class="project-settings-path" title={r.problem ?? r.path}>
+              {r.path}
+            </span>
+            {r.problem ? (
+              <span class="action-set-problem" title={r.problem}>
+                {r.problem}
+              </span>
+            ) : (
+              <span class="action-set-info">
+                {r.id} · {r.actions} action{r.actions === 1 ? "" : "s"}
+              </span>
+            )}
+            <button class="icon" aria-label={`Remove action set ${r.path}`} onClick={() => set(`Remove action set ${r.path}`, removeActionSet(draft, i))}>
+              ×
+            </button>
+          </>
+        )}
+      />
+      <div class="project-settings-actions">
+        <button type="button" onClick={() => void create()}>
+          New Action Set
+        </button>
+        {choices.length > 0 && (
+          <select
+            aria-label="Add an action set"
+            value=""
+            onChange={(e) => {
+              const path = (e.currentTarget as HTMLSelectElement).value;
+              if (path) set(`Add action set ${path}`, addActionSet(draft, path));
+            }}
+          >
+            <option value="">Add…</option>
+            {choices.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {fromScripts.length > 0 && (
+        <>
+          <h5 class="project-settings-subhead">From scripts</h5>
+          <ul class="action-set-code" aria-label="Action sets from scripts">
+            {fromScripts.map((c) => (
+              <li key={c.id}>
+                <span class="project-settings-path">{c.id}</span>
+                <span class="action-set-info">
+                  {c.actions.length} action{c.actions.length === 1 ? "" : "s"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
   );
 }
 

@@ -117,7 +117,7 @@ export abstract class Component {
   _onDeactivate(): void {}
   /**
    * @internal True for built-in components whose activation hooks also run inside an edit-mode
-   * subtree (ADR 0026), because the editor must show what they make (a UIDocument's elements, ADR 0077).
+   * subtree (ADR 0026), because the editor must show what they make (a UIView's elements, ADR 0423).
    */
   get _activatesInEditMode(): boolean {
     return false;

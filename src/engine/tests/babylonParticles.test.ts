@@ -24,6 +24,8 @@ import { World } from "../core/World";
 import { Assets, Engine as MycoEngine, GameObject, Light2D, SceneManager } from "../../myco";
 import { ParticleSystem } from "../render/components";
 import { nullEngine } from "./pbrShaderSource";
+import { BabylonRenderer, loadPluginFeatures } from "../render/babylon/BabylonRenderer";
+import { drawPlace } from "../render/sortOrder";
 import { defaultEmitter, defaultRenderer, defaultShape, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer, PARTICLES_FORMAT } from "../scene/particles";
 
 /** An effect as its `myco.particles@1` file's JSON object. */
@@ -458,3 +460,71 @@ function colorGraph(): CompiledShaderGraph {
     key: "particlecolor",
   } as unknown as CompiledShaderGraph;
 }
+
+// ADR 0440: the Particles plugin's feature on a renderer (the real feature host, its `drawPlace` over the project's
+// render settings), so a 2D system's place takes its node's height in a y-sorted sorting layer.
+describe("2D particle systems in a y-sorted sorting layer (ADR 0440)", () => {
+  const RENDER = { sortingLayers: ["Back", "Units"], ySortedLayers: ["Units"] };
+  let babylon: NullEngine;
+  let game: MycoEngine;
+  let renderer: BabylonRenderer;
+
+  beforeEach(async () => {
+    Assets.clearSources();
+    Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
+    game = await MycoEngine.create({ headless: true, project: { render: RENDER } });
+    await SceneManager.load("s.json");
+    babylon = nullEngine("glsl");
+  });
+  afterEach(() => {
+    renderer?.dispose();
+    babylon.dispose();
+    game.dispose();
+    Assets.clearSources();
+  });
+
+  /** A 2D particle system (one burst of still particles) on `layer` at order 2, at height `y`. */
+  const system = (name: string, layer: string, y: number): ParticleSystem => {
+    const node = GameObject.create(name);
+    node.transform!.position.y = y;
+    const effect: ParticleEffect = { emitters: [{ ...defaultEmitter("E"), startLife: 10, startSpeed: 0, emission: { rateOverTime: 0, rateOverDistance: 0, bursts: [{ time: 0, count: 1, cycles: 1, interval: 0.1, probability: 1 }] } }] };
+    return node.addBehavior(ParticleSystem, { embeddedEffect: legacyJSON(effect), sortingLayer: layer, orderInLayer: 2 });
+  };
+  /** The draw places (alphaIndex) of the system on node `name`. */
+  const places = (name: string): number[] => renderer.scene.meshes.filter((m) => m.name.startsWith(`particles:${name}:`) && !m.isDisposed()).map((m) => m.alphaIndex);
+  /** Steps the World and syncs the renderer until both systems' draws exist (the lazy particles feature loads first). */
+  async function settle(...names: string[]): Promise<void> {
+    await vi.waitFor(() => {
+      game.step(1 / 60);
+      renderer.sync(World.require());
+      for (const n of names) expect(places(n).length).toBeGreaterThan(0);
+    });
+  }
+
+  it("places each system by its node's height within its order in layer, lower on top, and follows a node that moves", async () => {
+    system("High", "Units", 3);
+    const low = system("Low", "Units", -1);
+    const world = World.require();
+    renderer = BabylonRenderer.forThumbnail(babylon, world.settings, await loadPluginFeatures(world), { studio: null });
+    await settle("High", "Low");
+    expect(new Set(places("High"))).toEqual(new Set([drawPlace(RENDER, "Units", 2, 3)]));
+    expect(new Set(places("Low"))).toEqual(new Set([drawPlace(RENDER, "Units", 2, -1)]));
+    for (const p of [...places("High"), ...places("Low")]) expect(p >= 10002 && p < 10003).toBe(true);
+    expect(places("Low")[0]!).toBeGreaterThan(places("High")[0]!); // the lower system draws over the higher
+
+    low.node.transform!.position.y = 5; // now above the other: drawn under it
+    game.step(1 / 60);
+    renderer.sync(world);
+    expect(new Set(places("Low"))).toEqual(new Set([drawPlace(RENDER, "Units", 2, 5)]));
+    expect(places("Low")[0]!).toBeLessThan(places("High")[0]!);
+  });
+
+  it("gives systems of a layer that isn't y-sorted their order alone, whatever their height", async () => {
+    system("High", "Back", 3);
+    system("Low", "Back", -1);
+    const world = World.require();
+    renderer = BabylonRenderer.forThumbnail(babylon, world.settings, await loadPluginFeatures(world), { studio: null });
+    await settle("High", "Low");
+    expect([...places("High"), ...places("Low")].every((p) => p === 2)).toBe(true);
+  });
+});

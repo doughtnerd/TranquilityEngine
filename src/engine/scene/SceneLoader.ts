@@ -6,13 +6,14 @@ import { migratePartPivots } from "./pivotMigration";
 import { migrateRotationsToQuaternions } from "./rotationMigration";
 import { migrateBallJointSwing } from "./ballJointMigration";
 import { migrateToUnityCoordinates } from "./handednessMigration";
+import { mapSceneFile } from "./sceneFileWalk";
 import { Component } from "../core/Component";
 import { getDataComponentDef, type DataComponentDef, type Schema } from "../core/data";
 import { Color, DEG2RAD, Quaternion, Vector2, Vector3 } from "../core/math";
-import { AssetRef, PlainObject, component, field, getComponentClass, getComponentId, getFields, isListType, type ComponentClass, type FieldInfo, type ScalarFieldType } from "../core/registry";
+import { AssetRef, PlainObject, _componentAliasVersion, component, field, getComponentClass, getComponentId, getFields, isListType, resolveComponentId, type ComponentClass, type FieldInfo, type ScalarFieldType } from "../core/registry";
 import type { World } from "../core/World";
 import { Assets } from "./Assets";
-import { GameObject, _componentAllowedIn, type InstantiateOptions } from "./GameObject";
+import { GameObject, UI_FROM_VIEWS, _componentAllowedIn, _viewOnlyComponentId, type InstantiateOptions } from "./GameObject";
 import { assetRefs } from "./resolvedScene";
 import { nodeRefId } from "./nodeReferences";
 import { foldNodes, type FoldAdapter, type FoldPath, type FoldScope, type NodeStep } from "./overrideFold";
@@ -125,22 +126,34 @@ export function migrateSceneFile(file: SceneFile, path = "<inline>"): SceneFile 
     out = m(out);
     version++;
   }
-  return { ...out, format: `${SCENE_FORMAT}@${CURRENT_FORMAT_VERSION}` };
+  return { ...resolveComponentAliases(out), format: `${SCENE_FORMAT}@${CURRENT_FORMAT_VERSION}` };
+}
+
+/**
+ * The file with every component id that is an alias (ADR 0439, `registerComponentAlias`) replaced by the id it names,
+ * wherever the file names one (entries, overrides, added components and nodes). Applied whenever a file is read
+ * (`migrateSceneFile`), so loading, prefab overrides and the editor's documents all see current ids, and a document
+ * saves them.
+ */
+function resolveComponentAliases(file: SceneFile): SceneFile {
+  return _componentAliasVersion() === 0 ? file : mapSceneFile(file, { type: resolveComponentId });
 }
 
 /**
  * Migrated files by their raw asset value (as `resolvedScene` caches by it): a file is upgraded once, not on every
  * load, prefab instance and `GameObject.instantiate`. A changed file is a new value (`Assets` sources replace it).
  */
-let migrated = new WeakMap<object, SceneFile>();
+let migrated = new WeakMap<object, { file: SceneFile; aliases: number }>();
 
 /** The scene or prefab file at `path`, migrated to the current format. The result is shared: don't mutate it. */
 export function loadSceneFile(path: string): SceneFile {
   const raw = Assets.json<SceneFile>(path);
   if (typeof raw !== "object" || raw === null) return migrateSceneFile(raw, path); // throws its format error
-  let file = migrated.get(raw);
-  if (!file) migrated.set(raw, (file = migrateSceneFile(raw, path)));
-  return file;
+  const aliases = _componentAliasVersion();
+  let entry = migrated.get(raw);
+  // A component alias registered since (a plugin activated later) reads the file again.
+  if (!entry || entry.aliases !== aliases) migrated.set(raw, (entry = { file: migrateSceneFile(raw, path), aliases }));
+  return entry.file;
 }
 
 /**
@@ -294,7 +307,21 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
       node.addData(def, data as Record<string, number>);
       return def;
     }
+    // UI is made only by UI views (ADR 0421, 0423): saved UI components, the removed screen `Text` and `LocalizedText`
+    // (matched by name, their classes are gone), and the retired `UIDocument` stop the load. No automatic migration.
+    if (REMOVED_UI.has(entry.type)) {
+      this.problem(`${source}: node "${nodePath(node)}" saves "${entry.type}", which was removed. ${UI_FROM_VIEWS}`, at, entry);
+      return undefined;
+    }
+    if (RETIRED_DOCUMENTS.has(entry.type)) {
+      this.problem(`${source}: node "${nodePath(node)}" saves "${entry.type}": UI documents (*.ui.xml, *.ui.css) were retired by ADR 0423. Write the UI as a Svelte component and mount it with a UIView.`, at, entry);
+      return undefined;
+    }
     const type = getComponentClass(entry.type) as (new () => Component) | undefined;
+    if (type && _viewOnlyComponentId(type) !== null) {
+      this.problem(`${source}: node "${nodePath(node)}" saves a UI component ("${entry.type}"). ${UI_FROM_VIEWS}`, at, entry);
+      return undefined;
+    }
     if (!type) {
       this.problem(`${source}: unknown component type "${entry.type}". Is the class imported and decorated with @behavior("${entry.type}")?`, at, entry);
       return undefined;
@@ -366,6 +393,18 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
     };
     for (const f of this.fixups) f.apply(resolve);
   }
+}
+
+/** Component types ADR 0421 removed: the screen `Text` and `LocalizedText`, by id and by bare name. */
+const REMOVED_UI = new Set(["engine.Text", "engine.LocalizedText", "Text", "LocalizedText"]);
+/** The UI document component ADR 0423 retired, by id and by bare name. */
+const RETIRED_DOCUMENTS = new Set(["engine.UIDocument", "UIDocument"]);
+
+/** A node's path of names from the World root (`/menu/Canvas/Title`), as `nodeAtPath` reads it. */
+function nodePath(node: GameObject): string {
+  const names: string[] = [];
+  for (let n: GameObject | null = node; n?.parent; n = n.parent) names.unshift(n.name);
+  return `/${names.join("/")}`;
 }
 
 /**

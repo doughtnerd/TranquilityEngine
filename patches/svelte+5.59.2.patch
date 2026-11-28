@@ -1,0 +1,2114 @@
+diff --git a/node_modules/svelte/src/animate/index.js b/node_modules/svelte/src/animate/index.js
+index 2ce7708..c18604b 100644
+--- a/node_modules/svelte/src/animate/index.js
++++ b/node_modules/svelte/src/animate/index.js
+@@ -1,5 +1,8 @@
+ /** @import { FlipParams, AnimationConfig } from './public.js' */
+ import { cubicOut } from '../easing/index.js';
++import { current_renderer } from '../internal/client/custom-renderer/state.js';
++// under a custom renderer, geometry and computed styles come from its `measure` hook
++import { client_size, computed_style } from '../internal/client/custom-renderer/measure.js';
+ 
+ /**
+  * The flip function calculates the start and end position of an element and animates between them, translating the x and y values.
+@@ -13,18 +16,20 @@ import { cubicOut } from '../easing/index.js';
+ export function flip(node, { from, to }, params = {}) {
+ 	var { delay = 0, duration = (d) => Math.sqrt(d) * 120, easing = cubicOut } = params;
+ 
+-	var style = getComputedStyle(node);
++	var style = computed_style(node);
++	var client = client_size(node);
+ 
+ 	// find the transform origin, expressed as a pair of values between 0 and 1
+ 	var transform = style.transform === 'none' ? '' : style.transform;
+ 	var [ox, oy] = style.transformOrigin.split(' ').map(parseFloat);
+-	ox /= node.clientWidth;
+-	oy /= node.clientHeight;
++	ox /= client.width;
++	oy /= client.height;
+ 
+-	// calculate effect of parent transforms and zoom
+-	var zoom = get_zoom(node); // https://drafts.csswg.org/css-viewport/#effective-zoom
+-	var sx = node.clientWidth / to.width / zoom;
+-	var sy = node.clientHeight / to.height / zoom;
++	// calculate effect of parent transforms and zoom (a custom renderer's `measure` gives its nodes' sizes
++	// in the units of their boxes, with no zoom)
++	var zoom = current_renderer === null ? get_zoom(node) : 1; // https://drafts.csswg.org/css-viewport/#effective-zoom
++	var sx = client.width / to.width / zoom;
++	var sy = client.height / to.height / zoom;
+ 
+ 	// find the starting position of the transform origin
+ 	var fx = from.left + from.width * ox;
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/index.js b/node_modules/svelte/src/compiler/phases/2-analyze/index.js
+index f9e845d..73a606b 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/index.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/index.js
+@@ -473,21 +473,10 @@ export function analyze_component(root, source, options) {
+ 	const css = options.css({ filename: options.filename });
+ 	const custom_renderer = options.experimental.customRenderer({ filename: options.filename });
+ 
+-	// Injected styles are added to the document, which doesn't apply to components that use a
+-	// custom renderer (an actual renderer module, i.e. a string — `null` means the DOM): they are
+-	// never server-rendered and their nodes aren't in the document. An inherited `css: 'injected'`
+-	// (from the compiler options, which tools like vite-plugin-svelte set) is therefore ignored and
+-	// the CSS is returned as with `css: 'external'`; only an explicit `<svelte:options css="injected" />`
+-	// in such a component is an error
+-	const has_custom_renderer = typeof custom_renderer === 'string';
+-
+-	if (has_custom_renderer) {
+-		const css_attribute = root.options?.attributes.find((attribute) => attribute.name === 'css');
+-
+-		if (css_attribute) {
+-			e.incompatible_with_custom_renderer(css_attribute, "`css: 'injected'`");
+-		}
+-	}
++	// Under a custom renderer (an actual renderer module, i.e. a string — `null` means the DOM), injected
++	// styles go to the renderer's optional `addStyles(hash, code)` hook instead of the document (see
++	// `append_styles`). Like `css: 'external'` output, the code is the component's scoped CSS. A renderer
++	// without `addStyles` throws when the component is created
+ 
+ 	const custom_element = options.customElementOptions ?? custom_element_from_option;
+ 	const is_custom_element = !!options.customElementOptions || custom_element_from_option;
+@@ -553,7 +542,7 @@ export function analyze_component(root, source, options) {
+ 		event_directive_node: null,
+ 		uses_event_attributes: false,
+ 		custom_element,
+-		inject_styles: (css === 'injected' && !has_custom_renderer) || is_custom_element,
++		inject_styles: css === 'injected' || is_custom_element,
+ 		accessors:
+ 			is_custom_element ||
+ 			(runes ? false : !!options.accessors) ||
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/AnimateDirective.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/AnimateDirective.js
+index 8c5b1a6..501103d 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/AnimateDirective.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/AnimateDirective.js
+@@ -1,16 +1,14 @@
+ /** @import { Context } from '../types' */
+ /** @import { AST } from '#compiler'; */
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ 
+ /**
+  * @param {AST.AnimateDirective} node
+  * @param {Context} context
+  */
+ export function AnimateDirective(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`animate:`');
+-	}
++	// Under a custom renderer, `animate:` runs through the renderer's optional `animate` and `measure`
++	// hooks: the runtime throws if the renderer lacks them
+ 
+ 	context.next({ ...context.state, expression: node.metadata.expression });
+ 
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/Attribute.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/Attribute.js
+index 2563eb6..34e7703 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/Attribute.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/Attribute.js
+@@ -2,7 +2,6 @@
+ /** @import { Context } from '../types' */
+ import { cannot_be_set_statically, can_delegate_event } from '../../../../utils.js';
+ import { get_attribute_chunks, is_event_attribute } from '../../../utils/ast.js';
+-import { custom_renderer } from '../../../state.js';
+ import { mark_subtree_dynamic } from './shared/fragment.js';
+ 
+ /**
+@@ -60,11 +59,10 @@ export function Attribute(node, context) {
+ 				context.state.analysis.uses_event_attributes = true;
+ 			}
+ 
+-			// we can't delegate event handlers in a non dom environment
+-			if (!custom_renderer) {
+-				node.metadata.delegated =
+-					parent?.type === 'RegularElement' && can_delegate_event(node.name.slice(2));
+-			}
++			// under a custom renderer, delegated handlers run as in the DOM, from the renderer's listener on the
++			// mount target (`listen_to_delegated_events_renderer`)
++			node.metadata.delegated =
++				parent?.type === 'RegularElement' && can_delegate_event(node.name.slice(2));
+ 		}
+ 	}
+ }
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/BindDirective.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/BindDirective.js
+index ea70f8c..65f50a2 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/BindDirective.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/BindDirective.js
+@@ -12,7 +12,6 @@ import { binding_properties } from '../../bindings.js';
+ import fuzzymatch from '../../../utils/fuzzymatch.js';
+ import { is_content_editable_binding, is_svg } from '../../../../utils.js';
+ import { mark_subtree_dynamic } from './shared/fragment.js';
+-import { custom_renderer } from '../../../state.js';
+ 
+ /**
+  * @param {AST.BindDirective} node
+@@ -28,9 +27,9 @@ export function BindDirective(node, context) {
+ 		parent?.type === 'SvelteDocument' ||
+ 		parent?.type === 'SvelteBody'
+ 	) {
+-		if (custom_renderer) {
+-			e.incompatible_with_custom_renderer(node, '`bind:`');
+-		}
++		// Under a custom renderer, element bindings go through the renderer's optional `bind` hook
++		// (see `bind_renderer`), and so do bindings on `<svelte:window>`, `<svelte:document>` and
++		// `<svelte:body>`, whose node is the renderer's global target (see `global_target`)
+ 		if (node.name in binding_properties) {
+ 			const property = binding_properties[node.name];
+ 			if (property.valid_elements && !property.valid_elements.includes(parent.name)) {
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/HtmlTag.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/HtmlTag.js
+index 55b0384..7b0e501 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/HtmlTag.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/HtmlTag.js
+@@ -2,17 +2,12 @@
+ /** @import { Context } from '../types' */
+ import { mark_subtree_dynamic } from './shared/fragment.js';
+ import { validate_opening_tag } from './shared/utils.js';
+-import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ 
+ /**
+  * @param {AST.HtmlTag} node
+  * @param {Context} context
+  */
+ export function HtmlTag(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`@html`');
+-	}
+ 	if (context.state.analysis.runes) {
+ 		validate_opening_tag(node, context.state, '@');
+ 	}
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/OnDirective.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/OnDirective.js
+index f3f9c10..b8a0d95 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/OnDirective.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/OnDirective.js
+@@ -1,8 +1,6 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { Context } from '../types' */
+-import * as e from '../../../errors.js';
+ import * as w from '../../../warnings.js';
+-import { custom_renderer } from '../../../state.js';
+ import { mark_subtree_dynamic } from './shared/fragment.js';
+ 
+ /**
+@@ -10,10 +8,6 @@ import { mark_subtree_dynamic } from './shared/fragment.js';
+  * @param {Context} context
+  */
+ export function OnDirective(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`on:`');
+-	}
+-
+ 	if (context.state.analysis.runes) {
+ 		const parent_type = context.path.at(-1)?.type;
+ 
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteBody.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteBody.js
+index 495f88e..fcadc12 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteBody.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteBody.js
+@@ -1,7 +1,6 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { Context } from '../types' */
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ import { is_event_attribute } from '../../../utils/ast.js';
+ import { disallow_children } from '../../nodes.js';
+ import { check_global_event_reference } from './shared/utils.js';
+@@ -11,10 +10,6 @@ import { check_global_event_reference } from './shared/utils.js';
+  * @param {Context} context
+  */
+ export function SvelteBody(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`<svelte:body>`');
+-	}
+-
+ 	disallow_children(node);
+ 	for (const attribute of node.attributes) {
+ 		if (attribute.type === 'Attribute' && is_event_attribute(attribute)) {
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteDocument.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteDocument.js
+index 8a44d35..f2acc93 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteDocument.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteDocument.js
+@@ -2,7 +2,6 @@
+ /** @import { Context } from '../types' */
+ import { disallow_children } from '../../nodes.js';
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ import { is_event_attribute } from '../../../utils/ast.js';
+ import { check_global_event_reference } from './shared/utils.js';
+ 
+@@ -11,10 +10,6 @@ import { check_global_event_reference } from './shared/utils.js';
+  * @param {Context} context
+  */
+ export function SvelteDocument(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`<svelte:document>`');
+-	}
+-
+ 	disallow_children(node);
+ 
+ 	for (const attribute of node.attributes) {
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteHead.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteHead.js
+index 4a70ea0..5a3ed44 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteHead.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteHead.js
+@@ -1,7 +1,6 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { Context } from '../types' */
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ import { mark_subtree_dynamic } from './shared/fragment.js';
+ 
+ /**
+@@ -9,10 +8,6 @@ import { mark_subtree_dynamic } from './shared/fragment.js';
+  * @param {Context} context
+  */
+ export function SvelteHead(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`<svelte:head>`');
+-	}
+-
+ 	for (const attribute of node.attributes) {
+ 		e.svelte_head_illegal_attribute(attribute);
+ 	}
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteWindow.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteWindow.js
+index 3e89452..8bba0d8 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteWindow.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteWindow.js
+@@ -2,7 +2,6 @@
+ /** @import { Context } from '../types' */
+ import { disallow_children } from '../../nodes.js';
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ import { is_event_attribute } from '../../../utils/ast.js';
+ import { check_global_event_reference } from './shared/utils.js';
+ 
+@@ -11,10 +10,6 @@ import { check_global_event_reference } from './shared/utils.js';
+  * @param {Context} context
+  */
+ export function SvelteWindow(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`<svelte:window>`');
+-	}
+-
+ 	disallow_children(node);
+ 
+ 	for (const attribute of node.attributes) {
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/TransitionDirective.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/TransitionDirective.js
+index 3b78997..e1e533b 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/TransitionDirective.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/TransitionDirective.js
+@@ -1,7 +1,6 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { Context } from '../types' */
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ 
+ import { mark_subtree_dynamic } from './shared/fragment.js';
+ 
+@@ -10,10 +9,8 @@ import { mark_subtree_dynamic } from './shared/fragment.js';
+  * @param {Context} context
+  */
+ export function TransitionDirective(node, context) {
+-	if (custom_renderer) {
+-		const directive = node.intro && node.outro ? '`transition:`' : node.intro ? '`in:`' : '`out:`';
+-		e.incompatible_with_custom_renderer(node, directive);
+-	}
++	// Under a custom renderer, transitions run through the renderer's optional `animate` hook (and
++	// `measure`, for transitions that read geometry): the runtime throws if the renderer lacks it
+ 
+ 	mark_subtree_dynamic(context.path);
+ 
+diff --git a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/BindDirective.js b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/BindDirective.js
+index c7bf24b..9745388 100644
+--- a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/BindDirective.js
++++ b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/BindDirective.js
+@@ -1,7 +1,7 @@
+ /** @import { CallExpression, Expression, Pattern } from 'estree' */
+ /** @import { AST } from '#compiler' */
+ /** @import { ComponentContext } from '../types' */
+-import { dev, ignore_map, is_ignored } from '../../../../state.js';
++import { custom_renderer, dev, ignore_map, is_ignored } from '../../../../state.js';
+ import { is_text_attribute } from '../../../../utils/ast.js';
+ import * as b from '#compiler/builders';
+ import { binding_properties } from '../../../bindings.js';
+@@ -75,7 +75,19 @@ export function BindDirective(node, context) {
+ 	/** @type {CallExpression} */
+ 	let call;
+ 
+-	if (property?.event) {
++	if (
++		custom_renderer &&
++		node.name !== 'this' &&
++		(parent.type === 'RegularElement' ||
++			parent.type === 'SvelteElement' ||
++			parent.type === 'SvelteWindow' ||
++			parent.type === 'SvelteDocument' ||
++			parent.type === 'SvelteBody')
++	) {
++		// the DOM binding helpers don't apply to a custom renderer's nodes: the renderer binds (on
++		// `<svelte:window>`, `<svelte:document>` and `<svelte:body>` the node is its global target)
++		call = b.call('$.bind_renderer', context.state.node, b.literal(node.name), get, set);
++	} else if (property?.event) {
+ 		call = b.call(
+ 			'$.bind_property',
+ 			b.literal(node.name),
+diff --git a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/RegularElement.js b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/RegularElement.js
+index c875792..c89df7b 100644
+--- a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/RegularElement.js
++++ b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/RegularElement.js
+@@ -649,6 +649,15 @@ function build_element_attribute_update(element, node_id, name, value, attribute
+ 	}
+ 
+ 	if (name === 'value') {
++		// an `<option>`'s nullish value is written as `''`, as the DOM output does (`option.value = value ?? ''`),
++		// so that the option's value isn't its label
++		if (custom_renderer && element.name === 'option') {
++			value = b.logical('??', value, b.literal(''));
++		}
++		// a `<select>`'s value is checked as the DOM's `select_option` checks it (`select_multiple_invalid_value`)
++		if (custom_renderer && element.name === 'select') {
++			return b.call('$.set_value', node_id, value, b.true);
++		}
+ 		return b.call('$.set_value', node_id, value);
+ 	}
+ 
+diff --git a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/TitleElement.js b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/TitleElement.js
+index d91c387..9976bd0 100644
+--- a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/TitleElement.js
++++ b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/TitleElement.js
+@@ -1,6 +1,7 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { ComponentContext } from '../types' */
+ import * as b from '#compiler/builders';
++import { custom_renderer } from '../../../../state.js';
+ import { build_template_chunk, Memoizer } from './shared/utils.js';
+ 
+ /**
+@@ -20,7 +21,11 @@ export function TitleElement(node, context) {
+ 	const statement = b.stmt(
+ 		b.assignment(
+ 			'=',
+-			b.member(b.id('$.document'), b.id('title', node.name_loc)),
++			// under a custom renderer, the title goes to its `document` global target
++			b.member(
++				custom_renderer ? b.call('$.global_target', b.literal('document')) : b.id('$.document'),
++				b.id('title', node.name_loc)
++			),
+ 			evaluated.is_known
+ 				? b.literal(evaluated.value)
+ 				: evaluated.is_defined
+diff --git a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/element.js b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/element.js
+index 66b46ee..fd256c6 100644
+--- a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/element.js
++++ b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/element.js
+@@ -100,7 +100,11 @@ export function build_attribute_effect(
+ 					context.state.analysis.css.hash !== '' &&
+ 					b.literal(context.state.analysis.css.hash),
+ 				should_remove_defaults && b.true,
+-				is_ignored(element, 'hydration_attribute_changed') && b.true
++				is_ignored(element, 'hydration_attribute_changed') && b.true,
++				// a custom renderer's nodes don't say their name, which an `<option>`'s nullish value depends on
++				custom_renderer && element.type === 'RegularElement' && element.name === 'option'
++					? b.literal('option')
++					: undefined
+ 			)
+ 		)
+ 	);
+diff --git a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/special_element.js b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/special_element.js
+index c878f2f..0f82a13 100644
+--- a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/special_element.js
++++ b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/special_element.js
+@@ -2,6 +2,10 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { ComponentContext } from '../../types' */
+ import * as b from '#compiler/builders';
++import { custom_renderer } from '../../../../../state.js';
++
++/** @type {Record<string, string>} */
++const global_kinds = { SvelteWindow: 'window', SvelteDocument: 'document', SvelteBody: 'body' };
+ 
+ /**
+  *
+@@ -10,7 +14,12 @@ import * as b from '#compiler/builders';
+  * @param {ComponentContext} context
+  */
+ export function visit_special_element(node, id, context) {
+-	const state = { ...context.state, node: b.id(id) };
++	// Under a custom renderer, the node is the renderer's global target for the element (its
++	// optional `globalTarget(kind)` hook), which events, bindings, actions and attachments go to
++	const target = custom_renderer
++		? b.call('$.global_target', b.literal(global_kinds[node.type]))
++		: b.id(id);
++	const state = { ...context.state, node: target };
+ 
+ 	for (const attribute of node.attributes) {
+ 		if (attribute.type === 'OnDirective') {
+diff --git a/node_modules/svelte/src/internal/client/custom-renderer/animate.js b/node_modules/svelte/src/internal/client/custom-renderer/animate.js
+new file mode 100644
+index 0000000..b0374e9
+--- /dev/null
++++ b/node_modules/svelte/src/internal/client/custom-renderer/animate.js
+@@ -0,0 +1,80 @@
++/** @import { Renderer } from './types.js' */
++import * as e from '../errors.js';
++import { pop_renderer, push_renderer } from './state.js';
++
++/**
++ * The animations a custom renderer runs (or holds, with `fill: 'forwards'`) on each node until they're
++ * cancelled: what `element.getAnimations()` reports in the DOM
++ * @type {WeakMap<object, Set<any>>}
++ */
++var running = new WeakMap();
++
++/**
++ * Throws unless `renderer` can run transitions and animations (its optional `animate` hook) and, for
++ * `animate:`, measure nodes (its `measure` hook). Called when the transition or animation is created,
++ * since the compiler can't see the renderer object.
++ * @param {Renderer<any>} renderer
++ * @param {'transition' | 'in' | 'out' | 'animate'} directive
++ */
++export function require_animate(renderer, directive) {
++	if (typeof renderer.animate !== 'function') {
++		e.renderer_animate_unsupported(directive);
++	}
++
++	if (directive === 'animate' && typeof renderer.measure !== 'function') {
++		e.renderer_measure_unsupported(directive);
++	}
++}
++
++/**
++ * `element.animate(keyframes, options)` under a custom renderer: the renderer's `animate` hook runs the
++ * keyframes on its node and returns a handle (`cancel()`, `currentTime`, `onfinish`, and `onframe`, which
++ * the renderer calls on each of its frames while the animation runs)
++ * @param {Renderer<any>} renderer
++ * @param {any} node
++ * @param {Keyframe[]} keyframes
++ * @param {{ duration: number, fill: 'forwards' }} options
++ * @returns {any}
++ */
++export function renderer_animate(renderer, node, keyframes, options) {
++	var animation = /** @type {any} */ (renderer.animate)(node, keyframes, options);
++	var set = running.get(node);
++	if (set === undefined) running.set(node, (set = new Set()));
++	set.add(animation);
++
++	var cancel = animation.cancel;
++	animation.cancel = function () {
++		set?.delete(animation);
++		return cancel.call(this);
++	};
++
++	return animation;
++}
++
++/**
++ * Whether a custom renderer's node has animations running or held (`element.getAnimations().length`)
++ * @param {object} node
++ */
++export function has_renderer_animations(node) {
++	return (running.get(node)?.size ?? 0) > 0;
++}
++
++/**
++ * Runs `fn` with `renderer` as the current renderer, so that a transition function (`fade`, `flip`...)
++ * called after its component was created (in a microtask, or when an outro starts) measures nodes through
++ * it (`svelte/transition` and `svelte/animate` read geometry with `computed_style` and `bounding_rect`).
++ * With `null`, `fn` just runs.
++ * @template T
++ * @param {Renderer<any> | null} renderer
++ * @param {() => T} fn
++ * @returns {T}
++ */
++export function with_renderer(renderer, fn) {
++	if (renderer === null) return fn();
++	var previous = push_renderer(renderer);
++	try {
++		return fn();
++	} finally {
++		pop_renderer(previous);
++	}
++}
+diff --git a/node_modules/svelte/src/internal/client/custom-renderer/bind.js b/node_modules/svelte/src/internal/client/custom-renderer/bind.js
+new file mode 100644
+index 0000000..9c16d91
+--- /dev/null
++++ b/node_modules/svelte/src/internal/client/custom-renderer/bind.js
+@@ -0,0 +1,40 @@
++/** @import { Renderer } from './types.js' */
++import { render_effect } from '../reactivity/effects.js';
++import * as e from '../errors.js';
++import { current_renderer } from './state.js';
++import { current_batch, view_batch } from '../reactivity/batch.js';
++
++/**
++ * An element binding (`bind:value`, `bind:checked`, `bind:clientWidth`...) under a custom renderer:
++ * the renderer's `bind(node, name, get, set)` hook connects the node to the bound state and returns
++ * a cleanup function. Like an attachment, the hook runs again (after the previous cleanup) when state
++ * it read through `get()` changes, so a renderer pushes the current value by reading `get()` and
++ * reports changes from the node by calling `set(value)`. The fifth argument, `ownChange()`, is true while the
++ * batch being applied is one a `set` from this binding started: a renderer doesn't rewrite a focused control then.
++ *
++ * The compiler can't see the renderer object, so a renderer without `bind` fails here, when the
++ * binding is created, rather than at compile time.
++ * @param {unknown} node
++ * @param {string} name
++ * @param {() => unknown} get
++ * @param {(value: unknown) => void} [set]
++ */
++export function bind_renderer(node, name, get, set = get) {
++	var renderer = /** @type {Renderer<any> | null} */ (current_renderer);
++
++	if (typeof renderer?.bind !== 'function') {
++		e.renderer_bind_unsupported(name);
++	}
++
++	// Svelte's DOM bindings never rewrite a focused control with a value from a batch the control's own
++	// change started; a renderer can't see batches, so record the ones `set` runs in and let it ask
++	var batches = new WeakSet();
++	/** @param {unknown} value */
++	var report = (value) => {
++		set(value);
++		if (current_batch !== null) batches.add(current_batch);
++	};
++	var own_change = () => view_batch !== null && batches.has(view_batch);
++
++	render_effect(() => renderer.bind(node, name, get, report, own_change));
++}
+diff --git a/node_modules/svelte/src/internal/client/custom-renderer/global.js b/node_modules/svelte/src/internal/client/custom-renderer/global.js
+new file mode 100644
+index 0000000..db8e440
+--- /dev/null
++++ b/node_modules/svelte/src/internal/client/custom-renderer/global.js
+@@ -0,0 +1,38 @@
++/** @import { Renderer } from './types.js' */
++import * as e from '../errors.js';
++import { current_renderer } from './state.js';
++
++/** The global targets renderers returned, so listeners added to them are removed with their component */
++var global_targets = new WeakSet();
++
++/**
++ * The node `<svelte:window>`, `<svelte:document>` or `<svelte:body>` (`kind` `'window'`, `'document'`
++ * or `'body'`) stands for under a custom renderer, and what `<svelte:head>` content is inserted into
++ * (`'head'`): the renderer's `globalTarget(kind)`. Events on it go through the renderer's
++ * `addEventListener`, bindings through its `bind`, and `<title>` sets the `document` target's `title`.
++ *
++ * The compiler can't see the renderer object, so a renderer without `globalTarget` fails here, when
++ * the component is created, rather than at compile time.
++ * @param {'window' | 'document' | 'body' | 'head'} kind
++ * @returns {any}
++ */
++export function global_target(kind) {
++	var renderer = /** @type {Renderer<any> | null} */ (current_renderer);
++
++	if (typeof renderer?.globalTarget !== 'function') {
++		e.renderer_global_target_unsupported(kind);
++	}
++
++	var target = renderer.globalTarget(kind);
++	if (target !== null && typeof target === 'object') global_targets.add(target);
++	return target;
++}
++
++/**
++ * Whether `node` is one of a custom renderer's global targets, which outlive the components that
++ * listen to them
++ * @param {unknown} node
++ */
++export function is_global_target(node) {
++	return node !== null && typeof node === 'object' && global_targets.has(node);
++}
+diff --git a/node_modules/svelte/src/internal/client/custom-renderer/html.js b/node_modules/svelte/src/internal/client/custom-renderer/html.js
+new file mode 100644
+index 0000000..89cf523
+--- /dev/null
++++ b/node_modules/svelte/src/internal/client/custom-renderer/html.js
+@@ -0,0 +1,48 @@
++/** @import { Effect, TemplateNode } from '#client' */
++/** @import { Renderer } from './types.js' */
++import * as e from '../errors.js';
++import { remove_effect_dom } from '../reactivity/effects.js';
++import { assign_nodes } from '../dom/template.js';
++import { clear_text_content } from '../dom/operations.js';
++
++/**
++ * `{@html value}` under a custom renderer: the renderer's `html(anchor, value)` hook turns the string into new nodes
++ * (returned in a fragment, not yet inserted), which replace the ones the tag showed before. `anchor` is the comment
++ * they go before, or (`is_controlled`: the tag is its element's only content) that element, whose content they become.
++ *
++ * The compiler can't see the renderer object, so a renderer without `html` fails here, when the tag first renders,
++ * rather than at compile time.
++ * @param {Renderer<any>} renderer
++ * @param {Effect} effect
++ * @param {any} anchor
++ * @param {string} value
++ * @param {boolean} is_controlled
++ */
++export function renderer_html(renderer, effect, anchor, value, is_controlled) {
++	if (typeof renderer.html !== 'function') {
++		e.renderer_html_unsupported();
++	}
++
++	if (is_controlled) {
++		// As `innerHTML`: whatever the element holds goes (contenteditable may have changed it).
++		effect.nodes = null;
++		clear_text_content(anchor);
++	} else if (effect.nodes !== null) {
++		remove_effect_dom(effect.nodes.start, /** @type {TemplateNode} */ (effect.nodes.end));
++		effect.nodes = null;
++	}
++
++	if (value === '') return;
++
++	var fragment = renderer.html(anchor, value);
++	var first = renderer.getFirstChild(fragment);
++	if (first === null) return;
++
++	assign_nodes(first, renderer.getLastChild(fragment));
++
++	if (is_controlled) {
++		renderer.insert(anchor, fragment, null);
++	} else {
++		renderer.insert(renderer.getParent(anchor), fragment, anchor);
++	}
++}
+diff --git a/node_modules/svelte/src/internal/client/custom-renderer/measure.js b/node_modules/svelte/src/internal/client/custom-renderer/measure.js
+new file mode 100644
+index 0000000..8140d8a
+--- /dev/null
++++ b/node_modules/svelte/src/internal/client/custom-renderer/measure.js
+@@ -0,0 +1,59 @@
++/** @import { Renderer } from './types.js' */
++import * as e from '../errors.js';
++import { current_renderer } from './state.js';
++
++/**
++ * A node's geometry and computed style from the current custom renderer's `measure(node)` hook (what
++ * `getBoundingClientRect()`, `clientWidth`/`clientHeight` and `getComputedStyle()` give in the DOM)
++ * @param {any} node
++ * @returns {{ left: number, top: number, right: number, bottom: number, width: number, height: number, clientWidth: number, clientHeight: number, style: Record<string, any> }}
++ */
++export function measure_node(node) {
++	var renderer = /** @type {Renderer<any>} */ (current_renderer);
++
++	if (typeof renderer.measure !== 'function') {
++		e.renderer_measure_unsupported('transition');
++	}
++
++	return /** @type {any} */ (renderer.measure)(node);
++}
++
++/**
++ * `getComputedStyle(node)`, or under a custom renderer the `style` its `measure` hook gives
++ * @param {Element} node
++ * @returns {CSSStyleDeclaration}
++ */
++export function computed_style(node) {
++	return current_renderer === null ? getComputedStyle(node) : measure_node(node).style;
++}
++
++/**
++ * `node.getBoundingClientRect()`, or under a custom renderer the box its `measure` hook gives
++ * @param {Element} node
++ * @returns {DOMRect}
++ */
++export function bounding_rect(node) {
++	if (current_renderer === null) return node.getBoundingClientRect();
++	var m = measure_node(node);
++	return /** @type {DOMRect} */ ({
++		x: m.left,
++		y: m.top,
++		left: m.left,
++		top: m.top,
++		right: m.right,
++		bottom: m.bottom,
++		width: m.width,
++		height: m.height
++	});
++}
++
++/**
++ * `node.clientWidth` and `node.clientHeight`, or under a custom renderer the sizes its `measure` hook gives
++ * @param {Element} node
++ * @returns {{ width: number, height: number }}
++ */
++export function client_size(node) {
++	if (current_renderer === null) return { width: node.clientWidth, height: node.clientHeight };
++	var m = measure_node(node);
++	return { width: m.clientWidth, height: m.clientHeight };
++}
+diff --git a/node_modules/svelte/src/internal/client/dev/validation.js b/node_modules/svelte/src/internal/client/dev/validation.js
+index f7a9a4e..8b7b303 100644
+--- a/node_modules/svelte/src/internal/client/dev/validation.js
++++ b/node_modules/svelte/src/internal/client/dev/validation.js
+@@ -5,7 +5,12 @@ import * as e from '../errors.js';
+  * @param {...(()=>any)[]} args
+  */
+ export function validate_snippet_args(anchor, ...args) {
+-	if (!current_renderer && (typeof anchor !== 'object' || !(anchor instanceof Node))) {
++	if (
++		typeof anchor !== 'object' ||
++		anchor === null ||
++		// a custom renderer's nodes aren't DOM nodes
++		(!current_renderer && !(anchor instanceof Node))
++	) {
+ 		e.invalid_snippet_arguments();
+ 	}
+ 
+diff --git a/node_modules/svelte/src/internal/client/dom/blocks/html.js b/node_modules/svelte/src/internal/client/dom/blocks/html.js
+index 51f2057..17ed779 100644
+--- a/node_modules/svelte/src/internal/client/dom/blocks/html.js
++++ b/node_modules/svelte/src/internal/client/dom/blocks/html.js
+@@ -27,6 +27,8 @@ import {
+ import { active_effect } from '../../runtime.js';
+ import { COMMENT_NODE, ELEMENT_NODE } from '#client/constants';
+ import { set_dev_metadata } from '../../dev/elements.js';
++import { current_renderer } from '../../custom-renderer/state.js';
++import { renderer_html } from '../../custom-renderer/html.js';
+ 
+ /**
+  * @param {string | null} server_hash
+@@ -61,7 +63,7 @@ function assign_locations(effect, parent, loc) {
+ 	var node = effect.nodes.start;
+ 
+ 	while (node !== null) {
+-		if (node.nodeType === ELEMENT_NODE) {
++		if (node_type(node) === ELEMENT_NODE) {
+ 			set_dev_metadata(
+ 				/** @type {Element} */ (node),
+ 				{ file: loc[0], line: loc[1], column: loc[2] },
+@@ -115,6 +117,13 @@ export function html(
+ 			return;
+ 		}
+ 
++		if (current_renderer) {
++			// A custom renderer turns the string into its own nodes (its `html` hook).
++			renderer_html(current_renderer, effect, anchor, String(value), is_controlled);
++			if (DEV && location) assign_locations(effect, parent, location);
++			return;
++		}
++
+ 		if (is_controlled && !hydrating) {
+ 			// When @html is the only child, use innerHTML directly.
+ 			// This also handles contenteditable, where the user may delete the anchor comment.
+diff --git a/node_modules/svelte/src/internal/client/dom/blocks/snippet.js b/node_modules/svelte/src/internal/client/dom/blocks/snippet.js
+index 62c0522..99bd38c 100644
+--- a/node_modules/svelte/src/internal/client/dom/blocks/snippet.js
++++ b/node_modules/svelte/src/internal/client/dom/blocks/snippet.js
+@@ -22,6 +22,7 @@ import { set_dev_metadata } from '../../dev/elements.js';
+ import { current_renderer } from '../../custom-renderer/state.js';
+ import { cross, is_crossing } from '../../custom-renderer/cross.js';
+ import { has_own_property } from '../../../shared/utils.js';
++import { invalid_default_snippet } from '../../../shared/errors.js';
+ 
+ /**
+  * @template {(node: TemplateNode, ...args: any[]) => void} SnippetFn
+@@ -89,6 +90,9 @@ export function renderer_snippet(renderer, fn) {
+ 
+ 	/** @type {any} */ (wrapped).__renderer = renderer;
+ 
++	// keep `prevent_snippet_stringification`'s `toString` (dev): `{snippet}` must still throw
++	if (DEV && has_own_property.call(fn, 'toString')) wrapped.toString = fn.toString;
++
+ 	return wrapped;
+ }
+ 
+@@ -102,7 +106,13 @@ export function renderer_snippet(renderer, fn) {
+  * @returns {T}
+  */
+ export function validate_snippet_renderer(fn) {
+-	if (fn != null && !has_own_property.call(fn, '__renderer')) {
++	// the compiler's stand-in for a `let:` directive's missing default snippet throws its own error when rendered
++	if (
++		fn != null &&
++		fn !== invalid_default_snippet &&
++		!raw_snippets.has(fn) &&
++		!has_own_property.call(fn, '__renderer')
++	) {
+ 		e.snippet_renderer_mismatch();
+ 	}
+ 
+@@ -119,9 +129,12 @@ export function validate_snippet_renderer(fn) {
+  * @returns {Snippet<Params>}
+  */
+ export function createRawSnippet(fn) {
+-	// @ts-expect-error the types are a lie
+-	return (/** @type {TemplateNode} */ anchor, /** @type {Getters<Params>} */ ...params) => {
+-		if (current_renderer != null) {
++	/** @type {any} */
++	var raw = (/** @type {TemplateNode} */ anchor, /** @type {Getters<Params>} */ ...params) => {
++		// under a custom renderer, the HTML becomes the renderer's nodes through its `html` hook (as `{@html}`);
++		// without one, raw snippets can't be rendered
++		var renderer = current_renderer;
++		if (renderer != null && typeof renderer.html !== 'function') {
+ 			e.invalid_snippet_in_custom_renderer();
+ 		}
+ 		var snippet = fn(...params);
+@@ -134,7 +147,12 @@ export function createRawSnippet(fn) {
+ 			hydrate_next();
+ 		} else {
+ 			var html = snippet.render().trim();
+-			var fragment = create_fragment_from_html(html);
++			var fragment =
++				renderer != null
++					? /** @type {DocumentFragment} */ (
++							/** @type {NonNullable<typeof renderer.html>} */ (renderer.html)(anchor, html)
++						)
++					: create_fragment_from_html(html);
+ 			element = /** @type {Element} */ (get_first_child(fragment));
+ 
+ 			if (DEV && (get_next_sibling(element) !== null || node_type(element) !== ELEMENT_NODE)) {
+@@ -161,4 +179,13 @@ export function createRawSnippet(fn) {
+ 			teardown(result);
+ 		}
+ 	};
++
++	// a raw snippet renders with whichever renderer is current, so custom renderers accept it
++	// (`validate_snippet_renderer`) as they do snippets compiled for them
++	raw_snippets.add(raw);
++
++	return raw;
+ }
++
++/** The snippets made by `createRawSnippet` */
++var raw_snippets = new WeakSet();
+diff --git a/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js b/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+index 55d169b..21e6f9f 100644
+--- a/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
++++ b/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+@@ -12,6 +12,8 @@ import {
+ } from '../operations.js';
+ import { block, branch } from '../../reactivity/effects.js';
+ import { COMMENT_NODE, HEAD_EFFECT } from '#client/constants';
++import { current_renderer } from '../../custom-renderer/state.js';
++import { global_target } from '../../custom-renderer/global.js';
+ 
+ /**
+  * @param {string} hash
+@@ -54,7 +56,9 @@ export function head(hash, render_fn) {
+ 	}
+ 
+ 	if (!hydrating) {
+-		anchor = /** @type {Comment | Text} */ (append_child(document.head, create_anchor()));
++		// under a custom renderer, head content goes into its `head` global target
++		var head = current_renderer ? global_target('head') : document.head;
++		anchor = /** @type {Comment | Text} */ (append_child(head, create_anchor()));
+ 	}
+ 
+ 	try {
+diff --git a/node_modules/svelte/src/internal/client/dom/css.js b/node_modules/svelte/src/internal/client/dom/css.js
+index d7c6965..9e97c1b 100644
+--- a/node_modules/svelte/src/internal/client/dom/css.js
++++ b/node_modules/svelte/src/internal/client/dom/css.js
+@@ -1,4 +1,7 @@
++/** @import { Renderer } from '../custom-renderer/types.js' */
+ import { DEV } from 'esm-env';
++import * as e from '../errors.js';
++import { current_renderer } from '../custom-renderer/state.js';
+ import { register_style } from '../dev/css.js';
+ import { effect } from '../reactivity/effects.js';
+ import { create_element, append_child, set_text_content } from './operations.js';
+@@ -9,6 +12,17 @@ import { active_effect } from '../runtime.js';
+  * @param {{ hash: string, code: string }} css
+  */
+ export function append_styles(anchor, css) {
++	var renderer = /** @type {Renderer<any> | null} */ (current_renderer);
++
++	if (renderer !== null) {
++		// a custom renderer's nodes aren't in a document: the renderer takes the styles
++		if (typeof renderer.addStyles !== 'function') {
++			e.renderer_add_styles_unsupported();
++		}
++		renderer.addStyles(css.hash, css.code);
++		return;
++	}
++
+ 	// Use an effect to ensure `anchor` is in the DOM, otherwise getRootNode() will yield wrong results
+ 	effect(() => {
+ 		// Bit of a hack: branches.js/each.js use offscreen fragments with temporary text nodes that will
+diff --git a/node_modules/svelte/src/internal/client/dom/elements/attributes.js b/node_modules/svelte/src/internal/client/dom/elements/attributes.js
+index 44be12e..3d7d431 100644
+--- a/node_modules/svelte/src/internal/client/dom/elements/attributes.js
++++ b/node_modules/svelte/src/internal/client/dom/elements/attributes.js
+@@ -2,7 +2,7 @@
+ /** @import { Blocker } from '../../reactivity/async.js' */
+ import { DEV } from 'esm-env';
+ import { hydrating, set_hydrating } from '../hydration.js';
+-import { get_descriptors, get_prototype_of } from '../../../shared/utils.js';
++import { get_descriptors, get_prototype_of, is_array } from '../../../shared/utils.js';
+ import { create_event, delegate, delegated } from './events.js';
+ import { add_form_reset_listener, autofocus } from './misc.js';
+ import * as w from '../../warnings.js';
+@@ -103,10 +103,32 @@ export function remove_input_defaults(input) {
+ /**
+  * @param {Element} element
+  * @param {any} value
++ * @param {boolean} [is_select] whether it's a `<select>`, under a custom renderer
+  */
+-export function set_value(element, value) {
++export function set_value(element, value, is_select = false) {
++	// under a custom renderer, a `<select multiple>`'s value must be an array, as the DOM's `select_option` checks;
++	// otherwise the selection is kept as is
++	if (
++		is_select &&
++		current_renderer != null &&
++		value != null &&
++		!is_array(value) &&
++		current_renderer.hasAttribute(element, 'multiple')
++	) {
++		if (DEV) w.select_multiple_invalid_value();
++		return;
++	}
++
+ 	var attributes = get_attributes(element);
+ 
++	// the DOM output for `<select value={null}>` sets `select.value` and chooses no option; under a renderer the
++	// early return below would hide a first nullish value, so the renderer hears it (and knows the select has a value)
++	if (is_select && current_renderer != null && value == null && !('value' in attributes)) {
++		attributes.value = undefined;
++		current_renderer.setAttribute(element, 'value', value);
++		return;
++	}
++
+ 	if (
+ 		attributes.value ===
+ 			(attributes.value =
+@@ -287,6 +309,7 @@ export function set_custom_element_data(node, prop, value) {
+  * @param {string} [css_hash]
+  * @param {boolean} [should_remove_defaults]
+  * @param {boolean} [skip_warning]
++ * @param {string} [tag] the element's name, under a custom renderer (whose nodes `node_name` can't read)
+  * @returns {Record<string, any>}
+  */
+ function set_attributes(
+@@ -295,7 +318,8 @@ function set_attributes(
+ 	next,
+ 	css_hash,
+ 	should_remove_defaults = false,
+-	skip_warning = false
++	skip_warning = false,
++	tag
+ ) {
+ 	if (hydrating && should_remove_defaults && node_name(element) === INPUT_TAG) {
+ 		if (!('defaultValue' in next || 'defaultChecked' in next)) {
+@@ -316,7 +340,8 @@ function set_attributes(
+ 	}
+ 
+ 	var current = prev || {};
+-	var is_option_element = node_name(element) === OPTION_TAG;
++	var is_option_element =
++		current_renderer == null ? node_name(element) === OPTION_TAG : tag === 'option';
+ 	var is_select_element = node_name(element) === SELECT_TAG;
+ 
+ 	try {
+@@ -372,8 +397,13 @@ function set_attributes(
+ 				// that once set, the value attribute of an <option> element can't be removed. This is
+ 				// a very rare edge case, and removing the attribute altogether isn't possible either
+ 				// for the <option value={undefined}> case, so we're not losing any functionality here.
+-				// @ts-ignore
+-				element.value = element.__value = '';
++				if (current_renderer != null) {
++					// @ts-ignore
++					set_element_value(element, (element.__value = ''));
++				} else {
++					// @ts-ignore
++					element.value = element.__value = '';
++				}
+ 				current[key] = value;
+ 				continue;
+ 			}
+@@ -413,7 +443,7 @@ function set_attributes(
+ 				const opts = {};
+ 				const event_handle_key = '$$' + key;
+ 				let event_name = key.slice(2);
+-				var is_delegated = current_renderer == null && can_delegate_event(event_name);
++				var is_delegated = can_delegate_event(event_name);
+ 
+ 				if (is_capture_event(event_name)) {
+ 					event_name = event_name.slice(0, -7);
+@@ -491,7 +521,10 @@ function set_attributes(
+ 
+ 				if (value == null && !is_custom_element && !is_default) {
+ 					attributes[key] = null;
+-					if ((name === 'value' || name === 'checked') && current_renderer == null) {
++					if ((name === 'value' || name === 'checked') && current_renderer != null && prev === undefined) {
++						// a spread's first nullish value/checked keeps the default, as on the DOM below; removing the
++						// attribute would read as `checked={false}` / an emptied value to a renderer
++					} else if ((name === 'value' || name === 'checked') && current_renderer == null) {
+ 						// removing value/checked also removes defaultValue/defaultChecked — preserve
+ 						let input = /** @type {HTMLInputElement} */ (element);
+ 						const use_default = prev === undefined;
+@@ -555,6 +588,7 @@ function set_attributes(
+  * @param {string} [css_hash]
+  * @param {boolean} [should_remove_defaults]
+  * @param {boolean} [skip_warning]
++ * @param {string} [tag] the element's name, under a custom renderer (whose nodes `node_name` can't read)
+  */
+ export function attribute_effect(
+ 	element,
+@@ -564,7 +598,8 @@ export function attribute_effect(
+ 	blockers = [],
+ 	css_hash,
+ 	should_remove_defaults = false,
+-	skip_warning = false
++	skip_warning = false,
++	tag
+ ) {
+ 	flatten(blockers, sync, async, (values) => {
+ 		/** @type {Record<string | symbol, any> | undefined} */
+@@ -585,7 +620,8 @@ export function attribute_effect(
+ 				next,
+ 				css_hash,
+ 				should_remove_defaults,
+-				skip_warning
++				skip_warning,
++				tag
+ 			);
+ 
+ 			if (inited && is_select) {
+diff --git a/node_modules/svelte/src/internal/client/dom/elements/events.js b/node_modules/svelte/src/internal/client/dom/elements/events.js
+index e8d5dba..1d06170 100644
+--- a/node_modules/svelte/src/internal/client/dom/elements/events.js
++++ b/node_modules/svelte/src/internal/client/dom/elements/events.js
+@@ -1,3 +1,4 @@
++/** @import { Renderer } from '../../custom-renderer/types.js' */
+ import { teardown } from '../../reactivity/effects.js';
+ import { array_from, define_property } from '../../../shared/utils.js';
+ import { is_passive_event } from '../../../../utils.js';
+@@ -18,7 +19,8 @@ import {
+ 	add_event_listener,
+ 	remove_event_listener
+ } from '../operations.js';
+-import { current_renderer } from '../../custom-renderer/state.js';
++import { current_renderer, pop_renderer, push_renderer } from '../../custom-renderer/state.js';
++import { is_global_target } from '../../custom-renderer/global.js';
+ 
+ /**
+  * Used on elements, as a map of event type -> event handler,
+@@ -66,23 +68,34 @@ export function replay_events(dom) {
+  * @param {AddEventListenerOptions} [options]
+  */
+ export function create_event(event_name, dom, handler, options = {}) {
+-	// Capture whether a custom renderer is active at creation time (during mount),
++	// Capture the custom renderer active at creation time (during mount),
+ 	// since `renderer` will be null when the event actually fires
+-	var is_custom_renderer = current_renderer != null;
++	var renderer = current_renderer;
++	var is_custom_renderer = renderer != null;
+ 
+ 	/**
+ 	 * @this {EventTarget}
+ 	 * @param  {...any} args
+ 	 */
+ 	function target_handler(...args) {
++		var event = /** @type {Event} */ (args[0]);
+ 		if (is_custom_renderer) {
+-			// Custom renderers don't use DOM event propagation/delegation,
+-			// so just call the handler directly
+-			return without_reactive_context(() => {
+-				return handler?.apply(this, /** @type {any} */ (args));
+-			});
++			// As below: delegated handlers on the nodes between the event's target and this one run first. The handler
++			// runs with its renderer current (as while its component renders), so that `mount()` in it renders with it
++			if (!options.capture && event != null && typeof event === 'object') {
++				handle_event_propagation.call(dom, event, renderer);
++			}
++			// @ts-expect-error
++			if (!options.capture && event?.[propagation_stopped_at] === dom) return;
++			var previous_renderer = push_renderer(renderer);
++			try {
++				return without_reactive_context(() => {
++					return handler?.apply(this, /** @type {any} */ (args));
++				});
++			} finally {
++				pop_renderer(previous_renderer);
++			}
+ 		}
+-		var event = /** @type {Event} */ (args[0]);
+ 		if (!options.capture) {
+ 			// Only call in the bubble phase, else delegated events would be called before the capturing events
+ 			handle_event_propagation.call(dom, event);
+@@ -150,15 +163,16 @@ export function event(event_name, dom, handler, capture, passive) {
+ 	var target_handler = create_event(event_name, dom, handler, options);
+ 
+ 	if (
+-		// if there's a renderer we will never add to body, window or document.
+-		current_renderer == null &&
+-		(dom === document.body ||
+-			// @ts-ignore
+-			dom === window ||
+-			// @ts-ignore
+-			dom === document ||
+-			// Firefox has quirky behavior, it can happen that we still get "canplay" events when the element is already removed
+-			dom instanceof HTMLMediaElement)
++		current_renderer == null
++			? dom === document.body ||
++				// @ts-ignore
++				dom === window ||
++				// @ts-ignore
++				dom === document ||
++				// Firefox has quirky behavior, it can happen that we still get "canplay" events when the element is already removed
++				dom instanceof HTMLMediaElement
++			: // a custom renderer's global targets (`<svelte:window>`...) outlive the component
++				is_global_target(dom)
+ 	) {
+ 		teardown(() => {
+ 			target_handler.__removed = true;
+@@ -285,12 +299,64 @@ let last_propagated_event = null;
+ // whether a task is already queued to clear `last_propagated_event`
+ let last_propagated_event_clear_scheduled = false;
+ 
++/**
++ * Makes a custom renderer's `target` (what a component is mounted into) a root for delegated events, as
++ * `listen_to_delegated_events` does for the DOM: listens on it through the renderer, for every delegated event type,
++ * including types registered later, and dispatches them to the handlers set with `delegated(...)`. The renderer's
++ * nodes needn't be `Node`s: the event's path is its target's ancestors (`getParent`).
++ * @param {Renderer<any>} renderer
++ * @param {any} target
++ * @returns {() => void} stops listening
++ */
++export function listen_to_delegated_events_renderer(renderer, target) {
++	/** @type {Map<string, (event: Event) => void>} */
++	var listeners = new Map();
++
++	/** @param {Array<string>} events */
++	var event_handle = (events) => {
++		for (var i = 0; i < events.length; i++) {
++			var event_name = events[i];
++			if (listeners.has(event_name)) continue;
++
++			/** @param {Event} event */
++			var listener = (event) => handle_event_propagation.call(target, event, renderer);
++			listeners.set(event_name, listener);
++			renderer.addEventListener(target, event_name, listener, { passive: is_passive_event(event_name) });
++		}
++	};
++
++	event_handle(array_from(all_registered_events));
++	root_event_handles.add(event_handle);
++
++	return () => {
++		for (var [event_name, listener] of listeners) {
++			renderer.removeEventListener(target, event_name, listener);
++		}
++		root_event_handles.delete(event_handle);
++	};
++}
++
++/**
++ * The path of an event dispatched by a custom renderer: its target and the target's ancestors
++ * @param {Renderer<any>} renderer
++ * @param {any} node
++ */
++function renderer_event_path(renderer, node) {
++	var path = [];
++	while (node != null) {
++		path.push(node);
++		node = renderer.getParent(node);
++	}
++	return path;
++}
++
+ /**
+  * @this {EventTarget}
+  * @param {Event} event
++ * @param {Renderer<any>} [renderer] the custom renderer that dispatched it, if any
+  * @returns {void}
+  */
+-export function handle_event_propagation(event) {
++export function handle_event_propagation(event, renderer) {
+ 	// this function is custom renderers safe since it's invoked in `mount`
+ 	var handler_element = this;
+ 	var was_stopped = event.cancelBubble;
+@@ -309,6 +375,7 @@ export function handle_event_propagation(event) {
+ 	var owner_document = /** @type {Node} */ (handler_element).ownerDocument;
+ 	var event_name = event.type;
+ 	var path = event.composedPath?.() || [];
++	if (renderer != null && path.length === 0) path = renderer_event_path(renderer, event.target);
+ 	var current_target = /** @type {null | Element} */ (path[0] || event.target);
+ 
+ 	last_propagated_event = event;
+@@ -344,6 +411,7 @@ export function handle_event_propagation(event) {
+ 		var at_idx = path.indexOf(handled_at);
+ 		if (
+ 			at_idx !== -1 &&
++			renderer == null &&
+ 			(handler_element === document || handler_element === /** @type {any} */ (window))
+ 		) {
+ 			// This is the fallback document listener or a window listener, but the event was already handled
+@@ -394,6 +462,8 @@ export function handle_event_propagation(event) {
+ 	var previous_effect = active_effect;
+ 	set_active_reaction(null);
+ 	set_active_effect(null);
++	// a custom renderer's handlers run with it current, as `create_event`'s do
++	var previous_renderer = renderer != null ? push_renderer(renderer) : null;
+ 
+ 	try {
+ 		/**
+@@ -456,6 +526,7 @@ export function handle_event_propagation(event) {
+ 		delete event.currentTarget;
+ 		set_active_reaction(previous_reaction);
+ 		set_active_effect(previous_effect);
++		if (renderer != null) pop_renderer(previous_renderer);
+ 	}
+ }
+ 
+diff --git a/node_modules/svelte/src/internal/client/dom/elements/transitions.js b/node_modules/svelte/src/internal/client/dom/elements/transitions.js
+index 721888b..1718938 100644
+--- a/node_modules/svelte/src/internal/client/dom/elements/transitions.js
++++ b/node_modules/svelte/src/internal/client/dom/elements/transitions.js
+@@ -8,6 +8,14 @@ import { TRANSITION_GLOBAL, TRANSITION_IN, TRANSITION_OUT } from '../../../../co
+ import { BLOCK_EFFECT, REACTION_RAN, EFFECT_TRANSPARENT } from '#client/constants';
+ import { queue_micro_task } from '../task.js';
+ import { without_reactive_context } from './bindings/shared.js';
++import { current_renderer } from '../../custom-renderer/state.js';
++import {
++	has_renderer_animations,
++	renderer_animate,
++	require_animate,
++	with_renderer
++} from '../../custom-renderer/animate.js';
++import { bounding_rect, computed_style } from '../../custom-renderer/measure.js';
+ 
+ /**
+  * @param {Element} element
+@@ -15,6 +23,9 @@ import { without_reactive_context } from './bindings/shared.js';
+  * @returns {void}
+  */
+ function dispatch_event(element, type) {
++	// a custom renderer's nodes may not dispatch events
++	if (typeof element.dispatchEvent !== 'function') return;
++
+ 	without_reactive_context(() => {
+ 		element.dispatchEvent(new CustomEvent(type));
+ 	});
+@@ -65,6 +76,20 @@ function css_to_keyframe(css) {
+ /** @param {number} t */
+ const linear = (t) => t;
+ 
++/**
++ * `element.animate(keyframes, options)`, or under a custom renderer its `animate` hook
++ * @param {import('../../custom-renderer/types.js').Renderer<any> | null} renderer
++ * @param {Element} element
++ * @param {Keyframe[]} keyframes
++ * @param {{ duration: number, fill: 'forwards' }} options
++ * @returns {globalThis.Animation}
++ */
++function animate_element(renderer, element, keyframes, options) {
++	return renderer === null
++		? element.animate(keyframes, options)
++		: renderer_animate(renderer, element, keyframes, options);
++}
++
+ /** @type {Effect | null} */
+ let animation_effect_override = null;
+ 
+@@ -85,6 +110,10 @@ export function animation(element, get_fn, get_params) {
+ 	var effect = animation_effect_override ?? /** @type {Effect} */ (active_effect);
+ 	var nodes = /** @type {EffectNodes} */ (effect.nodes);
+ 
++	// under a custom renderer, the animation runs through its `animate` hook and measures through `measure`
++	var renderer = current_renderer;
++	if (renderer !== null) require_animate(renderer, 'animate');
++
+ 	/** @type {DOMRect} */
+ 	var from;
+ 
+@@ -97,15 +126,18 @@ export function animation(element, get_fn, get_params) {
+ 	/** @type {null | { position: string, width: string, height: string, transform: string }} */
+ 	var original_styles = null;
+ 
++	/** @type {null | { value: string | null }} The `style` attribute before `fix()`, under a custom renderer */
++	var original_attribute = null;
++
+ 	nodes.a ??= {
+ 		element,
+ 		measure() {
+-			from = this.element.getBoundingClientRect();
++			from = with_renderer(renderer, () => bounding_rect(this.element));
+ 		},
+ 		apply() {
+ 			animation?.abort();
+ 
+-			to = this.element.getBoundingClientRect();
++			to = with_renderer(renderer, () => bounding_rect(this.element));
+ 
+ 			if (
+ 				from.left !== to.left ||
+@@ -113,9 +145,12 @@ export function animation(element, get_fn, get_params) {
+ 				from.top !== to.top ||
+ 				from.bottom !== to.bottom
+ 			) {
+-				const options = get_fn()(this.element, { from, to }, get_params?.());
++				const options = with_renderer(renderer, () =>
++					get_fn()(this.element, { from, to }, get_params?.())
++				);
+ 
+ 				animation = animate(
++					renderer,
+ 					this.element,
+ 					options,
+ 					undefined,
+@@ -133,13 +168,36 @@ export function animation(element, get_fn, get_params) {
+ 			// because the styles applied by the animation take precedence. In the case of crossfade,
+ 			// that means the `translate(...)` of the crossfade transition overrules the `translate(...)`
+ 			// we would apply below, leading to the element jumping somewhere to the top left.
+-			if (element.getAnimations().length) return;
++			if (renderer !== null ? has_renderer_animations(element) : element.getAnimations().length) {
++				return;
++			}
+ 
+ 			// It's important to destructure these to get fixed values - the object itself has getters,
+ 			// and changing the style to 'absolute' can for example influence the width.
+-			var { position, width, height } = getComputedStyle(element);
+-
+-			if (position !== 'absolute' && position !== 'fixed') {
++			var { position, width, height } = with_renderer(renderer, () => computed_style(element));
++
++			if (renderer !== null && position !== 'absolute' && position !== 'fixed') {
++				// custom renderers deal in attributes: the declarations go at the end of the `style` attribute
++				var attribute = /** @type {string | null} */ (renderer.getAttribute(element, 'style'));
++				original_attribute = { value: attribute };
++
++				var css =
++					(attribute?.trim() ? attribute.trim().replace(/;?$/, '; ') : '') +
++					`position: absolute; width: ${width}; height: ${height}`;
++				renderer.setAttribute(element, 'style', css);
++
++				var moved = with_renderer(renderer, () => bounding_rect(element));
++
++				if (from.left !== moved.left || from.top !== moved.top) {
++					var current = with_renderer(renderer, () => computed_style(element)).transform;
++					var translate = `translate(${from.left - moved.left}px, ${from.top - moved.top}px)`;
++					renderer.setAttribute(
++						element,
++						'style',
++						`${css}; transform: ${current && current !== 'none' ? `${current} ${translate}` : translate}`
++					);
++				}
++			} else if (position !== 'absolute' && position !== 'fixed') {
+ 				var style = /** @type {HTMLElement | SVGElement} */ (element).style;
+ 
+ 				original_styles = {
+@@ -161,7 +219,11 @@ export function animation(element, get_fn, get_params) {
+ 			}
+ 		},
+ 		unfix() {
+-			if (original_styles) {
++			if (renderer !== null && original_attribute) {
++				var value = original_attribute.value;
++				if (value === null) renderer.removeAttribute(element, 'style');
++				else renderer.setAttribute(element, 'style', value);
++			} else if (original_styles) {
+ 				var style = /** @type {HTMLElement | SVGElement} */ (element).style;
+ 
+ 				style.position = original_styles.position;
+@@ -202,14 +264,26 @@ export function transition(flags, element, get_fn, get_params) {
+ 	/** @type {AnimationConfig | ((opts: { direction: 'in' | 'out' }) => AnimationConfig) | undefined} */
+ 	var current_options;
+ 
+-	var inert = element.inert;
++	// under a custom renderer, the transition runs through its `animate` hook (and its functions measure
++	// nodes through `measure`), and `inert` is the renderer's attribute; the Safari overflow workaround is the DOM's
++	var renderer = current_renderer;
++	if (renderer !== null) require_animate(renderer, is_both ? 'transition' : is_intro ? 'in' : 'out');
++
++	var inert = renderer === null ? element.inert : renderer.hasAttribute(element, 'inert');
++
++	/** @param {boolean} value */
++	function set_inert(value) {
++		if (renderer === null) element.inert = value;
++		else if (value) renderer.setAttribute(element, 'inert', '');
++		else renderer.removeAttribute(element, 'inert');
++	}
+ 
+ 	/**
+ 	 * The default overflow style, stashed so we can revert changes during the transition
+ 	 * that are necessary to work around a Safari <18 bug
+ 	 * TODO 6.0 remove this, if older versions of Safari have died out enough
+ 	 */
+-	var overflow = element.style.overflow;
++	var overflow = renderer === null ? element.style.overflow : '';
+ 
+ 	/** @type {Animation | undefined} */
+ 	var intro;
+@@ -222,9 +296,11 @@ export function transition(flags, element, get_fn, get_params) {
+ 			// If a transition is still ongoing, we use the existing options rather than generating
+ 			// new ones. This ensures that reversible transitions reverse smoothly, rather than
+ 			// jumping to a new spot because (for example) a different `duration` was used
+-			return (current_options ??= get_fn()(element, get_params?.() ?? /** @type {P} */ ({}), {
+-				direction
+-			}));
++			return (current_options ??= with_renderer(renderer, () =>
++				get_fn()(element, get_params?.() ?? /** @type {P} */ ({}), {
++					direction
++				})
++			));
+ 		});
+ 	}
+ 
+@@ -232,7 +308,7 @@ export function transition(flags, element, get_fn, get_params) {
+ 	var transition = {
+ 		is_global,
+ 		in() {
+-			element.inert = inert;
++			set_inert(inert);
+ 
+ 			if (!is_intro) {
+ 				outro?.abort();
+@@ -247,6 +323,7 @@ export function transition(flags, element, get_fn, get_params) {
+ 			}
+ 
+ 			intro = animate(
++				renderer,
+ 				element,
+ 				get_options(),
+ 				outro,
+@@ -261,7 +338,7 @@ export function transition(flags, element, get_fn, get_params) {
+ 					intro?.abort();
+ 					intro = current_options = undefined;
+ 
+-					element.style.overflow = overflow;
++					if (renderer === null) element.style.overflow = overflow;
+ 				}
+ 			);
+ 		},
+@@ -272,9 +349,10 @@ export function transition(flags, element, get_fn, get_params) {
+ 				return;
+ 			}
+ 
+-			element.inert = true;
++			set_inert(true);
+ 
+ 			outro = animate(
++				renderer,
+ 				element,
+ 				get_options(),
+ 				intro,
+@@ -327,6 +405,7 @@ export function transition(flags, element, get_fn, get_params) {
+ 
+ /**
+  * Animates an element, according to the provided configuration
++ * @param {import('../../custom-renderer/types.js').Renderer<any> | null} renderer The custom renderer the element belongs to, or `null`
+  * @param {Element} element
+  * @param {AnimationConfig | ((opts: { direction: 'in' | 'out' }) => AnimationConfig)} options
+  * @param {Animation | undefined} counterpart The corresponding intro/outro to this outro/intro
+@@ -335,7 +414,7 @@ export function transition(flags, element, get_fn, get_params) {
+  * @param {(() => void)} on_finish Called after successfully completing the animation
+  * @returns {Animation}
+  */
+-function animate(element, options, counterpart, t2, on_begin, on_finish) {
++function animate(renderer, element, options, counterpart, t2, on_begin, on_finish) {
+ 	var is_intro = t2 === 1;
+ 	var aborted = false;
+ 
+@@ -348,8 +427,8 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 
+ 		queue_micro_task(() => {
+ 			if (aborted) return;
+-			var o = options({ direction: is_intro ? 'in' : 'out' });
+-			a = animate(element, o, counterpart, t2, on_begin, on_finish);
++			var o = with_renderer(renderer, () => options({ direction: is_intro ? 'in' : 'out' }));
++			a = animate(renderer, element, o, counterpart, t2, on_begin, on_finish);
+ 		});
+ 
+ 		// ...but we want to do so without using `async`/`await` everywhere, so
+@@ -394,7 +473,7 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 		if (d === 0) {
+ 			if (css && !is_intro) {
+ 				var keyframe = css_to_keyframe(css(t2, 1 - t2));
+-				animation = element.animate([keyframe], { duration: 0, fill: 'forwards' });
++				animation = animate_element(renderer, element, [keyframe], { duration: 0, fill: 'forwards' });
+ 			}
+ 
+ 			finish();
+@@ -418,7 +497,7 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 				var styles = css_to_keyframe(css(t, 1 - t));
+ 				keyframes.push(styles);
+ 
+-				needs_overflow_hidden ||= styles.overflow === 'hidden';
++				needs_overflow_hidden ||= renderer === null && styles.overflow === 'hidden';
+ 			}
+ 		}
+ 
+@@ -434,7 +513,11 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 			return t1 + delta * easing(time / d);
+ 		};
+ 
+-		if (tick) {
++		// a custom renderer that supplies Svelte's frames (`requestAnimationFrame`) runs `tick` on them, as the DOM does;
++		// one that doesn't calls the handle's `onframe` (below)
++		var ticks_on_loop = renderer === null || !!renderer.requestAnimationFrame;
++
++		if (tick && ticks_on_loop) {
+ 			loop(() => {
+ 				if (animation.playState !== 'running') return false;
+ 
+@@ -445,8 +528,16 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 			});
+ 		}
+ 
+-		animation = element.animate(keyframes, { duration: d, fill: 'forwards' });
++		animation = animate_element(renderer, element, keyframes, { duration: d, fill: 'forwards' });
+ 		animation.onfinish = finish;
++
++		if (tick && !ticks_on_loop) {
++			// a custom renderer calls `onframe` on each of its frames while the animation runs
++			/** @type {any} */ (animation).onframe = () => {
++				var t = get_t();
++				tick(t, 1 - t);
++			};
++		}
+ 	}
+ 
+ 	if (!duration && !delay) {
+@@ -478,7 +569,7 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 			//
+ 			// fill forwards to prevent the element from rendering without styles applied
+ 			// see https://github.com/sveltejs/svelte/issues/14732
+-			animation = element.animate(keyframes, { duration: delay, fill: 'forwards' });
++			animation = animate_element(renderer, element, keyframes, { duration: delay, fill: 'forwards' });
+ 
+ 			animation.onfinish = () => {
+ 				// remove dummy animation from the stack to prevent conflict with main animation
+@@ -495,7 +586,8 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 			if (animation) {
+ 				animation.cancel();
+ 				// This prevents memory leaks in Chromium
+-				animation.effect = null;
++				if (renderer === null) animation.effect = null;
++				else /** @type {any} */ (animation).onframe = null;
+ 				// This prevents onfinish to be launched after cancel(),
+ 				// which can happen in some rare cases
+ 				// see https://github.com/sveltejs/svelte/issues/13681
+diff --git a/node_modules/svelte/src/internal/client/dom/operations.js b/node_modules/svelte/src/internal/client/dom/operations.js
+index f2515e7..38bc928 100644
+--- a/node_modules/svelte/src/internal/client/dom/operations.js
++++ b/node_modules/svelte/src/internal/client/dom/operations.js
+@@ -312,7 +312,7 @@ export function should_defer_append() {
+  */
+ export function create_element(tag, namespace, is) {
+ 	if (current_renderer) {
+-		return current_renderer.createElement(tag);
++		return current_renderer.createElement(tag, namespace ?? NAMESPACE_HTML);
+ 	}
+ 
+ 	if (namespace == null || namespace === NAMESPACE_HTML) {
+diff --git a/node_modules/svelte/src/internal/client/dom/template.js b/node_modules/svelte/src/internal/client/dom/template.js
+index a081656..0736bb1 100644
+--- a/node_modules/svelte/src/internal/client/dom/template.js
++++ b/node_modules/svelte/src/internal/client/dom/template.js
+@@ -214,7 +214,8 @@ function fragment_from_tree(structure, ns) {
+ 
+ 			append_child(
+ 				target,
+-				fragment_from_tree(children, node_name(element) === 'foreignObject' ? undefined : namespace)
++				// the item's name, not `node_name`: a custom renderer's nodes don't have one
++				fragment_from_tree(children, name === 'foreignObject' ? undefined : namespace)
+ 			);
+ 		}
+ 
+diff --git a/node_modules/svelte/src/internal/client/errors.js b/node_modules/svelte/src/internal/client/errors.js
+index 559c9b3..987e82a 100644
+--- a/node_modules/svelte/src/internal/client/errors.js
++++ b/node_modules/svelte/src/internal/client/errors.js
+@@ -479,6 +479,106 @@ export function renderer_cannot_cross(guest, host) {
+ 	}
+ }
+ 
++/**
++ * `bind:%name%` needs the custom renderer to define `bind`
++ * @param {string} name
++ * @returns {never}
++ */
++export function renderer_bind_unsupported(name) {
++	if (DEV) {
++		const error = new Error(`renderer_bind_unsupported\n\`bind:${name}\` needs the custom renderer to define \`bind\`\nhttps://svelte.dev/e/renderer_bind_unsupported`);
++
++		error.name = 'Svelte error';
++
++		throw error;
++	} else {
++		throw new Error(`https://svelte.dev/e/renderer_bind_unsupported`);
++	}
++}
++
++/**
++ * `<svelte:%kind%>` needs the custom renderer to define `globalTarget`
++ * @param {string} kind
++ * @returns {never}
++ */
++export function renderer_global_target_unsupported(kind) {
++	if (DEV) {
++		const error = new Error(`renderer_global_target_unsupported\n\`<svelte:${kind}>\` needs the custom renderer to define \`globalTarget\`\nhttps://svelte.dev/e/renderer_global_target_unsupported`);
++
++		error.name = 'Svelte error';
++
++		throw error;
++	} else {
++		throw new Error(`https://svelte.dev/e/renderer_global_target_unsupported`);
++	}
++}
++
++/**
++ * `css: 'injected'` needs the custom renderer to define `addStyles`
++ * @returns {never}
++ */
++export function renderer_add_styles_unsupported() {
++	if (DEV) {
++		const error = new Error(`renderer_add_styles_unsupported\n\`css: 'injected'\` needs the custom renderer to define \`addStyles\`\nhttps://svelte.dev/e/renderer_add_styles_unsupported`);
++
++		error.name = 'Svelte error';
++
++		throw error;
++	} else {
++		throw new Error(`https://svelte.dev/e/renderer_add_styles_unsupported`);
++	}
++}
++
++/**
++ * `%directive%:` needs the custom renderer to define `animate`
++ * @param {string} directive
++ * @returns {never}
++ */
++export function renderer_animate_unsupported(directive) {
++	if (DEV) {
++		const error = new Error(`renderer_animate_unsupported\n\`${directive}:\` needs the custom renderer to define \`animate\`\nhttps://svelte.dev/e/renderer_animate_unsupported`);
++
++		error.name = 'Svelte error';
++
++		throw error;
++	} else {
++		throw new Error(`https://svelte.dev/e/renderer_animate_unsupported`);
++	}
++}
++
++/**
++ * `%directive%:` needs the custom renderer to define `measure`
++ * @param {string} directive
++ * @returns {never}
++ */
++export function renderer_measure_unsupported(directive) {
++	if (DEV) {
++		const error = new Error(`renderer_measure_unsupported\n\`${directive}:\` needs the custom renderer to define \`measure\`\nhttps://svelte.dev/e/renderer_measure_unsupported`);
++
++		error.name = 'Svelte error';
++
++		throw error;
++	} else {
++		throw new Error(`https://svelte.dev/e/renderer_measure_unsupported`);
++	}
++}
++
++/**
++ * `{@html ...}` needs the custom renderer to define `html`
++ * @returns {never}
++ */
++export function renderer_html_unsupported() {
++	if (DEV) {
++		const error = new Error(`renderer_html_unsupported\n\`{@html ...}\` needs the custom renderer to define \`html\`\nhttps://svelte.dev/e/renderer_html_unsupported`);
++
++		error.name = 'Svelte error';
++
++		throw error;
++	} else {
++		throw new Error(`https://svelte.dev/e/renderer_html_unsupported`);
++	}
++}
++
+ /**
+  * The `%rune%` rune is only available inside `.svelte` and `.svelte.js/ts` files
+  * @param {string} rune
+diff --git a/node_modules/svelte/src/internal/client/index.js b/node_modules/svelte/src/internal/client/index.js
+index ee2959d..5e1f5ef 100644
+--- a/node_modules/svelte/src/internal/client/index.js
++++ b/node_modules/svelte/src/internal/client/index.js
+@@ -194,3 +194,5 @@ export { strict_equals, equals } from './dev/equality.js';
+ export { log_if_contains_state } from './dev/console-log.js';
+ export { push_renderer, pop_renderer } from './custom-renderer/state.js';
+ export { cross, is_crossing } from './custom-renderer/cross.js';
++export { bind_renderer } from './custom-renderer/bind.js';
++export { global_target } from './custom-renderer/global.js';
+diff --git a/node_modules/svelte/src/internal/client/render.js b/node_modules/svelte/src/internal/client/render.js
+index 86d3e1b..b252d08 100644
+--- a/node_modules/svelte/src/internal/client/render.js
++++ b/node_modules/svelte/src/internal/client/render.js
+@@ -19,15 +19,20 @@ import { active_effect } from './runtime.js';
+ import { push, pop, component_context, mark_as_component } from './context.js';
+ import { component_root } from './reactivity/effects.js';
+ import { hydrate_node, hydrating, set_hydrate_node, set_hydrating } from './dom/hydration.js';
+-import { listen_to_delegated_events } from './dom/elements/events.js';
++import {
++	listen_to_delegated_events,
++	listen_to_delegated_events_renderer
++} from './dom/elements/events.js';
+ import * as w from './warnings.js';
+ import * as e from './errors.js';
+ import { assign_nodes } from './dom/template.js';
+ import { COMMENT_NODE, TEXT_CACHE } from './constants.js';
+ import { boundary } from './dom/blocks/boundary.js';
+-import { push_renderer, pop_renderer } from './custom-renderer/state.js';
++import { push_renderer, pop_renderer, current_renderer } from './custom-renderer/state.js';
+ import { async_mode_flag, custom_renderers_flag } from '../flags/index.js';
+ import { current_batch } from './reactivity/batch.js';
++import { use_renderer_timing } from './timing.js';
++import { init_array_prototype_warnings } from './dev/equality.js';
+ 
+ /**
+  * This is normally true — block effects should run their intro transitions —
+@@ -163,6 +168,9 @@ export function hydrate(component, options) {
+ 	}
+ }
+ 
++/** Whether a custom renderer's mount installed the dev array warnings */
++var array_warnings_installed = false;
++
+ /**
+  * @template {Record<string, any>} Exports
+  * @param {ComponentType<SvelteComponent<any>> | Component<any>} Component
+@@ -170,14 +178,50 @@ export function hydrate(component, options) {
+  * @returns {Exports}
+  */
+ function _mount(Component, options) {
++	// `mount()` without a `renderer` option, called while a custom renderer renders or handles an event (a component
++	// mounting another into one of its nodes), renders with that renderer; a DOM target still means the DOM
++	if (
++		custom_renderers_flag &&
++		current_renderer != null &&
++		!('renderer' in options) &&
++		!(typeof Node !== 'undefined' && options.target instanceof Node)
++	) {
++		options = { ...options, renderer: current_renderer };
++	}
++
+ 	if (custom_renderers_flag && options.renderer) {
+-		var previous_renderer = push_renderer(options.renderer);
++		var renderer = options.renderer;
++		var previous_renderer = push_renderer(renderer);
++		// the DOM installs Svelte's dev array warnings (`state_proxy_equality_mismatch`) when its operations are set
++		// up (`init_operations`), which custom-renderer components never import
++		if (DEV && !array_warnings_installed) {
++			array_warnings_installed = true;
++			init_array_prototype_warnings();
++		}
++		// a renderer with its own frames and clock supplies Svelte's (`svelte/motion`, `tick` transitions,
++		// `loop`) while the component is mounted, outros included
++		var release_timing =
++			renderer.requestAnimationFrame || renderer.now ? use_renderer_timing(renderer) : null;
+ 
+ 		try {
+-			return _mount_inner(Component, options);
++			var component = _mount_inner(Component, options);
++		} catch (error) {
++			release_timing?.();
++			throw error;
+ 		} finally {
+ 			pop_renderer(previous_renderer);
+ 		}
++
++		if (release_timing !== null) {
++			var unmount_component = mounted_components.get(component);
++			mounted_components.set(component, (/** @type {any} */ options) => {
++				var done = unmount_component(options);
++				Promise.resolve(done).then(release_timing, release_timing);
++				return done;
++			});
++		}
++
++		return component;
+ 	}
+ 
+ 	return _mount_inner(Component, options);
+@@ -247,7 +291,7 @@ function _mount_inner(
+ 		// When mounting with a custom renderer the target isn't a DOM node; any DOM content inside it is rendered
+ 		// into DOM containers that become delegation roots themselves (see `cross`)
+ 		var stop_listening = renderer
+-			? null
++			? listen_to_delegated_events_renderer(renderer, target)
+ 			: listen_to_delegated_events(/** @type {EventTarget} */ (target));
+ 
+ 		return () => {
+diff --git a/node_modules/svelte/src/internal/client/timing.js b/node_modules/svelte/src/internal/client/timing.js
+index 1702798..4ec2b57 100644
+--- a/node_modules/svelte/src/internal/client/timing.js
++++ b/node_modules/svelte/src/internal/client/timing.js
+@@ -5,12 +5,46 @@ import { BROWSER } from 'esm-env';
+ 
+ const now = BROWSER ? () => performance.now() : () => Date.now();
+ 
++/**
++ * Custom renderers that supply Svelte's frames and clock (`requestAnimationFrame`, `now`), one entry per
++ * mounted root that uses one (see `use_renderer_timing`). The last one is in effect.
++ * @type {Array<{ requestAnimationFrame?: (callback: (time: number) => void) => void; now?: () => number }>}
++ */
++const timing_sources = [];
++
++/**
++ * Makes `source` (a custom renderer with `requestAnimationFrame` and/or `now`) supply Svelte's frames and clock
++ * until the returned function is called: `svelte/motion`, `tick` transitions and everything else on `loop`
++ * then run on the renderer's frames. While several are in use, the latest one wins.
++ * @param {{ requestAnimationFrame?: (callback: (time: number) => void) => void; now?: () => number }} source
++ * @returns {() => void}
++ */
++export function use_renderer_timing(source) {
++	timing_sources.push(source);
++	var released = false;
++
++	return () => {
++		if (released) return;
++		released = true;
++		var i = timing_sources.lastIndexOf(source);
++		if (i !== -1) timing_sources.splice(i, 1);
++	};
++}
++
+ /** @type {Raf} */
+ export const raf = {
+ 	// don't access requestAnimationFrame eagerly outside method
+ 	// this allows basic testing of user code without JSDOM
+ 	// bunder will eval and remove ternary when the user's app is built
+-	tick: /** @param {any} _ */ (_) => (BROWSER ? requestAnimationFrame : noop)(_),
+-	now: () => now(),
++	tick: /** @param {any} _ */ (_) => {
++		// a custom renderer's frames, while a component that uses it is mounted
++		var source = timing_sources[timing_sources.length - 1];
++		if (source?.requestAnimationFrame) return source.requestAnimationFrame(_);
++		return (BROWSER ? requestAnimationFrame : noop)(_);
++	},
++	now: () => {
++		var source = timing_sources[timing_sources.length - 1];
++		return source?.now ? source.now() : now();
++	},
+ 	tasks: new Set()
+ };
+diff --git a/node_modules/svelte/src/transition/index.js b/node_modules/svelte/src/transition/index.js
+index 31e8fbd..cb27c2d 100644
+--- a/node_modules/svelte/src/transition/index.js
++++ b/node_modules/svelte/src/transition/index.js
+@@ -2,6 +2,8 @@
+ 
+ import { DEV } from 'esm-env';
+ import * as w from '../internal/client/warnings.js';
++// under a custom renderer, geometry and computed styles come from its `measure` hook
++import { bounding_rect, computed_style } from '../internal/client/custom-renderer/measure.js';
+ 
+ /** @param {number} x */
+ const linear = (x) => x;
+@@ -50,7 +52,7 @@ export function blur(
+ 	node,
+ 	{ delay = 0, duration = 400, easing = cubic_in_out, amount = 5, opacity = 0 } = {}
+ ) {
+-	const style = getComputedStyle(node);
++	const style = computed_style(node);
+ 	const target_opacity = +style.opacity;
+ 	const f = style.filter === 'none' ? '' : style.filter;
+ 	const od = target_opacity * (1 - opacity);
+@@ -71,7 +73,7 @@ export function blur(
+  * @returns {TransitionConfig}
+  */
+ export function fade(node, { delay = 0, duration = 400, easing = linear } = {}) {
+-	const o = +getComputedStyle(node).opacity;
++	const o = +computed_style(node).opacity;
+ 	return {
+ 		delay,
+ 		duration,
+@@ -91,7 +93,7 @@ export function fly(
+ 	node,
+ 	{ delay = 0, duration = 400, easing = cubic_out, x = 0, y = 0, opacity = 0 } = {}
+ ) {
+-	const style = getComputedStyle(node);
++	const style = computed_style(node);
+ 	const target_opacity = +style.opacity;
+ 	const transform = style.transform === 'none' ? '' : style.transform;
+ 	const od = target_opacity * (1 - opacity);
+@@ -117,7 +119,7 @@ var slide_warning = false;
+  * @returns {TransitionConfig}
+  */
+ export function slide(node, { delay = 0, duration = 400, easing = cubic_out, axis = 'y' } = {}) {
+-	const style = getComputedStyle(node);
++	const style = computed_style(node);
+ 
+ 	if (DEV && !slide_warning && /(contents|inline|table)/.test(style.display)) {
+ 		slide_warning = true;
+@@ -171,7 +173,7 @@ export function scale(
+ 	node,
+ 	{ delay = 0, duration = 400, easing = cubic_out, start = 0, opacity = 0 } = {}
+ ) {
+-	const style = getComputedStyle(node);
++	const style = computed_style(node);
+ 	const target_opacity = +style.opacity;
+ 	const transform = style.transform === 'none' ? '' : style.transform;
+ 	const sd = 1 - start;
+@@ -196,7 +198,7 @@ export function scale(
+  */
+ export function draw(node, { delay = 0, speed, duration, easing = cubic_in_out } = {}) {
+ 	let len = node.getTotalLength();
+-	const style = getComputedStyle(node);
++	const style = computed_style(node);
+ 	if (style.strokeLinecap !== 'butt') {
+ 		len += parseInt(style.strokeWidth);
+ 	}
+@@ -259,14 +261,14 @@ export function crossfade({ fallback, ...defaults }) {
+ 			duration = /** @param {number} d */ (d) => Math.sqrt(d) * 30,
+ 			easing = cubic_out
+ 		} = assign(assign({}, defaults), params);
+-		const from = from_node.getBoundingClientRect();
+-		const to = node.getBoundingClientRect();
++		const from = bounding_rect(from_node);
++		const to = bounding_rect(node);
+ 		const dx = from.left - to.left;
+ 		const dy = from.top - to.top;
+ 		const dw = from.width / to.width;
+ 		const dh = from.height / to.height;
+ 		const d = Math.sqrt(dx * dx + dy * dy);
+-		const style = getComputedStyle(node);
++		const style = computed_style(node);
+ 		const transform = style.transform === 'none' ? '' : style.transform;
+ 		const opacity = +style.opacity;
+ 		return {
+diff --git a/node_modules/svelte/types/index.d.ts b/node_modules/svelte/types/index.d.ts
+index 27cb293..129e6cf 100644
+--- a/node_modules/svelte/types/index.d.ts
++++ b/node_modules/svelte/types/index.d.ts
+@@ -2737,6 +2737,34 @@ declare module 'svelte/reactivity/window' {
+ }
+ 
+ declare module 'svelte/renderer' {
++	/** What a custom renderer's `animate` hook returns: the part of the DOM's `Animation` Svelte uses. */
++	export interface RendererAnimation {
++		/** Milliseconds since the animation started; null once it's cancelled. */
++		readonly currentTime: number | null;
++		/** Called once when the animation reaches its end. */
++		onfinish: (() => void) | null;
++		/** Set by Svelte for `tick` transitions: called once on each of the renderer's frames while it runs. */
++		onframe?: (() => void) | null;
++		/** Stops the animation and removes its values. */
++		cancel(): void;
++	}
++
++	/** What a custom renderer's `measure` hook returns. */
++	export interface RendererMeasurement {
++		/** The node's box after its transforms, as `getBoundingClientRect()` gives it. */
++		left: number;
++		top: number;
++		right: number;
++		bottom: number;
++		width: number;
++		height: number;
++		/** Its untransformed inner size (inside its border), as `clientWidth` and `clientHeight`. */
++		clientWidth: number;
++		clientHeight: number;
++		/** Its computed values by camel-case property name, as `getComputedStyle()` gives them (`opacity`, `transform`, `height`, `paddingTop`, `transformOrigin`...). */
++		style: Record<string, string>;
++	}
++
+ 	/**
+ 	 * A custom renderer. `N` describes the types of the renderer's nodes, for example:
+ 	 *
+@@ -2748,8 +2776,11 @@ declare module 'svelte/renderer' {
+ 		/** Creates a fragment, a container for multiple nodes. Inserting a fragment should insert all of its children. */
+ 		createFragment(): N['fragment'];
+ 
+-		/** Creates an element with the given name. */
+-		createElement(name: string): N['element'];
++		/**
++		 * Creates an element with the given name, in the given namespace (`http://www.w3.org/1999/xhtml` unless
++		 * the element is SVG or MathML, as the DOM's `createElementNS`). A renderer without namespaces can ignore it.
++		 */
++		createElement(name: string, namespace?: string): N['element'];
+ 
+ 		/** Creates a text node with the given text. */
+ 		createText(data: string): N['text'];
+@@ -2812,6 +2843,92 @@ declare module 'svelte/renderer' {
+ 		/** Remove an event listener of the given type and handler from the target node. */
+ 		removeEventListener(target: N['element'], type: string, handler: any, options?: any): void;
+ 
++		/**
++		 * Connects an element binding (`bind:value`, `bind:checked`, `bind:clientWidth`...) to the node.
++		 * Read the bound value with `get()` and push it to the node; call `set(value)` when the node
++		 * changes it. Return a cleanup function. The binding runs again, after the cleanup, when state
++		 * read through `get()` changes. Without `bind`, element bindings (other than `bind:this`)
++		 * throw when they are created. `ownChange()` is true while the batch being applied is one a
++		 * `set` from this binding started: Svelte's DOM bindings don't rewrite a focused control then.
++		 */
++		bind?(
++			node: N['element'],
++			name: string,
++			get: () => any,
++			set: (value: any) => void,
++			ownChange?: () => boolean
++		): (() => void) | void;
++
++		/**
++		 * The node `<svelte:window>`, `<svelte:document>` and `<svelte:body>` stand for (`kind` `'window'`,
++		 * `'document'`, `'body'`), and the element `<svelte:head>` content is inserted into (`'head'`).
++		 * Return the same object for a kind every time. Events on it go through `addEventListener`,
++		 * bindings (`bind:innerWidth`...) through `bind`, actions and attachments get it, and a `<title>`
++		 * in `<svelte:head>` sets the `document` target's `title`. Without `globalTarget`, those throw when
++		 * the component is created.
++		 */
++		globalTarget?(kind: 'window' | 'document' | 'body' | 'head'): any;
++
++		/**
++		 * Takes a component's styles when it compiled with `css: 'injected'`: `hash` is the component's
++		 * scoping class and `code` its scoped CSS (as `css: 'external'` would return it). Called each time
++		 * such a component is created; the same `hash` again has the same `code`. Without `addStyles`,
++		 * those components throw when they are created.
++		 */
++		addStyles?(hash: string, code: string): void;
++
++		/**
++		 * Runs a transition's or `animate:`'s keyframes on the node, as `element.animate(keyframes, options)`
++		 * does in the DOM. Each keyframe holds CSS values by camel-case property name (`opacity`,
++		 * `transform`, `paddingTop`), evenly spaced over `options.duration` milliseconds (none for a pure
++		 * delay); the last keyframe's values stay until `cancel()` (`fill: 'forwards'`). Return a handle:
++		 * `currentTime` is the milliseconds since it started (null once cancelled); call `onfinish` once,
++		 * when it reaches its end (after the call that created it returns); call `onframe`, when set, once
++		 * on each of the renderer's frames while it runs (a `tick` transition's frames); `cancel()` stops
++		 * it and removes its values. Without `animate`, `transition:`, `in:`, `out:` and `animate:` throw
++		 * when they're created.
++		 */
++		animate?(
++			node: N['element'],
++			keyframes: Array<Record<string, string>>,
++			options: { duration: number; fill: 'forwards' }
++		): RendererAnimation;
++
++		/**
++		 * The node's geometry and computed style, which `animate:` (`flip`), `crossfade`, `fly`, `slide`
++		 * and the other `svelte/transition` and `svelte/animate` functions read: what
++		 * `getBoundingClientRect()`, `clientWidth`/`clientHeight` and `getComputedStyle()` give in the DOM.
++		 * The box is the node's after its transforms, up to date with changes made before the call (as
++		 * reading layout does in the DOM). Without `measure`, `animate:` throws when it's created and those
++		 * functions throw when they run.
++		 */
++		measure?(node: N['element']): RendererMeasurement;
++
++		/**
++		 * Turns `{@html value}`'s string into new nodes, returned in a fragment that Svelte then inserts (in the DOM, the
++		 * string is parsed as HTML through a `<template>`). `anchor` is where they go: the comment they're inserted
++		 * before, or the element whose only content they are (`{@html}` as an element's only child, such as a
++		 * `contenteditable` element's). A renderer decides what the string means (an HTML subset, markdown...). Without
++		 * `html`, `{@html}` throws when it first renders.
++		 */
++		html?(anchor: N['element'] | N['comment'], value: string): N['fragment'];
++
++		/**
++		 * Svelte's frames, in place of the browser's `requestAnimationFrame`: call `callback` once, on the renderer's next
++		 * frame, before that frame shows (so state the callback changes shows in it), with the time `now()` gives. While a
++		 * component mounted with this renderer is mounted, `svelte/motion` (`Tween`, `Spring`, `tweened`, `spring`), `tick`
++		 * transitions and the rest of Svelte's frame loop run on these frames (with several such renderers mounted, the
++		 * most recent one's). Without it, they use `requestAnimationFrame` (none outside a browser), and a `tick`
++		 * transition calls the `animate` handle's `onframe` instead.
++		 */
++		requestAnimationFrame?(callback: (time: number) => void): void;
++
++		/**
++		 * Svelte's clock, in place of `performance.now()`: milliseconds, never decreasing, the time of the renderer's
++		 * current frame. Used with `requestAnimationFrame`, while a component mounted with this renderer is mounted.
++		 */
++		now?(): number;
++
+ 		/**
+ 		 * Called when a component (or snippet) that uses this renderer is rendered inside
+ 		 * content that belongs to a different renderer (`host` is `null` for the DOM).

@@ -1,6 +1,20 @@
 // The rules of an application's projects screen (ADR 0380): which recent projects a search keeps, which one is
 // "Continue where you left off", and how an opening time reads. Pure; the views are `ProjectsTab.tsx` and the
-// Biosonic screen's takes tab.
+// Biosonic screen's takes tab. Also what taking a project off the list does: the entry goes, its folder stays, and a
+// toast offers Undo.
+import type { RecentProject, RecentProjects } from "../../recentProjectList";
+import type { ToastQueue } from "../undoToastModel";
+
+/**
+ * Take `entry` off the recent projects (never touching its folder) and show a toast saying so, whose Undo puts it back.
+ * Returns whether it was on the list.
+ */
+export async function removeFromList(recent: Pick<RecentProjects, "remove" | "restore">, entry: Pick<RecentProject, "id" | "name">, toasts: Pick<ToastQueue, "show">): Promise<boolean> {
+  const removed = await recent.remove(entry.id);
+  if (!removed) return false;
+  toasts.show({ text: `Removed ${entry.name} from the list. Its folder is still on disk.`, undo: () => void recent.restore(removed) });
+  return true;
+}
 
 /** What a search matches in a row: its name and where it is. */
 export interface Searchable {

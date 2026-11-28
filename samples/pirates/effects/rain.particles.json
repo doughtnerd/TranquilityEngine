@@ -38,8 +38,8 @@
             "inputs": {
               "lifetime": {
                 "random": [
-                  0.9,
-                  1.2
+                  1.3,
+                  1.6
                 ]
               }
             }
@@ -100,7 +100,26 @@
         ]
       },
       "update": {
-        "blocks": []
+        "blocks": [
+          {
+            "id": "b7",
+            "type": "update.collisionDepth",
+            "inputs": {
+              "bounce": 0,
+              "kill": true,
+              "thickness": 0.6
+            }
+          },
+          {
+            "id": "b8",
+            "type": "update.triggerEvent",
+            "inputs": {
+              "on": "death",
+              "probability": 0.15,
+              "inheritVelocity": false
+            }
+          }
+        ]
       },
       "output": {
         "type": "stretched",
@@ -116,6 +135,175 @@
         },
         "blocks": []
       }
+    },
+    {
+      "id": "s2",
+      "name": "Ripples",
+      "position": [
+        420,
+        0
+      ],
+      "settings": {
+        "space": "world",
+        "capacity": 3000
+      },
+      "spawn": {
+        "settings": {
+          "duration": 1,
+          "looping": true,
+          "startDelay": 0,
+          "prewarm": false
+        },
+        "blocks": [
+          {
+            "id": "b9",
+            "type": "spawn.burst",
+            "inputs": {
+              "time": 0,
+              "count": 1,
+              "probability": 1
+            }
+          }
+        ]
+      },
+      "initialize": {
+        "blocks": [
+          {
+            "id": "b10",
+            "type": "init.lifetime",
+            "inputs": {
+              "lifetime": {
+                "random": [
+                  0.5,
+                  0.7
+                ]
+              }
+            }
+          },
+          {
+            "id": "b11",
+            "type": "init.velocity",
+            "inputs": {
+              "speed": 0
+            }
+          },
+          {
+            "id": "b12",
+            "type": "init.size",
+            "inputs": {
+              "size": {
+                "random": [
+                  0.9,
+                  1.2
+                ]
+              }
+            }
+          },
+          {
+            "id": "b13",
+            "type": "init.rotation",
+            "inputs": {
+              "rotation": {
+                "random": [
+                  0,
+                  360
+                ]
+              }
+            }
+          },
+          {
+            "id": "b14",
+            "type": "init.color",
+            "inputs": {
+              "color": "#dfe8f2ff"
+            }
+          }
+        ]
+      },
+      "update": {
+        "blocks": [
+          {
+            "id": "b15",
+            "type": "update.sizeOverLife",
+            "inputs": {
+              "size": {
+                "curve": [
+                  [
+                    0,
+                    0.1
+                  ],
+                  [
+                    0.3,
+                    0.6
+                  ],
+                  [
+                    1,
+                    1
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "id": "b16",
+            "type": "update.colorOverLife",
+            "inputs": {
+              "color": {
+                "gradient": {
+                  "colors": [
+                    [
+                      0,
+                      "#ffffff"
+                    ],
+                    [
+                      1,
+                      "#ffffff"
+                    ]
+                  ],
+                  "alphas": [
+                    [
+                      0,
+                      0
+                    ],
+                    [
+                      0.08,
+                      0.35
+                    ],
+                    [
+                      0.5,
+                      0.18
+                    ],
+                    [
+                      1,
+                      0
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "output": {
+        "type": "horizontal",
+        "settings": {
+          "material": "",
+          "texture": "asset:textures/ripple.png",
+          "blending": "alpha",
+          "renderOrder": 1,
+          "mesh": "builtin:cube",
+          "speedScale": 0,
+          "lengthScale": 1,
+          "trailLength": 20
+        },
+        "blocks": []
+      }
+    }
+  ],
+  "events": [
+    {
+      "from": "s1.b8",
+      "to": "s2.start"
     }
   ]
 }

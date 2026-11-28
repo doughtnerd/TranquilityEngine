@@ -32,10 +32,10 @@ describe("importFiles", () => {
   });
 
   it("creates the folders of a dropped folder and reads text assets as text", async () => {
-    const result = await importFiles(project, "", [file("ui/menu.ui.xml", "<Canvas/>"), file("ui/menu.ui.css", "a{}")]);
+    const result = await importFiles(project, "", [file("ui/Menu.svelte", "<div></div>"), file("ui/theme.css", "a{}")]);
     expect(result.failed).toEqual([]);
     expect(project.folders).toContain("ui");
-    expect(project.textOf("ui/menu.ui.xml")).toBe("<Canvas/>");
+    expect(project.textOf("ui/Menu.svelte")).toBe("<div></div>");
   });
 
   it("keeps a sidecar beside its renamed file", async () => {

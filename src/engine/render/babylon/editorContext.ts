@@ -40,7 +40,7 @@ export interface BabylonEditorContext {
   viewCameras(): readonly Camera[];
   /** A Camera component's Babylon camera, once synced. */
   babylonCamera(c: Camera): TargetCamera | null;
-  /** What every loaded render feature drew now (ADR 0276): sprites, meshes, tile layers, water, world canvases, screen Text… */
+  /** What every loaded render feature drew now (ADR 0276): sprites, meshes, tile layers, water, world canvases… */
   drawn(): Iterable<EditorDrawn>;
   /** What the editor viewport (ADR 0128) asks of the renderer itself, beside the helpers' own drawing. */
   readonly renderer: BabylonEditorRendererHooks;

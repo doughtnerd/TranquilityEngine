@@ -1,7 +1,7 @@
 // The platformer sample (ADR 0031, 0103, 0105): its tilemap level loads and plays end to end, headless.
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { Assets, Engine, GameObject, SceneManager, Tilemap, TilemapCollider2D } from "../../myco";
+import { Assets, Engine, GameObject, SceneManager, Tilemap, ShapeCollider2D } from "../../myco";
 import { readProject } from "../../server/project";
 import { Player } from "../../../samples/platformer/scripts/behaviors/Player";
 import "../../../samples/platformer/scripts/behaviors/CameraFollow";
@@ -47,7 +47,7 @@ describe("platformer sample", () => {
   it("loads the level with two layers and a tile collider", async () => {
     const { map } = await start();
     expect(map.layerCount).toBe(2);
-    expect(map.node.getBehavior(TilemapCollider2D)).not.toBeNull();
+    expect(map.node.getBehavior(ShapeCollider2D)).not.toBeNull();
     expect(map.cellBounds("Ground")!.maxX).toBeGreaterThan(60);
   });
 
@@ -80,6 +80,17 @@ describe("platformer sample", () => {
     run(engine, 2, () => (maxY = Math.max(maxY, player.transform.position.y)));
     expect(maxY).toBeGreaterThan(5);
     expect(player.transform.position.y).toBeCloseTo(5.43, 1); // on the plank's top (y = 5)
+  });
+
+  it("Down + Jump drops the player through the plank onto the ground below (ADR 0439)", async () => {
+    const { engine, player } = await start();
+    run(engine, 0.5);
+    player.transform.position = [14, 5.6, 0]; // just above the plank at y = 4..5, x 13..15
+    run(engine, 1);
+    expect(player.transform.position.y).toBeCloseTo(5.43, 1);
+    player.dropQueued = true;
+    run(engine, 1.5);
+    expect(player.transform.position.y).toBeCloseTo(3.43, 1); // on the ground's top (y = 3)
   });
 
   it("spikes send the player back to the start", async () => {

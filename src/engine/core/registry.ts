@@ -75,8 +75,7 @@ export type FieldChoices =
  * The editor offers only matching assets; scene files and scripts may still hold any path.
  * - `model`: model files (glTF, OBJ, FBX…); `mesh`: a model or a built-in mesh (`builtin:cube`);
  * - `material`: material assets and shader graphs; `texture`: images; `sprite`: images and their slices;
- * - `rendertexture`, `particles`, `formation`, `lut` (`.cube`), `tileset`, `uidocument` (`.ui.xml`),
- *   `scene`, `prefab`: assets of that kind;
+ * - `rendertexture`, `particles`, `formation`, `lut` (`.cube`), `tileset`, `scene`, `prefab`: assets of that kind;
  * - `environment`: what an Environment's `map` takes (HDR/EXR/DDS/`.env` maps, skies, cubemaps, panoramas);
  * - `envmap`: a baked `.env` map; `audio`: sound files; `font`: `.ttf`, `.otf`, `.woff`, `.woff2`;
  * - `navbake`: a baked navigation chunk (`.nav.bin`).
@@ -102,7 +101,6 @@ export type KnownAssetFieldKind =
   | "envmap"
   | "tileset"
   | "font"
-  | "uidocument"
   | "navbake"
   | "scene"
   | "prefab";
@@ -110,7 +108,7 @@ export type KnownAssetFieldKind =
 /** Every known field kind (`KnownAssetFieldKind`), in declaration order. */
 export const ASSET_FIELD_KINDS: readonly KnownAssetFieldKind[] = [
   "model", "mesh", "material", "texture", "sprite", "rendertexture", "audio", "particles", "formation",
-  "lut", "environment", "envmap", "tileset", "font", "uidocument", "navbake", "scene", "prefab",
+  "lut", "environment", "envmap", "tileset", "font", "navbake", "scene", "prefab",
 ];
 
 /** Options on a declared field (ADR 0033, 0038, 0131). */
@@ -133,6 +131,13 @@ export interface FieldOptions {
    * loaded and replicated as usual.
    */
   hidden?: boolean;
+  /**
+   * Show the field in the Inspector only while this returns true, given the component's field values by name
+   * (`shownWhen: (t) => t.gridShape === "hexagonal"`): for fields that mean something only for some values of
+   * another. With several nodes selected, the field shows if it holds for any of them. Editor-only: the field is
+   * still saved, loaded and replicated as usual, whatever this returns. Should be a cheap, pure test.
+   */
+  shownWhen?: (values: Readonly<Record<string, unknown>>) => boolean;
   /**
    * One or two plain sentences saying what the field is for (ADR 0159). The editor shows it as the
    * field's tooltip. Metadata only: not saved in scenes, not replicated, ignored at run time. A list
@@ -334,8 +339,44 @@ export function isFieldAnimatable(type: ComponentClass, name: string): boolean {
   return t === Number || t === Boolean || t === AssetRef || t === Vector2 || t === Vector3 || t === Quaternion || t === Color;
 }
 
+/** Component id aliases (ADR 0439): an old id a component was renamed from, mapped to its current id. */
+const aliases = new Map<string, string>();
+let aliasVersion = 0;
+
+/**
+ * Read the component id `oldId` as `newId` (ADR 0439): scenes, prefabs and prefab overrides that name the old id
+ * load the class registered under the new one, and documents are written with the new id. For renamed
+ * components; registering the same alias again is harmless. Returns the undo.
+ */
+export function registerComponentAlias(oldId: string, newId: string): () => void {
+  if (oldId === newId) throw new Error(`registerComponentAlias: "${oldId}" can't be an alias of itself.`);
+  if (resolveComponentId(newId) === oldId) throw new Error(`registerComponentAlias: "${oldId}" → "${newId}" would make a cycle.`);
+  aliases.set(oldId, newId);
+  aliasVersion++;
+  return () => {
+    if (aliases.get(oldId) !== newId) return;
+    aliases.delete(oldId);
+    aliasVersion++;
+  };
+}
+
+/** The current id for a component id: `id` itself, or what its alias (and any alias of that) names. */
+export function resolveComponentId(id: string): string {
+  let out = id;
+  for (let hops = 0; hops < 8; hops++) {
+    const next = aliases.get(out);
+    if (next === undefined) return out;
+    out = next;
+  }
+  return out;
+}
+
+/** @internal Changes whenever an alias is added or removed, so files read before can be read again. */
+export const _componentAliasVersion = (): number => aliasVersion;
+
+/** The class registered under `id`, or under the id `id` is an alias of (ADR 0439). */
 export function getComponentClass(id: string): ComponentClass | undefined {
-  return classById.get(id);
+  return classById.get(id) ?? (aliases.size ? classById.get(resolveComponentId(id)) : undefined);
 }
 
 /** @internal Every registered component id, in registration order (for the editor's Add Component list). */

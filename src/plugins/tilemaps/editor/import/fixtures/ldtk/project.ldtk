@@ -1,0 +1,80 @@
+{
+  "__header__": { "fileType": "LDtk Project JSON", "app": "LDtk", "appAuthor": "", "appVersion": "1.5.3", "url": "" },
+  "iid": "proj-iid",
+  "jsonVersion": "1.5.3",
+  "defaultGridSize": 16,
+  "externalLevels": true,
+  "worldLayout": null,
+  "worldGridWidth": 256,
+  "worldGridHeight": 256,
+  "levels": [],
+  "defs": {
+    "layers": [
+      { "__type": "Entities", "identifier": "Entities", "type": "Entities", "uid": 1, "gridSize": 16 },
+      {
+        "__type": "IntGrid", "identifier": "Collisions", "type": "IntGrid", "uid": 2, "gridSize": 16,
+        "intGridValues": [
+          { "value": 1, "identifier": "wall", "color": "#FFFFFF" },
+          { "value": 2, "identifier": null, "color": "#FF0000" }
+        ]
+      },
+      { "__type": "AutoLayer", "identifier": "Walls", "type": "AutoLayer", "uid": 3, "gridSize": 16 },
+      { "__type": "Tiles", "identifier": "Deco", "type": "Tiles", "uid": 4, "gridSize": 8 }
+    ],
+    "entities": [],
+    "enums": [],
+    "externalEnums": [],
+    "levelFields": [],
+    "tilesets": [
+      {
+        "identifier": "Cavern", "uid": 10, "relPath": "../images/cavern.png", "pxWid": 30, "pxHei": 20,
+        "tileGridSize": 8, "spacing": 2, "padding": 1, "__cWid": 3, "__cHei": 2,
+        "customData": [{ "tileId": 1, "data": "{\"hp\":3}" }, { "tileId": 2, "data": "crumbly" }],
+        "enumTags": [{ "enumValueId": "Spiky", "tileIds": [0, 2] }, { "enumValueId": "Hot", "tileIds": [2] }]
+      },
+      {
+        "identifier": "Icons", "uid": 11, "relPath": null, "embedAtlas": "LdtkIcons", "pxWid": 0, "pxHei": 0,
+        "tileGridSize": 16, "spacing": 0, "padding": 0, "__cWid": 0, "__cHei": 0, "customData": [], "enumTags": []
+      }
+    ]
+  },
+  "worlds": [
+    {
+      "identifier": "Overworld", "iid": "w1", "worldLayout": "Free", "worldGridWidth": 256, "worldGridHeight": 256,
+      "levels": [
+        {
+          "identifier": "Level_0", "iid": "lv0", "uid": 0, "worldX": 0, "worldY": 0, "worldDepth": 0, "pxWid": 32, "pxHei": 32,
+          "__bgColor": "#40465B", "bgRelPath": null, "externalRelPath": "project/Level_0.ldtkl", "layerInstances": null,
+          "fieldInstances": [{ "__identifier": "title", "__type": "String", "__value": "Start", "defUid": 50 }]
+        }
+      ]
+    },
+    {
+      "identifier": "Underworld", "iid": "w2", "worldLayout": "GridVania", "worldGridWidth": 64, "worldGridHeight": 48,
+      "levels": [
+        {
+          "identifier": "Level_1", "iid": "lv1", "uid": 1, "worldX": 64, "worldY": -48, "worldDepth": 1, "pxWid": 32, "pxHei": 32,
+          "__bgColor": "#000000", "bgRelPath": "bg.png", "externalRelPath": null,
+          "fieldInstances": [],
+          "layerInstances": [
+            {
+              "__identifier": "Entities", "__type": "Entities", "__cWid": 2, "__cHei": 2, "__gridSize": 16, "__opacity": 1,
+              "__pxTotalOffsetX": 0, "__pxTotalOffsetY": 0, "__tilesetDefUid": null, "__tilesetRelPath": null,
+              "iid": "li-ent-1", "levelId": 1, "layerDefUid": 1, "pxOffsetX": 0, "pxOffsetY": 0, "visible": true,
+              "intGridCsv": [], "autoLayerTiles": [], "gridTiles": [],
+              "entityInstances": [
+                {
+                  "__identifier": "Sign", "__grid": [0, 0], "__pivot": [0, 0], "__tags": [], "__tile": null,
+                  "__worldX": 64, "__worldY": -48, "iid": "ent-sign", "width": 16, "height": 16, "defUid": 22, "px": [0, 0],
+                  "fieldInstances": [
+                    { "__identifier": "to", "__type": "EntityRef", "__value": { "entityIid": "ent-door", "layerIid": "li-ent", "levelIid": "lv0", "worldIid": "w1" }, "defUid": 23 }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

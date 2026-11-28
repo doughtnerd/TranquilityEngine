@@ -7,13 +7,15 @@
 import { signal } from "@preact/signals";
 import * as editorSdk from "../editor/sdk";
 import { packageSourceFor } from "../editor/projectPackages";
-import { jsonFiles, type EditorProject } from "../editor/projects";
+import { jsonFiles, uiFiles, type EditorProject } from "../editor/projects";
+
 import { loadedPluginModule, replaceScripts, type LoadResult, type ScriptProblem } from "../editor/scriptLoader";
 import type { EditorPlugin, EditorPluginContext } from "../editor/sdk/plugins";
 import { FIRST_PARTY_MANIFESTS } from "./catalogue";
 import { applyEditorPlugins, type EditorSetPlugin } from "./editorPlugins";
 import type { PluginManifest } from "./manifest";
 import type { PluginSetProblem } from "./pluginSet";
+import { builtinUIReady } from "./builtinUILoads";
 import { applyProjectAnimationNodes, clearProjectAnimationNodes } from "./projectAnimationNodes";
 import { applyProjectAudioEffects, clearProjectAudioEffects } from "./projectAudioEffects";
 import { activateOf, planPluginCode, toRuntimePlugin, type FoundPlugin, type PluginProblem, type ThirdPartyManifest } from "./thirdParty";
@@ -100,8 +102,11 @@ export async function loadProjectCode(project: EditorProject, options: { runtime
   await applyProjectAudioEffects(project, plan);
   // ADR 0370 (T45t): the plugins' animation node modules, metered and in the node catalogue before Play or a graph compiles.
   await applyProjectAnimationNodes(plan);
-  const result = await replaceScripts(plan.code, json, packages, plan.npmEntries);
+  const result = await replaceScripts(plan.code, json, packages, plan.npmEntries, uiFiles(project)); // Svelte UI compiles with the scripts (ADR 0423)
+
   const applied = applyEditorPlugins(disabled, { thirdParty: await toSetPlugins(plan.loaded), keepRuntime: !runtime });
+  // ADR 0423 wave B: the built-in UI components the active plugins' editor halves started loading, before Play can start.
+  await builtinUIReady();
   const whereOf = (problem: PluginSetProblem) => plan.plugins.find((p) => p.manifest.name === problem.plugin)?.where ?? `plugins (${problem.plugin})`;
   const failed = applied.problems.map((p): PluginProblem => ({ plugin: p.plugin, where: whereOf(p), message: p.message }));
   const problems = [...plan.problems, ...failed];

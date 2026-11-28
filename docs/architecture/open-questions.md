@@ -37,7 +37,7 @@ All decision records 0001–0024 are Accepted as of 2026-10-31.
 
 | Question | Answer | Record |
 | --- | --- | --- |
-| Physics backend | Rapier 2D/3D now; PhysX planned for 3D; component API from the `CannonIntegration` branch; named layers + matrix; engine-level CharacterController | [0005](../decisions/0005-physics-backend.md) |
+| Physics backend | Rapier 2D/3D now; PhysX planned for 3D (dropped by [0445](../decisions/0445-rapier-stays-the-only-physics-backend-and-the-physx-plan-is-dropped.md)); component API from the `CannonIntegration` branch; named layers + matrix; engine-level CharacterController | [0005](../decisions/0005-physics-backend.md) |
 | ECS storage | In-house sparse sets, after a benchmark spike vs bitECS | [0012](../decisions/0012-ecs-storage-implementation.md) |
 | Bundler | Vite | [0015](../decisions/0015-vite-build-tooling.md) |
 | `transform.position` semantics | Live view; `.clone()` for copies | [0019](../decisions/0019-public-api-conventions.md) |

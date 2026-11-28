@@ -55,6 +55,11 @@ export interface ProjectSettings {
   render: {
     /** Sorting layers from back to front (ADR 0014). */
     sortingLayers: string[];
+    /**
+     * The sorting layers that are y-sorted (ADR 0440): draws with the same order in layer sort by their sort point's world
+     * height, higher first. Names from `sortingLayers`. Optional in `project.json`: none.
+     */
+    ySortedLayers: string[];
     /** Default sprite pixels per world unit (ADR 0014). */
     pixelsPerUnit: number;
     /**
@@ -76,7 +81,12 @@ export interface ProjectSettings {
    * player 0 owns every device; `onePerDevice`: the keyboard and pointer are one player, each gamepad another;
    * `pressToJoin`: a device's first press makes it a new player; `manual`: the game joins players (`InputPlayers`).
    */
-  input: { join: InputJoinPolicy; maxPlayers: number };
+  input: {
+    join: InputJoinPolicy;
+    maxPlayers: number;
+    /** Action set assets (`*.actions.json`, ADR 0433) defined at boot, in this order. */
+    actionSets: string[];
+  };
   /** Scene/prefab files instanced under the World root at startup; they persist across scene loads (ADR 0016). */
   autoload: string[];
   /** Which Worlds the Engine creates at start (ADR 0032). Omitted: the default bootstrap, one World. */
@@ -214,8 +224,8 @@ const nameListValue = (list: unknown, fallback: string[]): string[] => (isString
 const DEFAULT_DISPLAY: ProjectSettings["display"] = { width: 1280, height: 720, backgroundColor: "#000000", scaleMode: "fit" };
 const DEFAULT_TIME: ProjectSettings["time"] = { fixedDeltaTime: 1 / 60, maxSubSteps: 5, maxFrameTime: 0.25 };
 const DEFAULT_PHYSICS: ProjectSettings["physics"] = { gravity: [0, -9.81], layers: ["Default"] };
-const DEFAULT_RENDER: ProjectSettings["render"] = { sortingLayers: ["Default"], pixelsPerUnit: 100, maxDecals: 1000 };
-const DEFAULT_INPUT: ProjectSettings["input"] = { join: "single", maxPlayers: 4 };
+const DEFAULT_RENDER: ProjectSettings["render"] = { sortingLayers: ["Default"], ySortedLayers: [], pixelsPerUnit: 100, maxDecals: 1000 };
+const DEFAULT_INPUT: ProjectSettings["input"] = { join: "single", maxPlayers: 4, actionSets: [] };
 
 function parseName(written: unknown): Parsed<"name"> {
   if (written === undefined) return { value: "Untitled", problems: [], warnings: [] };
@@ -290,6 +300,18 @@ function parseRender(written: unknown): Parsed<"render"> {
     nameListProblems(layers, "render.sortingLayers", "Sorting layers", problems);
     value.sortingLayers = nameListValue(layers, DEFAULT_RENDER.sortingLayers);
   }
+  // Y-sorted layers (ADR 0440): listed sorting layers; an unknown or repeated name is reported and dropped.
+  const ySorted = isRecord(written) ? written.ySortedLayers : undefined;
+  value.ySortedLayers = [];
+  if (ySorted !== undefined) {
+    if (!Array.isArray(ySorted)) problems.push({ field: "render.ySortedLayers", message: "Y-sorted layers must be a list of sorting layer names." });
+    else
+      ySorted.forEach((name: unknown, i) => {
+        if (typeof name !== "string" || !value.sortingLayers.includes(name)) problems.push({ field: `render.ySortedLayers.${i}`, message: `Y-sorted layers: ${describe(name)} isn't a sorting layer.` });
+        else if (value.ySortedLayers.includes(name)) problems.push({ field: `render.ySortedLayers.${i}`, message: `Y-sorted layers: "${name}" is listed twice.` });
+        else value.ySortedLayers.push(name);
+      });
+  }
   const warnings: SettingsIssue[] = value.sortingLayers.includes("Default") ? [] : [{ field: "render.sortingLayers", message: 'There\'s no "Default" sorting layer, which sprites use unless they name another.' }];
   return { value, problems, warnings };
 }
@@ -300,6 +322,21 @@ function parseInput(written: unknown): Parsed<"input"> {
     join: [(v) => (INPUT_JOIN_POLICIES as readonly unknown[]).includes(v), `Input join must be one of ${INPUT_JOIN_POLICIES.join(", ")}.`],
     maxPlayers: [isPositiveInt, "Max players must be a whole number above 0."],
   }, problems);
+  const sets = isRecord(written) ? written.actionSets : undefined;
+  if (sets === undefined) value.actionSets = [];
+  else if (!Array.isArray(sets)) {
+    problems.push({ field: "input.actionSets", message: "Action sets must be a list of .actions.json files." });
+    value.actionSets = [];
+  } else {
+    const seen = new Set<string>();
+    sets.forEach((path: unknown, i) => {
+      const field = `input.actionSets.${i}`;
+      if (typeof path !== "string" || !path.endsWith(".actions.json")) problems.push({ field, message: `Action set ${i + 1} must be a .actions.json file.` });
+      else if (seen.has(path)) problems.push({ field, message: `${path} is listed twice.` });
+      seen.add(String(path));
+    });
+    value.actionSets = [...new Set(sets.filter((p): p is string => typeof p === "string" && p.endsWith(".actions.json")))];
+  }
   return { value, problems, warnings: [] };
 }
 

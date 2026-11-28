@@ -2,6 +2,7 @@
  * What the shared sync core (ADR 0137) keeps on each physics Component, for both dimensions. Types only:
  * the Components import them without loading the core, which arrives with the backend.
  */
+import type { CollisionShapes2D } from "../../../../engine/physics/shapeSource2D";
 import type { BackendBody, BackendCollider, BackendJoint, DimensionTypes, Pose } from "../backend";
 
 /** @internal */
@@ -53,12 +54,36 @@ export interface JointState<D extends DimensionTypes, RB> {
   measure: { rb: RB; local: D["vec"]; v0: D["vec"]; w0: D["ang"] } | null;
 }
 
-/** @internal What the core keeps for a TilemapCollider2D. */
-export interface TilemapColliderState<D extends DimensionTypes, RB> {
+/** @internal What the core keeps for a ShapeCollider2D. */
+export interface ShapeColliderState<D extends DimensionTypes, RB> {
   colliders: BackendCollider<D>[];
   /** The shape source's signature and the settings the colliders were built from. */
   signature: string;
   syncedVersion: number;
   body: RB | null;
   active: boolean;
+  /** ADR 0444: the voxel colliders built from the source's cells, or null when everything is built from its shapes. */
+  voxels?: ShapeVoxelState<D> | null;
+}
+
+/** @internal One chunk's voxel collider and the cells it holds. */
+export interface VoxelChunkState<D extends DimensionTypes> {
+  cx: number;
+  cy: number;
+  version: string;
+  solid: Uint8Array;
+  collider: BackendCollider<D>;
+}
+
+/** @internal A ShapeCollider2D's voxel colliders (ADR 0444) and the shapes built beside them. */
+export interface ShapeVoxelState<D extends DimensionTypes> {
+  /** The collider's settings (everything in `signature` but the source's): a change rebuilds everything. */
+  settings: string;
+  /** The cells' unit and chunk size: a change rebuilds everything. */
+  lattice: string;
+  /** Chunk colliders by cell group, then by `"cx,cy"`. */
+  groups: Map<string, { offset: { x: number; y: number }; chunks: Map<string, VoxelChunkState<D>> }>;
+  /** The shapes beside the cells (polygons, one-way) and their colliders, rebuilt only when those shapes change. */
+  rest: CollisionShapes2D | null;
+  restColliders: BackendCollider<D>[];
 }

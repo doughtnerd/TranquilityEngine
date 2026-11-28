@@ -6,7 +6,7 @@ import type { FileSystem } from "../engine/platform/FileSystem";
 import { FsaFileSystem, type FsaDirectoryHandle } from "./fsaFileSystem";
 import { RecentProjects, type HandleStore, type ListStore } from "./recentProjectList";
 
-export { locationOf, type RecentProject, type RecentState } from "./recentProjectList";
+export { locationOf, type RecentProject, type RecentState, type RemovedProject } from "./recentProjectList";
 
 let shared: RecentProjects | null = null;
 

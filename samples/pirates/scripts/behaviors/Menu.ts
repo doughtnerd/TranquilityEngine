@@ -1,22 +1,38 @@
-import { Audio, Color, GameBehavior, Lobby, Time, UIButton, UIInputField, UIPanel, UIText, behavior, type GameObject, type LobbyRoom } from "myco";
+import { Audio, GameBehavior, Lobby, Time, UIView, behavior, type LobbyRoom } from "myco";
 import { TEAM_COLORS } from "../data";
 import { ARENAS, BOT_NAMES, MATCH_LENGTHS, SHIP_COUNTS, arenaOf, forgetLeftMatch, leftMatchEarly, shipsOf } from "../lobby";
 import { UI_CLICK } from "../sounds";
 
 const NAME_KEY = "pirates.name";
 const SERVER_KEY = "pirates.server";
-/** Rows of open rooms and of crew the scene has. */
-const ROOM_ROWS = 4;
-const SLOT_ROWS = 8;
+/** Seats a room has. */
+const SLOTS = 8;
 /** Seconds an error stays up. */
 const ERROR_SECONDS = 8;
 
-/** A room setting the host steps through with < and >. */
-const SETTINGS: readonly { key: string; path: string; choices: readonly string[]; label(value: string): string }[] = [
-  { key: "arena", path: "Arena", choices: ARENAS.map((a) => a.key), label: (v) => arenaOf({ arena: v }).name },
-  { key: "length", path: "Length", choices: MATCH_LENGTHS.map((l) => l.key), label: (v) => MATCH_LENGTHS.find((l) => l.key === v)?.name ?? `${v} s` },
-  { key: "ships", path: "Ships", choices: SHIP_COUNTS, label: (v) => `${v} ships` },
+/** A room setting the host steps through with < and >: one row of the settings list. */
+interface Setting {
+  key: string;
+  label: string;
+  choices: readonly string[];
+  name(value: string): string;
+}
+
+const SETTINGS: readonly Setting[] = [
+  { key: "arena", label: "Arena", choices: ARENAS.map((a) => a.key), name: (v) => arenaOf({ arena: v }).name },
+  { key: "length", label: "Match length", choices: MATCH_LENGTHS.map((l) => l.key), name: (v) => MATCH_LENGTHS.find((l) => l.key === v)?.name ?? `${v} s` },
+  { key: "ships", label: "Ships", choices: SHIP_COUNTS, name: (v) => `${v} ships` },
 ];
+
+/** A crew row: a player in their slot, or a bot filling an empty one. */
+interface Seat {
+  slot: number;
+  name: string;
+  tag: string;
+  swatch: string;
+  me: boolean;
+  bot: boolean;
+}
 
 function load(key: string): string {
   try {
@@ -34,12 +50,35 @@ function save(key: string, value: string): void {
   }
 }
 
+/** The menu's state as its component (ui/Menu.svelte) draws it: what the lobby says, read each frame. */
+interface MenuState {
+  where: string;
+  status: string;
+  error: string;
+  screen: "home" | "room" | null;
+  sailing: boolean;
+  rooms: { code: string; label: string }[];
+  showLocal: boolean;
+  room: {
+    title: string;
+    code: string;
+    seats: Seat[];
+    settingsTitle: string;
+    settings: { key: string; label: string; value: string }[];
+    canSet: boolean;
+    results: { title: string; lines: string[] } | null;
+    status: string;
+    ready: boolean;
+    host: boolean;
+  } | null;
+}
+
 /**
- * The main menu and the room view (ADR 0068), over the sea. It polls `Lobby` each frame and shows
- * the home screen (name, Quick Match, Practice, Create Room, join by code, open rooms, join a
- * server) or the room (crew and bots, ready flags, the host's settings, Start, Leave and the last
- * match's results). The page starts on a lobby of its own ("local"); Join Server switches to a
- * dedicated server's (`npm run server -- samples/pirates`).
+ * The main menu and the room view (ADR 0068), over the sea (scenes/menu.scene.json). The screens are
+ * a Svelte component (ADR 0423), ui/Menu.svelte, mounted by the node's UIView. Its props: `menu`, what
+ * the script reads from `Lobby` each frame (the screen the lobby is in, the open rooms, the crew, the
+ * settings and the results); `fields`, the name, room code and server address fields (bound both
+ * ways); and `on`, what the buttons do.
  *
  * While a match plays, the lobby pauses this World and the match World takes the screen; when the
  * match ends, this World resumes and shows the room with the results. Every button is focusable,
@@ -57,17 +96,48 @@ export class Menu extends GameBehavior {
   private startWhenHost = false;
   private shownError = "";
   private errorSince = 0;
+  private view!: UIView;
+  /** The state last passed to the view, as JSON. */
+  private shown = "";
   /** The screen shown last frame ("home" or "room"), to give the new one focus when it changes. */
   private screen = "";
 
   start(): void {
-    const name = this.field("Screen/Home/Left/Name");
-    if (name) {
-      name.value = load(NAME_KEY) || `Captain ${10 + Math.floor(Math.random() * 90)}`;
-      name.maxLength = 20;
-    }
-    const url = this.field("Screen/Home/Right/ServerRow/Url");
-    if (url) url.value = load(SERVER_KEY) || defaultServer();
+    this.view = this.node.getBehavior(UIView)!;
+    this.view.props = {
+      menu: this.state(),
+      fields: { name: load(NAME_KEY) || `Captain ${10 + Math.floor(Math.random() * 90)}`, code: "", url: load(SERVER_KEY) || defaultServer() },
+      on: {
+        quickMatch: () => this.act(() => Lobby.quickMatch()),
+        practice: () =>
+          this.act(() => {
+            Lobby.createRoom({ name: "Practice", public: false });
+            this.startWhenHost = true;
+          }),
+        createRoom: () => this.act(() => Lobby.createRoom({ name: `${this.name()}'s room`, public: true })),
+        joinCode: () => {
+          const wanted = this.fields().code.trim().toUpperCase();
+          if (wanted) this.act(() => Lobby.joinRoom(wanted));
+        },
+        joinRoom: (code: string) => this.act(() => Lobby.joinRoom(code)),
+        joinServer: () => {
+          const address = this.fields().url.trim();
+          if (!address) return;
+          save(SERVER_KEY, address);
+          this.connect(/^wss?:\/\//i.test(address) ? address : `ws://${address}`);
+        },
+        local: () => this.connect("local"),
+        ready: () => Lobby.setReady(!this.ready()),
+        start: () => {
+          if (Lobby.me?.host) Lobby.start();
+        },
+        leave: () => {
+          this.startWhenHost = false;
+          Lobby.leaveRoom();
+        },
+        step: (key: string, by: number) => this.step(key, by),
+      },
+    };
     this.connect("local");
   }
 
@@ -82,15 +152,13 @@ export class Menu extends GameBehavior {
       this.startWhenHost = false;
       Lobby.start();
     }
-    const room = Lobby.room;
-    const inRoom = (state === "room" || state === "starting") && room !== null;
-    this.show("Screen/Home", !inRoom && state !== "match");
-    this.show("Screen/Room", inRoom);
-    this.show("Screen/Sailing", state === "match" || this.startWhenHost);
-    if (inRoom) this.room(room!);
-    else this.home();
-    this.header();
-    this.focusScreen(inRoom ? "room" : state === "match" ? "" : "home");
+    const menu = this.state();
+    const json = JSON.stringify(menu);
+    if (json !== this.shown) {
+      this.shown = json;
+      this.view.props.menu = menu;
+    }
+    this.focusScreen(menu.screen ?? "");
   }
 
   /**
@@ -101,144 +169,111 @@ export class Menu extends GameBehavior {
    */
   private focusScreen(screen: string): void {
     if (screen === this.screen) return;
+    const main = screen === "home" ? "#quick-match" : screen === "room" ? "#ready" : null;
+    const button = main ? this.view.query(main) : null;
+    if (main && !button) return; // not mounted yet: next frame
     this.screen = screen;
-    const main = screen === "home" ? "Screen/Home/Left/QuickMatch" : screen === "room" ? "Screen/Room/Side/Buttons/Ready" : null;
-    const button = main ? this.button(main) : null;
-    if (button) button.focused = true;
+    button?.focus();
+  }
+
+  /** What the menu shows now. */
+  private state(): MenuState {
+    const state = Lobby.state;
+    const room = Lobby.room;
+    const inRoom = (state === "room" || state === "starting") && room !== null;
+    return {
+      ...this.header(),
+      screen: inRoom ? "room" : state !== "match" ? "home" : null,
+      sailing: state === "match" || this.startWhenHost,
+      rooms: inRoom ? [] : this.rooms(),
+      showLocal: this.address !== "local",
+      room: inRoom ? this.room(room!) : null,
+    };
   }
 
   // --- home ---------------------------------------------------------------------------------------
 
-  private home(): void {
-    const name = this.name();
-    if (this.clicked("Screen/Home/Left/QuickMatch")) this.act(() => Lobby.quickMatch());
-    if (this.clicked("Screen/Home/Left/Practice")) {
-      this.act(() => {
-        Lobby.createRoom({ name: "Practice", public: false });
-        this.startWhenHost = true;
-      });
-    }
-    if (this.clicked("Screen/Home/Left/CreateRoom")) this.act(() => Lobby.createRoom({ name: `${name}'s room`, public: true }));
-    const code = this.field("Screen/Home/Left/JoinRow/Code");
-    if (code && code.value !== code.value.toUpperCase()) code.value = code.value.toUpperCase();
-    if (this.clicked("Screen/Home/Left/JoinRow/Join") || code?.submitted) {
-      const wanted = code?.value.trim() ?? "";
-      if (wanted) this.act(() => Lobby.joinRoom(wanted));
-    }
-
-    const rooms = Lobby.rooms.filter((r) => r.state !== "playing" && r.members < r.maxPlayers);
-    for (let i = 0; i < ROOM_ROWS; i++) {
-      const r = rooms[i];
-      const path = `Screen/Home/Right/Room${i}`;
-      this.show(path, !!r);
-      if (!r) continue;
-      this.text(`${path}/Label`, `${r.name}  -  ${arenaOf(r.settings).name}  -  ${r.members}/${r.maxPlayers}`);
-      if (this.clicked(`${path}/Join`)) this.act(() => Lobby.joinRoom(r.code));
-    }
-    this.show("Screen/Home/Right/NoRooms", rooms.length === 0);
-
-    const url = this.field("Screen/Home/Right/ServerRow/Url");
-    if (this.clicked("Screen/Home/Right/ServerRow/Connect") || url?.submitted) {
-      const address = url?.value.trim() ?? "";
-      if (address) {
-        save(SERVER_KEY, address);
-        this.connect(/^wss?:\/\//i.test(address) ? address : `ws://${address}`);
-      }
-    }
-    this.show("Screen/Home/Right/ServerRow/Local", this.address !== "local");
-    if (this.clicked("Screen/Home/Right/ServerRow/Local")) this.connect("local");
+  private rooms(): { code: string; label: string }[] {
+    return Lobby.rooms
+      .filter((r) => r.state !== "playing" && r.members < r.maxPlayers)
+      .slice(0, 4)
+      .map((r) => ({ code: r.code, label: `${r.name}  -  ${arenaOf(r.settings).name}  -  ${r.members}/${r.maxPlayers}` }));
   }
 
   // --- the room -----------------------------------------------------------------------------------
 
-  private room(room: LobbyRoom): void {
+  private room(room: LobbyRoom): NonNullable<MenuState["room"]> {
     const me = Lobby.me;
     const host = !!me?.host;
-    this.text("Screen/Room/Crew/RoomTitle", room.name);
-    this.text("Screen/Room/Crew/RoomCode", room.public ? `Room code ${room.code}  -  open to all` : `Room code ${room.code}  -  private`);
 
     // Crew: players by slot, then the bots that fill the empty places up to the ship count.
-    const ships = shipsOf(room.settings);
-    let bots = Math.max(0, ships - room.members.length);
-    for (let slot = 0; slot < SLOT_ROWS; slot++) {
-      const path = `Screen/Room/Crew/Slot${slot}`;
+    let bots = Math.max(0, shipsOf(room.settings) - room.members.length);
+    const seats: Seat[] = [];
+    for (let slot = 0; slot < SLOTS; slot++) {
       const member = room.members.find((m) => m.slot === slot);
-      const bot = !member && bots > 0;
-      if (bot) bots--;
-      this.show(path, !!member || bot);
-      if (!member && !bot) continue;
-      const swatch = this.node.find(`${path}/Swatch`)?.getBehavior(UIPanel);
-      if (swatch) setColor(swatch, "backgroundColor", TEAM_COLORS[slot], member ? 1 : 0.45);
-      const label = this.node.find(`${path}/Name`)?.getBehavior(UIText);
-      if (label) {
-        const text = member ? `${member.name}${member.slot === me?.slot ? " (you)" : ""}` : `${BOT_NAMES[slot]} (bot)`;
-        if (label.text !== text) label.text = text;
-        const alpha = member ? 1 : 0.55;
-        if (Math.abs(label.color.a - alpha) > 0.01) label.color = new Color(0.95, 0.93, 0.85, alpha);
-      }
-      this.text(`${path}/Tag`, member ? [member.host ? "Host" : "", member.ready ? "Ready" : ""].filter(Boolean).join("  ") : "");
-      const row = this.node.find(path)?.getBehavior(UIPanel);
-      if (row) setColor(row, "backgroundColor", "#ffffff", member?.slot === me?.slot ? 0.12 : 0.04);
+      if (!member && bots === 0) continue;
+      if (!member) bots--;
+      seats.push({
+        slot,
+        name: member ? `${member.name}${member.slot === me?.slot ? " (you)" : ""}` : `${BOT_NAMES[slot]} (bot)`,
+        tag: member ? [member.host ? "Host" : "", member.ready ? "Ready" : ""].filter(Boolean).join("  ") : "",
+        swatch: TEAM_COLORS[slot].slice(0, 7) + (member ? "" : "73"), // bots' swatches at 45%
+        me: !!member && member.slot === me?.slot,
+        bot: !member,
+      });
     }
 
-    // The host's settings.
-    this.text("Screen/Room/Side/Settings/SettingsLabel", host ? "Settings" : "Settings (the host picks)");
-    for (const s of SETTINGS) {
+    // The host's settings: one row per setting, its < and > only for the host (the stylesheet hides them otherwise).
+    const settings = SETTINGS.map((s) => {
       const value = room.settings[s.key] ?? s.choices[0];
-      const path = `Screen/Room/Side/Settings/${s.path}`;
-      this.text(`${path}/Value`, s.label(value));
-      for (const [button, step] of [["Prev", -1], ["Next", 1]] as const) {
-        const b = this.button(`${path}/${button}`);
-        if (!b) continue;
-        const on = host && room.state !== "playing";
-        if (b.visible !== on) b.visible = on;
-        if (b.interactable !== on) b.interactable = on;
-        if (on && b.clicked) {
-          const i = s.choices.indexOf(value);
-          Lobby.setSetting(s.key, s.choices[(i + step + s.choices.length) % s.choices.length]);
-          this.click();
-        }
-      }
-    }
+      return { key: s.key, label: s.label, value: s.name(value) };
+    });
 
     // The last match's results.
-    const results = room.results;
-    this.show("Screen/Room/Side/Results", !!results);
-    if (results) {
-      this.text("Screen/Room/Side/Results/ResultsTitle", results.winner ? `${results.winner} is the King of Pirates!` : "The match is over");
-      const lines = results.winner ? [1, 2, 3, 4].map((i) => (results[String(i)] ? `${i}.  ${results[String(i)]}` : "")) : [results.reason ?? ""];
-      for (let i = 0; i < 4; i++) this.text(`Screen/Room/Side/Results/Result${i}`, lines[i] ?? "");
-    }
+    const r = room.results;
+    const results = r ? { title: r.winner ? `${r.winner} is the King of Pirates!` : "The match is over", lines: r.winner ? [1, 2, 3, 4].filter((i) => r[String(i)]).map((i) => `${i}.  ${r[String(i)]}`) : [r.reason ?? ""] } : null;
 
     // Status and buttons.
-    const ready = room.members.find((m) => m.slot === me?.slot)?.ready ?? false;
-    let status: string;
     if (room.state !== "playing") forgetLeftMatch();
+    let status: string;
     if (room.state === "countdown") status = `Setting sail in ${room.countdown}...`;
     else if (room.state === "playing" && leftMatchEarly()) status = "You left the match. The others sail on; the results come here when it ends.";
     else if (room.state === "playing") status = "Setting sail...";
     else if (room.quick) status = "Quick match: setting sail soon. Bots take the empty places.";
     else if (host) status = room.members.length > 1 ? "Start when you like, or when everyone is ready." : "Start when you like: bots take the empty places.";
     else status = "Ready up: the match starts when every captain is ready.";
-    this.text("Screen/Room/Side/RoomStatus", status);
-    this.text("Screen/Room/Side/Buttons/Ready/Label", ready ? "Ready!" : "Ready?");
-    const readyButton = this.button("Screen/Room/Side/Buttons/Ready");
-    if (readyButton) setColor(readyButton, "backgroundColor", ready ? "#3f8f4a" : "#23303f");
-    if (this.clicked("Screen/Room/Side/Buttons/Ready")) Lobby.setReady(!ready);
-    this.show("Screen/Room/Side/Buttons/Start", host);
-    if (host && this.clicked("Screen/Room/Side/Buttons/Start")) Lobby.start();
-    if (this.clicked("Screen/Room/Side/Buttons/Leave")) {
-      this.startWhenHost = false;
-      Lobby.leaveRoom();
-    }
+    return {
+      title: room.name,
+      code: room.public ? `Room code ${room.code}  -  open to all` : `Room code ${room.code}  -  private`,
+      seats,
+      settingsTitle: host ? "Settings" : "Settings (the host picks)",
+      settings,
+      canSet: host && room.state !== "playing",
+      results,
+      status,
+      ready: this.ready(),
+      host,
+    };
+  }
+
+  private step(key: string, by: number): void {
+    const room = Lobby.room;
+    const s = SETTINGS.find((x) => x.key === key);
+    if (!room || !s || !Lobby.me?.host || room.state === "playing") return;
+    const i = s.choices.indexOf(room.settings[key] ?? s.choices[0]);
+    Lobby.setSetting(key, s.choices[(i + by + s.choices.length) % s.choices.length]);
+    this.click();
+  }
+
+  private ready(): boolean {
+    const me = Lobby.me;
+    return Lobby.room?.members.find((m) => m.slot === me?.slot)?.ready ?? false;
   }
 
   // --- header and footer --------------------------------------------------------------------------
 
-  private header(): void {
+  private header(): { where: string; status: string; error: string } {
     const state = Lobby.state;
-    const where = this.address === "local" ? "Harbour: this computer" : `Harbour: ${this.address}`;
-    this.text("Screen/Header/Connection/Where", where);
     const status: Record<string, string> = {
       offline: "Offline",
       connecting: "Connecting...",
@@ -247,15 +282,17 @@ export class Menu extends GameBehavior {
       starting: "Setting sail...",
       match: "At sea",
     };
-    this.text("Screen/Header/Connection/Status", status[state] ?? state);
 
     const error = Lobby.error;
     if (error !== this.shownError) {
       this.shownError = error;
       this.errorSince = Time.realtimeSinceStartup;
     }
-    const showError = !!error && Time.realtimeSinceStartup - this.errorSince < ERROR_SECONDS;
-    this.text("Screen/Footer/Error", showError ? error : "");
+    return {
+      where: this.address === "local" ? "Harbour: this computer" : `Harbour: ${this.address}`,
+      status: status[state] ?? state,
+      error: error && Time.realtimeSinceStartup - this.errorSince < ERROR_SECONDS ? error : "",
+    };
   }
 
   // --- the lobby connection -----------------------------------------------------------------------
@@ -278,7 +315,12 @@ export class Menu extends GameBehavior {
   }
 
   private name(): string {
-    return this.field("Screen/Home/Left/Name")?.value.trim() || "Captain";
+    return this.fields().name.trim() || "Captain";
+  }
+
+  /** The name, room code and server address fields, as the player typed them (the view binds them). */
+  private fields(): { name: string; code: string; url: string } {
+    return this.view.props.fields as { name: string; code: string; url: string };
   }
 
   // --- UI helpers ---------------------------------------------------------------------------------
@@ -286,45 +328,10 @@ export class Menu extends GameBehavior {
   private click(): void {
     Audio.play(UI_CLICK);
   }
-
-  private find(path: string): GameObject | null {
-    return this.node.find(path);
-  }
-
-  private button(path: string): UIButton | null {
-    return this.find(path)?.getBehavior(UIButton) ?? null;
-  }
-
-  private field(path: string): UIInputField | null {
-    return this.find(path)?.getBehavior(UIInputField) ?? null;
-  }
-
-  private clicked(path: string): boolean {
-    return this.button(path)?.clicked ?? false;
-  }
-
-  private text(path: string, value: string): void {
-    const t = this.find(path)?.getBehavior(UIText);
-    if (t && t.text !== value) t.text = value;
-  }
-
-  private show(path: string, on: boolean): void {
-    const node = this.find(path);
-    if (node && node.active !== on) node.setActive(on);
-  }
 }
 
 /** The page's own host on the dedicated server's default port. */
 function defaultServer(): string {
   const host = (globalThis as { location?: { hostname?: string } }).location?.hostname || "localhost";
   return `ws://${host}:7777`;
-}
-
-/** Sets a colour field only when it differs, as a new value. */
-function setColor(panel: UIPanel, field: "backgroundColor" | "borderColor", hex: string, alpha = 1): void {
-  const current = panel[field];
-  if (current && current.toHex().toLowerCase() === hex.slice(0, 7).toLowerCase() && Math.abs(current.a - alpha) < 0.01) return;
-  const c = Color.from(hex.slice(0, 7));
-  c.a = alpha;
-  panel[field] = c;
 }

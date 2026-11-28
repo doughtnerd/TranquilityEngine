@@ -6,11 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../engine/core/registry";
 import { PROBES_SPEC } from "../engine/render/babylon/features";
 import { FOG_SPEC } from "../engine/render/babylon/fog";
-import { Environment, MeshRenderer, PostProcessing, SpriteRenderer, Text } from "../engine/render/components";
+import { Environment, MeshRenderer, PostProcessing, SpriteRenderer } from "../engine/render/components";
 import { _registeredRenderFeatures, byPhase, type RenderFeatureSpec } from "../engine/render/renderFeatures";
 import { WaterSurface } from "../engine/render/water/WaterSurface";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../engine/ui/components";
-import { UIDocument } from "../engine/ui/UIDocument";
 import { environmentRuntimePlugin } from "./environment/runtime";
 import { MESHES_SPEC, meshesRuntimePlugin } from "./meshes/runtime";
 import { postProcessingRuntimePlugin } from "./post-processing/runtime";
@@ -18,7 +17,7 @@ import { isRuntimePluginActive, RUNTIME_PLUGINS, type RuntimePlugin } from "./ru
 import { applyTestPlugins } from "./testPlugins";
 import { spritesRuntimePlugin } from "./sprites/runtime";
 import { uiRuntimePlugin } from "./ui/runtime";
-import { UIControlMapper } from "../engine/ui/controlMapper";
+import { UIControlMapper } from "./ui/runtime/UIControlMapper";
 import { waterRuntimePlugin } from "./water/runtime";
 
 /** A plugin's render feature spec, as its activation registered it. */
@@ -87,7 +86,7 @@ const CASES: Case[] = [
   { plugin: waterRuntimePlugin, components: { "engine.WaterSurface": WaterSurface }, feature: WATER_SPEC, module: "water/runtime/waterFeature" },
   {
     plugin: uiRuntimePlugin,
-    components: { "engine.UICanvas": UICanvas, "engine.UIPanel": UIPanel, "engine.UIText": UIText, "engine.UIImage": UIImage, "engine.UIButton": UIButton, "engine.UIInputField": UIInputField, "engine.UIDocument": UIDocument, "engine.UIControlMapper": UIControlMapper, "engine.Text": Text },
+    components: { "engine.UICanvas": UICanvas, "engine.UIPanel": UIPanel, "engine.UIText": UIText, "engine.UIImage": UIImage, "engine.UIButton": UIButton, "engine.UIInputField": UIInputField, "engine.UIControlMapper": UIControlMapper },
     feature: UI_SPEC,
     module: "ui/runtime/uiFeature",
   },
