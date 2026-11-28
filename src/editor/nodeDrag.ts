@@ -80,10 +80,10 @@ export function startNodeDrag(e: PointerEvent, key: string): void {
         (!scene ? "open a scene first" : nodeDropProblem(scene.doc, key, drop, keys));
       nodeDrag.value = { key, keys, x: m.clientX, y: m.clientY, target: problem ? null : drop, problem };
     },
-    end: (apply) => {
+    end: (how) => {
       const state = nodeDrag.value;
       nodeDrag.value = null;
-      if (!apply || !state?.target || "reason" in state.target.move) return;
+      if (how !== "drop" || !state?.target || "reason" in state.target.move) return;
       const scene = openScene.value!;
       try {
         moveNodes(scene, state.keys, state.target.move.parent, state.target.move.index);

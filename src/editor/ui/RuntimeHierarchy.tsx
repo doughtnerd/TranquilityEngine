@@ -115,10 +115,10 @@ function startLiveDrag(e: PointerEvent, session: PlaySession, world: World, node
       }
       liveDrag.value = { node, x: m.clientX, y: m.clientY, on: problem ? null : on, problem };
     },
-    end: (drop) => {
+    end: (how) => {
       const state = liveDrag.value;
       liveDrag.value = null;
-      if (!drop || !state || state.on === null) return;
+      if (how !== "drop" || !state || state.on === null) return;
       const parent = state.on === -1 ? null : nodeOfEntity(world, state.on);
       if (state.on !== -1 && !parent) return;
       liveEdit(session, `move ${node.name}`, () => moveLive(node, parent));
