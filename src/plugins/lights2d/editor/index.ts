@@ -27,7 +27,6 @@ export const lights2dEditorPlugin: EditorPlugin = {
       title: "2D Lighting",
       after: "Rendering",
       keys: [lighting2DSettings.key],
-      problems: lighting2DSettings.problems,
       names: [blendStyleNames, shadowLayerNames],
       view: () => import("./Lights2DSettingsSection").then((m) => m.Lights2DSettingsSection),
     });

@@ -57,3 +57,7 @@ We will make `src/engine/core/settings.ts` the one module that answers three que
 
 - `src/engine/core/settings.ts`, `src/engine/core/buildSettings.ts`, `src/editor/projectSettingsModel.ts`, `src/export/desktop.ts`, `src/export/node.ts`
 - Tests: `src/engine/tests/projectSettingsKeys.test.ts`, `src/editor/projectSettingsModel.test.ts`
+
+## As built (wave 2)
+
+The physics and lights2d settings sections no longer declare `problems`: the Project panel gets their keys' problems from `projectSettingsIssues` through `RUNTIME_SETTINGS`, so the repeated parse is gone (their registrations pass no `problems`). Their tests assert through `projectSettingsIssues` and show a bad physics gravity and a bad lighting2D value reported exactly once. The animation section (its key is not a runtime key) keeps its own `problems`; navigation was not touched (frozen). The de-duplication by field and message in `projectSettingsIssues` stays, though nothing in-repo now relies on it: third-party sections may still repeat a runtime parse. `src/engine/core/settings.ts` is unchanged.

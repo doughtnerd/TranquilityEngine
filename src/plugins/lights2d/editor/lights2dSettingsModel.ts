@@ -1,6 +1,7 @@
 // The 2D Lighting settings section's model (ADR 0399): `project.json`'s `lighting2D` key, which the Lights 2D plugin's
 // settings category owns, as pure edits of the Project panel's draft. Reading it and its problems are the engine's
-// runtime section's (`RUNTIME_SETTINGS.lighting2D`, ADR 0272), so the panel and the Engine's start-up warnings agree.
+// runtime section's (`RUNTIME_SETTINGS.lighting2D`, ADR 0272), so the panel and the Engine's start-up warnings agree;
+// the section declares no `problems` of its own, `projectSettingsIssues` gives the runtime section's (ADR 0446).
 import { RUNTIME_SETTINGS } from "../../../engine/core/settings";
 import { uniqueName } from "../../../engine/core/uniqueName";
 import { MAX_BLEND_STYLES, MAX_SHADOW_LAYERS, type BlendStyleMask, type LightBlendStyle } from "../../../engine/render/lights2D/settings";
@@ -13,7 +14,6 @@ export const lighting2DSettings = settingsSection({
   key: "lighting2D",
   parse: (written) => ({ settings: LIGHTING_2D.parse(written).value }),
   edits: "written",
-  problems: (draft) => LIGHTING_2D.parse(draft.lighting2D).problems,
 });
 
 /** The blend styles now (the default one when unset). */
