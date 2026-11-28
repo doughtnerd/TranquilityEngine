@@ -1,0 +1,40 @@
+{
+ "forest": {
+  "baselineFrameMs": 31867,
+  "occlusion": {
+   "geometryPixelsInBaseline": 918003,
+   "coveragePixelsDiffering": 0,
+   "coverageFractionOfGeometry": 0,
+   "colourPixelsDiffering": 138,
+   "meanAbsColourDiff": 0.008,
+   "frameMs": 2747.8999999999996
+  },
+  "lod": {
+   "geometryPixelsInBaseline": 918003,
+   "coveragePixelsDiffering": 4,
+   "coverageFractionOfGeometry": 0,
+   "colourPixelsDiffering": 1837,
+   "meanAbsColourDiff": 0.066,
+   "frameMs": 3695.300000000001
+  }
+ },
+ "city": {
+  "baselineFrameMs": 6395.799999999999,
+  "occlusion": {
+   "geometryPixelsInBaseline": 889131,
+   "coveragePixelsDiffering": 18,
+   "coverageFractionOfGeometry": 0.00002,
+   "colourPixelsDiffering": 133,
+   "meanAbsColourDiff": 0.005,
+   "frameMs": 499.8000000000002
+  },
+  "lod": {
+   "geometryPixelsInBaseline": 889131,
+   "coveragePixelsDiffering": 1151,
+   "coverageFractionOfGeometry": 0.00129,
+   "colourPixelsDiffering": 9742,
+   "meanAbsColourDiff": 0.51,
+   "frameMs": 512.1999999999998
+  }
+ }
+}
