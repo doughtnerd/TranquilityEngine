@@ -19,8 +19,13 @@ Design folder: [`docs/design/plugin-lanes-localisation/`](../design/plugin-lanes
   diagnostics; so are the engine's frame times.
 - **Diagnostics source:** one contributor's named family of records, such as `myco.audio/profile` or `core/frames`,
   registered through the **diagnostics contribution point** (`ctx.diagnostics.source`). Earlier drafts said "lane".
-- **Clock:** what a source's record times count in: the engine's frame counter, or audio frames on the audio core's
-  clock. Each source names its clock, so the profiler can line sources up.
+- **Clock:** what a source's record times count in. There are two independent clocks today: the **engine clock** (the
+  engine's frame counter plus real, monotonic time; every World, and animation, ticks inside it) and the **audio
+  clock** (audio frames counted by the audio plugin's Rust core, `native/audio/`, read through its `AudioClock`
+  capability). A World's scaled time, an animator's time or a tile map's animation time are derived from the engine
+  clock, not clocks of their own; a source that needs one writes it as a field.
+- **Clock sync record:** a record a source with its own clock writes, pairing a time on its clock with the engine
+  frame it was read in, so the profiler can line its records up with everything else.
 - **Retention:** what happens when a source's data outgrows its budget. A **ring** source drops its oldest data
   (telemetry); a **log** source never drops and stops the capture with a message at the cap (what re-execution needs).
 - **Consumer:** something that needs diagnostics now: a tool subscribed over the debug link, the editor's Play Stats
@@ -46,7 +51,10 @@ Design folder: [`docs/design/plugin-lanes-localisation/`](../design/plugin-lanes
   `f64 frame`); types below 0x80 are skipped by a reader that doesn't know them.
 - **Type space:** audio profile 0x01–0x09, audio requests 0x10–0x3f, plugin take extensions 0x40–0x7e (animation uses
   0x40–0x44), INDEX 0x7f.
-- **Two clocks:** in a file, a record's `frame` is audio's: a STATUS record's frame must equal the audio core's
+- **Two clocks:** the audio clock lives in the audio plugin (`native/audio/`, `plugins/audio/runtime/core/clock.ts`,
+  the `AudioClock` capability in `backend.ts:595`); nothing in `src/engine/` reads it. Animation has no clock of its
+  own: it advances on the World's scaled or fixed step (`plugins/animation/runtime/stages/frame.ts:14`). In a file, a
+  record's `frame` is audio's: a STATUS record's frame must equal the audio core's
   `currentFrame` (`capture/format.ts:771-780`). On the debug link it is the build's frame counter
   (`debugLink/records.ts:10`). Nothing without audio has a timebase in a file.
 - **Push, not pull:** audio writes from its STATUS tap on the audio clock into a bounded ring (16–32 MiB), keeps take
@@ -100,9 +108,13 @@ every recording is a **capture**, and separate the **profiler** into a self-cont
 - Optional per source: **deep links** (which record fields name an asset path), **re-execution** (how to feed records
   back into a running engine), and keyframes for seeking.
 - A source that throws is stopped for the rest of the epoch, with one message.
+- **Clocks:** a source declares `engine` (the default) or its own clock. A source with its own clock writes **clock
+  sync records**; the engine never reads a plugin's clock (no engine file imports a plugin). Audio declares the audio
+  clock and writes a sync record each engine frame from the frame map it already keeps (`plugins/audio/runtime/core/
+  clock.ts`, 0224). Records are stamped with real time, not a World's scaled time, so pauses and slow motion don't
+  distort a profile.
 - The core registers `core/frames` on the engine clock: Play Stats' data (frame and step times, per-World phase
-  times, render counters, node counts, heap) plus, when audio is active, the audio frame at each engine frame, so the
-  two clocks map (audio's frame map, 0224).
+  times, render counters, node counts, heap). It knows nothing about audio.
 
 **Captures**
 
@@ -193,7 +205,7 @@ per-source budgets and cost baselines; a profiler app of its own.
 **Positive**
 - One API for audio, the core, animation, Play Stats' counters and future plugins, evolved from a registry that
   already works.
-- Every capture has a timebase, with or without audio.
+- Every capture has a timebase, with or without audio, and a future plugin with its own clock (a physics step, a network tick) lines up the same way.
 - Takes and captures collapse into one concept, one key and one Export option.
 - Deep links and re-execution become available to every plugin.
 
@@ -224,7 +236,7 @@ to finish its required reading.
 
 | Point | Reviewer | Outcome |
 |---|---|---|
-| Captures have no timebase without audio: a file's `frame` is audio's (`format.ts:771-780`), the link's is the build's (`records.ts:10`) | architect | **Taken:** a clock per source, `core/frames` on the engine clock mapping audio frames. |
+| Captures have no timebase without audio: a file's `frame` is audio's (`format.ts:771-780`), the link's is the build's (`records.ts:10`) | architect | **Taken:** a clock per source (`engine` or its own); plugins with their own clock write sync records; `core/frames` stays on the engine clock (owner review, 2026-11-28: the audio clock is the plugin's, so the core can't map it). |
 | `sample(writer, frame)` doesn't fit audio's ring, request log or async pictures; `TakeSource.start(host)` already pushes | architect, senior, challenger | **Taken:** push contract evolved from `take.source`, with retention and channel per source. |
 | Look-back window should live in the build's ring; Record marks a span that survives a disconnect | architect | **Taken.** |
 | Collection should follow consumers (incl. Play Stats in-process), not only "a tool is connected" | architect, challenger | **Taken.** |
