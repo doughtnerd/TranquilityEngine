@@ -27,7 +27,7 @@ const REPORT = "test-results/render-bench.json";
 
 // Uncapped frames (the default 10 fps cap would pace the readings), and a long timeout: Play type-checks first, a frame costs seconds on software GL.
 test.use({ fps: 0 });
-test.describe.configure({ mode: "serial", timeout: 30 * 60_000 });
+test.describe.configure({ mode: "serial", timeout: 90 * 60_000 });
 
 interface Reading {
   drawCalls: number;
@@ -68,15 +68,15 @@ for (const bench of BENCH_SCENES) {
     // Not the fixture's `play`: its 20 s start budget is for small scenes. Starting play on a 5,000-object scene with software GL
     // (the World's copy, model loads, the first frame's pipelines) takes longer.
     await page.getByRole("button", { name: "Play", exact: true, description: /^Play the open scene/ }).click();
-    await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: 10 * 60_000 });
+    await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: 30 * 60_000 });
     await expect(page.getByRole("region", { name: "Stats" })).toBeVisible();
 
     // Warm up: pipelines compile and the first frames settle (frames of the engine's own clock).
-    await expect.poll(() => inLiveWorld(page, null, (w) => w?.time.frameCount ?? 0), { timeout: 10 * 60_000 }).toBeGreaterThan(WARMUP);
+    await expect.poll(() => inLiveWorld(page, null, (w) => w?.time.frameCount ?? 0), { timeout: 30 * 60_000 }).toBeGreaterThan(WARMUP);
     // The Stats readout shows the last finished frame's triangles: wait for the first one (on software GL a frame of these scenes
     // takes seconds, and the first ones can finish without drawing while models and pipelines load).
     const statTriangles = page.locator('.play-stats [data-stat="triangles"]');
-    await expect.poll(async () => Number((await statTriangles.textContent())?.replace(/[^\d.]/g, "") ?? 0), { timeout: 10 * 60_000 }).toBeGreaterThan(0);
+    await expect.poll(async () => Number((await statTriangles.textContent())?.replace(/[^\d.]/g, "") ?? 0), { timeout: 30 * 60_000 }).toBeGreaterThan(0);
 
     // Sample: every STEP engine frames, read the Stats overlay (it refreshes about 4 times a second; the camera is still, so a reading
     // from the last refresh is the frame's). The loop runs in the page, so the readings don't wait on round trips.
