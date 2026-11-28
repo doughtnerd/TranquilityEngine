@@ -73,8 +73,11 @@ export interface QuadBatch {
    * for plain and unlit, as a light's volume draws.
    */
   setMaterial(material: string | null): void;
-  /** `#rrggbb` (sRGB; anything else reads as white) and opacity 0..1. */
-  setTint(color: string, opacity: number): void;
+  /**
+   * `#rrggbb` (sRGB; any other string reads as white), or sRGB channels 0..1 taken exactly (a sprite's colour, ADR 0450),
+   * and opacity 0..1.
+   */
+  setTint(color: QuadTint, opacity: number): void;
   /**
    * A mask (ADR 0395): the texture's alpha multiplies the fragment's, sampled at `uv`, a 2×3 affine map
    * `[a, b, c, d, e, f]` from the batch's local position (x, y) to the mask's UV (v up): `u = a·x + b·y + c`,
@@ -89,6 +92,9 @@ export interface QuadBatch {
   setVisible(visible: boolean): void;
   dispose(): void;
 }
+
+/** A quad batch's tint colour (`QuadBatch.setTint`): `#rrggbb`, or sRGB channels 0..1. */
+export type QuadTint = string | { readonly r: number; readonly g: number; readonly b: number };
 
 /** A quad batch's blending (`QuadBatch.setBlend`). */
 export type QuadBlend = "alpha" | "additive";

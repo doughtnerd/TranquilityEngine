@@ -8,8 +8,7 @@ export const createSpritesFeature: BabylonFeatureFactory = (host) =>
   new BabylonSprites({
     scene: host.scene,
     pixelsPerUnit: () => host.settings.render.pixelsPerUnit,
-    sortingLayers: () => host.settings.render.sortingLayers,
-    ySortedLayers: () => host.settings.render.ySortedLayers,
+    quads: host.quads, // a lone sprite's batch, and every sprite's place (ADR 0450)
     texture: (path, onReady) => host.materials.texture(path, "color", onReady && (() => onReady())),
     materials2D: host.materials2D,
     drawPolicy: () => host.policy().drawPolicy,
