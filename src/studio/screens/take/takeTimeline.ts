@@ -246,11 +246,16 @@ export function parameterText(lane: ParameterLane, t: number): string {
     const seg = lane.segments.find((s) => s.from <= t && t < s.to) ?? (t >= (lane.segments[lane.segments.length - 1]?.to ?? 0) ? lane.segments[lane.segments.length - 1] : lane.segments[0]);
     return seg?.label ?? "—";
   }
+  const v = laneValueAt(lane, t);
+  return v === null ? "—" : roundValue(v);
+}
+
+/** A parameter lane's value at `t`: the last point at or before it, else its first point; null for an empty lane. */
+export function laneValueAt(lane: ParameterLane, t: number): number | null {
   let v: number | null = null;
   for (const p of lane.points) {
     if (p.t > t) break;
     v = p.v;
   }
-  if (v === null && lane.points[0]) v = lane.points[0].v;
-  return v === null ? "—" : roundValue(v);
+  return v ?? lane.points[0]?.v ?? null;
 }

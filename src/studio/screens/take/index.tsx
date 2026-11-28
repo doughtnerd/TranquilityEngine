@@ -29,7 +29,7 @@ import { globalParameters, openSource, openTake, takeFileKind, takePlaylist, tak
 import { runMoveFolders, runTreeFolders } from "../profiler/captureTree";
 import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "../profiler/runFileActions";
 import { durationsVersion, fileDuration } from "../profiler/runFileDurations";
-import { findInstance, parameterText, pathTitle, playlistsInTake, takeTimeline, type TakeInstance, type TakeTimeline } from "./takeTimeline";
+import { findInstance, laneValueAt, parameterText, pathTitle, playlistsInTake, takeTimeline, type TakeInstance, type TakeTimeline } from "./takeTimeline";
 import { buildSession, takeOnShow, type LiveTake } from "../../runtime/buildSession";
 import { openMixer } from "../../shell/openMixer";
 import { drivesText, playlistSummary, playsText, propertyCards, typeName, type PropertyCard } from "./takePlaylists";
@@ -448,13 +448,7 @@ function valuesAt(take: Take, timeline: TakeTimeline, t: number, instance: TakeI
   return (name) => {
     if (name in own) return own[name]!;
     const lane = timeline.parameters.find((p) => p.path === null && p.name === name);
-    if (!lane) return null;
-    let v: number | null = null;
-    for (const p of lane.points) {
-      if (p.t > t) break;
-      v = p.v;
-    }
-    return v ?? lane.points[0]?.v ?? null;
+    return lane ? laneValueAt(lane, t) : null;
   };
 }
 
