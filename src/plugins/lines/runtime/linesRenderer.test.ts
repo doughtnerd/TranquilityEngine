@@ -6,6 +6,7 @@ import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatche
 import { LineRenderer } from "./LineRenderer";
 import { PICK_ORDER, type DrawnNode, type DrawnShape } from "../../../engine/render/babylon/feature";
 import { LinesRenderer } from "./linesRenderer";
+import { drawPlace, ySortFraction } from "../../../engine/render/sortOrder";
 
 /** A drawn ribbon's polyline (ADR 0276). */
 const ribbon = (d: DrawnNode) => d.shape as Extract<DrawnShape, { kind: "polyline" }>;
@@ -13,7 +14,7 @@ import { TrailRenderer } from "./TrailRenderer";
 
 function fakeHosts() {
   const meshes: (DynamicMesh & { geometry: DynamicGeometry | null; look: [string, string]; matrix: number[]; visible: boolean; disposed: boolean; shadows: [boolean, boolean] })[] = [];
-  const batches: (QuadBatch & { positions: Float32Array | null; colors: Float32Array | null; texture: string; order: [string, number]; material: string | null; visible: boolean; disposed: boolean; matrix: number[] })[] = [];
+  const batches: (QuadBatch & { positions: Float32Array | null; colors: Float32Array | null; texture: string; order: [string, number]; within: number; material: string | null; visible: boolean; disposed: boolean; matrix: number[] })[] = [];
   const dynamicMeshes: DynamicMeshHost = {
     createMesh() {
       const m: (typeof meshes)[number] = {
@@ -33,14 +34,14 @@ function fakeHosts() {
   const quads: QuadBatchHost = {
     createBatch() {
       const b: (typeof batches)[number] = {
-        positions: null, colors: null, texture: "", order: ["", 0], material: null, visible: false, disposed: false, matrix: [],
+        positions: null, colors: null, texture: "", order: ["", 0], within: 0, material: null, visible: false, disposed: false, matrix: [],
         setMaterial(m) { b.material = m; },
         setBlend() {},
         setQuads() {},
         setTriangles(t, p, _uv, _i, c) { b.texture = t; b.positions = p; b.colors = c ?? null; },
         setMask() {},
         setMatrix(x, o = 0) { b.matrix = Array.from(x).slice(o, o + 16); },
-        setOrder(layer, inLayer) { b.order = [layer, inLayer]; },
+        setOrder(layer, inLayer, within = 0) { b.order = [layer, inLayer]; b.within = within; },
         setTint() {},
         setVisible(v) { b.visible = v; },
         dispose() { b.disposed = true; },
@@ -49,6 +50,7 @@ function fakeHosts() {
       return b;
     },
     textureSize: () => [1, 1],
+    onCameraRender: () => () => {},
   };
   return { host: { dynamicMeshes, quads }, meshes, batches };
 }
@@ -59,10 +61,10 @@ afterEach(() => {
   Assets.clearSources();
 });
 
-async function headless(): Promise<Engine> {
+async function headless(ySortedLayers: string[] = []): Promise<Engine> {
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
-  const engine = await Engine.create({ headless: true, project: { render: { sortingLayers: ["Back", "Default"] } } });
+  const engine = await Engine.create({ headless: true, project: { render: { sortingLayers: ["Back", "Default"], ySortedLayers } } });
   engines.push(engine);
   await SceneManager.load("s.json");
   return engine;
@@ -108,6 +110,25 @@ describe("line and trail drawing (ADR 0396)", () => {
     lines.sync(engine.world);
     expect(meshes[0]!.matrix[13]).toBe(3);
     expect(Array.from(ribbon([...lines.drawn()][0]!).points)).toEqual([0, 3, 0, 1, 3, 0]);
+  });
+
+  it("sorts a 2D line by its node's height in a y-sorted layer (ADR 0440), and picks it at that place", async () => {
+    const engine = await headless(["Default"]);
+    const { host, batches } = fakeHosts();
+    const lines = new LinesRenderer(host);
+    const node = GameObject.create("path");
+    node.transform!.position.y = 3;
+    node.addBehavior(LineRenderer, { mode: "2d", sortingLayer: "Default", orderInLayer: 2, positions: [new Vector3(0, 0, 0), new Vector3(2, 0, 0)] });
+    const other = GameObject.create("back");
+    other.addBehavior(LineRenderer, { mode: "2d", sortingLayer: "Back", orderInLayer: 2, positions: [new Vector3(0, 0, 0), new Vector3(2, 0, 0)] });
+    lines.sync(engine.world);
+    const [ySorted, plain] = batches;
+    expect(ySorted!.within).toBe(ySortFraction(3));
+    expect(plain!.within).toBe(0); // "Back" isn't y-sorted
+    const orders = [...lines.drawn()].map((d) => d.order);
+    expect(orders).toEqual([drawPlace(engine.world.settings.render, "Default", 2, 3), 2]);
+    expect(orders[0]).toBeGreaterThan(10002);
+    expect(orders[0]).toBeLessThan(10003);
   });
 
   it("draws a 2D line as layered quads in its sorting layer, flat in the XY plane", async () => {

@@ -31,27 +31,27 @@ function useImageSize(url: string | null): [number, number] | null {
   return size;
 }
 
-/** The tile's sprite: its image URL and the rect (pixels from the top-left) to show; the whole image when it has no slice. */
-function spriteView(project: EditorProject, tile: TileDef, size: [number, number] | null): { url: string; rect: [number, number, number, number] } | null {
+/** A tile's sprite source: its image's URL, and its slice's rect (pixels from the top-left), or null for the whole image. Null without an image. */
+export function tileSpriteSource(project: EditorProject, tile: TileDef): { url: string; rect: [number, number, number, number] | null } | null {
   const ref = splitSprite(tile.sprite);
   const image = ref?.image ?? tile.sprite.replace(/^asset:/, "");
   const url = image ? project.assets.get(image) : null;
   if (typeof url !== "string") return null;
   const slice = ref ? findSlice(editor.assets.importSettings(project, image).settings, ref.slice) : undefined;
-  if (slice) return { url, rect: slice.rect };
-  return size ? { url, rect: [0, 0, size[0], size[1]] } : null;
+  return { url, rect: slice ? slice.rect : null };
 }
 
-/** The URL of a tile's image, for sizing it. */
-function imageUrl(project: EditorProject, tile: TileDef): string | null {
-  const image = splitSprite(tile.sprite)?.image ?? tile.sprite.replace(/^asset:/, "");
-  const url = image ? project.assets.get(image) : null;
-  return typeof url === "string" ? url : null;
+/** The tile's sprite: its image URL and the rect (pixels from the top-left) to show; the whole image when it has no slice. */
+function spriteView(project: EditorProject, tile: TileDef, size: [number, number] | null): { url: string; rect: [number, number, number, number] } | null {
+  const source = tileSpriteSource(project, tile);
+  if (!source) return null;
+  if (source.rect) return { url: source.url, rect: source.rect };
+  return size ? { url: source.url, rect: [0, 0, size[0], size[1]] } : null;
 }
 
 export function TileThumb(props: { project: EditorProject; tile: TileDef; size: number; class?: string }) {
   const { project, tile, size } = props;
-  const natural = useImageSize(imageUrl(project, tile));
+  const natural = useImageSize(tileSpriteSource(project, tile)?.url ?? null);
   const view = natural ? spriteView(project, tile, natural) : null;
   const style: Record<string, string> = { width: `${size}px`, height: `${size}px` };
   if (view && natural) {

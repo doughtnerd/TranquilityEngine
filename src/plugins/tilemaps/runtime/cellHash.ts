@@ -9,6 +9,8 @@
 export const TERRAIN_STREAM = 0;
 /** The stream the random brush (and `Tilemap.fillRect` with several ids) picks a cell's tile from. */
 export const RANDOM_BRUSH_STREAM = 1;
+/** The stream an animated tile with `start: "random"` draws its cell's start offset from (ADR 0437). */
+export const ANIMATION_STREAM = 2;
 
 /** A 32-bit avalanche (MurmurHash3's finaliser): every input bit flips about half the output bits. */
 function mix(h: number): number {

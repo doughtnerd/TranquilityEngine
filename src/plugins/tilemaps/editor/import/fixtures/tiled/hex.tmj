@@ -1,0 +1,20 @@
+{
+  "type": "map",
+  "version": "1.10",
+  "orientation": "hexagonal",
+  "renderorder": "right-down",
+  "staggeraxis": "x",
+  "staggerindex": "even",
+  "hexsidelength": 12,
+  "width": 2,
+  "height": 2,
+  "tilewidth": 32,
+  "tileheight": 28,
+  "infinite": false,
+  "tilesets": [
+    { "firstgid": 1, "name": "hexes", "tilewidth": 32, "tileheight": 28, "tilecount": 2, "columns": 2, "margin": 0, "spacing": 0, "image": "hexes.png", "imagewidth": 64, "imageheight": 28 }
+  ],
+  "layers": [
+    { "id": 1, "name": "Hexes", "type": "tilelayer", "x": 0, "y": 0, "width": 2, "height": 2, "opacity": 1, "visible": true, "encoding": "base64", "data": "AQAAAAIAABAAAAAAAAAAAA==" }
+  ]
+}

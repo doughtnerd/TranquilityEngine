@@ -4,12 +4,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Camera, Color, Engine, GameObject, Quaternion, SceneManager, SpriteRenderer, Vector2, Vector3 } from "../../../myco";
 import type { DecalBatch, DecalHost, DecalLook } from "../../../engine/render/decals";
 import type { QuadBatch, QuadBatchHost, QuadMask } from "../../../engine/render/quadBatches";
+import { drawPlace, ySortFraction } from "../../../engine/render/sortOrder";
 import { Decal2D, DecalProjector } from "./components";
 import { DecalRenderer } from "./decalRenderer";
 import { Decals } from "./Decals";
 
 type FakeDecalBatch = DecalBatch & { look: DecalLook; count: number; matrices: Float32Array; colors: Float32Array; uvs: Float32Array; angles: Float32Array; order: number; disposed: boolean };
-type FakeQuads = QuadBatch & { texture: string; positions: Float32Array; colors: Float32Array | null; mask: QuadMask | null; order: [string, number]; material: string | null; disposed: boolean };
+/** `order` is the sorting layer and order in layer it was given; `within` how far into that order (ADR 0440), undefined when not passed. */
+type FakeQuads = QuadBatch & { texture: string; positions: Float32Array; colors: Float32Array | null; mask: QuadMask | null; order: [string, number]; within: number | undefined; material: string | null; disposed: boolean };
 
 /** Fake hosts; `view` is the view camera distance fades are measured from (none by default). */
 function fakeHosts(view: () => Camera | null = () => null) {
@@ -32,14 +34,14 @@ function fakeHosts(view: () => Camera | null = () => null) {
   const quadHost: QuadBatchHost = {
     createBatch() {
       const b: FakeQuads = {
-        texture: "", positions: new Float32Array(), colors: null, mask: null, order: ["", 0], material: null, disposed: false,
+        texture: "", positions: new Float32Array(), colors: null, mask: null, order: ["", 0], within: undefined, material: null, disposed: false,
         setMaterial(m) { b.material = m; },
         setBlend() {},
         setQuads() {},
         setTriangles(t, p, _uv, _i, c) { b.texture = t; b.positions = p; b.colors = c ?? null; },
         setMask(m) { b.mask = m; },
         setMatrix() {},
-        setOrder(layer, inLayer) { b.order = [layer, inLayer]; },
+        setOrder(layer, inLayer, within) { b.order = [layer, inLayer]; b.within = within; },
         setTint() {},
         setVisible() {},
         dispose() { b.disposed = true; },
@@ -48,6 +50,7 @@ function fakeHosts(view: () => Camera | null = () => null) {
       return b;
     },
     textureSize: () => [100, 50],
+    onCameraRender: () => () => {},
   };
   return { host: { decals, quads: quadHost, pixelsPerUnit: () => 100, viewCamera: view }, boxes, quads };
 }
@@ -58,10 +61,11 @@ afterEach(() => {
   Assets.clearSources();
 });
 
-async function headless(maxDecals = 1000): Promise<Engine> {
+/** A headless engine on the sorting layers Back and Default; `ySortedLayers` are y-sorted (ADR 0440, none by default). */
+async function headless(maxDecals = 1000, ySortedLayers: string[] = []): Promise<Engine> {
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "splat.png": "data:image/png;base64,", "crate.png": "data:image/png;base64," }));
-  const engine = await Engine.create({ headless: true, project: { render: { sortingLayers: ["Back", "Default"], maxDecals } } });
+  const engine = await Engine.create({ headless: true, project: { render: { sortingLayers: ["Back", "Default"], ySortedLayers, maxDecals } } });
   engines.push(engine);
   await SceneManager.load("s.json");
   return engine;
@@ -130,6 +134,77 @@ describe("decal drawing (ADR 0395)", () => {
     expect(a! * 4 + b! * 0 + c!).toBeCloseTo(0.5);
     expect(d! * 4 + e! * 0 + f!).toBeCloseTo(0.5);
     expect(a! * 4.5 + c!).toBeCloseTo(1); // its right edge
+  });
+});
+
+describe("2D decals in a y-sorted sorting layer (ADR 0440)", () => {
+  const RENDER = { sortingLayers: ["Back", "Default"], ySortedLayers: ["Default"] };
+  /** A placed Decal2D on `layer` at order 2, at height `y`. */
+  const stamp = (name: string, layer: string, y: number): Decal2D => {
+    const node = GameObject.create(name);
+    node.transform!.position.y = y;
+    return node.addBehavior(Decal2D, { sprite: "splat.png", sortingLayer: layer, orderInLayer: 2 });
+  };
+  /** Each placed decal's pick order, from what the feature reports drawn. */
+  const pickOrders = (decals: DecalRenderer): Map<string, number> => new Map([...decals.drawn()].map((d) => [d.component.node.name, d.order]));
+
+  it("places placed decals by height within their order in layer, lower on top, and follows a decal that moves", async () => {
+    const engine = await headless(1000, ["Default"]);
+    const { host, quads } = fakeHosts();
+    const decals = new DecalRenderer(host);
+    stamp("high", "Default", 3);
+    const low = stamp("low", "Default", -1);
+    decals.sync(engine.world);
+    expect(quads).toHaveLength(2);
+    const [high, lowQuads] = quads as [FakeQuads, FakeQuads];
+    expect(high.order).toEqual(["Default", 2]);
+    expect(high.within).toBe(ySortFraction(3));
+    expect(lowQuads.within).toBe(ySortFraction(-1));
+    expect(lowQuads.within!).toBeGreaterThan(high.within!); // the lower one draws later, over the higher
+    // Picking ranks by the same places: in the band of order 2 of the second layer, the lower one on top.
+    let orders = pickOrders(decals);
+    expect(orders.get("high")).toBe(drawPlace(RENDER, "Default", 2, 3));
+    expect(orders.get("low")).toBe(drawPlace(RENDER, "Default", 2, -1));
+    for (const o of orders.values()) expect(o >= 10002 && o < 10003).toBe(true);
+    expect(orders.get("low")!).toBeGreaterThan(orders.get("high")!);
+
+    low.node.transform!.position.y = 5; // now above the other: drawn under it
+    decals.sync(engine.world);
+    expect(quads).toHaveLength(2); // the same batch, moved
+    expect(lowQuads.within).toBe(ySortFraction(5));
+    expect(lowQuads.within!).toBeLessThan(high.within!);
+    orders = pickOrders(decals);
+    expect(orders.get("low")).toBe(drawPlace(RENDER, "Default", 2, 5));
+    expect(orders.get("low")!).toBeLessThan(orders.get("high")!);
+  });
+
+  it("gives decals of a layer that isn't y-sorted their order alone, whatever their height", async () => {
+    const engine = await headless(1000, ["Default"]);
+    const { host, quads } = fakeHosts();
+    const decals = new DecalRenderer(host);
+    stamp("high", "Back", 3);
+    stamp("low", "Back", -1);
+    decals.sync(engine.world);
+    expect(quads.map((q) => q.within)).toEqual([0, 0]);
+    expect([...pickOrders(decals).values()]).toEqual([2, 2]);
+  });
+
+  it("splits spawned decals of one texture by height in a y-sorted layer, and keeps them in one batch elsewhere", async () => {
+    const engine = await headless(1000, ["Default"]);
+    const { host, quads } = fakeHosts();
+    const decals = new DecalRenderer(host);
+    Decals.stamp({ position: new Vector2(0, 2), sprite: "splat.png" }); // the Default layer, order 0
+    Decals.stamp({ position: new Vector2(1, -2), sprite: "splat.png" });
+    Decals.stamp({ position: new Vector2(0, 2), sprite: "splat.png", sortingLayer: "Back" });
+    Decals.stamp({ position: new Vector2(1, -2), sprite: "splat.png", sortingLayer: "Back" });
+    decals.sync(engine.world);
+    const ySorted = quads.filter((q) => q.order[0] === "Default");
+    expect(ySorted.map((q) => q.within)).toEqual([ySortFraction(2), ySortFraction(-2)]);
+    expect(ySorted.every((q) => q.positions.length === 12)).toBe(true); // one quad each
+    const back = quads.filter((q) => q.order[0] === "Back");
+    expect(back).toHaveLength(1);
+    expect(back[0]!.within).toBe(0);
+    expect(back[0]!.positions.length).toBe(24); // both quads
   });
 });
 

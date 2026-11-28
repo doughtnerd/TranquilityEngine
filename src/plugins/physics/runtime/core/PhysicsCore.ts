@@ -17,7 +17,7 @@ import { layerGroups } from "../../../../engine/physics/layers";
 import type { BodyType, CollisionFlags } from "../../../../engine/physics/types";
 import { GameObject } from "../../../../engine/scene/GameObject";
 import type { Transform } from "../../../../engine/scene/Transform";
-import type { BackendBody, BackendCharacter, BodySettings, CharacterSettings, DimensionTypes, JointDesc, JointSettings, PhysicsCapabilities, PhysicsWorldBackend, Pose } from "../backend";
+import type { BackendBody, BackendCharacter, BodySettings, CharacterSettings, ColliderDesc, DimensionTypes, JointDesc, JointSettings, PhysicsCapabilities, PhysicsWorldBackend, Pose } from "../backend";
 import { bodyInertia, bodyMass, type BodyCommands } from "../bodyCommands";
 import type { BodyState, ColliderState, JointState } from "./state";
 
@@ -338,6 +338,11 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
     return false;
   }
 
+  /** A dimension's one-way description of a collider being built (2D, ADR 0439), or null. */
+  protected colliderOneWay(_c: T["collider"], _shape: D["shape"], _scale: readonly number[]): ColliderDesc<D>["oneWay"] {
+    return null;
+  }
+
   protected pushCollider(c: T["collider"]): void {
     if (this.pushSpecialCollider(c)) return;
     const active = c.isActiveAndEnabled;
@@ -407,6 +412,7 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
       friction: c.material?.friction ?? 0.5,
       restitution: c.material?.bounciness ?? 0,
       groups: this.groupsFor(c.layer),
+      oneWay: this.colliderOneWay(c, shape, src.scale),
     });
     this.colliderById.set(collider.id, c);
     return { collider, body, signature: src.signature, syncedVersion: this.world.tVersion[c.node.entity], active: true, local, ownBody, source: src.source ?? null };

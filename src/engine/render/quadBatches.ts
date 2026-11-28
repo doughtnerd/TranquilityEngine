@@ -15,6 +15,13 @@ export interface QuadBatchHost {
    * loads; `onLoad` runs once it has (and not at all if it fails).
    */
   textureSize(path: string, onLoad: () => void): readonly [number, number] | null;
+  /**
+   * Run `listener` just before each camera draws (ADR 0444: a tile layer's parallax follows each camera), with that
+   * camera's world position. A `QuadBatch.setMatrix` called from the listener applies to that camera's draw only: once
+   * the frame is drawn, the batch is back at the matrix last set outside a listener (what picking and the editor's
+   * tools read). Returns a function that removes the listener.
+   */
+  onCameraRender(listener: (cameraWorldPosition: readonly [number, number, number]) => void): () => void;
 }
 
 /** @internal One batch of textured quads: one draw call. */
@@ -22,7 +29,9 @@ export interface QuadBatch {
   /**
    * Replace the geometry: per quad, 4 corners × xyz `positions` (the node's local units), 4 × uv (`uvs`,
    * v up) and 6 `indices`, and optionally a colour per vertex (`colors`: RGBA, 0..1 sRGB and alpha, multiplying the tint).
-   * Shown once it has quads and is visible.
+   * Shown once it has quads and is visible. A call with the same texture, vertex count and `indices` array as the last
+   * one only updates the vertices (positions, UVs and colours) in place, as `setTriangles` does: an animated tile layer
+   * rewrites its quads' UVs in the same arrays and calls again (ADR 0437), with no rebuild.
    */
   setQuads(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void;
   /**
@@ -32,10 +41,17 @@ export interface QuadBatch {
    * deforming mesh can be updated every frame; a normal map then follows it (ADR 0399).
    */
   setTriangles(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void;
-  /** The column-major 4×4 node-to-world matrix at `offset` (the layout `World.worldMatrix` gives). */
+  /**
+   * The column-major 4×4 node-to-world matrix at `offset` (the layout `World.worldMatrix` gives). From a
+   * `QuadBatchHost.onCameraRender` listener, for the camera about to draw only.
+   */
   setMatrix(m: ArrayLike<number>, offset?: number): void;
-  /** Its place among layered 2D content (ADR 0014): a sorting layer and an order in it, as sprites have. Lit batches read that layer's 2D light. */
-  setOrder(sortingLayer: string, orderInLayer: number): void;
+  /**
+   * Its place among layered 2D content (ADR 0014): a sorting layer and an order in it, as sprites have. Lit batches read
+   * that layer's 2D light. `within` (ADR 0437, 0440; [0, 1), default 0) orders draws of the same order among themselves,
+   * larger drawing later: an isometric layer's chunks in painter's order, heights in a y-sorted layer.
+   */
+  setOrder(sortingLayer: string, orderInLayer: number, within?: number): void;
   /**
    * Its 2D material asset (ADR 0399, 0415): "" the default, Sprite Lit (lit by its sorting layer's 2D lights, with its
    * texture's normal and mask maps); a Sprite Unlit material, or a sprite graph's; or null (the default for a new batch)

@@ -95,7 +95,7 @@
           }
         },
         {
-          "type": "engine.TilemapCollider2D",
+          "type": "engine.ShapeCollider2D",
           "data": {
             "layer": "World"
           }

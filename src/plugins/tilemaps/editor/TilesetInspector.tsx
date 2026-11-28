@@ -1,21 +1,19 @@
 // Tileset assets in the Inspector (ADR 0103): a `*.tileset.json` selected in the Assets panel shows its tile size,
-// terrains and a grid of its tiles; the selected tile's name, collision (a polygon is typed as points in cell units),
-// terrain, neighbour pattern (a 3 × 3 grid of buttons), weight and custom data (JSON) are edited below. Every edit
+// terrains and a grid of its tiles (Ctrl/⌘+click selects several); the selected tile's name, collision and shadow
+// shapes (drawn over the tile, `TileShapeEditor.tsx`, ADR 0439), terrain, neighbour pattern (a 3 × 3 grid of buttons), weight, anchor, sort
+// offset (ADR 0440), frame animation (`TileAnimationEditor.tsx`, ADR 0437) and custom data (JSON) are edited below. Every edit
 // writes the file through the tileset's asset document and can be undone (Ctrl+Z / Ctrl+Shift+Z over the inspector,
 // or the Undo / Redo buttons of the asset document frame, ADR 0265).
 import { useEffect, useState } from "preact/hooks";
 import { missingBlobMasks } from "../runtime/autotile";
-import { ANY_PATTERN, type TileCollision, type TileDef, type TilesetData } from "../runtime/tileset";
+import { ANY_PATTERN, type TileDef, type TilesetData, type TilesetPreviewGrid } from "../runtime/tileset";
 import { tilesForSlices } from "./tilesetAssets";
 import { TileThumb } from "./TileThumb";
 import { AssetDocumentFrame, AssetPicker, ColorField, editor, openAssetDocument, EmptyState } from "../../../editor/sdk";
+import { TileShapeEditor } from "./TileShapeEditor";
+import { TileAnimationEditor } from "./TileAnimationEditor";
+import { patchTiles } from "./tileShapeEditorLogic";
 import "./tilesetInspector.css";
-import { parsePolygon, polygonText } from "./polygonText";
-
-type CollisionKind = "none" | "full" | "oneWay" | "polygon";
-
-const collisionKind = (c: TileCollision): CollisionKind => (typeof c === "string" ? c : "polygon");
-
 
 /** Grid position (row by row from the top-left) to its index in the pattern string N NE E SE S SW W NW; -1 is the centre. */
 const PATTERN_AT = [7, 0, 1, 6, -1, 2, 5, 4, 3];
@@ -29,7 +27,12 @@ export function TilesetInspector(props: { path: string }) {
   const { path } = props;
   const project = editor.project.current;
   const [selected, setSelected] = useState<number | null>(null);
-  useEffect(() => setSelected(null), [path]);
+  // Other tiles selected with Ctrl/⌘+click, for Apply to selected tiles (ADR 0439).
+  const [others, setOthers] = useState<ReadonlySet<number>>(new Set());
+  useEffect(() => {
+    setSelected(null);
+    setOthers(new Set());
+  }, [path]);
   if (!project) return <EmptyState compact title="Nothing selected" />;
   const doc = openAssetDocument<TilesetData>(project, path, "tileset");
   const data = doc.value.value;
@@ -37,17 +40,33 @@ export function TilesetInspector(props: { path: string }) {
   const tile = data.tiles.find((t) => t.id === selected) ?? null;
 
   // Every edit is one undo step through the tileset's asset document; a colour drag is one (`drag`, ADR 0282).
-  const set = (patch: Partial<TilesetData>, drag = false) => {
-    if (!readOnly) doc.edit({ ...doc.value.peek(), ...patch }, drag ? { coalesce: true } : undefined);
+  const set = (patch: Partial<TilesetData>, drag = false, label?: string) => {
+    if (readOnly) return;
+    const next = { ...doc.value.peek(), ...patch };
+    for (const k of Object.keys(patch) as (keyof TilesetData)[]) if (next[k] === undefined) delete next[k];
+    doc.edit(next, drag || label ? { ...(drag ? { coalesce: true } : {}), ...(label ? { label } : {}) } : undefined);
   };
-  const setTile = (id: number, patch: Partial<TileDef>) => {
-    const tiles = doc.value.peek().tiles.map((t) => {
-      if (t.id !== id) return t;
-      const next = { ...t, ...patch };
-      for (const k of Object.keys(patch) as (keyof TileDef)[]) if (next[k] === undefined) delete next[k];
-      return next;
-    });
-    set({ tiles });
+  const setTiles = (ids: ReadonlySet<number>, patch: Partial<TileDef>, label?: string) => set({ tiles: patchTiles(doc.value.peek().tiles, ids, patch) }, false, label);
+  const setTile = (id: number, patch: Partial<TileDef>, label?: string) => setTiles(new Set([id]), patch, label);
+  const otherIds = new Set([...others].filter((id) => id !== selected && data.tiles.some((t) => t.id === id)));
+  const pick = (id: number, add: boolean) => {
+    if (!add) {
+      setOthers(new Set());
+      return setSelected(id === selected ? null : id);
+    }
+    // Ctrl/⌘+click: the clicked tile joins the selection and becomes the edited one; clicking a selected one drops it.
+    const all = new Set(otherIds);
+    if (selected !== null) all.add(selected);
+    if (all.has(id)) {
+      all.delete(id);
+      const next = id === selected ? ([...all].pop() ?? null) : selected;
+      if (next !== null) all.delete(next);
+      setSelected(next);
+      setOthers(all);
+      return;
+    }
+    setOthers(all);
+    setSelected(id);
   };
 
   const usedSprites = new Set(data.tiles.map((t) => t.sprite));
@@ -87,6 +106,17 @@ export function TilesetInspector(props: { path: string }) {
             ))}
           </span>
         </div>
+        <label class="import-row" title="The cell outline the collision editor draws over tiles. Editor-only: maps use their own grid.">
+          <span>Preview Grid</span>
+          <select aria-label="Preview Grid" disabled={readOnly} value={data.previewGrid ?? "square"} onChange={(e) => {
+            const v = (e.currentTarget as HTMLSelectElement).value as TilesetPreviewGrid;
+            set({ previewGrid: v === "square" ? undefined : v });
+          }}>
+            <option value="square">Square</option>
+            <option value="isometric">Isometric</option>
+            <option value="hexagonal">Hexagonal</option>
+          </select>
+        </label>
         <AnchorRow label="Default Anchor" title="Where tile sprites sit in their cells: the sprite's point lands on the same point of the cell. 0, 0 overhangs up and right; 0.5, 0 centres a tall tile on its cell." value={data.anchor ?? [0, 0]} readOnly={readOnly} onChange={(a) => set({ anchor: a[0] === 0 && a[1] === 0 ? undefined : a })} />
       </div>
 
@@ -145,7 +175,7 @@ export function TilesetInspector(props: { path: string }) {
         ) : (
           <div class="tileset-grid" role="listbox" aria-label="Tiles">
             {data.tiles.map((t) => (
-              <button key={t.id} class={`tileset-cell${t.id === selected ? " selected" : ""}`} role="option" aria-selected={t.id === selected} title={`${t.name ?? "Tile"} (${t.id})`} onClick={() => setSelected(t.id === selected ? null : t.id)}>
+              <button key={t.id} class={`tileset-cell${t.id === selected ? " selected" : otherIds.has(t.id) ? " also-selected" : ""}`} role="option" aria-selected={t.id === selected || otherIds.has(t.id)} title={`${t.name ?? "Tile"} (${t.id}); Ctrl+click to select several`} onClick={(e) => pick(t.id, e.ctrlKey || e.metaKey)}>
                 <TileThumb project={project} tile={t} size={40} />
               </button>
             ))}
@@ -154,7 +184,22 @@ export function TilesetInspector(props: { path: string }) {
         <AddFromSlices images={images} accepts={hasSlices} defaultImage={images.find((i) => data.tiles.some((t) => t.sprite.includes(`${i}#`))) ?? images[0]} disabled={readOnly} onAdd={addFrom} />
       </div>
 
-      {tile && <TileEditor key={tile.id} data={data} tile={tile} readOnly={readOnly} setTile={(patch) => setTile(tile.id, patch)} onDelete={() => { set({ tiles: data.tiles.filter((t) => t.id !== tile.id) }); setSelected(null); }} project={project} />}
+      {tile && (
+        <TileEditor
+          key={tile.id}
+          data={data}
+          tile={tile}
+          readOnly={readOnly}
+          others={otherIds.size}
+          setTile={(patch, label) => setTile(tile.id, patch, label)}
+          setOthers={(patch, label) => setTiles(otherIds, patch, label)}
+          onDelete={() => {
+            set({ tiles: data.tiles.filter((t) => t.id !== tile.id) });
+            setSelected(null);
+          }}
+          project={project}
+        />
+      )}
     </AssetDocumentFrame>
   );
 }
@@ -174,27 +219,12 @@ function AddFromSlices(props: { images: string[]; accepts: (image: string) => bo
   );
 }
 
-function TileEditor(props: { data: TilesetData; tile: TileDef; readOnly: boolean; project: NonNullable<typeof editor.project.current>; setTile: (patch: Partial<TileDef>) => void; onDelete: () => void }) {
+function TileEditor(props: { data: TilesetData; tile: TileDef; readOnly: boolean; others: number; project: NonNullable<typeof editor.project.current>; setTile: (patch: Partial<TileDef>, label?: string) => void; setOthers: (patch: Partial<TileDef>, label: string) => void; onDelete: () => void }) {
   const { data, tile, readOnly, setTile } = props;
-  const kind = collisionKind(tile.collision);
-  const poly = typeof tile.collision === "object" ? tile.collision : null;
-  const [polyText, setPolyText] = useState(poly ? polygonText(poly.polygon) : "0,0 1,0 1,1 0,1");
-  const [polyError, setPolyError] = useState(false);
   const [json, setJson] = useState(tile.data ? JSON.stringify(tile.data, null, 2) : "");
   const [jsonError, setJsonError] = useState<string | null>(null);
   const pattern = tile.pattern ?? ANY_PATTERN;
 
-  const setKind = (k: CollisionKind) => {
-    if (k === "polygon") {
-      const pts = parsePolygon(polyText) ?? [[0, 0], [1, 0], [1, 1], [0, 1]];
-      setTile({ collision: { polygon: pts } });
-    } else setTile({ collision: k });
-  };
-  const commitPolygon = (text: string) => {
-    const pts = parsePolygon(text);
-    setPolyError(!pts);
-    if (pts) setTile({ collision: poly?.oneWay ? { polygon: pts, oneWay: true } : { polygon: pts } });
-  };
   const commitJson = (text: string) => {
     if (text.trim() === "") {
       setJsonError(null);
@@ -226,36 +256,7 @@ function TileEditor(props: { data: TilesetData; tile: TileDef; readOnly: boolean
         <span>Name</span>
         <input type="text" aria-label="Name" disabled={readOnly} value={tile.name ?? ""} onChange={(e) => setTile({ name: (e.currentTarget as HTMLInputElement).value || undefined })} />
       </label>
-      <label class="import-row">
-        <span>Collision</span>
-        <select aria-label="Collision" disabled={readOnly} value={kind} onChange={(e) => setKind((e.currentTarget as HTMLSelectElement).value as CollisionKind)}>
-          <option value="none">None</option>
-          <option value="full">Full</option>
-          <option value="oneWay">One way</option>
-          <option value="polygon">Polygon</option>
-        </select>
-      </label>
-      {poly && (
-        <>
-          <label class="import-row" title="Points in cell units: 0,0 is the bottom-left corner, 1,1 the top-right">
-            <span>Points</span>
-            <input
-              type="text"
-              aria-label="Polygon points"
-              class={polyError ? "invalid" : ""}
-              disabled={readOnly}
-              value={polyText}
-              onInput={(e) => setPolyText((e.currentTarget as HTMLInputElement).value)}
-              onChange={(e) => commitPolygon((e.currentTarget as HTMLInputElement).value)}
-            />
-          </label>
-          {polyError && <p class="tileset-error">Needs three or more points like 0,0 1,0 1,1.</p>}
-          <label class="import-row">
-            <span>One way</span>
-            <input type="checkbox" aria-label="Polygon one way" disabled={readOnly} checked={poly.oneWay === true} onChange={(e) => setTile({ collision: (e.currentTarget as HTMLInputElement).checked ? { polygon: poly.polygon, oneWay: true } : { polygon: poly.polygon } })} />
-          </label>
-        </>
-      )}
+      <TileShapeEditor project={props.project} data={data} tile={tile} readOnly={readOnly} others={props.others} onPatch={(patch, label) => setTile(patch, label)} onApplyToSelected={props.setOthers} />
       <label class="import-row">
         <span>Terrain</span>
         <select aria-label="Terrain" disabled={readOnly} value={tile.terrain ?? ""} onChange={(e) => setTile({ terrain: (e.currentTarget as HTMLSelectElement).value || undefined })}>
@@ -310,6 +311,26 @@ function TileEditor(props: { data: TilesetData; tile: TileDef; readOnly: boolean
         />
       </label>
       <AnchorRow label="Anchor" title="Where this tile's sprite sits in its cell (blank = the tileset's default anchor)" value={tile.anchor ?? data.anchor ?? [0, 0]} readOnly={readOnly} onChange={(a) => setTile({ anchor: a[0] === (data.anchor?.[0] ?? 0) && a[1] === (data.anchor?.[1] ?? 0) ? undefined : a })} />
+      <label class="import-row" title="Applies in y-sorted sorting layers: the tile sorts this many cells above its cell's bottom, against sprites and other tiles (a tree whose trunk stands in the cell above). 0 sorts by the cell's bottom.">
+        <span>Sort Offset</span>
+        <input
+          type="number"
+          step={0.5}
+          aria-label="Sort Offset"
+          disabled={readOnly}
+          value={tile.sortOffset ?? 0}
+          onChange={(e) => {
+            const input = e.currentTarget as HTMLInputElement;
+            const v = Number(input.value);
+            if (input.value.trim() === "" || !Number.isFinite(v)) {
+              input.value = String(tile.sortOffset ?? 0);
+              return;
+            }
+            setTile({ sortOffset: v === 0 ? undefined : v }, "Set sort offset");
+          }}
+        />
+      </label>
+      <TileAnimationEditor project={props.project} tile={tile} readOnly={readOnly} onPatch={setTile} />
       <div class="tileset-data">
         <span class="hint">Custom data (JSON object, read with getTileData)</span>
         <textarea

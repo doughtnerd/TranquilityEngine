@@ -80,6 +80,8 @@ export function withSettings(text: string, draft: SettingsDraft, previous: Proje
 
 export const sortingLayersOf = (d: SettingsDraft): string[] => d.render?.sortingLayers ?? defaultSettings.render.sortingLayers;
 export const autoloadsOf = (d: SettingsDraft): string[] => d.autoload ?? [];
+/** The y-sorted sorting layers (ADR 0440), as written. */
+export const ySortedLayersOf = (d: SettingsDraft): string[] => (Array.isArray(d.render?.ySortedLayers) ? d.render.ySortedLayers : []);
 
 /** Set one value in a section (undefined removes it, so the default applies); drops a section left empty. */
 export function setValue<S extends "display" | "time" | "physics" | "render" | "build" | "input">(draft: SettingsDraft, section: S, key: string, value: unknown): SettingsDraft {
@@ -105,9 +107,30 @@ function moved<T>(list: readonly T[], index: number, by: number): T[] {
 }
 
 export const addSortingLayer = (d: SettingsDraft) => setValue(d, "render", "sortingLayers", [...sortingLayersOf(d), uniqueName("Layer", sortingLayersOf(d))]);
-export const renameSortingLayer = (d: SettingsDraft, index: number, name: string) =>
-  setValue(d, "render", "sortingLayers", sortingLayersOf(d).map((l, i) => (i === index ? name : l)));
-export const removeSortingLayer = (d: SettingsDraft, index: number) => setValue(d, "render", "sortingLayers", sortingLayersOf(d).filter((_, i) => i !== index));
+/** Write the y-sorted layers (ADR 0440); none removes the key. */
+const withYSorted = (d: SettingsDraft, names: string[]) => setValue(d, "render", "ySortedLayers", names.length ? names : undefined);
+/** Rename a sorting layer; a y-sorted one stays y-sorted. */
+export const renameSortingLayer = (d: SettingsDraft, index: number, name: string): SettingsDraft => {
+  const from = sortingLayersOf(d)[index];
+  const next = setValue(d, "render", "sortingLayers", sortingLayersOf(d).map((l, i) => (i === index ? name : l)));
+  return ySortedLayersOf(d).includes(from) ? withYSorted(next, ySortedLayersOf(d).map((l) => (l === from ? name : l))) : next;
+};
+/** Remove a sorting layer, and its y-sorting. */
+export const removeSortingLayer = (d: SettingsDraft, index: number): SettingsDraft => {
+  const gone = sortingLayersOf(d)[index];
+  const next = setValue(d, "render", "sortingLayers", sortingLayersOf(d).filter((_, i) => i !== index));
+  return ySortedLayersOf(d).includes(gone) ? withYSorted(next, ySortedLayersOf(d).filter((l) => l !== gone)) : next;
+};
+/** Whether a sorting layer is y-sorted (ADR 0440). */
+export const isYSortedLayer = (d: SettingsDraft, index: number): boolean => ySortedLayersOf(d).includes(sortingLayersOf(d)[index]);
+/** Y-sort a sorting layer or stop (ADR 0440): kept in sorting layer order. */
+export const setYSortedLayer = (d: SettingsDraft, index: number, on: boolean): SettingsDraft => {
+  const name = sortingLayersOf(d)[index];
+  const set = new Set(ySortedLayersOf(d));
+  if (on) set.add(name);
+  else set.delete(name);
+  return withYSorted(d, sortingLayersOf(d).filter((l) => set.has(l)));
+};
 /** Move a sorting layer towards the back (-1) or front (+1). */
 export const moveSortingLayer = (d: SettingsDraft, index: number, by: number) => setValue(d, "render", "sortingLayers", moved(sortingLayersOf(d), index, by));
 

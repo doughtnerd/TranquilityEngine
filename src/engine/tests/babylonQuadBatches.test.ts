@@ -1,6 +1,8 @@
 // ADR 0103, 0136: tilemap chunks drawn through the Babylon quad batches, on NullEngine with a fake texture loader.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
+import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
+import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
@@ -95,6 +97,75 @@ describe("Babylon quad batches drawing triangles (ADR 0370, 0371: skinned sprite
     expect(quads.meshOf(batch)).not.toBe(mesh);
     expect(mesh.isDisposed()).toBe(true);
     expect(quads.meshOf(batch)!.getTotalIndices()).toBe(6);
+    quads.dispose();
+  });
+});
+
+describe("Babylon quad batches updated in place (ADR 0437: animated tiles)", () => {
+  it("takes setQuads with the same texture, vertex count and indices array as a vertex update, not a new mesh", () => {
+    const scene = new Scene(new NullEngine());
+    const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false } as unknown as Texture;
+    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortOrder: (_layer, order) => order });
+    const batch = quads.createBatch("tiles");
+    batch.setVisible(true);
+    batch.setOrder("Default", 4);
+    const positions = new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]);
+    const uvs = new Float32Array([0, 0, 0.5, 0, 0.5, 1, 0, 1]);
+    const indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
+    batch.setQuads("t.png", positions, uvs, indices);
+    // The first repeat may make the buffers updatable; from then on the same mesh is updated.
+    uvs.set([0.5, 0, 1, 0, 1, 1, 0.5, 1]);
+    batch.setQuads("t.png", positions, uvs, indices);
+    const mesh = quads.meshOf(batch)!;
+    expect(Array.from(mesh.getVerticesData("uv")!)).toEqual([0.5, 0, 1, 0, 1, 1, 0.5, 1]);
+    uvs.set([0, 0, 0.5, 0, 0.5, 1, 0, 1]);
+    batch.setQuads("t.png", positions, uvs, indices);
+    expect(quads.meshOf(batch)).toBe(mesh);
+    expect(mesh.isDisposed()).toBe(false);
+    expect(Array.from(mesh.getVerticesData("uv")!)).toEqual([0, 0, 0.5, 0, 0.5, 1, 0, 1]);
+    expect(mesh.alphaIndex).toBe(4);
+    expect(mesh.isEnabled()).toBe(true);
+    // Another indices array (new geometry): a new mesh.
+    batch.setQuads("t.png", positions, uvs, new Uint32Array([0, 1, 2, 0, 2, 3]));
+    expect(quads.meshOf(batch)).not.toBe(mesh);
+    expect(mesh.isDisposed()).toBe(true);
+    quads.dispose();
+  });
+});
+
+describe("Babylon quad batches per camera (ADR 0444: tile parallax follows each camera)", () => {
+  it("calls camera listeners before each camera draws, with its world position, and holds their matrices for that camera only", () => {
+    const scene = new Scene(new NullEngine());
+    // Never ready: the mesh is skipped at draw time (NullEngine draws nothing anyway); its matrix is what's checked.
+    const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false, isReady: () => false, isReadyOrNotBlocking: () => false } as unknown as Texture;
+    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortOrder: (_layer, order) => order });
+    const batch = quads.createBatch("parallax");
+    batch.setVisible(true);
+    batch.setQuads("t.png", new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]), new Float32Array(8), new Uint32Array([0, 1, 2, 0, 2, 3]));
+    batch.setMatrix(Matrix.Translation(2, 0, 0).m);
+    const mesh = quads.meshOf(batch)!;
+    const left = new TargetCamera("left", new Vector3(-6, 3, -10), scene);
+    const right = new TargetCamera("right", new Vector3(8, -1, -10), scene);
+    scene.activeCameras = [left, right];
+    const seen: (readonly [number, number, number])[] = [];
+    const stop = quads.onCameraRender((camera) => {
+      seen.push(camera);
+      batch.setMatrix(Matrix.Translation(2 + camera[0] / 2, 0, 0).m); // half-speed parallax
+    });
+    const drawnAt: number[] = [];
+    scene.onAfterRenderCameraObservable.add(() => drawnAt.push(mesh.getWorldMatrix().m[12]));
+    scene.render();
+    expect(seen).toEqual([[-6, 3, -10], [8, -1, -10]]);
+    expect(drawnAt).toEqual([2 - 3, 2 + 4]);
+    expect(mesh.getWorldMatrix().m[12]).toBe(2); // after the frame: its own matrix again
+    // A matrix set outside a listener is the batch's own, and holds through the frame.
+    stop();
+    batch.setMatrix(Matrix.Translation(5, 0, 0).m);
+    drawnAt.length = 0;
+    scene.render();
+    expect(seen).toHaveLength(2);
+    expect(drawnAt).toEqual([5, 5]);
+    expect(mesh.getWorldMatrix().m[12]).toBe(5);
     quads.dispose();
   });
 });

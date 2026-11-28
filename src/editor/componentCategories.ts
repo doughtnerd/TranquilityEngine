@@ -35,11 +35,12 @@ const BY_NAME: Readonly<Record<string, string>> = {
   ParticleSystem: "Rendering",
   WaterSurface: "Rendering",
   Tilemap: "Rendering",
+  MapObject: "Rendering",
   LineRenderer: "Rendering", // ADR 0396
   TrailRenderer: "Rendering",
   DecalProjector: "Rendering", // ADR 0395
   Decal2D: "Rendering",
-  TilemapCollider2D: "Physics 2D",
+  ShapeCollider2D: "Physics 2D",
   BoxCollider2D: "Physics 2D",
   CircleCollider2D: "Physics 2D",
   EdgeCollider2D: "Physics 2D",

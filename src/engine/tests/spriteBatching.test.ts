@@ -20,6 +20,7 @@ import { BabylonMaterials2D } from "../render/babylon/materials2D";
 import { nullEngine, shaderText } from "./pbrShaderSource";
 import { _registeredRenderFeatures } from "../render/renderFeatures";
 import { claimSprites } from "../render/spriteClaims";
+import { drawPlace } from "../render/sortOrder";
 
 /** A plugin's render feature spec, as its activation registered it. */
 const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
@@ -111,6 +112,19 @@ describe("the sprite batcher (ADR 0108)", () => {
     expect(meshes[1].isEnabled()).toBe(false); // runs no longer needed are hidden, kept for reuse
   });
 
+  it("keeps runs of two materials at one y-sorted place below the next height (ADR 0440)", () => {
+    const atlas = new Texture(null, scene), other = new Texture(null, scene);
+    const place = (y: number) => drawPlace({ sortingLayers: ["Default"], ySortedLayers: ["Default"] }, "Default", 0, y);
+    const ySortedItem = (texture: Texture, y: number): SpriteItem => ({ ...item(texture, place(y)), ySorted: true });
+    // A tenth of a unit lower than the two at y = 1: the plain run step (1e-4) would put the second run above it.
+    batcher.update([ySortedItem(atlas, 1), ySortedItem(other, 1), ySortedItem(atlas, 0.9)]);
+    const [first, second, lower] = batches(scene);
+    expect(first!.alphaIndex).toBe(place(1));
+    expect(second!.alphaIndex).toBeGreaterThan(first!.alphaIndex);
+    expect(second!.alphaIndex).toBeLessThan(lower!.alphaIndex);
+    expect(lower!.alphaIndex).toBe(place(0.9));
+  });
+
   it("fills the per-instance matrix, colour and UV rectangle", () => {
     batcher.update([item(null, 0, 3)]);
     const [mesh] = batches(scene);
@@ -146,6 +160,8 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
   let policy: "batched" | "perObject";
   let textures: Map<string, Texture>;
   let warnings: string[];
+  /** The y-sorted sorting layers the feature is told (ADR 0440); undefined: the project's. */
+  let ySorted: string[] | undefined;
   /** The sprites drawn by a mesh of their own (ADR 0276: drawn as a quad). */
   const own = (f: BabylonSprites): SpriteRenderer[] => [...f.drawn()].filter((d) => d.shape?.kind === "quad").map((d) => d.component as SpriteRenderer);
   /** The quad meshes of the sprites drawn by a mesh of their own. */
@@ -157,6 +173,7 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
       scene,
       pixelsPerUnit: () => world.settings.render.pixelsPerUnit,
       sortingLayers: () => world.settings.render.sortingLayers,
+      ySortedLayers: () => ySorted ?? world.settings.render.ySortedLayers,
       texture: (path) => textures.get(path) ?? null,
       materials2D: new BabylonMaterials2D({ scene, library: { texture: (path) => textures.get(path) ?? null } }),
       drawPolicy: () => policy,
@@ -179,6 +196,7 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     policy = "batched";
     textures = new Map();
     warnings = [];
+    ySorted = undefined;
   });
   afterEach(() => {
     scene.dispose();
@@ -283,6 +301,64 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     const sized = sprite("a", 0, { size: new Vector2(2, 3) });
     f.sync(world, ctx);
     expect([...f.drawn()].find((d) => d.component === sized)?.size).toEqual([2, 3]);
+    f.dispose();
+  });
+
+  /** A sprite at height `y` with order in layer `order` (same texture: the default, white). */
+  const at = (name: string, y: number, order = 0) => {
+    const s = sprite(name, 0, { orderInLayer: order });
+    s.node.transform!.position.set(0, y, 0);
+    return s;
+  };
+  /** Each batch's instances' world heights, in draw order. */
+  const heights = () => batches(scene).map((m) => Array.from({ length: m.thinInstanceCount }, (_, i) => instance(m, "matrix", i, 16)[13]));
+
+  it("draws each sprite of a y-sorted layer at its own place, higher first, within its order in layer (ADR 0440)", () => {
+    ySorted = ["Default"];
+    const f = make();
+    at("a", 2); at("b", 0); at("c", 1); at("d", 5, 1); at("e", -3, 1);
+    f.sync(world, ctx);
+    expect(heights()).toEqual([[2], [1], [0], [5], [-3]]); // order 0 by height, then order 1 by height
+    const [a, c, b, d, e] = batches(scene).map((m) => m.alphaIndex);
+    expect(a).toBeLessThan(c!);
+    expect(c).toBeLessThan(b!);
+    for (const v of [a, b, c]) expect(Math.floor(v!)).toBe(0); // still in their order in layer's band
+    for (const v of [d, e]) expect(Math.floor(v!)).toBe(1);
+    expect(d).toBeLessThan(e!);
+    f.dispose();
+  });
+
+  it("still batches sprites of one material at one height in a y-sorted layer, and moves a sprite that moves", () => {
+    ySorted = ["Default"];
+    const f = make();
+    at("a", 1); at("b", 1); const low = at("c", 0);
+    f.sync(world, ctx);
+    expect(heights()).toEqual([[1, 1], [0]]);
+    low.node.transform!.position.set(0, 4, 0); // walks up past the others: drawn behind them now
+    f.sync(world, ctx);
+    expect(heights()).toEqual([[4], [1, 1]]);
+    f.dispose();
+  });
+
+  it("leaves layers that aren't y-sorted as they were: one run per order and material", () => {
+    const f = make();
+    at("a", 2); at("b", 0); at("c", 1); at("d", 5, 1);
+    f.sync(world, ctx);
+    expect(batches(scene).map((m) => [m.thinInstanceCount, m.alphaIndex])).toEqual([[3, 0], [1, 1]]);
+    f.dispose();
+  });
+
+  it("places a sprite with a mesh of its own by height too, and reports that place for picking", () => {
+    ySorted = ["Default"];
+    policy = "perObject";
+    const f = make();
+    const high = at("high", 3), low = at("low", -1);
+    f.sync(world, ctx);
+    const placed = new Map([...f.drawn()].map((d) => [d.component, d]));
+    const mesh = (r: SpriteRenderer) => (placed.get(r)!.shape as { mesh: AbstractMesh }).mesh;
+    expect(mesh(high).alphaIndex).toBeLessThan(mesh(low).alphaIndex);
+    expect(placed.get(high)!.order).toBe(mesh(high).alphaIndex);
+    expect(placed.get(low)!.order).toBe(mesh(low).alphaIndex);
     f.dispose();
   });
 

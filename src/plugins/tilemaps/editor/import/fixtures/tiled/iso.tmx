@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" tiledversion="1.11.0" orientation="isometric" renderorder="right-down" width="2" height="2" tilewidth="64" tileheight="32" infinite="0" nextlayerid="2" nextobjectid="1">
+ <tileset firstgid="1" name="blocks" tilewidth="64" tileheight="64" tilecount="4" columns="4">
+  <grid orientation="isometric" width="64" height="32"/>
+  <image source="blocks.png" width="256" height="64"/>
+ </tileset>
+ <layer id="1" name="Floor" width="2" height="2">
+  <data encoding="base64">
+   AQAAAAIAAAADAAAABAAAAA==
+  </data>
+ </layer>
+</map>

@@ -16,6 +16,8 @@ import type { UndoStep } from "../undoStep";
 import { openScene, openScenes, playing, playState, selectedKeys, selectedNodes, selectedPath, selectedWorldNode, selection, status, type OpenScene } from "../state";
 import { inspectorTarget, select, selectBone } from "../inspectorTarget";
 import { insertNodes, whyNotInsert } from "../nodeInsertion";
+import { deleteNodes } from "../hierarchyEdit";
+import { writeRemoveNode } from "../overrideWriter";
 
 import type { NodeTemplate } from "./contributions";
 
@@ -137,6 +139,13 @@ export interface SceneSurface {
    * null with the reason in the status bar and the log.
    */
   insert(label: string, templates: readonly NodeTemplate[], under: NodePath | null, target?: OpenScene | null): string | null;
+  /**
+   * Remove the nodes at `paths` (with their children) from `target` (the open scene when absent) as one undo step named
+   * `label` (joining the open step, as inside `edit`): a node of the document is deleted, references to it set to None;
+   * a node inside a prefab instance gets a `removeNode` override (ADR 0086). Paths no longer there are skipped. False,
+   * with the reason in the status bar, when the scene can't be edited now (`whyNotEdit`).
+   */
+  remove(label: string, paths: readonly NodePath[], target?: OpenScene | null): boolean;
 }
 
 const NO_WORLDS: readonly World[] = Object.freeze([]);
@@ -209,5 +218,15 @@ export const scene: SceneSurface = {
     if (made.ok) return made.keys[0] ?? null;
     status.value = { kind: "error", text: `Can't ${label.charAt(0).toLowerCase()}${label.slice(1)}: ${made.reason}` };
     return null;
+  },
+  remove(label, paths, target) {
+    let ran = false;
+    editStep({ kind: "scene", scene: target }, label, (s) => {
+      ran = true;
+      const top = paths.filter((p) => p.length === 1 && s.doc.has(p[0])).map((p) => p[0]);
+      if (top.length > 0) deleteNodes(s, top);
+      for (const p of paths) if (p.length > 1 && s.doc.has(p[0])) s.stack.execute(writeRemoveNode(s.doc, p));
+    });
+    return ran;
   },
 };

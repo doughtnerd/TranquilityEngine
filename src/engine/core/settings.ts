@@ -55,6 +55,11 @@ export interface ProjectSettings {
   render: {
     /** Sorting layers from back to front (ADR 0014). */
     sortingLayers: string[];
+    /**
+     * The sorting layers that are y-sorted (ADR 0440): draws with the same order in layer sort by their sort point's world
+     * height, higher first. Names from `sortingLayers`. Optional in `project.json`: none.
+     */
+    ySortedLayers: string[];
     /** Default sprite pixels per world unit (ADR 0014). */
     pixelsPerUnit: number;
     /**
@@ -219,7 +224,7 @@ const nameListValue = (list: unknown, fallback: string[]): string[] => (isString
 const DEFAULT_DISPLAY: ProjectSettings["display"] = { width: 1280, height: 720, backgroundColor: "#000000", scaleMode: "fit" };
 const DEFAULT_TIME: ProjectSettings["time"] = { fixedDeltaTime: 1 / 60, maxSubSteps: 5, maxFrameTime: 0.25 };
 const DEFAULT_PHYSICS: ProjectSettings["physics"] = { gravity: [0, -9.81], layers: ["Default"] };
-const DEFAULT_RENDER: ProjectSettings["render"] = { sortingLayers: ["Default"], pixelsPerUnit: 100, maxDecals: 1000 };
+const DEFAULT_RENDER: ProjectSettings["render"] = { sortingLayers: ["Default"], ySortedLayers: [], pixelsPerUnit: 100, maxDecals: 1000 };
 const DEFAULT_INPUT: ProjectSettings["input"] = { join: "single", maxPlayers: 4, actionSets: [] };
 
 function parseName(written: unknown): Parsed<"name"> {
@@ -294,6 +299,18 @@ function parseRender(written: unknown): Parsed<"render"> {
   if (layers !== undefined) {
     nameListProblems(layers, "render.sortingLayers", "Sorting layers", problems);
     value.sortingLayers = nameListValue(layers, DEFAULT_RENDER.sortingLayers);
+  }
+  // Y-sorted layers (ADR 0440): listed sorting layers; an unknown or repeated name is reported and dropped.
+  const ySorted = isRecord(written) ? written.ySortedLayers : undefined;
+  value.ySortedLayers = [];
+  if (ySorted !== undefined) {
+    if (!Array.isArray(ySorted)) problems.push({ field: "render.ySortedLayers", message: "Y-sorted layers must be a list of sorting layer names." });
+    else
+      ySorted.forEach((name: unknown, i) => {
+        if (typeof name !== "string" || !value.sortingLayers.includes(name)) problems.push({ field: `render.ySortedLayers.${i}`, message: `Y-sorted layers: ${describe(name)} isn't a sorting layer.` });
+        else if (value.ySortedLayers.includes(name)) problems.push({ field: `render.ySortedLayers.${i}`, message: `Y-sorted layers: "${name}" is listed twice.` });
+        else value.ySortedLayers.push(name);
+      });
   }
   const warnings: SettingsIssue[] = value.sortingLayers.includes("Default") ? [] : [{ field: "render.sortingLayers", message: 'There\'s no "Default" sorting layer, which sprites use unless they name another.' }];
   return { value, problems, warnings };

@@ -2,7 +2,7 @@
 // the typed reads on `Assets` answer by kind, so every host loads a file the same way.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../scene/Assets";
-import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder } from "../scene/projectFiles";
+import { isProjectFile, isProjectFileText, isTiledTilesetText, loadProjectFiles, projectFileKind, skipsFolder } from "../scene/projectFiles";
 
 describe("project files", () => {
   it.each([
@@ -39,6 +39,17 @@ describe("project files", () => {
     for (const path of [".env", ".myco/state.json", "node_modules/x/index.js", "dist/web/index.html", "a/target/b.png", "scripts/Bird.ts", "src/x.tsx", "scripts/types.d.ts"]) expect(isProjectFile(path), path).toBe(false);
     for (const name of [".git", ".myco", "node_modules", "dist", "target", "test-results", "playwright-report"]) expect(skipsFolder(name), name).toBe(true);
     expect(skipsFolder("scenes")).toBe(false);
+  });
+
+  it("tells a Tiled XML tileset saved as .tsx from TypeScript by its text (ADR 0438)", () => {
+    expect(isTiledTilesetText('<?xml version="1.0"?>\n<tileset name="t"/>')).toBe(true);
+    expect(isTiledTilesetText('\uFEFF  \n<tileset name="t"/>')).toBe(true);
+    expect(isTiledTilesetText('import { h } from "preact";\nexport const x = <tileset />;')).toBe(false);
+    expect(isTiledTilesetText("// <?xml\n")).toBe(false);
+    expect(isProjectFileText("tiles/terrain.tsx", '<?xml version="1.0"?><tileset/>')).toBe(true);
+    expect(isProjectFileText("src/App.tsx", "export const App = () => <div />;")).toBe(false);
+    expect(isProjectFileText(".hidden/terrain.tsx", "<tileset/>")).toBe(false);
+    expect(isProjectFileText("images/a.png", "")).toBe(true);
   });
 
   it("loads each file through the host's reader as its asset value, in the order given", async () => {
