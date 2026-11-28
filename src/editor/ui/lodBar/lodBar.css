@@ -15,12 +15,3 @@
 .lod-bar[data-locked] .lod-bar-divider { cursor: default; pointer-events: none; }
 .lod-bar-axis { display: flex; justify-content: space-between; color: var(--faint); font-size: var(--fs-xs); margin-top: var(--sp-1); }
 
-/* Import panel: Generate LODs */
-.lod-import-levels { display: grid; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-3); }
-.lod-import-head, .lod-import-level { display: grid; grid-template-columns: 3.5em 1fr 1fr auto; gap: var(--sp-3); align-items: center; }
-.lod-import-head { color: var(--faint); font-size: var(--fs-xs); }
-.lod-import-name { font-weight: 600; }
-.lod-import-reached { grid-column: 1 / -1; color: var(--muted); font-size: var(--fs-sm); padding-left: calc(3.5em + var(--sp-3)); }
-.lod-import-reached.short { color: var(--warning); }
-.lod-import-note { color: var(--muted); font-size: var(--fs-sm); margin: var(--sp-2) 0; }
-.lod-import-warning { color: var(--warning); background: var(--warning-soft); border-radius: 3px; font-size: var(--fs-sm); margin: var(--sp-2) 0; padding: var(--sp-2) var(--sp-3); }

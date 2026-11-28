@@ -8,7 +8,7 @@ import { editor, type ImportSettingsViewProps } from "../../../editor/sdk";
 import type { ImportSettings } from "../../../engine/scene/importSettings";
 import type { LodSettings, OccluderSetting } from "../../../engine/scene/lod/types";
 import type { ModelMesh } from "../../../engine/scene/models";
-import "../../../editor/ui/lodBar/lodBar.css";
+import "./modelImportSettings.css";
 import { addLevel, canAddLevel, editLevel, levelReports, modelTriangles, removeLevel, setGenerate, setPixelError, shortWarning, suggestsLods, MAX_LOD_LEVELS } from "./modelImportSettingsLogic";
 
 /** The Import Settings card's rows for a model. */

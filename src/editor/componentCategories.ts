@@ -20,6 +20,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   Camera: "Rendering",
   InputContext: "Input",
   MeshRenderer: "Rendering",
+  LODGroup: "Rendering",
   SpriteRenderer: "Rendering",
   Light: "Rendering",
   Light2D: "Rendering",
