@@ -16,8 +16,7 @@ import { parseTimeline } from "../../../../engine/animation/timeline";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { AssetPicker, DopeSheetGrid, editor, EmptyState, Panel, registerAssetDropTarget, type DopeRow, type DopeSelectMode, type EditResult } from "../../../../editor/sdk";
 import { propertyChoices, type NodeFields } from "../animationWindow/addTrackLogic";
-import { relativePath } from "../animationWindow/animationSession";
-import { subValue } from "../animationWindow/fieldTracksLogic";
+import { fieldPathValue, nodePathOf, parseFieldPath } from "../../../../engine/animation/bindingPath";
 import "../animationWindow/animationWindow.css";
 import { BindingPicker } from "./BindingPicker";
 import { ItemEditor } from "./ItemEditor";
@@ -25,7 +24,7 @@ import {
   addCameraCut, addItem, addPropertyTrack, addTrack, asClip, assetDropKind, blendToOverlap, deleteItems, dragEdit, dragLabel, dropAssets, duplicateItems, keyProperty, moveTrack, rebindGroup, removeTrack,
   setBinding, setDuration, setLoop, splitItem, type AddableKind, type DragPart, type ItemsResult,
 } from "./timelineEditLogic";
-import { bindingProblem, parseItemId, refName, relativeNodePath, timelineRows, trackNodePath, type TimelineRow } from "./timelineModelLogic";
+import { bindingProblem, parseItemId, refName, timelineRows, trackNodePath, type TimelineRow } from "./timelineModelLogic";
 import { timelineSession as s, type TimelineTarget } from "./timelineSession";
 import "./timelineWindow.css";
 
@@ -98,7 +97,7 @@ function Breadcrumb() {
 function nodesUnder(root: GameObject): NodeFields[] {
   const out: NodeFields[] = [];
   const walk = (n: GameObject) => {
-    const path = relativePath(root, n);
+    const path = nodePathOf(root, n);
     if (path === null) return;
     out.push({ path, components: listComponents(n).map((c) => ({ type: c.type, fields: c.fields.map((f) => ({ name: f.name, value: f.value })) })) });
     for (const c of n.children) walk(c);
@@ -427,7 +426,7 @@ function TimelineEditor(props: { target: Exclude<TimelineTarget, { kind: "none" 
           title="Cut to the camera selected in the hierarchy at the playhead"
           onClick={() => {
             const node = editor.scene.selection.node();
-            const rel = root && node ? relativeNodePath(root, node) : null;
+            const rel = root && node ? nodePathOf(root, node) : null;
             if (rel === null || !node) return editor.messages.error("Can't add a camera cut: select a camera node under the director first");
             applyItems(addCameraCut(props.timeline, t, rel), "Add camera cut");
           }}
@@ -529,9 +528,9 @@ function TrackTools(props: { timeline: Timeline; track: number; root: GameObject
           onClick={() => {
             const b = (track as { target: { nodePath: string; component: string; field: string } }).target;
             const owner = nodesUnder(props.root!).find((n) => n.path === b.nodePath);
-            const whole = owner?.components.find((c) => c.type === b.component)?.fields.find((f) => f.name === b.field.split(".")[0])?.value;
-            const dot = b.field.indexOf(".");
-            props.onApply(keyProperty(tl, b, dot < 0 ? whole : subValue(whole, b.field.slice(dot + 1)), props.t), `Key ${b.field}`);
+            const head = parseFieldPath(b.field).head;
+            const whole = owner?.components.find((c) => c.type === b.component)?.fields.find((f) => f.name === head)?.value;
+            props.onApply(keyProperty(tl, b, fieldPathValue(whole, b.field), props.t), `Key ${b.field}`);
           }}
         >
           Key at playhead

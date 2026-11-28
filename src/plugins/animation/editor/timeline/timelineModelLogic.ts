@@ -14,6 +14,7 @@
 //   window was opened on to the one shown, at most the runtime's depth.
 //
 // Pure; no DOM, no plugin. Edits are in `timelineEditLogic.ts`.
+import { resolveNodePath, trackBinding, type PathNode } from "../../../../engine/animation/bindingPath";
 import type { Binding, SubclipTrack, Track, TrackKind } from "../../../../engine/animation/tracks";
 import type { Timeline } from "../../../../engine/animation/timeline";
 import { TIMELINE_SUFFIX } from "../../../../engine/animation/timeline";
@@ -234,34 +235,8 @@ export function itemSpan(tl: Timeline, id: string): [number, number] | null {
 
 // --- bindings -----------------------------------------------------------------------------------------------------------
 
-/** What the model needs of a node (a `GameObject` is one). */
-export interface NodeLike<N> {
-  readonly name: string;
-  readonly parent: N | null;
-  readonly children: readonly N[];
-}
-
-/** The node at `path` under `root` ("" is `root`; the first child of that name at each step), or null. */
-export function resolveNode<N extends NodeLike<N>>(root: N, path: string): N | null {
-  let node: N = root;
-  for (const part of path.split("/")) {
-    if (!part) continue;
-    const next = node.children.find((c) => c.name === part);
-    if (!next) return null;
-    node = next;
-  }
-  return node;
-}
-
-/** `node`'s path relative to `root` ("" for `root` itself), or null when it isn't under it. */
-export function relativeNodePath<N extends NodeLike<N>>(root: N, node: N): string | null {
-  const names: string[] = [];
-  for (let n: N | null = node; n; n = n.parent) {
-    if (n === root) return names.reverse().join("/");
-    names.push(n.name);
-  }
-  return null;
-}
+/** What the model needs of a node (a `GameObject` is one); node paths resolve as `engine/animation/bindingPath.ts` says. */
+export type NodeLike<N> = PathNode<N>;
 
 /** Why `path` can't be a binding path (relative to the director's node), or null. */
 export function whyBadNodePath(path: string): string | null {
@@ -275,15 +250,16 @@ export function whyBadNodePath(path: string): string | null {
 export function bindingProblem<N extends NodeLike<N>>(root: N, path: string): string | null {
   const bad = whyBadNodePath(path);
   if (bad) return bad;
-  let node: N = root;
-  for (const part of path.split("/")) {
-    if (!part) continue;
-    const same = node.children.filter((c) => c.name === part);
-    if (!same.length) return `no node "${part}" under ${node === root ? `${root.name} (the director's node)` : node.name}`;
-    if (same.length > 1) return `${node.name} has ${same.length} children named "${part}"; the first is used`;
-    node = same[0]!;
-  }
-  return null;
+  let problem: string | null = null;
+  resolveNodePath(root, path, (parent, part, child) => {
+    if (problem) return;
+    if (!child) problem = `no node "${part}" under ${parent === root ? `${root.name} (the director's node)` : parent.name}`;
+    else {
+      const same = parent.children.reduce((n, c) => n + (c.name === part ? 1 : 0), 0);
+      if (same > 1) problem = `${parent.name} has ${same} children named "${part}"; the first is used`;
+    }
+  });
+  return problem;
 }
 
 /** The nodes a binding can pick: `root` and every descendant, depth first, with their relative paths. */
@@ -300,11 +276,12 @@ export function nodeChoices<N extends NodeLike<N>>(root: N): { path: string; dep
 /** The fields the property tracks write, as the director binds them (to restore after a preview). */
 export function animatedBindings(tl: { readonly tracks: readonly Track[] }): Binding[] {
   const out: Binding[] = [];
-  for (const t of tl.tracks) if (t.kind in PROPERTY_KINDS) out.push((t as { target: Binding }).target);
+  for (const t of tl.tracks) {
+    const b = trackBinding(t);
+    if (b) out.push(b);
+  }
   return out;
 }
-
-const PROPERTY_KINDS: Readonly<Record<string, true>> = { float: true, vec2: true, vec3: true, vec4: true, color: true, quat: true, discrete: true };
 
 // --- nesting ------------------------------------------------------------------------------------------------------------
 
