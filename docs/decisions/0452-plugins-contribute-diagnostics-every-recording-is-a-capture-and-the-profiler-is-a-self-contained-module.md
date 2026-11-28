@@ -185,8 +185,8 @@ every recording is a **capture**, and separate the **profiler** into a self-cont
   model and reader, the capture worker, playback, live follow, the look-back mirror and the track kit, moved from
   `plugins/audio/editor/mix/` (`profilerSource.ts`, `liveFollow.ts`, `cursorModel.ts`, `tracks/kit.ts`) and
   `src/studio/screens/profiler/`. The audio link client's recording parts move to the `diagnostics` topic's client.
-- Where its plugin-facing contract lives, in the Studio's folder or a neutral `src/profiler/` that plugins and a
-  later editor host can import without importing the Studio app, is the owner's call (owner list).
+- It lives in a neutral **`src/profiler/`** (owner, 2026-11-28), so plugins' views and a later host import it
+  without importing the Studio app. The Studio is its only host for now.
 - **Profiler host interface:** open and save files, status messages, the theme, and **open an asset** for deep links.
   The Studio opens what it edits itself and hands other assets to the editor if it runs, through the existing app
   hand-off (0341, 0380).
@@ -269,7 +269,7 @@ to finish its required reading.
 | Fix the type table per epoch; handle reloads, late sources, running out of types | architect | **Taken.** |
 | A throwing source should stop for the epoch (`session.ts:153-159` logs every frame) | architect | **Taken.** |
 | More audio modules move than listed (`profilerSource`, `liveFollow`, `cursorModel`, the link client, the worker) | architect | **Taken.** |
-| The profiler's contract should live in a neutral folder, not `src/studio/` | architect | **Owner's call** (owner list): the owner said it lives in the Studio for now. |
+| The profiler's contract should live in a neutral folder, not `src/studio/` | architect | **Taken (owner, 2026-11-28):** `src/profiler/`, hosted only by the Studio for now. |
 | Play Stats points can't go while frozen navigation uses one | senior, architect, challenger | **Taken:** kept as shims. |
 | First-party manifests have no `runtime`/`editor` keys | senior | **Taken:** a catalogue table for first-party, `plugin.json` key for third-party. |
 | Live Take screen reverses 0411's alternative and adds traffic | senior, user | **Taken as a cost:** the owner's decision stands; pictures stream only while shown. |

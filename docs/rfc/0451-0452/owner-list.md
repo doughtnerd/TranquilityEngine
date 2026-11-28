@@ -10,10 +10,12 @@ Each has options, a recommendation and its net effect. Estimates are provisional
    - (a) `src/studio/profiler/` now, moved later.
    - (b) A neutral `src/profiler/` for the contract and views kit; the Studio still hosts it and is its only host.
    - Recommendation: (b). Net effect: no extra work now (same files, different folder); avoids a second move later.
+   - **Owner, 2026-11-28: (b), a neutral `src/profiler/`.**
 2. **`t()` stays in the engine** (0451). The confirmed summary moved `t.ts` to the plugin; the senior engineer found
    the UI plugin's renderer imports it, so moving it makes `myco.ui` depend on localisation.
    - Recommendation: keep `t.ts` (and `message/`, `strings/`) in the engine. Net effect: −3 to −5 table-days; the
      plugin owns where strings come from and the tools, not formatting.
+   - **Owner, 2026-11-28: accepted; `t.ts` stays in the engine.**
 3. **The capture cap and what audio always records** (0452). Today a capture is 64 MiB, profile only; a take 256 MiB
    with requests never dropped and optional pictures (0348).
    - (a) 256 MiB; audio's requests always recorded (log), pictures only when asked.

@@ -125,7 +125,7 @@ challenger). Every code claim below was checked.
 | The proposed interface duplicates `LocaleStrings` (`runtime/strings.ts:14-32`, `localeStringsChanged` `Locale.ts:459`) | senior, challenger | **Taken:** the plugin provides `LocaleStrings`. |
 | `format`/ICU doesn't belong in the provider; captions and subtitles format with the plugin off | senior, challenger | **Taken:** `message/` stays. |
 | "Stays" code imports "moving" code (`Locale.ts:19-21`, `pseudo.ts`, `exchange/`, audio formats); no engine file imports a plugin today | senior | **Taken:** `strings/` and `message/` stay; only the provider code and the panel move. Checked: engine files mention `src/plugins` only in comments. |
-| Moving `t.ts` makes `myco.ui` depend on the plugin | senior | **Taken, owner to confirm:** `t.ts` stays (the owner's earlier summary moved it). |
+| Moving `t.ts` makes `myco.ui` depend on the plugin | senior | **Taken (owner, 2026-11-28):** `t.ts` stays in the engine. |
 | The player installs build strings before plugins activate (`main.ts:62` vs `:99`) | architect | **Taken:** the player keeps its direct call into the plugin's module; start order checked in the technical design. |
 | A disabled plugin still ships (static import) | senior, mid-level | **Taken as a cost:** size is a bonus goal; deferred. |
 | "Localisation off" means language switches change no text | mid-level | **Taken:** stated under "With the plugin disabled". |

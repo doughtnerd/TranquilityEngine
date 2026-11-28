@@ -245,7 +245,7 @@ flowchart TB
     AN["animation/<br/>runtime: its source; debugger reads diagnostics"]
     LO["localisation/ (new)<br/>runtime: strings provider; editor: panel"]
   end
-  subgraph S["Profiler module<br/>(src/profiler/ or src/studio/profiler/: owner list 1)"]
+  subgraph S["Profiler module<br/>(src/profiler/, owner 2026-11-28)"]
     PM["link client, look-back mirror,<br/>capture model, worker, playback,<br/>track kit, view registry, host interface"]
   end
   subgraph ST["src/studio/"]
