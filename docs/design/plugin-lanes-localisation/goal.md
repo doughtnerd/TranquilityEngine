@@ -1,4 +1,4 @@
-# Plugins, localisation and debug lanes: goal (design step 1)
+# Plugin diagnostics and localisation: goal (design step 1)
 
 Confirmed by the owner on 2026-11-28 (answers below). No record number in this folder's name until the record is written (design step 3).
 Proposed records drafted earlier: [0451](../../decisions/0451-localisation-becomes-a-first-party-plugin-over-a-small-language-core.md)
@@ -78,7 +78,7 @@ Debug builds pair with tools over the debug link on every endpoint (ADR 0403).
    available to them, but first-party use decides its shape.
 3. **Low end:** an Android phone, for recording overhead and the player's size, measured over the debug link.
    **Phase 1 targets desktop** (corrected 2026-11-28): the phone is measured in a later phase.
-4. **Order:** plugin contributions first (export, launch and debug steps), then localisation and debug lanes on top.
+4. **Order:** plugin contributions first (the diagnostics contribution point), then localisation.
 
 ## Recording cost (owner, 2026-11-28)
 
@@ -86,8 +86,22 @@ Debug builds pair with tools over the debug link on every endpoint (ADR 0403).
 - **Later:** once the engine is stable, take a baseline of what first-party lanes cost, and warn plugin authors and
   their users in the profiler when a lane exceeds it.
 
+## Scope (owner, 2026-11-28)
+
+- **Plugins stay as they are:** a folder in `plugins/` with a manifest declaring the editor and runtime halves. No new
+  entry kinds.
+- **Diagnostics** is the contribution point through which a plugin's runtime half hands profiling data to the
+  profiler (the owner's name; earlier drafts said "recording" and "lanes"). Audio's takes and captures and
+  animation's take records become ordinary diagnostics.
+- **Diagnostics views** (a plugin's profiler tracks and panels) come from its **editor half**. The standalone Studio
+  activates plugins' editor halves in a reduced context where only the points it uses take effect.
+- **Localisation becomes a plugin** (ADR 0451).
+- **Dropped:** plugin export and launch build steps. Exporting stays as it is; with localisation a plugin, the
+  exporter writes string files by calling the plugin's code directly, as first-party code may. ADR 0447's deferred
+  per-feature slice stays deferred.
+
 ## Spikes for step 2
 
-1. Plugin export entries: can a plugin's export step (first- and third-party) run wherever exporting runs?
+1. Plugin export entries: can a plugin's export step (first- and third-party) run wherever exporting runs? (Run before the scope change; now out of scope. Kept for its findings on how plugin code is selected and run.)
 2. What the player ships: per-feature chunk sizes, and the cost of one lazy import per launch step.
 3. Recording cost per lane on the phone: skipped for phase 1 (desktop first).
