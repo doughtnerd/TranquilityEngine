@@ -1,14 +1,14 @@
 // The tile selection (ADR 0442): a set of cells of a Tilemap and what the selection tool does to the layers it acts on
 // (copy, clear, move, flip and turn in place), on the map's cells as the brush paints them. Works in cell space on
 // every grid (ADR 0437), as the brush does: a rectangle is a cell-space rectangle, and flips and turns lay the cells out
-// as the brush lays out a stamp (`stampLayout.ts`); on hexagonal maps only the tiles' images flip. On staggered and
-// hexagonal maps copies keep their frame and moves are lattice moves, so cells keep their shape (ADR 0444). Locked layers
+// as the brush lays out a stamp (`stampLayout.ts`); where the grid can't turn (hexagonal maps) only the tiles' images
+// flip. Copies keep the frame the grid gives them and moves are the grid's moves (`TileGrid.frameAt`, `moveCell`,
+// ADR 0448), so on staggered and hexagonal maps cells keep their shape (ADR 0444). Locked layers
 // (ADR 0441) are the caller's to leave out of `layers`. The editor glue (paintTool.ts) commits each operation as one
 // undo step.
 import type { Tilemap } from "../runtime";
 import type { Cell } from "../runtime/brushes";
 import { FLIP_DIAGONAL } from "../runtime/format";
-import { frameAt, moveCell } from "./stampLattice";
 import { orientCell, withFlips } from "./stampLayout";
 import type { StampBlock } from "./stampLibrary";
 
@@ -94,7 +94,7 @@ export function copySelection(map: Tilemap, sel: CellSelection, layers: readonly
       return { name: names[li] ?? "", values };
     }),
   };
-  const frame = frameAt(map._grid(), b.x0, b.y0);
+  const frame = map._grid().frameAt(b.x0, b.y0);
   if (frame) block.frame = frame;
   return block.layers.some((l) => l.values.some((v) => v !== 0)) ? block : null;
 }
@@ -130,7 +130,7 @@ function mover(map: Tilemap, sel: CellSelection, dx: number, dy: number, anchor?
   const from: Cell = anchor ?? (b ? [b.x0, b.y0] : [0, 0]);
   const to: Cell = [from[0] + dx, from[1] + dy];
   const grid = map._grid();
-  return (cell) => moveCell(grid, from, to, cell);
+  return (cell) => grid.moveCell(from, to, cell);
 }
 
 /** The selection moved so that cell `anchor` (default: its bottom-left corner) moves by `(dx, dy)` cells, keeping its shape (as `moveSelection` moves it). */

@@ -145,33 +145,35 @@ describe("the tile selection (ADR 0442)", () => {
       .sort();
   };
 
-  for (const shape of ["staggered", "hexagonal"] as const) {
-    for (const axis of ["y", "x"] as const) {
-      for (const index of ["odd", "even"] as const) {
-        it(`moves the selection an odd number of rows or columns keeping its shape on a ${shape} map (axis ${axis}, ${index}) (ADR 0444)`, () => {
-          const map = newMap(shape, axis, index);
-          map.setTile(0, 0, 1);
-          map.setTile(1, 0, 2);
-          map.setTile(0, 1, 3);
-          map.setTile(1, 1, 4);
-          const before = shapeOf(map);
-          // Copied, the block remembers its bottom-left row's (column's) kind: row (column) 0 is shifted on "even" maps.
-          expect(copySelection(map, keys([0, 0], [1, 1]), [0])?.frame).toEqual({ axis, shifted: index === "even" });
-          let sel: Set<string> = keys([0, 0], [1, 0], [0, 1], [1, 1]);
-          // Moved by its corner, or dragged by the cell holding tile 4 (which lands where it's dragged to).
-          for (const [dx, dy, byFour] of [[0, 3, false], [3, 0, false], [1, 1, true], [-5, 2, true], [0, -1, true]] as const) {
-            const four = [...map.tiles(0)].find((t) => t.id === 4)!;
-            const anchor: Cell | undefined = byFour ? [four.x, four.y] : undefined;
-            const landing = movedSelection(map, sel, dx, dy, anchor);
-            sel = moveSelection(map, sel, [0], dx, dy, false, anchor);
-            expect(sel).toEqual(landing);
-            expect(usedCells(map, [0])).toEqual(sel);
-            expect(shapeOf(map)).toEqual(before);
-            if (byFour) expect(map.getTile(four.x + dx, four.y + dy)).toBe(4);
-          }
-        });
+  // One staggered and one hexagonal map, between them both stagger axes and indices: that every grid variant's blocks keep
+  // their shape is the grid's own test (grids.test.ts, ADR 0448); this checks the selection moves them as the grid says.
+  const LATTICE_GRIDS = [
+    { shape: "staggered", axis: "y", index: "even" },
+    { shape: "hexagonal", axis: "x", index: "odd" },
+  ] as const;
+  for (const { shape, axis, index } of LATTICE_GRIDS) {
+    it(`moves the selection an odd number of rows or columns keeping its shape on a ${shape} map (axis ${axis}, ${index}) (ADR 0444)`, () => {
+      const map = newMap(shape, axis, index);
+      map.setTile(0, 0, 1);
+      map.setTile(1, 0, 2);
+      map.setTile(0, 1, 3);
+      map.setTile(1, 1, 4);
+      const before = shapeOf(map);
+      // Copied, the block remembers its bottom-left row's (column's) kind: row (column) 0 is shifted on "even" maps.
+      expect(copySelection(map, keys([0, 0], [1, 1]), [0])?.frame).toEqual({ axis, shifted: index === "even" });
+      let sel: Set<string> = keys([0, 0], [1, 0], [0, 1], [1, 1]);
+      // Moved by its corner, or dragged by the cell holding tile 4 (which lands where it's dragged to).
+      for (const [dx, dy, byFour] of [[0, 3, false], [3, 0, false], [1, 1, true], [-5, 2, true], [0, -1, true]] as const) {
+        const four = [...map.tiles(0)].find((t) => t.id === 4)!;
+        const anchor: Cell | undefined = byFour ? [four.x, four.y] : undefined;
+        const landing = movedSelection(map, sel, dx, dy, anchor);
+        sel = moveSelection(map, sel, [0], dx, dy, false, anchor);
+        expect(sel).toEqual(landing);
+        expect(usedCells(map, [0])).toEqual(sel);
+        expect(shapeOf(map)).toEqual(before);
+        if (byFour) expect(map.getTile(four.x + dx, four.y + dy)).toBe(4);
       }
-    }
+    });
   }
 
   it("moves square and isometric selections cell for cell (ADR 0444)", () => {

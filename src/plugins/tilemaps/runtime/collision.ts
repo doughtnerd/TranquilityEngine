@@ -103,7 +103,7 @@ const same = (x: number, y: number): GridPoint => [x, y];
 export function mergeSpace(grid: TileGrid | null): MergeSpace {
   const d = grid?.diamond;
   if (d) return { rectangular: true, toMerge: d.toDiamond, toCell: d.fromDiamond, outline: unitSquare, around: around8, quantum: 1e-6, toShape: d.toLocal };
-  if (grid && grid.shape !== "square") {
+  if (grid && !grid.cellUnits) {
     // Two rings of neighbours: on a hexagonal grid squashed to diamonds (hexSide 0) a corner touches a cell two rows away.
     const around = (x: number, y: number): GridPoint[] => {
       const out = new Map<string, GridPoint>();
@@ -127,7 +127,7 @@ export function mergeQuad(space: MergeSpace, r: ShapeRect2D): [number, number][]
  * one, the shapes are in cell units; on other grids in local units.
  */
 export function buildTileShapes(cells: Iterable<TileCell>, collisionOf: (id: number) => TileCollision | undefined, mode: TileCollisionMode = "rectangles", grid?: TileGrid): TileShapes {
-  const placed = grid && grid.shape !== "square" ? grid : null;
+  const placed = grid && !grid.cellUnits ? grid : null;
   const { full, oneWay, polygons, oneWayPolygons } = sortTiles(cells, collisionOf, placed);
   const shapes: TileShapes = { boxes: [], loops: [], polygons, oneWay: [], oneWayPolygons };
   if (placed) {

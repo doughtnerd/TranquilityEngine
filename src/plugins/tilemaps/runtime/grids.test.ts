@@ -1,6 +1,6 @@
 // ADR 0437: the grid module that owns cell geometry on square, isometric, staggered and hexagonal maps.
 import { describe, expect, it } from "vitest";
-import { axialToOffset, diamondToStaggered, offsetToAxial, staggeredToDiamond, tiledCellToCell, tileGrid, type GridParams, type GridPoint, type TileGrid } from "./grids";
+import { axialToOffset, diamondToStaggered, frameOfBlockCell, offsetToAxial, staggeredToDiamond, tiledCellToCell, tileGrid, type BlockFrame, type GridParams, type GridPoint, type TileGrid } from "./grids";
 
 const SIZE = { x: 2, y: 1 };
 
@@ -19,6 +19,28 @@ const name = (p: GridParams) => [p.shape, p.staggerAxis, p.staggerIndex, p.hexSi
 
 const CELLS: GridPoint[] = [];
 for (let y = -3; y <= 3; y++) for (let x = -3; x <= 3; x++) CELLS.push([x, y]);
+
+/** How many corner points two cells' outlines share (2 for a shared side, 1 for a shared corner). */
+function sharedCorners(grid: TileGrid, a: GridPoint, b: GridPoint): number {
+  const near = (p: GridPoint, q: GridPoint) => Math.abs(p[0] - q[0]) < 1e-9 && Math.abs(p[1] - q[1]) < 1e-9;
+  const qs = grid.cellOutline(b[0], b[1]);
+  return grid.cellOutline(a[0], a[1]).filter((p) => qs.some((q) => near(p, q))).length;
+}
+
+/**
+ * Cells as `dx,dy` of their centres from the first cell's: equal for two lists of cells that have the same shape on
+ * screen wherever they are.
+ */
+function shapeOf(grid: TileGrid, cells: readonly GridPoint[]): string[] {
+  const [ox, oy] = grid.cellToLocal(cells[0][0], cells[0][1]);
+  return cells.map(([x, y]) => {
+    const [px, py] = grid.cellToLocal(x, y);
+    return `${(px - ox).toFixed(6)},${(py - oy).toFixed(6)}`;
+  });
+}
+
+/** A 3 × 2 block's cells from its bottom-left `corner`, row by row. */
+const BLOCK = [0, 1].flatMap((r) => [0, 1, 2].map((c) => ({ c, r })));
 
 function area(poly: readonly GridPoint[]): number {
   let a = 0;
@@ -101,8 +123,75 @@ describe("tile grids (ADR 0437)", () => {
         }
         expect(turned).toBeCloseTo(2 * Math.PI, 9);
       });
+
+      it("names the cells sharing a side (ADR 0448): neighbours, every cell sharing an edge with it among them", () => {
+        for (const [x, y] of CELLS) {
+          const sides = grid.sides(x, y).map(String);
+          expect(sides).toHaveLength(params.shape === "hexagonal" ? 6 : 4);
+          expect(new Set(sides).size).toBe(sides.length);
+          const neighbours = grid.neighbours(x, y);
+          for (const s of sides) expect(neighbours.map(String)).toContain(s);
+          for (const n of neighbours) if (sharedCorners(grid, [x, y], n) === 2) expect(sides).toContain(String(n));
+          for (const n of grid.sides(x, y)) expect(grid.sides(n[0], n[1]).map(String)).toContain(String([x, y]));
+        }
+      });
+
+      it("moves cells keeping their shape, and lands the cell moved from on the cell moved to (ADR 0444, 0448)", () => {
+        const cells: GridPoint[] = [[1, 1], [2, 1], [1, 2], [2, 2], [1, 3]];
+        for (const to of [[1, 2], [4, 1], [-2, -3], [0, 0]] as GridPoint[]) {
+          const moved = cells.map((c) => grid.moveCell(cells[0], to, c));
+          expect(moved[0]).toEqual(to);
+          expect(shapeOf(grid, moved)).toEqual(shapeOf(grid, cells));
+        }
+      });
+
+      it("places a block in the frame it was laid out in, keeping its shape anywhere, and finds each cell's place back (ADR 0444, 0448)", () => {
+        const corner: GridPoint = [1, 1];
+        const frame = grid.frameAt(corner[0], corner[1]);
+        // At a corner of its own frame's kind the block lands cell for cell.
+        const laid = BLOCK.map(({ c, r }) => grid.placeCell(frame, corner, c, r));
+        expect(laid).toEqual(BLOCK.map(({ c, r }): GridPoint => [corner[0] + c, corner[1] + r]));
+        for (const at of [[2, 2], [4, 1], [1, 4], [-3, -2]] as GridPoint[]) {
+          const placed = BLOCK.map(({ c, r }) => grid.placeCell(frame, at, c, r));
+          expect(placed[0]).toEqual(at);
+          expect(shapeOf(grid, placed)).toEqual(shapeOf(grid, laid));
+          placed.forEach(([x, y], i) => expect(grid.blockCellAt(frame, at, x, y, 3, 2)).toEqual(BLOCK[i]));
+        }
+        // A block without a frame lands cell for cell, and the place of a cell outside a block wraps into it.
+        expect(grid.placeCell(null, [4, 1], 2, 1)).toEqual([6, 2]);
+        expect(grid.blockCellAt(null, [0, 0], -1, 5, 3, 2)).toEqual({ c: 2, r: 1 });
+      });
     });
   }
+
+  it("gives blocks a frame only on grids whose rows or columns alternate, and frames follow the rows (ADR 0444, 0448)", () => {
+    for (const params of VARIANTS) {
+      const grid = tileGrid(params);
+      const alternates = params.shape === "staggered" || params.shape === "hexagonal";
+      expect(grid.frameAt(0, 0) !== null, name(params)).toBe(alternates);
+      if (!alternates) continue;
+      const frame = grid.frameAt(1, 1)!;
+      expect(frame.axis).toBe(params.staggerAxis);
+      for (const { c, r } of BLOCK) expect(frameOfBlockCell(frame, c, r)).toEqual(grid.frameAt(1 + c, 1 + r));
+      // Row (column) 0 is shifted on "even" maps.
+      expect(grid.frameAt(0, 0)!.shifted).toBe(params.staggerIndex === "even");
+    }
+  });
+
+  it("lands a block framed on the other stagger axis cell for cell (ADR 0444)", () => {
+    const grid = tileGrid({ shape: "hexagonal", cellSize: SIZE, staggerAxis: "y" });
+    const frame: BlockFrame = { axis: "x", shifted: true };
+    expect(grid.placeCell(frame, [3, 3], 1, 1)).toEqual([4, 4]);
+    expect(grid.blockCellAt(frame, [3, 3], 4, 4, 2, 2)).toEqual({ c: 1, r: 1 });
+  });
+
+  it("is turned a quarter turn and has its cells in cell units only where the square's symmetries hold (ADR 0437, 0448)", () => {
+    for (const params of VARIANTS) {
+      const grid = tileGrid(params);
+      expect(grid.quarterTurn, name(params)).toBe(params.shape !== "hexagonal");
+      expect(grid.cellUnits, name(params)).toBe(params.shape === "square");
+    }
+  });
 
   it("keeps the square grid's numbers", () => {
     const g = tileGrid({ shape: "square", cellSize: { x: 0.5, y: 2 } });
