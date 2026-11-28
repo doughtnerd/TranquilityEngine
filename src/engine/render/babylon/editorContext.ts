@@ -33,7 +33,12 @@ export interface BabylonEditorContext {
   readonly scene: Scene;
   /** The utility layer drawn after the frame graph (overlays, gizmos). */
   readonly overlay: UtilityLayerRenderer;
-  readonly canvas: HTMLCanvasElement;
+  /**
+   * The canvas's CSS size in pixels (zero when not laid out), from the surface's cached size: the
+   * viewport reads it every frame, and reading `clientHeight` then would force a style and layout
+   * pass whenever anything on the page changed (about 8 ms a frame in the editor during play).
+   */
+  canvasSize(): { readonly width: number; readonly height: number };
   readonly settings: ProjectSettings;
   /** An editor World's surface (fills its panel, has a grid); false for a game's. */
   readonly editor: boolean;

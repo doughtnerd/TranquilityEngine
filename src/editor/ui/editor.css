@@ -402,8 +402,9 @@ button:disabled:hover { background: var(--button); }
 .viewport-drop-highlight { position: absolute; inset: 0; z-index: 1; pointer-events: none; box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-faint); }
 .scene-name.drop-into { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 3px; }
 .scene-name { padding: 2px 4px; }
-body:has(.asset-drag-ghost), body:has(.asset-drag-ghost) * { cursor: copy !important; user-select: none; }
-body:has(.asset-drag-ghost.invalid), body:has(.asset-drag-ghost.invalid) * { cursor: not-allowed !important; }
+/* Set by DragGhost while it shows: a class, as a body:has() rule restyles the whole page on every change */
+body.dragging, body.dragging * { cursor: copy !important; user-select: none; }
+body.drag-invalid, body.drag-invalid * { cursor: not-allowed !important; }
 .fields .unset { display: inline-flex; align-items: center; gap: 8px; }
 
 /* Confirm dialog and status actions */

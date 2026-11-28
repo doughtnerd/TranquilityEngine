@@ -54,7 +54,7 @@ describe("the transform gizmo on the Babylon backend (ADR 0075 stage 8)", () => 
     const ctx = {
       scene,
       overlay,
-      canvas: {} as HTMLCanvasElement,
+      canvasSize: () => ({ width: 0, height: 0 }),
       editor: true,
       world: () => World.require(),
       viewCameras: () => [view],

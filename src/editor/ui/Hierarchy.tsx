@@ -7,6 +7,7 @@ import { pathKey, type SceneDocument } from "../document";
 import { deleteSelected } from "../deleteSelection";
 import { renameNode } from "../nodeEdits";
 import { assetDrag } from "../assetDrag";
+import { DragGhost } from "./AssetDragOverlay";
 import { filterHierarchy } from "../hierarchyFilter";
 import { nodeDrag, startNodeDrag } from "../nodeDrag";
 import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisibility";
@@ -457,9 +458,9 @@ function UIElementDragGhost() {
   const drag = uiElementDrag.value;
   if (!drag) return null;
   return (
-    <div class={`asset-drag-ghost${drag.target ? "" : " invalid"}`} style={{ left: `${drag.x + 14}px`, top: `${drag.y + 14}px` }} role="status">
+    <DragGhost x={drag.x} y={drag.y} invalid={!drag.target}>
       {uiDropDescription(drag)}
-    </div>
+    </DragGhost>
   );
 }
 

@@ -197,7 +197,8 @@ export function readView(ctx: BabylonEditorContext): View | null {
     return [x + q.w * tx + (q.y * tz - q.z * ty), y + q.w * ty + (q.z * tx - q.x * tz), z + q.w * tz + (q.x * ty - q.y * tx)];
   };
   const [rx, ry, rz] = rot(1, 0, 0), [ux, uy, uz] = rot(0, 1, 0), [fx, fy, fz] = rot(0, 0, 1);
-  const canvasHeight = ctx.canvas.clientHeight > 0 ? ctx.canvas.clientHeight : ctx.settings.display.height;
+  const size = ctx.canvasSize().height;
+  const canvasHeight = size > 0 ? size : ctx.settings.display.height;
   const pixels = Math.max(1, canvasHeight * Math.min(1, Math.max(0.001, camera.viewportSize.y)));
   return { camera, px: p.x, py: p.y, pz: p.z, rx, ry, rz, ux, uy, uz, fx, fy, fz, q: new Quaternion(q.x, q.y, q.z, q.w), ortho: camera.projection === "orthographic", pixels };
 }
