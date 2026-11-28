@@ -109,7 +109,7 @@ export interface OcclusionCamera {
 export interface OcclusionCore {
   /**
    * Rasterise this view's occluders and test its occludees. `occluders` holds world-space triangles (x, y, z per vertex,
-   * three vertices per triangle, Babylon's default winding); `errors` holds each triangle's final world-space error
+   * three vertices per triangle, in the engine's winding: `scene/winding.ts`, ADR 0450); `errors` holds each triangle's final world-space error
    * (already doubled); `neighbors` 3 edge neighbours per triangle as indices into this frame's list (0xFFFFFFFF =
    * boundary; rebased when meshes are concatenated). `occludees` holds world AABBs (6 floats each). Writes 1 into
    * `hidden[i]` for each occludee the buffer proves hidden, and leaves other entries untouched.

@@ -431,6 +431,7 @@ How to use the engine. The user docs (guides, FAQ, news) are written in [wiki/](
 | [0447](decisions/0447-occlusion-culling-v1-is-a-cpu-software-depth-buffer-in-a-rust-wasm-simd-core.md) | Occlusion culling v1 is a CPU software depth buffer in a Rust wasm SIMD core | Accepted |
 | [0448](decisions/0448-auto-instanced-meshes-draw-through-per-pass-thin-buffers-while-levels-are-applied.md) | Auto-instanced meshes draw through per-pass thin buffers while levels are applied | Accepted |
 | [0449](decisions/0449-the-engine-owns-an-ecs-driven-render-scene-and-babylon-becomes-the-gpu-layer.md) | The engine owns an ECS-driven render scene, and Babylon becomes the GPU layer it draws through (direction, in stages) | Accepted |
+| [0450](decisions/0450-engine-meshes-and-native-cores-share-one-triangle-winding.md) | Engine meshes and native cores share one triangle winding (`scene/winding.ts`) | Accepted |
 | [0362](decisions/0362-the-ui-fidelity-pass-adds-playback-pause-clip-envelopes-reverse-second-input-curves-occlusion-curves-and-studio-format-fields.md) | The UI fidelity pass adds `pause()`/`resume()` on playback handles, the Amp envelope on clips, reverse clips, sequence marker colour and note, second-input ("And by") curves on voice curves and automation, occlusion curves, Studio fields in `audio.json`, and new loudness target defaults | Accepted |
 
 ## Working with decisions

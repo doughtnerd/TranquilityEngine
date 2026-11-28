@@ -91,7 +91,7 @@ impl MeshBuilder {
     }
     /// A quad p0..p3 (cyclic), wound so its normal points along `n`.
     fn quad(&mut self, p0: V3, p1: V3, p2: V3, p3: V3, n: V3) {
-        if dot(cross(sub(p1, p0), sub(p2, p0)), n) < 0.0 {
+        if dot(vis_raster::geom::front_normal(p0, p1, p2), n) < 0.0 {
             self.tri(p0, p2, p1);
             self.tri(p0, p3, p2);
         } else {
@@ -1123,7 +1123,7 @@ pub const OH: usize = 1080;
 
 /// Is the triangle `abc` facing the eye?
 pub fn faces(eye: V3, a: V3, b: V3, c: V3) -> bool {
-    dot(cross(sub(b, a), sub(c, a)), sub(eye, a)) > 0.0
+    dot(vis_raster::geom::front_normal(a, b, c), sub(eye, a)) > 0.0
 }
 
 pub fn tri_at(m: &MeshData, t: usize) -> [V3; 3] {
@@ -1234,7 +1234,7 @@ pub fn oracle(
             [4, 5, 7, 6],
         ] {
             let (p0, p1, p2) = (corner(f[0]), corner(f[1]), corner(f[2]));
-            let n = cross(sub(p1, p0), sub(p2, p0));
+            let n = vis_raster::geom::front_normal(p0, p1, p2);
             let q = if dot(n, sub(p0, cen)) < 0.0 {
                 [f[0], f[3], f[2], f[1]]
             } else {

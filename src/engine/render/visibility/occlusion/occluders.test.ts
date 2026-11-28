@@ -32,22 +32,21 @@ describe("world occluders", () => {
   // Scale 3, then move by (10, 0, 0): column-major.
   const m = new Float32Array([3, 0, 0, 0, 0, 3, 0, 0, 0, 0, 3, 0, 10, 0, 0, 1]);
 
-  it("writes corners a, c, b in world space, reorders neighbours to match, and doubles errors in world units", () => {
+  it("writes triangles in world space in the engine's winding, with their neighbours, and doubles errors in world units", () => {
     const w = worldOccluder([quad], m, 0);
     expect(w.count).toBe(2);
-    expect([...w.triangles.subarray(0, 9)]).toEqual([10, 0, 0, 13, 3, 0, 13, 0, 0]); // a=(0,0) c=(1,1) b=(1,0), ×3 +10
-    // Old edges (a→b, b→c, c→a) = (N, N, 1) become (a→c, c→b, b→a) = (1, N, N); the second: (0, N, N) → (N, N, 0).
-    expect([...w.neighbors]).toEqual([1, N, N, N, N, 0]);
+    expect([...w.triangles.subarray(0, 9)]).toEqual([10, 0, 0, 13, 0, 0, 13, 3, 0]); // a=(0,0) b=(1,0) c=(1,1), ×3 +10
+    expect([...w.neighbors]).toEqual([N, N, 1, 0, N, N]);
     expect(w.errors[0]).toBeCloseTo(0.001 * 2 * 2 * 3, 6);
     expect(w.errors[1]).toBeCloseTo(0.002 * 2 * 2 * 3, 6);
   });
 
   it("rebases neighbours when meshes are concatenated", () => {
     const w = worldOccluder([quad, quad], m, 0);
-    expect([...w.neighbors.subarray(6)]).toEqual([3, N, N, N, N, 2]);
+    expect([...w.neighbors.subarray(6)]).toEqual([N, N, 3, 2, N, N]);
   });
 
-  it("is rasterised by the core and hides what it covers (the winding the core keeps)", async () => {
+  it("is rasterised by the core as engine meshes wind it, and hides what it covers", async () => {
     const load = await loadOcclusionCore(256, 128);
     if (load.status !== "ready") throw new Error("the occlusion core didn't load");
     const view = makeView({ key: "t", kind: "camera", position: [0, 0, -1], right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1], projection: "perspective", fovY: Math.PI / 2, orthoHalfHeight: 0, near: 0.1, far: 1000, widthPx: 256, heightPx: 128, persistent: false, occlusion: true });

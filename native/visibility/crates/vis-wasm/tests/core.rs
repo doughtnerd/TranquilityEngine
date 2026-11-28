@@ -28,10 +28,11 @@ fn put_wall(core: &mut Core) {
         [10.0, 10.0, 10.0],
         [10.0, -10.0, 10.0],
     );
-    let tris: Vec<f32> = [a, b, c, a, c, d].concat();
+    // the engine's winding (ADR 0450): front faces toward the camera at -z
+    let tris: Vec<f32> = [a, c, b, a, d, c].concat();
     core.triangles_mut()[..18].copy_from_slice(&tris);
     core.errors_mut()[..2].copy_from_slice(&[0.0, 0.0]);
-    core.neighbors_mut()[..6].copy_from_slice(&[u32::MAX, u32::MAX, 1, 0, u32::MAX, u32::MAX]);
+    core.neighbors_mut()[..6].copy_from_slice(&[1, u32::MAX, u32::MAX, u32::MAX, u32::MAX, 0]);
 }
 
 fn put_boxes(core: &mut Core, zs: &[f32]) {

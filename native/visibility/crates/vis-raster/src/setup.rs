@@ -125,19 +125,13 @@ fn project(w: usize, h: usize, v: V4) -> (f32, f32, f32) {
     )
 }
 
-/// Sets up one triangle already in the screen's units. `s` shrinks the edges a to b, b to c, c to a. Front faces have
-/// negative screen area (y up); the stored triangle is made positive.
+/// Sets up one triangle already in the screen's units. `s` shrinks the edges a to b, b to c, c to a. In the engine's
+/// winding (`geom::front_normal`), front faces have positive screen area (y up); others are dropped.
 fn emit(w: usize, h: usize, a: V4, b: V4, c: V4, s: [f32; 3], out: &mut Vec<Tri>) {
-    let mut p = [project(w, h, a), project(w, h, b), project(w, h, c)];
+    let p = [project(w, h, a), project(w, h, b), project(w, h, c)];
+    let sh = s;
     let area = (p[1].0 - p[0].0) * (p[2].1 - p[0].1) - (p[2].0 - p[0].0) * (p[1].1 - p[0].1);
-    if !area.is_finite() || area >= 0.0 {
-        return;
-    }
-    p.swap(1, 2);
-    // after the swap the edges are a to c, c to b, b to a
-    let sh = [s[2], s[1], s[0]];
-    let area = (p[1].0 - p[0].0) * (p[2].1 - p[0].1) - (p[2].0 - p[0].0) * (p[1].1 - p[0].1);
-    if !(area >= 1e-6) {
+    if !(area.is_finite() && area >= 1e-6) {
         return;
     }
     let minx = p[0].0.min(p[1].0).min(p[2].0);

@@ -7,9 +7,8 @@
  * - **Opacity:** only an opaque material occludes: a material asset whose `alphaMode` is `"opaque"`, or `"auto"` with
  *   a fully opaque colour (cut-outs and blends don't); without an asset, the model's own surfaces, all opaque. Anything
  *   else (a shader graph named directly, a file that doesn't parse) doesn't occlude.
- * - **Winding:** model meshes wind front faces so their right-hand normal points inward (Babylon's left-handed
- *   default, ADR 0164); the core keeps triangles whose right-hand normal faces the eye, so each triangle is written with
- *   its last two corners swapped (and its edge neighbours reordered to match).
+ * - **Winding:** triangles go to the core as engine meshes wind them (`scene/winding.ts`, ADR 0450), with their edge
+ *   neighbours as they are.
  * - **Errors:** stored as fractions of LOD0's bounding-box diagonal; the core gets them in world units, doubled (ADR
  *   0447 §3, "errors doubled").
  *
@@ -89,11 +88,11 @@ export function opaqueMaterial(path: string, meshes: readonly ModelMesh[]): bool
 
 /** A renderer's occluder triangles in world space, as the core takes them. */
 export interface WorldOccluder {
-  /** 9 floats per triangle, corners b and c swapped. */
+  /** 9 floats per triangle, in the engine's winding. */
   readonly triangles: Float32Array;
   /** World-space error per triangle, doubled. */
   readonly errors: Float32Array;
-  /** Edge neighbours per triangle in the swapped order, indices into this list. */
+  /** Edge neighbours per triangle (edges a→b, b→c, c→a), indices into this list. */
   readonly neighbors: Uint32Array;
   readonly count: number;
 }
@@ -108,21 +107,17 @@ export function worldOccluder(geometries: readonly OccluderGeometry[], m: ArrayL
   for (const g of geometries) {
     const base = t, n = g.indices.length / 3, p = g.positions, idx = g.indices, factor = 2 * g.diagonal * scale;
     for (let i = 0; i < n; i++, t++) {
-      // a, c, b: the core's facing.
-      const corners = [idx[i * 3], idx[i * 3 + 2], idx[i * 3 + 1]];
       for (let k = 0; k < 3; k++) {
-        const v = corners[k] * 3, x = p[v], y = p[v + 1], z = p[v + 2];
+        const v = idx[i * 3 + k] * 3, x = p[v], y = p[v + 1], z = p[v + 2];
         triangles[t * 9 + k * 3] = m[o] * x + m[o + 4] * y + m[o + 8] * z + m[o + 12];
         triangles[t * 9 + k * 3 + 1] = m[o + 1] * x + m[o + 5] * y + m[o + 9] * z + m[o + 13];
         triangles[t * 9 + k * 3 + 2] = m[o + 2] * x + m[o + 6] * y + m[o + 10] * z + m[o + 14];
       }
       errors[t] = g.errors[i] * factor;
-      // Edges of (a, c, b): a→c (old c→a, 2), c→b (old b→c, 1), b→a (old a→b, 0).
-      const nb = g.neighbors;
-      const e2 = nb[i * 3 + 2], e1 = nb[i * 3 + 1], e0 = nb[i * 3];
-      neighbors[t * 3] = e2 === NO_NEIGHBOR ? NO_NEIGHBOR : base + e2;
-      neighbors[t * 3 + 1] = e1 === NO_NEIGHBOR ? NO_NEIGHBOR : base + e1;
-      neighbors[t * 3 + 2] = e0 === NO_NEIGHBOR ? NO_NEIGHBOR : base + e0;
+      for (let k = 0; k < 3; k++) {
+        const e = g.neighbors[i * 3 + k];
+        neighbors[t * 3 + k] = e === NO_NEIGHBOR ? NO_NEIGHBOR : base + e;
+      }
     }
   }
   return { triangles, errors, neighbors, count };

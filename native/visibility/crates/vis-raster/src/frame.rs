@@ -17,7 +17,7 @@
 use crate::buffer::{
     raster_scalar, raster_simd, rect_visible_fine, rect_visible_hier, DepthBuf, Tri,
 };
-use crate::geom::{cross, dot, sqrt, sub, tri_distance_sq};
+use crate::geom::{dot, front_normal, sqrt, sub, tri_distance_sq};
 use crate::setup::{load_cols, setup_poly, xform, xform_simd, TriAdjust};
 use crate::view::View;
 use alloc::vec::Vec;
@@ -51,8 +51,8 @@ impl Default for Config {
 /// The occluder triangles of one view, already chosen and budgeted by the caller.
 #[derive(Clone, Copy)]
 pub struct Occluders<'a> {
-    /// World-space triangles, 9 floats each (x, y, z per vertex). Front faces are clockwise on screen (y up), i.e. the
-    /// normal `(b - a) x (c - a)` points toward a viewer in front.
+    /// World-space triangles, 9 floats each (x, y, z per vertex), in the engine's winding (`geom::front_normal`, ADR 0450):
+    /// the outward normal `(c - a) x (b - a)` points toward a viewer in front.
     pub triangles: &'a [f32],
     /// Per triangle: its final error E in world units (the sampled error, doubled by the caller).
     pub errors: &'a [f32],
@@ -157,7 +157,7 @@ impl Occlusion {
                 continue;
             }
             let (a, b, c) = ([t[0], t[1], t[2]], [t[3], t[4], t[5]], [t[6], t[7], t[8]]);
-            let n3 = cross(sub(b, a), sub(c, a));
+            let n3 = front_normal(a, b, c);
             let dp = dot(n3, sub(eye, a));
             if !(dp > 0.0) {
                 st.facing_away += 1;
@@ -192,7 +192,7 @@ impl Occlusion {
                 *e = o == NONE || o as usize >= n || self.drawn[o as usize] == 0;
             }
             // push = E / max(|cos|, 0.2): the angle between the normal and the view ray to the centre
-            let n3 = cross(sub(b, a), sub(c, a));
+            let n3 = front_normal(a, b, c);
             let cen = [
                 (a[0] + b[0] + c[0]) / 3.0,
                 (a[1] + b[1] + c[1]) / 3.0,

@@ -68,8 +68,8 @@ fn wall(z: f32, half: f32) -> Vec<f32> {
         [half, half, z],
         [half, -half, z],
     );
-    // front face: normal (b - a) x (c - a) must point toward -z: a, b, c = (-,-), (-,+), (+,+) gives -z
-    [a, b, c, a, c, d].concat()
+    // the engine's winding (front_normal = (c - a) x (b - a)) must point toward -z: (a, c, b) and (a, d, c) do
+    [a, c, b, a, d, c].concat()
 }
 
 /// An axis-aligned box as the core's 6 floats.
@@ -85,7 +85,8 @@ fn aabb(c: V3, h: V3) -> [f32; 6] {
 }
 
 /// The neighbour table of `wall`: the two triangles share their diagonal (edge c to a of the first, a to c of the second).
-const WALL_NB: [u32; 6] = [NONE, NONE, 1, 0, NONE, NONE];
+// (a, c, b) and (a, d, c) share a-c: edge a to c of the first, c to a of the second.
+const WALL_NB: [u32; 6] = [1, NONE, NONE, NONE, NONE, 0];
 
 fn run(
     occ: &mut Occlusion,
@@ -224,8 +225,8 @@ fn the_near_rule_is_per_triangle_not_per_occluder() {
         [50.0, 0.0, 50.0],
         [50.0, 0.0, -50.0],
     );
-    let floor = [a, b, c, a, c, d].concat();
-    // (b - a) x (c - a) = (0,0,100) x (100,0,100) = (0*100-100*0, 100*100-0*100, 0-0) = (0, 10000, 0): up. good
+    let floor = [a, c, b, a, d, c].concat();
+    // front_normal(a, c, b) = (b - a) x (c - a) = (0,0,100) x (100,0,100) = (0, 10000, 0): up
     let (st, _) = run(
         &mut occ,
         &view,
