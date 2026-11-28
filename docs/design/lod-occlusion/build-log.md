@@ -123,3 +123,9 @@ Coordinator's log of merges, checks and findings. Newest last.
 - **Merged master (2026-11-28).** Master took 0445–0458, so this build's records moved: LOD 0446 → 0459, occlusion
   0447 → 0460, auto-thin 0448 → 0461, ECS render scene 0449 → 0462, one winding 0450 → 0463. Earlier entries in this
   log use the old numbers.
+- **Occlusion step tuned:** per-renderer occluder info cached (geometry, triangles, opacity, recomputed when meshes or
+  material change), arrays reused, and no occludee gathering when nothing occludes. Profiled city static: the step goes
+  from 2.09 to about 1.7 ms a frame, about 1 ms of it the wasm rasteriser. Re-measured, interleaved (ms p50):
+  city static 16.5 → 17.9 and 16.7 → 20.2 (mean +2.5, unchanged within this machine's noise; triangles halved as
+  before); forest fly 35.3 → 34.8 and 38.7 → 42.6 (mean +1.7, was +2.6), p99 61.9 → 60.7 and 66.4 → 76.5 (was 73 → 105).
+  Still above the record's ~1.2 ms a view on SwiftShader; hardware numbers are the owner's.
