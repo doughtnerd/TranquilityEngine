@@ -77,3 +77,19 @@ Coordinator's log of merges, checks and findings. Newest last.
   instance, level-switch churn, and the engine's per-member gather. 0446's own spike measured thin batches at about half
   the JS CPU of auto. Proposed next (owner decision): draw auto batches through per-pass thin sources while levels are
   applied, as thin batches already do.
+- **Visibility stage on the core's change signals (2026-11-28).** Membership is rebuilt only when the new internal
+  `World.structureVersion` moves (components added, removed, enabled, disabled; nodes reparented or destroyed); bounds
+  only when a node's `tVersion` moves or its meshes change. Profiled, the stage's own code went from ~10.8 to ~4.7 ms a
+  frame on the forest fly-through.
+- **Measuring on this machine:** SwiftShader on a shared container drifts by tens of percent between runs (the
+  unchanged no-LOD forest static read 54.6, 58.0 and 37.3 ms in three sequential runs). Comparisons are now
+  interleaved, no-LOD and LOD alternating (`/tmp`-free: `run.mjs --only <id>$`, one run each, three rounds).
+- **Interleaved, forest (ms p50 per round):**
+
+  | Path | No LOD | LOD | Mean no LOD → LOD |
+  |---|---|---|---|
+  | static | 56.0, 57.9, 52.4 | 49.4, 51.9, 58.6 | 55.4 → 53.3 |
+  | fly | 51.0, 44.0, 48.3 | 88.7, 86.6, 80.9 | 47.8 → 85.4 |
+
+  Static now meets "JS CPU ≤ baseline" within the noise (LOD lower in two rounds of three), with 4× fewer triangles.
+  The fly-through is still 1.8×: level-switch churn and Babylon's per-instance work, which ADR 0448 (Proposed) targets.
