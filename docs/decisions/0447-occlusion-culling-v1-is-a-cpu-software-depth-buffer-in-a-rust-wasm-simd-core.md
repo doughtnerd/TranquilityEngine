@@ -1,6 +1,6 @@
 # 0447. Occlusion culling v1 is a CPU software depth buffer in a Rust wasm SIMD core
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-11-28, after the RFC round)
 - **Date:** 2026-11-28
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -189,6 +189,12 @@ Five reviewers all approved with changes. Every point and its resolution is in `
   - A back-off pauses it where it culls little.
 - **Skinned meshes** are occludees only. Transparent materials never occlude. `occlusion` is scriptable per frame.
 - **Packaging** follows the animation core's conventions.
+
+## Owner decisions still open (2026-11-28)
+
+The owner accepted the direction. Two choices weren't answered and stand as provisional:
+1. **LOD generation default:** opt-in per model, with one click (provisional, as recommended), until the owner chooses. The alternative is a project-wide default for new models of at least 2,000 triangles, which would also touch the frozen navigation sample unless its `project.json` opts out.
+2. **Real-hardware measurements** (a desktop GPU, and the owner's Pixel 8 emulator) need the owner's machines. Runners will be provided, and the records' GPU and Android figures stay estimates until then.
 
 ## Alternatives considered
 

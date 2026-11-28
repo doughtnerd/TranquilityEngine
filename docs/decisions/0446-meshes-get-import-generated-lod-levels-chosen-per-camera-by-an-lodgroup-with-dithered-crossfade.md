@@ -1,6 +1,6 @@
 # 0446. Meshes get LOD levels generated at import, chosen per camera by an `LODGroup`, with dithered crossfade
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-11-28, after the RFC round)
 - **Date:** 2026-11-28
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -245,6 +245,12 @@ Five reviewers (architect, senior engineer, junior engineer, user persona, premi
 - **Smaller changes.** Babylon's dither plugin's real limitation is stated. `lodFirstLevel` and `visibility` are added. `customLODSelector` is measured in the first wave.
 
 **Estimate (provisional):** about 27 person-weeks for 0446 and 0447 together (range 22–32), from the senior engineer's task table plus a third in reserve. It is calibrated against estimates, not actuals.
+
+## Owner decisions still open (2026-11-28)
+
+The owner accepted the direction. Two choices weren't answered and stand as provisional:
+1. **LOD generation default:** opt-in per model, with one click (provisional, as recommended), until the owner chooses. The alternative is a project-wide default for new models of at least 2,000 triangles, which would also touch the frozen navigation sample unless its `project.json` opts out.
+2. **Real-hardware measurements** (a desktop GPU, and the owner's Pixel 8 emulator) need the owner's machines. Runners will be provided, and the records' GPU and Android figures stay estimates until then.
 
 ## Alternatives considered
 
