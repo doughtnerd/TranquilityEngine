@@ -106,3 +106,20 @@ Coordinator's log of merges, checks and findings. Newest last.
 - **City, interleaved, after 0461** (ms p50 per round): fly no LOD 21.1, 22.3, 20.8 against LOD 17.9, 16.2, 16.6
   (mean 21.4 → **16.9**, −21 %); static 22.4, 20.8, 23.1 against 15.3, 14.9, 15.1 (22.1 → **15.1**, −32 %).
   Triangles: fly 6.9M → 1.4M, static 10.3M → 1.8M. All four gate paths now meet "JS CPU ≤ baseline".
+- **Occlusion integrated (ADR 0460 T10) and measured.** Interleaved, LOD alone against LOD + the engine's occlusion
+  (High tier, 256×128 buffer, main camera; ms p50 means, SwiftShader):
+
+  | Path | Main-view triangles | CPU | p99 |
+  |---|---|---|---|
+  | city static (3 rounds) | 1.57M → 0.79M | 17.8 → 20.1 | similar |
+  | city fly (3 rounds) | 1.06M → 0.56M | 21.3 → 23.4 | mixed |
+  | forest static (2 rounds) | unchanged (nothing culled) | 32.7 → 28.1 (noise) | similar |
+  | forest fly (2 rounds) | unchanged | 40.8 → 43.4 | 73 → 105 |
+
+  It halves the city's main-view triangles at about 2.2 ms of CPU a view, against the record's estimate of about
+  1.2 ms. In the forest nothing occludes (trees fail the width test, as designed), yet gathering candidates over 10k
+  renderers still costs, and the fly-through's worst frames get worse. Next: profile the step and cache which
+  renderers can occlude at all.
+- **Merged master (2026-11-28).** Master took 0445–0458, so this build's records moved: LOD 0446 → 0459, occlusion
+  0447 → 0460, auto-thin 0448 → 0461, ECS render scene 0449 → 0462, one winding 0450 → 0463. Earlier entries in this
+  log use the old numbers.
