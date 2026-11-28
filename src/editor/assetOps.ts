@@ -10,7 +10,7 @@
 // it (projects.ts), and references to its slices (`<file>#<slice>`) are updated like the file's.
 import { signal } from "@preact/signals";
 import { isSidecarPath, sidecarAsset } from "../engine/scene/importSettings";
-import { fileName, folderOf } from "./assetBrowser";
+import { fileName, folderOf } from "./projectPath";
 import { assetDocumentsMoved } from "./assetDocuments";
 import { rewriteReferences } from "./assetReferences";
 import { filesIn, openScenePaths, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";

@@ -6,7 +6,7 @@
 // files on disk are rewritten, and the open scene is edited as one undo step (save to keep it).
 // Other files (scripts, asset and model files) keep their references and are listed as still referring to it.
 // A deleted file's Code panel tab closes, and the question names unsaved text that goes with it (ADR 0308).
-import { fileName } from "./assetBrowser";
+import { fileName } from "./projectPath";
 import { entryPath, isFolderEntry } from "./assetEntry";
 import { codeBuffersDeleted, unsavedWithin } from "./code/codeBuffers";
 import { assetUsers, removeReferences } from "./assetReferences";

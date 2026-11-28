@@ -9,6 +9,7 @@
 // saved with the scene's store and rules by assetHistory.ts: undoing then editing keeps the undone
 // branch, and reopening the project brings the history back. It follows renames and is deleted
 // with its file.
+import { fileName } from "./projectPath";
 import { computed, effect, signal, untracked, type ReadonlySignal } from "@preact/signals";
 import { deepEqual } from "../engine/audio/deepEqual";
 import { deleteAssetHistories, moveAssetHistories, persistHistory, type HistoryOutcome, type PersistedHistory } from "./historyPersistence";
@@ -76,7 +77,6 @@ export interface AssetDocument<T> {
 const DEFAULT_WRITE_DELAY = 150;
 const DEFAULT_LABEL = "Edit";
 
-const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 class Document<T> implements AssetDocument<T> {
   readonly value;

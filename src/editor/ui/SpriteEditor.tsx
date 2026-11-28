@@ -4,7 +4,7 @@ import { usePanelHistory, type UndoHistory } from "../activeHistory";
 import { whyNotSliceName, type SpriteFill, type SpriteSlice } from "../../engine/scene/importSettings";
 import type { SliceSkin, SpriteFlipbook } from "../../engine/animation/sprites/sidecar";
 import { spriteEditorTools, type SpriteEditorChange, type SpriteEditorToolContribution, type SpriteEditorToolProps } from "../sdk/contributions";
-import { fileName } from "../assetBrowser";
+import { fileName } from "../projectPath";
 import { readImportSettings, spriteEditorImage, writeImportSettings } from "../assetImport";
 import { renameSliceReferences } from "../assetOps";
 import { errorStatus } from "../messages";

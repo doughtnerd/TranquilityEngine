@@ -1,5 +1,6 @@
 // What the History popover and its Undo and Redo buttons say (ADR 0349, 0145): for the active history (the focused
 // document's), whether each button works, its tooltip naming the step and the keys, and the popover's heading.
+import { fileName } from "../projectPath";
 import type { ActiveHistory } from "../activeHistory";
 import { formatKeys } from "./keyCombo";
 
@@ -17,7 +18,6 @@ export interface HistoryPopoverText {
   readonly tree: boolean;
 }
 
-const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /** The buttons' and heading's words for `active` (null: nothing focused has a history; `none` says so). */
 export function historyPopoverText(active: Pick<ActiveHistory, "history" | "path"> | null, mac: boolean, none = "Nothing here to undo"): HistoryPopoverText {

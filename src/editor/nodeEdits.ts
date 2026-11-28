@@ -10,7 +10,8 @@
 import { RenameNodeId, RevertOverrides, type NodePath, type SceneDocument } from "./document";
 import { errorStatus } from "./messages";
 import { isOverridden, writeProperty } from "./overrideWriter";
-import { applyOverridesTo, createPrefab, createPrefabFromNodes, findInner } from "./prefabs";
+import { applyOverridesTo, createPrefab, createPrefabFromNodes } from "./prefabs";
+import { findInner } from "./nodeKey";
 import { openPrefabFrom } from "./prefabTabs";
 import type { EditorProject } from "./projects";
 import { whyReadOnly } from "./readOnly";

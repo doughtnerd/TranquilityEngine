@@ -8,12 +8,13 @@
 // selection: while one is picked it wins (runtimeInspect.ts).
 import { batch, computed, signal } from "@preact/signals";
 import type { GameObject } from "../engine";
-import { assetKind, folderOf } from "./assetBrowser";
+import { assetKind } from "./assetBrowser";
+import { folderOf } from "./projectPath";
 import { isSliceEntry, splitSliceEntry } from "./assetEntry";
 import { kindImportSettings, kindInspector } from "./assetKindLookup";
 import { openFolder, selectedAssets, setPanelSelection } from "./assetSelection";
 import type { NodePath } from "./document";
-import { findInner } from "./prefabs";
+import { keyExists, parseKey } from "./nodeKey";
 import { inspectedWorld, liveInspecting, liveSelection } from "./runtimeInspect";
 import { docVersion, openScene, selectedKeys, selectedUIElement, type OpenScene } from "./state";
 import { parseUIViewRefKey, uiViewRefKey, type UIViewRef } from "./uiViews";
@@ -71,10 +72,9 @@ export const inspectorTarget = computed<InspectorTarget>(() => {
   if (!scene) return { kind: "nothing" };
   const bone = keys.length === 0 ? selectedBone.value : null;
   if (bone && bone.scene === scene) {
-    const path = bone.key.split("/") as NodePath;
-    if (scene.doc.has(path[0]) && (path.length === 1 || findInner(scene.doc, path) !== null)) return { kind: "bone", scene, path, bone: bone.bone, provider: bone.provider };
+    if (keyExists(scene.doc, bone.key)) return { kind: "bone", scene, path: parseKey(bone.key), bone: bone.bone, provider: bone.provider };
   }
-  const paths = keys.map((k) => k.split("/") as NodePath).filter((p) => scene.doc.has(p[0]) && (p.length === 1 || findInner(scene.doc, p) !== null));
+  const paths = keys.filter((k) => keyExists(scene.doc, k)).map(parseKey);
   return paths.length > 0 ? { kind: "nodes", scene, paths } : { kind: "sceneSettings", scene };
 });
 

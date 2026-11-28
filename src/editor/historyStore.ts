@@ -4,6 +4,7 @@
 // damage the slot being written, so the other still holds the previous generation. On top of
 // that, project files go through the platform's temp-file-then-rename write. Which slots a document uses is
 // `historyPersistence.ts`'s choice (ADR 0316).
+import { folderOf } from "./projectPath";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { hashText, type HistoryFile } from "./document";
 import { joinPath } from "./projects";
@@ -71,7 +72,7 @@ export class HistoryStore {
  * `base` (asset documents use `.myco/asset-history`, ADR 0141).
  */
 export function projectSlots(fs: FileSystem, root: string, scene: string, base = ".myco/history"): SlotBackend {
-  const folder = scene.includes("/") ? scene.slice(0, scene.lastIndexOf("/")) : "";
+  const folder = folderOf(scene);
   const dir = joinPath(root, `${base}${folder ? `/${folder}` : ""}`);
   const file = (slot: "a" | "b") => joinPath(root, `${base}/${scene}.history.${slot}.json`);
   return {

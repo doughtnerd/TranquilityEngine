@@ -4,19 +4,18 @@
 import { localPoseUnder } from "../engine/editor";
 import { RemoveNode, ReparentNode, SetField, type NodeReference, type SceneDocument } from "./document";
 import { FIELD_KINDS, noNodeRefs } from "./fields/kinds";
+import { isInnerKey } from "./nodeKey";
 import type { OpenScene } from "./state";
 import { undoStep } from "./undoStep";
 
 const EPSILON = 1e-4;
 
-/** True for a path key that points inside a prefab instance (`pipe/top`). */
-export const isInsidePrefab = (key: string) => key.includes("/");
 
 /** Why `id` can't move under `parent`, or null if it can. */
 export function whyNotMovable(doc: SceneDocument, id: string, parent: string | null): string | null {
-  if (isInsidePrefab(id)) return "nodes inside a prefab are moved in the prefab";
+  if (isInnerKey(id)) return "nodes inside a prefab are moved in the prefab";
   if (!doc.has(id)) return "that node is gone";
-  if (parent !== null && isInsidePrefab(parent)) return "nodes inside a prefab can't take children here";
+  if (parent !== null && isInnerKey(parent)) return "nodes inside a prefab can't take children here";
   if (parent !== null && !doc.has(parent)) return "that parent is gone";
   if (parent !== null && doc.subtree(id).includes(parent)) return "a node can't go inside itself";
   return null;
@@ -97,7 +96,7 @@ export function referencesInto(doc: SceneDocument, id: string | readonly string[
 
 /** Why `key` can't be deleted, or null if it can. */
 export function whyNotDeletable(doc: SceneDocument, key: string): string | null {
-  if (isInsidePrefab(key)) return "nodes inside a prefab are removed in the prefab";
+  if (isInnerKey(key)) return "nodes inside a prefab are removed in the prefab";
   if (!doc.has(key)) return "that node is gone";
   return null;
 }

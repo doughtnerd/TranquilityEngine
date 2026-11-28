@@ -5,6 +5,7 @@
 // in the hierarchy.
 import { effect, signal } from "@preact/signals";
 import type { SceneDocument } from "./document";
+import { rootOf } from "./nodeKey";
 import { ancestorKeys } from "./selectionModel";
 import { currentProject, docVersion, openScene } from "./state";
 
@@ -81,9 +82,9 @@ export function setHidden(key: string, hidden: boolean): void {
   if (nodeFlags.peek().hidden.has(key) === hidden) return;
   update((f) => (hidden ? f.hidden.add(key) : f.hidden.delete(key)));
   const scene = openScene.peek();
-  if (!hidden && scene?.doc.has(key.split("/")[0])) {
+  if (!hidden && scene?.doc.has(rootOf(key))) {
     // Showing it again: rebuild its World node from the document, so it gets its authored active state back.
-    scene.sync.apply([{ kind: "rebuild", node: key.split("/")[0] }]);
+    scene.sync.apply([{ kind: "rebuild", node: rootOf(key) }]);
     docVersion.value++; // outlines and gizmos pick up the rebuilt nodes
   }
 }

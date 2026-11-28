@@ -1,5 +1,6 @@
 // Baking a ReflectionProbe from the Inspector (ADR 0110): capture the probe in the editor's World,
 // write the prefiltered `.env` next to the scene, then point the probe at it through an undoable edit.
+import { fileName, folderOf, isSceneFile, sceneDisplayName } from "./projectPath";
 import { ReflectionProbe } from "../engine";
 import { viewport, type EditorViewport } from "../engine/editor";
 import type { GameObject } from "../engine/scene/GameObject";
@@ -15,7 +16,7 @@ const REFLECTION_PROBE = "engine.ReflectionProbe";
 const assetPathOf = (ref: unknown) => (typeof ref === "string" ? assetRefTarget(ref) : "");
 
 /** The scene file's name without its folder and `.scene.json`/`.prefab.json`. */
-const sceneBase = (scenePath: string) => (scenePath.split("/").pop() ?? scenePath).replace(/\.(scene|prefab)\.json$/i, "").replace(/\.[^.]*$/, "");
+const sceneBase = (scenePath: string) => (isSceneFile(scenePath) ? sceneDisplayName(scenePath) : fileName(scenePath).replace(/\.[^.]*$/, ""));
 
 /** A file-name-safe version of a node name. */
 const safe = (s: string) => s.replace(/[\\/:*?"<>|#]+/g, "-").trim() || "probe";
@@ -24,8 +25,7 @@ const safe = (s: string) => s.replace(/[\\/:*?"<>|#]+/g, "-").trim() || "probe";
 function probeBakePath(project: EditorProject, scenePath: string, nodeName: string, bakedMap: unknown): string {
   const current = assetPathOf(bakedMap);
   if (current && /\.env$/i.test(current)) return current;
-  const slash = scenePath.lastIndexOf("/");
-  const folder = slash >= 0 ? `${scenePath.slice(0, slash)}/probes` : "probes";
+  const folder = folderOf(scenePath) ? `${folderOf(scenePath)}/probes` : "probes";
   return freePath(project, folder, `${safe(sceneBase(scenePath))}-${safe(nodeName)}.env`);
 }
 
