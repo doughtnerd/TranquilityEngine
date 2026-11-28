@@ -641,9 +641,10 @@ export class VisibilityService {
       occluders++;
     }
     // 5. Occludees: each drawn group once with its bounds (a lone renderer with its own), unless a member is "none".
+    // Without an occluder nothing can be hidden: skip gathering them.
     const groups = scratch.groups;
     groups.length = 0;
-    for (const g of this.groupList) {
+    if (n > 0) for (const g of this.groupList) {
       const i = g.index;
       if (out.hidden[i] || out.levels[i] === LOD_CULLED || !g.members.length) continue;
       let testable = true, any = false;
