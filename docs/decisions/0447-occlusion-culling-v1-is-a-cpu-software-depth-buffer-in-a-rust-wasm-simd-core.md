@@ -51,7 +51,11 @@ GPU Hi-Z belongs to the high-end pipeline (O24), and baked PVS is a later option
   - **Forest:** with the same safe settings, the buffer culls only 28 % of what the reference culls (9,641 of 34,909). Thin trunks are poor occluders, and making them safe removes most culls.
 - **Two cameras** cost twice as much. A shadow cascade used as an occlusion camera culled 49 % of tested occludees in the city and 0.05 % in the forest, and is unproven for shadow correctness [U].
 - **Temporal reuse:** reusing last frame's buffer is nearly free. It caused 0 false occlusions at a 1-frame delay and 7 per 15k at 4 frames, for a slow camera; fast rotation is untested [U]. The spike's reprojection halved the culls and isn't worth it.
-- **Benchmark scenes** (`spikes/render-bench/`): BENCH-PLACEHOLDER.
+- **Benchmark scenes** (`spikes/render-bench/`; Myco projects, 1280×720, High tier; method and caveats in 0446's Context). A pixel-exact oracle that hides objects with no visible pixels, measured from eye level:
+  - **How much is hidden:** the forest hides 93.8 % of the 7,558 objects in view, and the city 97.3 % of 4,115. Along a moving path: forest 72–98 %, median 89 %; city 93–100 %.
+  - **Savings:** drawn triangles −90 % (forest) and −96 % (city); JS CPU −38 % and −44 %; and in the city, together with the LOD oracle, −99 % triangles.
+  - **Nothing visible is lost:** 0 silhouette pixels differ.
+  - **These are upper bounds.** The oracle also removes hidden shadow casters, which this record never does. And the bench forest's foliage is solid geometry, whereas the CPU buffer, with thin occluders excluded, captured only 28 % of its reference's culls in the spike's trunk-and-rock forest.
 
 ## Decision
 
@@ -153,7 +157,12 @@ This is a constraint on the design, not a plan (open question O24):
 ## Consequences
 
 **Positive**
-- **Big savings where it matters:** street-level city and interior views stop drawing what's hidden: BENCH-GAIN-PLACEHOLDER.
+- **Big savings where it matters.** At street level the city hides 97 % of its objects (oracle), and the CPU buffer culls 89 % of those in view with zero false occlusions (spike). Drawn triangles fall by up to 96 %, and JS CPU by up to 44 % (oracle).
+- **Targets for the build,** re-measured with the same harness on the same machine:
+  - city (auto) triangles ≤ 15 % of baseline;
+  - occlusion ≤ 2 ms per view in Chromium on the reference machine;
+  - city JS CPU, occlusion cost included, at least 20 % below baseline;
+  - zero false occlusions in the pixel check against the oracle.
 - **No authoring:** the default `"auto"` makes large solid models occluders from the stand-ins 0446 already generates.
 - **Conservative by construction:** zero false occlusions in the measured cities, and the rules are tested against a full-resolution reference.
 

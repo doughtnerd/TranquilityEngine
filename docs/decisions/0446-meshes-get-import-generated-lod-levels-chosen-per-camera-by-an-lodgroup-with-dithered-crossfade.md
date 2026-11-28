@@ -28,7 +28,28 @@
 
 **Measurements** (spike READMEs in `spikes/`; timings on a shared 4-core Xeon are smoke-level until the coordinator's idle re-run; Android floor (0169) figures are not measured: no emulator in the container, 4× CPU throttling is used as an estimate):
 
-- **Benchmark scenes** (`spikes/render-bench/`): BENCH-PLACEHOLDER.
+- **Benchmark scenes** (`spikes/render-bench/`). These are generated Myco projects at 1280×720 on the High tier (MSAA, 3 shadow cascades).
+  - **The scenes:**
+    - **Forest:** 4,000 trees (6.3–10.3k triangles each) and 6,000 rocks (3–5k).
+    - **City:** 576 buildings (2.2–4.7k triangles) and 5,000 street props (1.3–3.7k).
+  - **How they're measured:**
+    - Draw calls and triangles are exact, from a WebGL hook that agrees with Babylon's count to within 2 triangles.
+    - CPU is the JavaScript frame with draws counted but not issued, p50 over 3×150 frames on a loaded shared machine. Treat it as smoke-level.
+    - Headless Chromium renders through SwiftShader, a software GPU, so GPU time isn't measured. One real-raster forest frame takes 47 s.
+  - **Oracles:** each is a hack done only in the spike.
+    - LOD: meshoptimizer levels at 0.5, 0.25 and 0.1, swapped by screen height 0.5/0.25/0.1, culled below 0.02.
+    - Occlusion: a full-resolution object-ID pass that hides objects with zero visible pixels.
+
+  | Scene (auto batches) | Triangles per frame (main + shadow) | Draws | JS CPU p50 | LOD oracle | Occlusion oracle | Both |
+  |---|---|---|---|---|---|---|
+  | forest | 61.4M (44.3M + 17.1M) | 46 | 52.6 ms | −89 % triangles, draws 46→133, CPU −24 % | −90 % triangles, CPU −38 % | −98 % triangles, CPU −36 % |
+  | city | 10.3M | 68 | 41.8 ms | −95 % triangles, draws 68→144, CPU −34 % | −96 % triangles, CPU −44 % | −99 % triangles, CPU −42 % |
+
+  - **Thin batches cast whole in every cascade.** With `thin` materials, the forest draws **231.5M** triangles a frame, 173.6M of them in shadows, against 61.4M with `auto`; the city draws 52.4M against 10.3M. Their JS CPU is about half that of `auto` (24.8 and 19.5 ms).
+  - **LOD changes very few pixels:** 0.2 % of the forest picture and 1.06 % of the city's.
+  - **Occupancy:** at the static camera, most forest objects sit at the coarsest level (30 / 79 / 550 / 4,003, with 5,338 culled).
+  - **A moving camera costs more** than a still one in the spike: forest p99 101 ms against 82 ms with both oracles. Its hacks re-acquire drawables when they swap meshes, which the design below avoids.
+  - **At 4× CPU throttling (est.)** the baseline JS frame is 225–346 ms. Ten thousand individually instanced objects is far beyond the Android floor (0169) with or without LOD. The per-object cost of the mesh feature is its own problem (Open questions).
 - **Simplifier** (`spikes/lod-simplify/`): npm `meshoptimizer` 1.3.0 (MIT) runs unchanged in Node 22 and Chromium, with bit-identical output. The simplifier is 19.2 KB min+gzip (26.4 KB with the reorder encoder).
   - Speed: a 3-level chain with normals and UVs weighted takes 19 ms for a 20k-triangle rock and 84 ms for FlightHelmet (95k). Sponza (262k triangles, 103 submeshes) takes 366 ms, and its whole pipeline 846 ms.
   - Quality: on the rock, the maximum measured error is 0.62 / 1.00 / 1.65 % of the diagonal at 50 / 25 / 12.5 % of the triangles. On a two-material tree it is 1.0 / 2.0 / 2.6 %.
@@ -122,6 +143,8 @@
   - every view in the frame plan (0129): game cameras, render-texture cameras, the editor scene view and the preview inset, each with its own camera;
   - each reflection-probe capture (`probes.ts`), from the probe's position at its face resolution, with no crossfade.
 - **Shadow cascades** draw each group at the level the first view chose, at its settled level during a crossfade, switching at the fade's midpoint. Shadows then match the main view's silhouettes and need no extra selection. A group culled by LOD in that view casts no shadow. Occlusion (0447) never removes casters.
+- **Thin batches are compacted per cascade.** Before each cascade layer renders, a thin batch's caster buffer keeps only instances whose spheres meet that cascade's frustum. This is the thin-batch counterpart of `shadowCulling.ts`, and removes the measured 173.6M shadow triangles that thin batches spend drawing everything in every cascade.
+  - Rewriting the buffer per layer, through the shadow map's per-layer render hook, is to be verified in the first wave [U]. The fallback is one compaction for all cascades together.
 - **Applying it in Babylon.**
   - `BabylonMeshes` (`render/babylon/meshes.ts`) acquires a drawable per (renderer mesh, level) as levels are first used. A level's `MeshData` is a distinct batch key, so **thin batches split per level** automatically (0108).
   - **Before the frame:** every drawable used by any view stays enabled, because the view's cull task drops instances that start disabled (spike). Caster state is set before the shadow tasks.
@@ -195,7 +218,12 @@ This is a constraint on the design, not a plan (open question O24, added by this
 ## Consequences
 
 **Positive**
-- Dense scenes stop paying for distant detail: BENCH-GAIN-PLACEHOLDER.
+- **Dense scenes stop paying for distant detail.** The LOD oracle cut drawn triangles by 89 % in the forest and 95 % in the city, and JS CPU by 24–34 %, while changing 0.2–1 % of pixels.
+- **Targets for the build,** re-measured with the same harness on the same machine:
+  - forest (auto) triangles ≤ 20 % of baseline;
+  - forest (thin) shadow triangles ≤ 25 % of baseline;
+  - JS CPU no worse than baseline with every `LODGroup` forced to level 0;
+  - selection ≤ 0.5 ms per view for 10k groups.
 - **Little authoring:** models over 2,000 triangles get levels by default, and placing them adds the group.
 - One selection serves every view, thin batches and shadows, and it's unit-tested.
 - User shaders take part in crossfade untouched.
@@ -222,6 +250,7 @@ Nothing. `.mycomesh` version 4 files are refused and models load from source, as
 - **Dithered shadows** for crossfading casters, behind a tier field.
 - **Authored LOD import** (`MSFT_lod`, `_LOD0` names) through the reserved per-level `renderers` list.
 - **Whether probes and render-texture cameras want their own bias field.**
+- **The mesh feature's per-object CPU cost:** about 40–53 ms of JS per frame for 10k auto-instanced renderers in the benchmark. That's outside LOD's reach and deserves its own record (engine-side culling feeding Babylon less work, or more thin batching).
 
 ## References
 
