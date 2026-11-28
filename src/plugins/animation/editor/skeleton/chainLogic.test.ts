@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { refusalOf } from "../../../../editor/sdk";
 import { emptySkeletonProfile, encodeSkeletonProfile, formatSkeletonProfile, parseSkeletonProfile, type SkeletonProfile } from "../../../../engine/animation/skeletonProfile";
-import { addChain, addRole, freshName, moveChainRole, removeChain, removeRole, renameChain, renameProfile, renameRole, setChainIk, setChainKind, setChainRoles, setFlip, setMirror, setRange, setRequired, setRootRole } from "./chainLogic";
+import { addChain, addRole, moveChainRole, removeChain, removeRole, renameChain, renameProfile, renameRole, setChainIk, setChainKind, setChainRoles, setFlip, setMirror, setRange, setRequired, setRootRole } from "./chainLogic";
 
 const ok = (r: { next: SkeletonProfile } | { refused: string }): SkeletonProfile => {
   if ("refused" in r) throw new Error(r.refused);
@@ -135,10 +135,5 @@ describe("the profile as the core takes it", () => {
     const p = ok(addChain(quadruped(), "Legs", "leg", ["FrontLeft", "FrontRight"]));
     const e = encodeSkeletonProfile(p);
     expect("bytes" in e && e.bytes.length > 0).toBe(true);
-  });
-
-  it("makes new names unique", () => {
-    expect(freshName("Chain", ["Chain", "Chain 2"])).toBe("Chain 3");
-    expect(freshName("Chain", [])).toBe("Chain");
   });
 });

@@ -28,11 +28,12 @@ import { CurveRows, EventRows, MarkerRows } from "./ClipRows";
 import { TakeStrip } from "./TakeStrip";
 import { draftClipSource } from "./importPreviewLogic";
 import {
-  addClip, clipLength, clipReportOf, clipsOfTake, describeReport, freshClipName, allClipNames, poseMatch, removeClip, renameClip, rootMotionWithAxis, setAdditive, setClipRange, setCompression, setCurves, setEvents, setLoop,
+  addClip, clipLength, clipReportOf, clipsOfTake, describeReport, allClipNames, poseMatch, removeClip, renameClip, rootMotionWithAxis, setAdditive, setClipRange, setCompression, setCurves, setEvents, setLoop,
   setMarkers, setMirror, setRootMotion, splitClip, type ReportState,
 } from "./clipImportLogic";
 import "./clipImport.css";
 import "../skeleton/skeleton.css";
+import { uniqueName } from "../../../../engine/core/uniqueName";
 
 const ROLE = "Preview";
 const seconds = (t: number) => `${t.toFixed(2)} s`;
@@ -123,7 +124,7 @@ function ClipImportCard(props: ImportSettingsViewProps & { animation: ModelAnima
           disabled={disabled}
           title={disabled ? (readOnly ?? "") : "Add a clip from the playhead to the end of the take"}
           onClick={() => {
-            const name = freshClipName(`${take.name} clip`, allClipNames(anim, takes));
+            const name = uniqueName(`${take.name} clip`, allClipNames(anim, takes));
             const from = Math.min(atTake, take.duration - 0.01);
             if (run(addClip(anim, takes, take.name, name, Math.max(0, from), null), "Add a clip")) setClipName(name);
           }}

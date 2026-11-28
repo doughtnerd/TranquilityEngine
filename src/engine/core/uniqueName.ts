@@ -1,6 +1,7 @@
 // A name not yet taken: `base`, else `base` with the first free number. One module for the editor's
-// settings lists (layers, buses, agent types, Worlds…), pasted nodes, markup ids, the lobby's Worlds
-// and imported meshes, which differ only in how the number is written.
+// settings lists (layers, buses, agent types, Worlds…), pasted nodes, markup ids, the lobby's Worlds,
+// imported meshes and every other free name or id the editor and its plugins make (ADR 0465), which
+// differ only in how the number is written. Free file paths build on it in src/editor/freePath.ts.
 
 /** How a number is put on a name. */
 export interface Numbering {
@@ -17,6 +18,15 @@ export const SPACED: Numbering = { format: (stem, n) => `${stem} ${n}`, first: 2
 
 /** `title`, `title-2`, `title-3`…, renumbering `title-2` rather than extending it: markup ids. */
 export const DASHED: Numbering = { format: (stem, n) => `${stem}-${n}`, first: 2, suffix: /-\d+$/ };
+
+/** `enemy`, `enemy-2`, `enemy-3`…, extending `enemy-2` to `enemy-2-2` (unlike DASHED): prefab files, imported tile node ids. */
+export const HYPHENATED: Numbering = { format: (stem, n) => `${stem}-${n}`, first: 2 };
+
+/** `action`, `action2`, `action3`…: action names, action set ids. */
+export const JOINED: Numbering = { format: (stem, n) => `${stem}${n}`, first: 2 };
+
+/** `run`, `run_2`, `run_3`…: flipbooks, sprite slices, string keys. */
+export const UNDERSCORED: Numbering = { format: (stem, n) => `${stem}_${n}`, first: 2 };
 
 /** `Node`, `Node (1)`, `Node (2)`…, renumbering `Node (1)` rather than extending it: scene nodes, as Unity names copies. */
 export const BRACKETED: Numbering = { format: (stem, n) => `${stem} (${n})`, first: 1, suffix: / \(\d+\)$/ };

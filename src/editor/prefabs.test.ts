@@ -158,6 +158,13 @@ describe("Create Prefab (ADR 0022)", () => {
     expect((await createPrefabFromNodes(scene, project, ["ground-a", "ground-b"], "Ground")).path).toBe("prefabs/ground-2.prefab.json"); // ground.prefab.json exists
   });
 
+  it("avoids a file or folder whose name differs only in case (ADR 0465)", async () => {
+    // On Windows and macOS `prefabs/bird.prefab.json` would be `prefabs/Bird.prefab.json`.
+    await project.writeText("prefabs/Bird.prefab.json", JSON.stringify({ format: 1, nodes: [] }));
+    await project.createFolder("prefabs/Bird-2.prefab.json");
+    expect((await createPrefab(openScene.value!, project, "bird")).path).toBe("prefabs/bird-3.prefab.json");
+  });
+
   it("turns a node into a prefab file plus an instance in the same place", async () => {
     const scene = openScene.value!;
     const before = scene.sync.nodeFor("bird")!.transform!.position.toArray();

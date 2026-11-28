@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { ImportedSkeleton } from "../../../../engine/animation/import/skeleton";
 import { emptySkeletonProfile, encodeSkeletonProfile, type SkeletonProfile } from "../../../../engine/animation/skeletonProfile";
 import type { AnimationCompiler, ClipReport, RetargetSideInput } from "../compile/compiler";
+import { uniqueName } from "../../../../engine/core/uniqueName";
 import { humanoidProfile } from "./humanoidProfile";
 import { bakeRetargetedClip, bakedClipPath, boneMapIndices, profileCompatible, sideProblem, sourceClipRef, type RetargetEnv, type RetargetModel, type RetargetRequest } from "./retargetLogic";
 
@@ -40,7 +41,10 @@ function fakeEnv(models: Record<string, RetargetModel>, files: string[] = [], pr
     model: async (path) => models[path] ?? null,
     sourceClip: async (clip) => (clip.endsWith("#Anim/Idle") ? { error: `${clip}: the clip can't be read.` } : { raw: new Uint8Array([7, 7]), record: new Float32Array([1, 2]), rootAxes: 5 }),
     compiler: async () => compiler,
-    exists: (p) => files.includes(p),
+    freeFilePath: (folder, stem, ext) => {
+      const at = (name: string) => (folder ? `${folder}/${name}` : name);
+      return at(uniqueName(stem, (s) => files.includes(at(`${s}${ext}`))) + ext);
+    },
     writeBytes: async (path, bytes) => void calls.written.push({ path, bytes }),
   };
   return { env, calls };
@@ -85,9 +89,10 @@ describe("Bake retargeted clip", () => {
   });
 
   it("names the file after the clip and the target, and doesn't overwrite one that exists", async () => {
-    expect(bakedClipPath("models/hero.glb", "Run", () => false)).toBe("models/Run.hero.anim.bin");
-    expect(bakedClipPath("hero.glb", "Run/Fast", () => false)).toBe("Run_Fast.hero.anim.bin");
-    expect(bakedClipPath("models/hero.glb", "Run", (p) => p === "models/Run.hero.anim.bin" || p === "models/Run.hero 2.anim.bin")).toBe("models/Run.hero 3.anim.bin");
+    const asked = (folder: string, stem: string, ext: string) => `${folder}|${stem}|${ext}`;
+    expect(bakedClipPath("models/hero.glb", "Run", asked)).toBe("models|Run.hero|.anim.bin");
+    expect(bakedClipPath("hero.glb", "Run/Fast", asked)).toBe("|Run_Fast.hero|.anim.bin");
+    expect(bakedClipPath("models/hero.glb", "Run", fakeEnv({}, ["models/Run.hero.anim.bin", "models/Run.hero 2.anim.bin"]).env.freeFilePath)).toBe("models/Run.hero 3.anim.bin");
     const { env, calls } = fakeEnv({ "models/robot.glb": model("robot:"), "models/hero.glb": model("hero:") }, ["models/Run.hero.anim.bin"]);
     const out = await bakeRetargetedClip(env, request);
     expect(out.ok && out.path).toBe("models/Run.hero 2.anim.bin");

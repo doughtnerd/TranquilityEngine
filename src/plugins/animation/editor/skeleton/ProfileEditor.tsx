@@ -6,8 +6,9 @@
 import { useState } from "preact/hooks";
 import { AssetDocumentFrame, applyToDocument, editor, openAssetDocument, type AssetDocument, type EditResult, EmptyState } from "../../../../editor/sdk";
 import { CHAIN_KINDS, FLIPS, type ChainKind, type Flip, type JointRange, type SkeletonProfile } from "../../../../engine/animation/skeletonProfile";
-import { addChain, addRole, freshName, moveChainRole, removeChain, removeRole, renameChain, renameProfile, renameRole, setChainIk, setChainKind, setChainRoles, setFlip, setMirror, setRange, setRequired, setRootRole } from "./chainLogic";
+import { addChain, addRole, moveChainRole, removeChain, removeRole, renameChain, renameProfile, renameRole, setChainIk, setChainKind, setChainRoles, setFlip, setMirror, setRange, setRequired, setRootRole } from "./chainLogic";
 import "./skeleton.css";
+import { uniqueName } from "../../../../engine/core/uniqueName";
 
 const FREE: JointRange = { swingY: 180, swingZ: 180, twistMin: -180, twistMax: 180 };
 const input = (e: Event) => e.currentTarget as HTMLInputElement;
@@ -224,12 +225,12 @@ function ChainsCard({ p, doc, apply }: CardProps) {
         </div>
       ))}
       <div class="skeleton-actions">
-        <input type="text" aria-label="New chain name" placeholder={freshName("Chain", p.chains.map((c) => c.name))} disabled={readOnly} value={name} onInput={(e) => setName(input(e).value)} />
+        <input type="text" aria-label="New chain name" placeholder={uniqueName("Chain", p.chains.map((c) => c.name))} disabled={readOnly} value={name} onInput={(e) => setName(input(e).value)} />
         <button
           disabled={readOnly}
           title="A new chain of the first role; add the rest in its card"
           onClick={() => {
-            const chain = name.trim() || freshName("Chain", p.chains.map((c) => c.name));
+            const chain = name.trim() || uniqueName("Chain", p.chains.map((c) => c.name));
             if (apply(addChain(p, chain, "custom", [p.roles[0].name]), `Add the chain ${chain}`)) setName("");
           }}
         >

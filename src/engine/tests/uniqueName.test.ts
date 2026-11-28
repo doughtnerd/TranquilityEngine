@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BRACKETED, DASHED, SPACED, uniqueName } from "../core/uniqueName";
+import { BRACKETED, DASHED, HYPHENATED, JOINED, SPACED, UNDERSCORED, uniqueName } from "../core/uniqueName";
 
 describe("uniqueName", () => {
   it("keeps a free base", () => {
@@ -27,6 +27,13 @@ describe("uniqueName", () => {
   it("brackets from 1 and renumbers a bracketed name", () => {
     expect(uniqueName("Node", ["Node"], BRACKETED)).toBe("Node (1)");
     expect(uniqueName("Node (1)", ["Node", "Node (1)"], BRACKETED)).toBe("Node (2)");
+  });
+
+  it("joins, underscores or hyphenates from 2, keeping the digits a name already has", () => {
+    expect(uniqueName("action", ["action"], JOINED)).toBe("action2");
+    expect(uniqueName("run", ["run", "run_2"], UNDERSCORED)).toBe("run_3");
+    expect(uniqueName("run_2", ["run_2"], UNDERSCORED)).toBe("run_2_2");
+    expect(uniqueName("enemy-2", ["enemy-2"], HYPHENATED)).toBe("enemy-2-2");
   });
 
   it("takes any numbering", () => {

@@ -4,6 +4,7 @@
 import { actionSetProblems, type ActionSetFile, type ActionSetFileAction } from "../engine/input/actionAssets";
 import type { ActionKind } from "../engine/input/actions";
 import type { AssetFormat, AssetProblem } from "./sdk/contributions";
+import { JOINED, uniqueName } from "../engine/core/uniqueName";
 
 export const ACTION_KINDS: readonly ActionKind[] = ["button", "axis", "vec2", "vec3"];
 
@@ -44,9 +45,7 @@ export function defaultKey(id: string): string {
 
 /** `base`, or `base2`, `base3`… : the first name no action of the set has. */
 export function freeActionName(spec: ActionSetFile, base = "action"): string {
-  const taken = new Set(spec.actions.map((a) => a.name));
-  if (!taken.has(base)) return base;
-  for (let n = 2; ; n++) if (!taken.has(`${base}${n}`)) return `${base}${n}`;
+  return uniqueName(base, spec.actions.map((a) => a.name), JOINED);
 }
 
 const ID = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$/;

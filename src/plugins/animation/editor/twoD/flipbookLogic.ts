@@ -9,6 +9,7 @@
 // the format has none.
 import { accept, refuse, type EditResult } from "../../../../editor/sdk";
 import { DEFAULT_FLIPBOOK_FPS, SPRITE_2D_LIMITS, whyNotFlipbookName, type SpriteFlipbook } from "../../../../engine/animation/sprites/sidecar";
+import { UNDERSCORED, uniqueName } from "../../../../engine/core/uniqueName";
 
 /** An image's flipbooks by name. */
 export type Flipbooks = Readonly<Record<string, SpriteFlipbook>>;
@@ -54,9 +55,7 @@ function commonStem(names: readonly string[]): string {
 
 /** A name for a flipbook of these slices that no flipbook of `taken` has: their common stem (`run`), else `flipbook`, with `_2`, `_3`… when taken. */
 export function suggestFlipbookName(slices: readonly string[], taken: Flipbooks): string {
-  const base = commonStem(slices) || "flipbook";
-  if (!(base in taken)) return base;
-  for (let n = 2; ; n++) if (!((`${base}_${n}`) in taken)) return `${base}_${n}`;
+  return uniqueName(commonStem(slices) || "flipbook", (name) => name in taken, UNDERSCORED);
 }
 
 /** What creating a flipbook from slices made. */

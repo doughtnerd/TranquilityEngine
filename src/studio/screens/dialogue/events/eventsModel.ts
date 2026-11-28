@@ -9,6 +9,7 @@ import {
   argumentName, WILDCARD, type DialogueArgument, type DialogueAsset, type DialogueEvent, type DialogueLine, type DialoguePath,
 } from "../../../../engine/audio/dialogue/types";
 import type { EditResult } from "../../../../editor/sdk/editResult";
+import { UNDERSCORED, uniqueName, type Numbering } from "../../../../engine/core/uniqueName";
 
 /** A dialogue file and where it is. */
 export interface DialogueDoc {
@@ -51,12 +52,9 @@ function withEvent(a: DialogueAsset, name: string, change: (e: DialogueEvent) =>
   return { next: { ...a, events: a.events.map((e, j) => (j === i ? r.next : e)) } };
 }
 
-/** A name not in `used`: `base`, else `base_2`, `base_3`… */
-function freeName(base: string, used: ReadonlySet<string>): string {
-  if (!used.has(base)) return base;
-  const stem = base.replace(/_\d+$/, "");
-  for (let i = 2; ; i++) if (!used.has(`${stem}_${i}`)) return `${stem}_${i}`;
-}
+/** `base`, else `base_2`, `base_3`…, renumbering `name_2` rather than extending it. */
+const EVENTS: Numbering = { ...UNDERSCORED, suffix: /_\d+$/ };
+const freeName = (base: string, used: ReadonlySet<string>): string => uniqueName(base, used, EVENTS);
 
 export function addEvent(a: DialogueAsset, used: ReadonlySet<string>): EditResult<DialogueAsset> {
   if (a.events.length >= DIALOGUE_LIMITS.events) return refuse(`a file holds at most ${DIALOGUE_LIMITS.events} events`);

@@ -33,7 +33,8 @@ import type { OpenScene } from "./state";
 import { readOnlyMessage } from "./readOnly";
 import { insertNodes } from "./nodeInsertion";
 import { findInner, instanceInnerNodes, type InnerNode } from "./nodeKey";
-import { DASHED, uniqueName } from "../engine/core/uniqueName";
+import { DASHED, HYPHENATED, uniqueName } from "../engine/core/uniqueName";
+import { freeFilePath } from "./freePath";
 import { undoStep } from "./undoStep";
 
 function prefabFile(path: string): SceneFile | null {
@@ -210,13 +211,8 @@ function prefabFileName(name: string): string {
   return name.trim().replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "prefab";
 }
 
-/** `prefabs/<name>.prefab.json`, numbered if that file already exists. */
-function newPrefabPath(project: EditorProject, name: string): string {
-  const base = `prefabs/${prefabFileName(name)}`;
-  let path = `${base}.prefab.json`;
-  for (let n = 2; project.files.includes(path); n++) path = `${base}-${n}.prefab.json`;
-  return path;
-}
+/** `prefabs/<name>.prefab.json`, else `<name>-2`… when a file or folder is there in any letter case (ADR 0465). */
+const newPrefabPath = (project: EditorProject, name: string): string => freeFilePath(project, "prefabs", prefabFileName(name), ".prefab.json", HYPHENATED);
 
 /** What Create Prefab made: the prefab file, and how many references out of it became overrides on the new instance. */
 export interface CreatedPrefab {

@@ -43,6 +43,7 @@ import type {
   ImportValue,
 } from "./model";
 import { baseName } from "./shared";
+import { HYPHENATED, UNDERSCORED, uniqueName } from "../../../../engine/core/uniqueName";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Options and results
@@ -102,16 +103,12 @@ function shortHash(text: string): string {
 
 /** A node id not yet used in `nodes` (`id`, else `id-2`…). */
 function uniqueId(id: string, nodes: readonly NodeEntry[]): string {
-  const ids = new Set(nodes.map((n) => n.id));
-  let out = id;
-  for (let i = 2; ids.has(out); i++) out = `${id}-${i}`;
-  return out;
+  return uniqueName(id, nodes.map((n) => n.id), HYPHENATED);
 }
 
-/** `name` made unique among `taken` (adds " 2", " 3"…), and taken. */
+/** `name` made unique among `taken` in any letter case (adds " 2", " 3"…), and taken. */
 function unique(name: string, taken: Set<string>): string {
-  let out = name;
-  for (let i = 2; taken.has(out.toLowerCase()); i++) out = `${name} ${i}`;
+  const out = uniqueName(name, (n) => taken.has(n.toLowerCase()));
   taken.add(out.toLowerCase());
   return out;
 }
@@ -247,9 +244,7 @@ class Writer {
     if (s.broken) return null;
     const same = s.settings.sprites.find((sp) => sp.rect[0] === rect.x && sp.rect[1] === rect.y && sp.rect[2] === rect.w && sp.rect[3] === rect.h);
     if (same) return same.name;
-    const names = new Set(s.settings.sprites.map((sp) => sp.name));
-    let n = name;
-    for (let i = 2; names.has(n); i++) n = `${name}_${i}`;
+    const n = uniqueName(name, s.settings.sprites.map((sp) => sp.name), UNDERSCORED);
     s.settings.sprites.push({ name: n, rect: [rect.x, rect.y, rect.w, rect.h], pivot: [0.5, 0.5] });
     s.changed = true;
     return n;

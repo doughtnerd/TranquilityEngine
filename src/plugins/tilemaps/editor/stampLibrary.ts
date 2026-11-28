@@ -8,6 +8,7 @@ import type { Stamp } from "../runtime/brushes";
 import { cellValue, decodeRuns, encodeChunk, flagsOf, tileIdOf } from "../runtime/format";
 import type { Tileset, TileStamp, TileStampLayer, TilesetData } from "../runtime/tileset";
 import type { BlockFrame } from "../runtime/grids";
+import { uniqueName } from "../../../engine/core/uniqueName";
 
 /** One named layer of a block: `width × height` cell values (tileset id plus flips; 0 leaves the map's cell alone), row 0 at the bottom. */
 export interface StampBlockLayer {
@@ -117,11 +118,7 @@ export function decodeStamp(stamp: TileStamp, tileset: Tileset): { block: StampB
 
 /** `base`, or `base 2`, `base 3`… : the first name no stamp of `data` has. */
 export function uniqueStampName(data: TilesetData, base: string): string {
-  const taken = new Set((data.stamps ?? []).map((s) => s.name));
-  if (!taken.has(base)) return base;
-  let n = 2;
-  while (taken.has(`${base} ${n}`)) n++;
-  return `${base} ${n}`;
+  return uniqueName(base, (data.stamps ?? []).map((s) => s.name));
 }
 
 /** `data` with `stamp` saved: replacing the stamp of the same name, else added last. */

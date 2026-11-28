@@ -32,11 +32,7 @@ const clone = (g: ShaderGraph): ShaderGraph => structuredClone(g);
 
 /** A new node id for `type` that the graph doesn't use: `multiply1`, `multiply2`… */
 function newNodeId(graph: ShaderGraph, type: string, taken: ReadonlySet<string> = new Set()): string {
-  const base = type.replace(/[^A-Za-z0-9_-]/g, "") || "node";
-  for (let i = 1; ; i++) {
-    const id = `${base}${i}`;
-    if (!taken.has(id) && !graph.nodes.some((n) => n.id === id)) return id;
-  }
+  return freeId(type.replace(/[^A-Za-z0-9_-]/g, "") || "node", (id) => taken.has(id) || graph.nodes.some((n) => n.id === id));
 }
 
 /** Add a node of `type` at `position`. */

@@ -49,8 +49,8 @@ export interface RetargetEnv {
   /** The raw form of `clip` (`models/hero.glb#Anim/Run`) bound to its model's skeleton, or why not. */
   sourceClip(clip: string): Promise<SourceClipJob | { readonly error: string }>;
   compiler(): Promise<AnimationCompiler>;
-  /** Whether a project file exists. */
-  exists(path: string): boolean;
+  /** A free project path in `folder` for `<stem><ext>`, else `<stem> 2<ext>`…: the editor's `freeFilePath` (ADR 0465). */
+  freeFilePath(folder: string, stem: string, ext: string): string;
   writeBytes(path: string, bytes: Uint8Array): Promise<void>;
 }
 
@@ -93,14 +93,11 @@ const stem = (path: string): string => {
   return dot > 0 ? file.slice(0, dot) : file;
 };
 
-/** Where the bake writes: beside the target model as `<clip>.<target>.anim.bin`, `<clip> 2…` when that file exists. */
-export function bakedClipPath(targetModel: string, clip: string, exists: (path: string) => boolean): string {
-  const folder = targetModel.includes("/") ? targetModel.slice(0, targetModel.lastIndexOf("/") + 1) : "";
+/** Where the bake writes: beside the target model as `<clip>.<target>.anim.bin`, the free path `free` gives for it. */
+export function bakedClipPath(targetModel: string, clip: string, free: RetargetEnv["freeFilePath"]): string {
+  const folder = targetModel.includes("/") ? targetModel.slice(0, targetModel.lastIndexOf("/")) : "";
   const safe = (s: string) => s.replace(/[\\/:*?"<>|#]+/g, "_").trim() || "clip";
-  const base = `${safe(clip)}.${safe(stem(targetModel))}`;
-  let path = `${folder}${base}.anim.bin`;
-  for (let n = 2; exists(path); n++) path = `${folder}${base} ${n}.anim.bin`;
-  return path;
+  return free(folder, `${safe(clip)}.${safe(stem(targetModel))}`, ".anim.bin");
 }
 
 /** Why a side can't be baked yet (an empty bone map, a required role without a bone), or null. */
@@ -119,7 +116,7 @@ export async function bakeRetargetedClip(env: RetargetEnv, request: RetargetRequ
   const out = await retargetClipBytes(env, request);
   if (!out.ok) return out;
   try {
-    const path = bakedClipPath(request.target.model, request.clip, env.exists);
+    const path = bakedClipPath(request.target.model, request.clip, (folder, s, ext) => env.freeFilePath(folder, s, ext));
     await env.writeBytes(path, out.bytes);
     return { ok: true, path, size: out.bytes.length, report: out.report };
   } catch (err) {

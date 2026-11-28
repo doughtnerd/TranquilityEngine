@@ -26,6 +26,7 @@ import { sampleQuat, sampleVec } from "../../../../engine/animation/compile/keyS
 import type { ClipCompileResult } from "../compile/service";
 import type { ClipReport } from "../compile/compiler";
 import type { CompiledClipRequest } from "../../runtime/features/clipSources";
+import { uniqueName } from "../../../../engine/core/uniqueName";
 
 /** The part of a take the edits need: its name and length. */
 export interface TakeSpan {
@@ -86,12 +87,6 @@ function checkRange(span: TakeSpan, from: number, to: number | null): string | n
   return null;
 }
 
-/** A name for a new clip: `base`, or `base 2`… not among the model's clips. */
-export function freshClipName(base: string, taken: readonly string[]): string {
-  if (!taken.includes(base)) return base;
-  for (let n = 2; ; n++) if (!taken.includes(`${base} ${n}`)) return `${base} ${n}`;
-}
-
 /** Add a clip cutting `from`..`to` seconds (null: to the end) of `take`. Refused for a bad name or range, or a name another clip has. */
 export function addClip(a: ModelAnimationSettings, takes: readonly TakeSpan[], take: string, name: string, from: number, to: number | null): EditResult<ModelAnimationSettings> {
   const span = takes.find((t) => t.name === take);
@@ -141,7 +136,7 @@ export function splitClip(a: ModelAnimationSettings, takes: readonly TakeSpan[],
   const cut = at - c.from;
   const first: ClipImportSettings = { ...c, to: at, markers: c.markers.filter((m) => m.time < cut), events: c.events.filter((e) => e.time < cut) };
   const second: ClipImportSettings = {
-    ...defaultClipSettings(freshClipName(`${c.name} 2`, allClipNames(a, takes))),
+    ...defaultClipSettings(uniqueName(`${c.name} 2`, allClipNames(a, takes))),
     from: at, to: c.to, loop: false, rootMotion: c.rootMotion, additive: c.additive, compression: c.compression, mirror: c.mirror,
     markers: c.markers.filter((m) => m.time >= cut).map((m) => ({ ...m, time: m.time - cut })),
     events: c.events.filter((e) => e.time >= cut).map((e) => ({ ...e, time: e.time - cut, ...(e.end !== undefined ? { end: e.end - cut } : {}) })),
