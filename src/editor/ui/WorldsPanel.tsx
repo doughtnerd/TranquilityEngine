@@ -50,6 +50,7 @@ import {
   withReplicationSetting,
 } from "../worldsConfig";
 import { PROJECT_FILE } from "../projectPaths";
+import { isScenePath } from "../../engine/scene/scenePath";
 import { DEFAULT_LAYOUT, layoutGraph } from "../worldsLayout";
 import { placeNodes, positionKey, readWorldsGraph, renameNode, writeWorldsGraph, type NodePositions } from "../worldsGraphPositions";
 import {
@@ -740,7 +741,7 @@ function Details(props: { s: PanelState; model: WorldsModel; target: WorldRef; p
   const tags = tagsOf(config);
   const setTags = (next: readonly WorldTag[], label: string) => set(label, { tags: next });
   const scenes = config.scenes ?? [];
-  const sceneFiles = project.files.filter((f) => f.endsWith(".scene.json") && !scenes.includes(f));
+  const sceneFiles = project.files.filter((f) => isScenePath(f) && !scenes.includes(f));
   const isFirst = target.kind === "world" && target.index === 0;
 
   return (

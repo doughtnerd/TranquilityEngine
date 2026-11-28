@@ -26,6 +26,7 @@ import { BUILTIN_MESHES, builtinMeshData, type BuiltinMesh } from "./builtinMesh
 import { isTextureMapStatement, materialLibraryFiles, readTextureMap, wavefrontStatements } from "./wavefront";
 import { Mat4 } from "../core/math";
 import { uniqueName } from "../core/uniqueName";
+import { fileName, folderOf, resolveRelative } from "../core/projectPath";
 import { splitSpriteRef, type ImportSettings } from "./importSettings";
 import type { GltfAnimationSource } from "./gltf";
 import { parentsFirstSkeleton, rolesFromBoneMap, type ImportedBone, type ImportedSkeleton, type MeshSkin, type MorphTargetData } from "../animation/import/skeleton";
@@ -714,10 +715,11 @@ async function fetchBytes(url: string): Promise<ArrayBuffer> {
 /** Textures a model names, found among the project's assets: beside the model, by name, or in a `textures/` folder there. */
 function textureUrl(modelPath: string, url: string): string {
   if (/^(data|blob):/.test(url) || (/^[a-z]+:\/\//i.test(url) && Assets.has(url))) return url;
-  const name = url.replace(/\\/g, "/").replace(/^\.\//, "");
-  const folder = modelPath.includes("/") ? modelPath.slice(0, modelPath.lastIndexOf("/") + 1) : "";
-  const base = name.slice(name.lastIndexOf("/") + 1);
-  for (const candidate of [resolveRelative(folder, name), folder + base, `${folder}textures/${base}`, base]) {
+  const name = url.replace(/\\/g, "/");
+  const dir = folderOf(modelPath);
+  const folder = dir ? `${dir}/` : "";
+  const base = fileName(name);
+  for (const candidate of [resolveRelative(modelPath, name), folder + base, `${folder}textures/${base}`, base]) {
     if (candidate && Assets.has(candidate)) {
       const resolved = Assets.url(candidate);
       texturePaths.set(resolved, candidate);
@@ -726,20 +728,6 @@ function textureUrl(modelPath: string, url: string): string {
   }
   warnOnce(`${modelPath} uses the texture "${url}", which isn't in the project; it draws white.`);
   return WHITE_PIXEL;
-}
-
-/** `folder/` + a relative path, with `..` resolved; null if it climbs out of the project. */
-function resolveRelative(folder: string, rel: string): string | null {
-  if (/^([a-z]:|\/)/i.test(rel)) return null; // absolute: from another machine
-  const parts = (folder + rel).split("/");
-  const out: string[] = [];
-  for (const p of parts) {
-    if (p === "..") {
-      if (!out.length) return null;
-      out.pop();
-    } else if (p !== "." && p !== "") out.push(p);
-  }
-  return out.join("/");
 }
 
 /** A loading manager that also says when the textures it started have loaded (or failed). */
@@ -877,10 +865,9 @@ async function parseModel(path: string, url: string, settings: ImportSettings, u
     const { OBJLoader } = await import("three/examples/jsm/loaders/OBJLoader.js");
     const loader = new OBJLoader(loading);
     // Every file of every `mtllib` statement is a library, the first named searched first (ADR 0394).
-    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
     const libraries: string[] = [];
     for (const lib of materialLibraryFiles(text)) {
-      const mtl = resolveRelative(folder, lib.text.replace(/\\/g, "/"));
+      const mtl = resolveRelative(path, lib.text);
       if (mtl && Assets.has(mtl)) libraries.push(forMtlLoader(new TextDecoder().decode(await fetchBytes(Assets.url(mtl)))));
       else warnOnce(`${path} uses the material library "${lib.text}", which isn't in the project; the materials only it defines draw with the default material.`);
     }

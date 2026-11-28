@@ -9,6 +9,7 @@ import { warmSet, warmSetEmpty, type WarmSet } from "./warmUp";
 import { _startWorldServicesForScene } from "../core/worldServices";
 import { resolvedComponents } from "./resolvedScene";
 import { normalizeAssetPath } from "./assetPath";
+import { sceneNodeName } from "./scenePath";
 
 export interface LoadSceneOptions {
   /** Keep already-loaded scene nodes instead of replacing them (ADR 0016). */
@@ -66,8 +67,7 @@ export class SceneManager {
           }
           // The World's first scene brings the project's autoloads, now that its preparation is done (Engine.createWorld).
           if (world._autoloadsPending) SceneManager.loadAutoloads(world);
-          const name = path.slice(path.lastIndexOf("/") + 1).replace(/\.(scene\.)?json$/, "");
-          const node = (sceneNode = world._createNode(name, world.root.entity, { transform: false }));
+          const node = (sceneNode = world._createNode(sceneNodeName(path), world.root.entity, { transform: false }));
           world.setSceneNode(node.entity);
           world._batch(() => node.addBehavior(SceneInstance, { source: path }));
           instantiateFile(world, file, node, path);

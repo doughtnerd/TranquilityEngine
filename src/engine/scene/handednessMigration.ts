@@ -12,34 +12,29 @@
  * The walk over the file is `sceneFileWalk.ts` (ADR 0279). Pure and synchronous, so it runs wherever scene files are read (editor, game, server, rewrite CLI).
  */
 import type { SceneFile } from "./SceneLoader";
-import { mapSceneFile } from "./sceneFileWalk";
+import { isNumberTuple, mapSceneFile, tidyNumber } from "./sceneFileWalk";
 
 const TRANSFORM = "engine.Transform";
 
-/** Round for the file: 7 decimals, no -0. */
-const tidy = (n: number) => Math.round(n * 1e7) / 1e7 + 0;
-
-const isNumbers = (v: unknown, n: number): v is number[] => Array.isArray(v) && v.length === n && v.every((x) => typeof x === "number");
-
 /** A point or direction in node space, mirrored: z negated. Anything else unchanged. */
 function mirrorVector(value: unknown): unknown {
-  return isNumbers(value, 3) ? [value[0], value[1], tidy(-value[2])] : value;
+  return isNumberTuple(value, 3) ? [value[0], value[1], tidyNumber(-value[2])] : value;
 }
 
 /** A rotation mirrored: quaternion `(x, y, z, w)` → `(-x, -y, z, w)`. Other forms (hand-written Euler) unchanged. */
 function mirrorRotation(value: unknown): unknown {
-  return isNumbers(value, 4) ? [tidy(-value[0]), tidy(-value[1]), value[2], value[3]] : value;
+  return isNumberTuple(value, 4) ? [tidyNumber(-value[0]), tidyNumber(-value[1]), value[2], value[3]] : value;
 }
 
 /** A signed angle about the vertical axis (degrees or radians): a mirror reverses its turn, so it's negated. */
 function mirrorTurn(value: unknown): unknown {
-  return typeof value === "number" ? tidy(-value) : value;
+  return typeof value === "number" ? tidyNumber(-value) : value;
 }
 
 /** Water waves: `direction` is degrees from +X towards +Z, so a mirror negates it. */
 function mirrorWaves(value: unknown): unknown {
   if (!Array.isArray(value)) return value;
-  return value.map((w) => (w && typeof w === "object" && typeof (w as { direction?: unknown }).direction === "number" ? { ...w, direction: tidy(-(w as { direction: number }).direction) } : w));
+  return value.map((w) => (w && typeof w === "object" && typeof (w as { direction?: unknown }).direction === "number" ? { ...w, direction: tidyNumber(-(w as { direction: number }).direction) } : w));
 }
 
 type FieldMirror = (value: unknown) => unknown;

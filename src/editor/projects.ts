@@ -5,6 +5,7 @@
 // A project's own scripts (`scripts/**/*.ts`, ADR 0030) are read here and loaded by the session
 // (scriptLoader.ts). No game code is compiled into the editor.
 import { folderOf } from "./projectPath";
+import { isScenePath } from "../engine/scene/scenePath";
 import { Assets, type AssetSource, type ProjectSettingsInput } from "../engine";
 import { acquireProjectContext, type ProjectContext } from "../engine/core/projectContext";
 import type { FileSystem } from "../engine/platform/FileSystem";
@@ -144,7 +145,7 @@ const textBytes = (text: string) => new TextEncoder().encode(text).length;
 /** The first scene to open: `scenes/main.scene.json`, else the first scene file. */
 export function pickMainScene(files: readonly string[]): string | null {
   if (files.includes("scenes/main.scene.json")) return "scenes/main.scene.json";
-  return files.find((f) => f.endsWith(".scene.json")) ?? null;
+  return files.find(isScenePath) ?? null;
 }
 
 class MapProject implements EditorProject {

@@ -154,6 +154,20 @@ describe("glTF models (ADR 0088)", () => {
     await expect(loadMeshes("asset:models/tri.gltf")).rejects.toThrow(/tri\.bin.*isn't in the project/);
   });
 
+  it("finds no file above the project folder or at an absolute path, as the other model formats (ADR 0466)", async () => {
+    for (const uri of ["../../tri.bin", "/tri.bin", "C:/tri.bin"]) {
+      const ext = triangleGltf("external");
+      (ext.json.buffers as { uri: string }[])[0].uri = uri;
+      useAssets({ "models/tri.gltf": dataUrl(new TextEncoder().encode(JSON.stringify(ext.json))), "tri.bin": dataUrl(ext.bin), "C:/tri.bin": dataUrl(ext.bin) });
+      await expect(loadMeshes("asset:models/tri.gltf"), uri).rejects.toThrow(/tri\.bin.*isn't in the project/);
+    }
+    // Inside the project, `..` still resolves.
+    const ext = triangleGltf("external");
+    (ext.json.buffers as { uri: string }[])[0].uri = "../tri.bin";
+    useAssets({ "models/tri.gltf": dataUrl(new TextEncoder().encode(JSON.stringify(ext.json))), "tri.bin": dataUrl(ext.bin), "models/textures/sticker.png": `data:image/png;base64,${PNG}` });
+    expect((await loadMeshes("asset:models/tri.gltf")).map((m) => m.name)).toEqual(["Wing", "Decal"]);
+  });
+
   it("applies the sidecar's scale and up axis", async () => {
     const { json } = triangleGltf("embedded");
     useAssets({ "models/tri.gltf": dataUrl(new TextEncoder().encode(JSON.stringify(json))), "models/tri.gltf.meta.json": { format: "myco.import@1", scale: 2, upAxis: "z" } });

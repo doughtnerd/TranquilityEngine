@@ -30,7 +30,7 @@
  */
 import { getDataComponentDef } from "../core/data";
 import type { ComponentEntry, NodeEntry, OverrideEntry, SceneFile } from "./SceneLoader";
-import { isScenePath } from "./SceneLoader";
+import { isScenePath } from "./scenePath";
 
 /** A node's place in the fold: its id prefixed by the ids of the instances it sits in (`[instance, inner…]`). */
 export type FoldPath = readonly string[];

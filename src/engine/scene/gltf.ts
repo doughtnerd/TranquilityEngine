@@ -33,6 +33,7 @@
 // (ADR 0082, 0088). The helpers below take three's classes from `lib()`.
 import type { BufferAttribute, BufferGeometry, Group, Material, Mesh, Object3D, Texture, Wrapping } from "three";
 import { Assets } from "./Assets";
+import { resolveRelative } from "../core/projectPath";
 import type { ModelCamera, ModelLight } from "./models";
 import type { Sampler } from "../animation/import/channels";
 
@@ -711,7 +712,6 @@ function decodeDraco(d: DracoModule, array: Int8Array, attributeIds: Record<stri
 
 /** The project files a glTF at `modelPath` names (buffers, images), resolved like the other model formats' textures. */
 export function projectFiles(modelPath: string, fetchBytes: (url: string) => Promise<ArrayBuffer>, warn: (m: string) => void): GltfFiles {
-  const folder = modelPath.includes("/") ? modelPath.slice(0, modelPath.lastIndexOf("/") + 1) : "";
   return {
     resolve(uri) {
       let name: string;
@@ -720,15 +720,8 @@ export function projectFiles(modelPath: string, fetchBytes: (url: string) => Pro
       } catch {
         name = uri;
       }
-      name = name.replace(/\\/g, "/").replace(/^\.\//, "");
-      const parts = (folder + name).split("/");
-      const out: string[] = [];
-      for (const p of parts) {
-        if (p === "..") out.pop();
-        else if (p !== "." && p !== "") out.push(p);
-      }
-      const candidate = out.join("/");
-      return Assets.has(candidate) ? candidate : null;
+      const candidate = resolveRelative(modelPath, name); // ADR 0466: above the project or absolute → none
+      return candidate !== null && Assets.has(candidate) ? candidate : null;
     },
     url: (path) => Assets.url(path),
     fetch: fetchBytes,

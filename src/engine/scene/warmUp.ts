@@ -8,6 +8,7 @@
 import { Assets } from "./Assets";
 import { resolveScene } from "./resolvedScene";
 import { normalizeAssetPath } from "./assetPath";
+import { isPrefabPath } from "./scenePath";
 export { scriptAssetRefs } from "./scriptAssetRefs";
 
 /** One mesh to warm: what a MeshRenderer with this data draws, in every pass the frame puts it in. */
@@ -84,7 +85,7 @@ export function warmSet(path: string | null, extra: readonly string[] = []): War
   };
   const walkData = (v: unknown, out: string[]): void => {
     if (typeof v === "string") {
-      if (v.startsWith("asset:") && v.endsWith(".prefab.json")) out.push(normalizeAssetPath(v));
+      if (v.startsWith("asset:") && isPrefabPath(v)) out.push(normalizeAssetPath(v));
     } else if (Array.isArray(v)) v.forEach((x) => walkData(x, out));
     else if (v && typeof v === "object") Object.values(v).forEach((x) => walkData(x, out));
   };
@@ -106,8 +107,8 @@ export function warmSet(path: string | null, extra: readonly string[] = []): War
     // an override adds (also on added nodes) are seen like any other.
     const scene = resolveScene(p);
     if (!scene.files.includes(p)) return;
-    if (p.endsWith(".prefab.json")) prefabs.add(p);
-    for (const f of scene.files) if (normalizeAssetPath(f).endsWith(".prefab.json")) prefabs.add(normalizeAssetPath(f));
+    if (isPrefabPath(p)) prefabs.add(p);
+    for (const f of scene.files) if (isPrefabPath(f)) prefabs.add(normalizeAssetPath(f));
     const referenced: string[] = [];
     for (const node of scene.nodes) {
       const components = node.components;

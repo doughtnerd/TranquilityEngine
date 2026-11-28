@@ -21,6 +21,7 @@ import { MeshRenderer } from "../render/components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, _instantiatedPrefabOf, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
+import { sceneNodeName } from "../scene/scenePath";
 import type { Schema } from "../core/data";
 import { _undefineInput, _writeSyntheticInput, definedInputs } from "../net/input";
 import { _undefineRpc } from "../net/rpc";
@@ -166,8 +167,7 @@ export function setEditMode(node: GameObject, value = true): void {
  * scripts run). Physics isn't created. `hooks.onNode` reports each node's document path.
  */
 export function instantiateDocument(world: World, file: SceneFile, path: string, hooks?: InstantiateHooks): GameObject {
-  const name = path.slice(path.lastIndexOf("/") + 1).replace(/\.(scene\.|prefab\.)?json$/, "");
-  const sceneNode = world._createNode(name, world.root.entity, { transform: false });
+  const sceneNode = world._createNode(sceneNodeName(path), world.root.entity, { transform: false });
   world.setSceneNode(sceneNode.entity);
   world.setEditMode(sceneNode.entity, true);
   world._batch(() => sceneNode.addBehavior(SceneInstance, { source: path }));
