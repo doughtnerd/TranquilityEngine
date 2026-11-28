@@ -159,6 +159,8 @@ export const props: import("svelte").ComponentProps<typeof Badge> = { title: 2 }
 
   it("checks the samples' and the engine's built-in components without errors", async () => {
     const paths = [
+      "samples/animation/ui/Hud.svelte",
+      "samples/animation/ui/SpritesHud.svelte",
       "samples/arena/ui/Hud.svelte",
       "samples/arena/ui/Menu.svelte",
       "samples/flappy/ui/Hud.svelte",

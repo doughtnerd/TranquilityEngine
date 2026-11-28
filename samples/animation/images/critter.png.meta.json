@@ -1,0 +1,205 @@
+{
+  "format": "myco.import@1",
+  "pixelsPerUnit": 16,
+  "filter": "point",
+  "mipmaps": false,
+  "sprites": [
+    {
+      "name": "walk0",
+      "rect": [
+        0,
+        0,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "walk1",
+      "rect": [
+        32,
+        0,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "walk2",
+      "rect": [
+        64,
+        0,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "walk3",
+      "rect": [
+        96,
+        0,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "walk4",
+      "rect": [
+        128,
+        0,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "walk5",
+      "rect": [
+        160,
+        0,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "walk6",
+      "rect": [
+        192,
+        0,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "walk7",
+      "rect": [
+        224,
+        0,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "coin0",
+      "rect": [
+        0,
+        32,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "coin1",
+      "rect": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "coin2",
+      "rect": [
+        64,
+        32,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "coin3",
+      "rect": [
+        96,
+        32,
+        32,
+        32
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "name": "ground",
+      "rect": [
+        128,
+        32,
+        16,
+        16
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ]
+    }
+  ],
+  "flipbooks": {
+    "walk": {
+      "slices": [
+        "walk0",
+        "walk1",
+        "walk2",
+        "walk3",
+        "walk4",
+        "walk5",
+        "walk6",
+        "walk7"
+      ],
+      "fps": 12,
+      "loop": true
+    },
+    "spin": {
+      "slices": [
+        "coin0",
+        "coin1",
+        "coin2",
+        "coin3",
+        "coin2",
+        "coin1"
+      ],
+      "fps": 10,
+      "loop": true
+    }
+  }
+}
