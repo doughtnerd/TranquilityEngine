@@ -28,24 +28,24 @@
 
 GPU Hi-Z belongs to the high-end pipeline (O24), and baked PVS is a later option.
 
-**Measurements** (`spikes/occlusion-raster/`; Rust 1.97, raw wasm exports with simd128; shared 4-core Xeon at load about 5, so timings are smoke-level until the coordinator's idle re-run. Counts and accuracy are exact and deterministic: native, Node and Chromium agree on all 98 compared jobs):
+**Measurements** (`spikes/occlusion-raster/`; Rust 1.97, raw wasm exports with simd128; timings from the coordinator's re-run on an idle 4-core Xeon at 2.1 GHz, 7 runs × 40 frames per job, p50 / p99. Counts and accuracy are exact and deterministic: native, Node and Chromium agree on all 98 compared jobs):
 
 - **Prior art.** No maintained Rust crate does software occlusion. Intel's Masked Occlusion Culling is C++ and archived.
   - A conventional buffer (depth stored as 1/w with a coarse 8×8 minimum level, near- and guard-band clipping, backface culling, one thread, no tile binning) was enough. A masked buffer wasn't needed.
-- **Cost per camera at 256×128, p50:**
+- **Cost per camera at 256×128, p50 / p99:**
 
   | Scene | Native | Chromium wasm | Native scalar |
   |---|---|---|---|
-  | city, box occluders (12 triangles per building, 3k occludees) | 0.91 ms | 1.07 ms | 1.71 ms |
-  | city, coarse occluders (about 100 triangles per building) | 3.51 ms | 3.68 ms | |
-  | forest (2k occluders, 10k occludees) | 2.36 ms | 2.57 ms | |
+  | city, box occluders (12 triangles per building, 3k occludees) | 0.93 / 2.12 ms | 1.20 / 1.33 ms | 1.71 / 2.31 ms |
+  | city, coarse occluders (about 100 triangles per building), uncapped | 3.51 / 5.57 ms | 3.89 / 6.64 ms | |
+  | forest (2k occluders, 10k occludees) | 2.17 / 2.49 ms | 2.87 / 3.20 ms | |
 
   - SIMD makes rasterising 3× faster. Setup and the occludee test are still scalar.
   - Bigger buffers cost more: 320×180 is 1.09 ms and 512×256 is 1.57 ms (city boxes, native).
   - Wasm is 1.0–1.4× native, and Chromium is no slower than Node.
   - The JS-to-wasm boundary costs 0.002–0.1 ms per frame through typed-array views.
   - The module is 96 KB (37.6 KB gzip), including the spike's generators and reference.
-- **Occluder cap** (coarse city): uncapped costs 3.5 ms. Capping at 10k source triangles costs 0.84 ms and keeps 98 % of the culls; at 2k triangles, 0.58 ms and 92 %.
+- **Occluder cap** (coarse city, native): uncapped costs 3.51 ms, mostly per-occluder setup. Capping at 10k source triangles costs 1.07 ms and keeps 98 % of the culls; at 2k triangles, 0.57 ms and 92 %.
 - **Accuracy at 256×128,** against a 1920×1080 reference:
   - **City:** the reference culls 97 % of the occludees inside the view. The buffer culls 89 % with **zero false occlusions**, using a 1-pixel dilation of each tested box and a 0.25-pixel coverage shrink. Without them there are up to 10 false occlusions per 8 frames, so both are required.
   - **Forest:** with the same safe settings, the buffer culls only 28 % of what the reference culls (9,641 of 34,909). Thin trunks are poor occluders, and making them safe removes most culls.
