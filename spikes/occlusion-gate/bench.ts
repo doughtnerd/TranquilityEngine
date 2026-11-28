@@ -286,15 +286,15 @@ const idIndex = new Map(renderers.map((r, i) => [r.id, i]));
 
 // the occlusion hook: runs inside engine.step after the visibility service's own post-propagation hook (registered when the
 // first LODGroup appears: before this), and writes the oracle's hidden set into the MAIN view's result.
+// No service in the no-LOD baseline (no LODGroup starts it): the oracle hook and slots are skipped there.
 const svc = visibilityService(world);
-if (!svc) throw new Error("no visibility service: the project has no LODGroup?");
 let hideSlots = new Int32Array(0); // slots to hide this frame ("keep" mode)
 let hideCount = 0;
 let hookMs = 0;
 world._afterPropagation(() => {
   if (hideCount === 0) { hookMs = 0; return; }
   const t = performance.now();
-  const main = svc.main;
+  const main = svc?.main;
   if (main) { const h = main.hidden as Uint8Array; for (let i = 0; i < hideCount; i++) h[hideSlots[i]] = 1; }
   hookMs = performance.now() - t;
 });
@@ -305,7 +305,7 @@ async function run(cfg: RunConfig) {
   hideCount = 0;
   for (const r of renderers) { r.hidden = false; r.node.setActive(true); }
   stepFrame(1 / 30);
-  for (const r of renderers) r.slot = svc.slotOf(r.c);
+  for (const r of renderers) r.slot = svc ? svc.slotOf(r.c) : -1;
   hideSlots = new Int32Array(renderers.length);
   const dt = 1 / 30;
   const rows: any[] = [];
@@ -363,7 +363,7 @@ async function run(cfg: RunConfig) {
     } else if (phase === "rwarm") {
       if (++rw >= rwarm) phase = "measure";
     } else {
-      const st = svc.main ? svc.stats(svc.main.view.key) : null;
+      const st = svc?.main ? svc.stats(svc.main.view.key) : null;
       rows.push({
         cpuMs: t1 - t0,
         // the occlusion hook's own time (writing the hidden set; the real stage's cost is budgeted separately, ADR 0447 section 0)
