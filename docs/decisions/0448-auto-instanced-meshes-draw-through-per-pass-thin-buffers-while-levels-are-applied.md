@@ -4,7 +4,7 @@
 - **Date:** 2026-11-28
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0108, 0446 (amends §3), 0447, 0276
+- **Related:** 0108, 0446 (amends §3), 0447, 0276, 0449 (stage 1 of its direction)
 
 ## Context
 
@@ -55,6 +55,9 @@ object for them then.
   culled again by Babylon, as thin pass sources aren't now.
 - **Unchanged:** batch keys, the material's `instancing` field, `off`, thin, `LODGroup`, the sidecar and every public
   API. `RenderStats` and the variant report still count each pass source's draw.
+
+**Built as stage 1 of 0449:** the per-pass buffers and draw lists are an engine-side layer fed from flat arrays (the
+visibility stage's results), which Babylon only draws, so they carry over to an ECS-driven render scene.
 
 ## Alternatives considered
 
