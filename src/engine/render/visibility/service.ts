@@ -24,6 +24,7 @@ import type { World } from "../../core/World";
 import { _registerWorldService, _worldServiceOf } from "../../core/worldServices";
 import { beginMeshLookups, endMeshLookups, type ModelMesh } from "../../scene/models";
 import { Graphics } from "../Graphics";
+import { Assets } from "../../scene/Assets";
 import { Camera, LODGroup, MeshRenderer } from "../components";
 import { RendererBounds, computeGroupBounds, newGroupBounds, type GroupBounds } from "./bounds";
 import { lodMemberTypes } from "./lodMember";
@@ -53,6 +54,11 @@ interface MemberEntry {
   meshes: readonly ModelMesh[] | null | undefined;
   /** Its occluder triangles in world space (ADR 0460), for the `tVersion` and meshes they were made at. */
   occluder: { tv: number; meshes: readonly ModelMesh[]; world: WorldOccluder } | null;
+  /**
+   * What it could occlude with (ADR 0460 §3), for the meshes, material path and material file value it was worked out
+   * for: its meshes' occluder geometry, their triangles, and whether the material is opaque.
+   */
+  occluderInfo: { meshes: readonly ModelMesh[]; path: string; raw: unknown; geometries: OccluderGeometry[]; triangles: number; opaque: boolean } | null;
 }
 
 interface GroupEntry {
@@ -132,6 +138,10 @@ export class VisibilityService {
   /** Views occlusion ran for in the gather generation `occlusionGeneration` (the tier's `occlusionViews`). */
   private occlusionViewsRun = 0;
   private occlusionGeneration = -1;
+  /** One view's occluder candidates and their sizes on screen (reused). */
+  private candidates: MemberEntry[] = [];
+  private candidateSize: number[] = [];
+  private candidateOrder: number[] = [];
   /** Scratch for one view's occluders and occludees, grown as needed. */
   private occ = { triangles: new Float32Array(0), errors: new Float32Array(0), neighbors: new Uint32Array(0), boxes: new Float32Array(0), hidden: new Uint8Array(0), groups: [] as number[] };
   /** The editor's level preview (ADR 0459 §7): applied to scene views only. */
@@ -313,7 +323,7 @@ export class VisibilityService {
         let m = this.members.get(c);
         if (!m) {
           const slot = this.freeSlots.pop() ?? this.slotCount++;
-          this.members.set(c, (m = { member: c, slot, bounds: new RendererBounds(), group: null, seen: 0, entity: -1, tv: -1, meshes: undefined, occluder: null }));
+          this.members.set(c, (m = { member: c, slot, bounds: new RendererBounds(), group: null, seen: 0, entity: -1, tv: -1, meshes: undefined, occluder: null, occluderInfo: null }));
         }
         m.seen = frame;
         const at = c.gameObject.transform ? c.gameObject : c.owner;
@@ -584,43 +594,40 @@ export class VisibilityService {
     const halfHeight = height / 2;
     // 1–2. Occluders: in the frustum and drawn, opaque, with geometry; "auto" ones only while at least 2 buffer pixels
     // wide; biggest on screen first, up to the tier's triangle budget.
-    const candidates: { m: MemberEntry; size: number; geometries: OccluderGeometry[]; triangles: number }[] = [];
+    const candidates = this.candidates, sizes = this.candidateSize, order = this.candidateOrder;
+    candidates.length = 0;
+    sizes.length = 0;
     for (const m of this.memberList) {
       const role = m.member.occlusion;
       if ((role !== "auto" && role !== "occluder") || !(m.member instanceof MeshRenderer)) continue;
       const g = m.group!.index;
       if (out.hidden[g] || out.levels[g] === LOD_CULLED || !m.meshes || !m.bounds.hasLocal) continue;
-      const geometries: OccluderGeometry[] = [];
-      let triangles = 0;
-      for (const mesh of m.meshes) {
-        const geo = occluderGeometry(mesh);
-        if (geo) {
-          geometries.push(geo);
-          triangles += geo.indices.length / 3;
-        }
-      }
-      if (!geometries.length) continue;
-      const r = m.member as MeshRenderer;
-      if (!opaqueMaterial(r.materials[0] || r.material, m.meshes)) continue;
+      const info = this.occluderInfo(m, m.member);
+      if (!info) continue;
       const s = m.bounds.sphere, w = m.bounds.world;
-      const d = Math.max(Math.hypot(s[0] - ex, s[1] - ey, s[2] - ez) - s[3], view.near);
+      const dx = s[0] - ex, dy = s[1] - ey, dz = s[2] - ez;
+      const d = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz) - s[3], view.near);
       if (role === "auto") {
         const narrowest = Math.min(w[3] - w[0], w[4] - w[1], w[5] - w[2]);
         if ((narrowest / d) * view.sy * halfHeight < 2) continue;
       }
-      candidates.push({ m, size: s[3] / d, geometries, triangles });
+      candidates.push(m);
+      sizes.push(s[3] / d);
     }
-    candidates.sort((a, b) => b.size - a.size);
+    order.length = candidates.length;
+    for (let i = 0; i < order.length; i++) order[i] = i;
+    order.sort((a, b) => sizes[b] - sizes[a]);
     const scratch = this.occ;
     let budget = tier.occluderBudget, n = 0, occluders = 0;
-    for (const c of candidates) {
-      if (c.triangles > budget) continue;
-      budget -= c.triangles;
-      const m = c.m;
+    for (const i of order) {
+      const m = candidates[i];
+      const info = m.occluderInfo!;
+      if (info.triangles > budget) continue;
+      budget -= info.triangles;
       const tv = m.entity >= 0 ? world.tVersion[m.entity] : 0;
       if (!m.occluder || m.occluder.tv !== tv || m.occluder.meshes !== m.meshes) {
         const mat = m.entity >= 0 ? world.worldMatrix(m.entity) : IDENTITY;
-        m.occluder = { tv, meshes: m.meshes!, world: worldOccluder(c.geometries, mat, m.entity >= 0 ? m.entity * 16 : 0) };
+        m.occluder = { tv, meshes: m.meshes!, world: worldOccluder(info.geometries, mat, m.entity >= 0 ? m.entity * 16 : 0) };
       }
       const wo = m.occluder.world;
       this.growOccluders(n + wo.count);
@@ -650,7 +657,13 @@ export class VisibilityService {
     this.growBoxes(groups.length);
     for (let k = 0; k < groups.length; k++) {
       const g = this.entries[groups[k]]!;
-      scratch.boxes.set(g.owner ? g.bounds.world : g.members[0].bounds.world, k * 6);
+      const b = g.owner ? g.bounds.world : g.members[0].bounds.world, boxes = scratch.boxes, o = k * 6;
+      boxes[o] = b[0];
+      boxes[o + 1] = b[1];
+      boxes[o + 2] = b[2];
+      boxes[o + 3] = b[3];
+      boxes[o + 4] = b[4];
+      boxes[o + 5] = b[5];
     }
     const hidden = scratch.hidden.subarray(0, groups.length);
     hidden.fill(0);
@@ -672,6 +685,34 @@ export class VisibilityService {
       }
     } else v.lowFrames = 0;
     return { occluders, triangles: n, tested, culled, ms: performance.now() - start };
+  }
+
+  /** What a renderer could occlude with (`MemberEntry.occluderInfo`), worked out again when its meshes or material change; null for nothing. */
+  private occluderInfo(m: MemberEntry, r: MeshRenderer): MemberEntry["occluderInfo"] {
+    const meshes = m.meshes!;
+    const path = r.materials[0] || r.material;
+    let raw: unknown = null;
+    if (path) {
+      try {
+        raw = Assets.get(path);
+      } catch {
+        raw = undefined;
+      }
+    }
+    let info = m.occluderInfo;
+    if (!info || info.meshes !== meshes || info.path !== path || info.raw !== raw) {
+      const geometries: OccluderGeometry[] = [];
+      let triangles = 0;
+      for (const mesh of meshes) {
+        const geo = occluderGeometry(mesh);
+        if (geo) {
+          geometries.push(geo);
+          triangles += geo.indices.length / 3;
+        }
+      }
+      info = m.occluderInfo = { meshes, path, raw, geometries, triangles, opaque: geometries.length > 0 && opaqueMaterial(path, meshes) };
+    }
+    return info.opaque ? info : null;
   }
 
   private growOccluders(n: number): void {

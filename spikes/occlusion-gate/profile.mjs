@@ -43,7 +43,7 @@ const cdp = await context.newCDPSession(page);
 await cdp.send("Profiler.enable");
 await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
 await cdp.send("Profiler.start");
-const res = await page.evaluate((cfg) => window.bench.run(cfg), { mode: MODE, occlusion: "none", frames: FRAMES, warmup: WARMUP });
+const res = await page.evaluate((cfg) => window.bench.run(cfg), { mode: MODE, occlusion: "none", frames: FRAMES, warmup: WARMUP, engineOcclusion: argv.includes("--engine") });
 const { profile } = await cdp.send("Profiler.stop");
 writeFileSync(OUT, JSON.stringify(profile));
 const dbg = await page.evaluate(() => window.bench.debug().active);
