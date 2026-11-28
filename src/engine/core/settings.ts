@@ -7,6 +7,7 @@ import { lobbyOptionProblems } from "../net/lobby/protocol";
 import { bootstrapTopology } from "./bootstrapTopology";
 import { parseLanguages, type LanguageSettings } from "../localisation/languages";
 import { parseSubtitleSettings, type SubtitleProjectSettings } from "../localisation/subtitleSettings";
+import { buildSettingsProblems, type BuildSettings } from "./buildSettings";
 
 /** How the game canvas scales to its container (see `ProjectSettings.display.scaleMode`). */
 export type ScaleMode = "fit" | "stretch" | "pixel-perfect";
@@ -421,6 +422,155 @@ export function settingsIssues(input: ProjectSettingsInput | Record<string, unkn
     const parsed = section.parse(written[section.key]);
     problems.push(...parsed.problems);
     warnings.push(...parsed.warnings);
+  }
+  return { problems, warnings };
+}
+
+// --- project.json's keys and who owns them (ADR 0446) ----------------------------------------------
+
+/**
+ * Who owns a top-level `project.json` key (ADR 0446):
+ * - `"runtime"`: the Project panel's own categories edit it and the engine reads it (`RUNTIME_SETTINGS`);
+ * - `"editor"`: the Project panel's own categories edit it but only the editor and the exporter read it (`build`);
+ * - `"section"`: a settings section (ADR 0151) edits it, the engine reading it itself or not (`physics`, a plugin's own key);
+ * - `"reserved"`: no settings section may own it (`bootstrap`, the Worlds panel's; `audio`, which is `audio.json`'s, ADR 0344).
+ */
+export type ProjectKeyOwner = "runtime" | "editor" | "section" | "reserved";
+
+/**
+ * Every key the engine knows, by owner. Each runtime key must be here (the type says so), so a new runtime section is
+ * checked by the Project panel, or left to the section that claims it, without another list to update. The order is
+ * the Project panel's.
+ */
+const OWNERS = {
+  name: "runtime",
+  display: "runtime",
+  time: "runtime",
+  render: "runtime",
+  input: "runtime",
+  autoload: "runtime",
+  graphics: "runtime",
+  plugins: "runtime",
+  build: "editor",
+  physics: "section",
+  lighting2D: "section",
+  navigation: "section",
+  languages: "section",
+  subtitles: "section",
+  bootstrap: "reserved",
+  audio: "reserved",
+} as const satisfies { readonly [K in RuntimeSettingsKey | "build" | "bootstrap"]: ProjectKeyOwner };
+
+/** Why a reserved key isn't any settings section's, to end a refusal. */
+const RESERVED_BECAUSE: Readonly<Record<string, string>> = {
+  bootstrap: "the editor owns that project.json key.",
+  audio: "the project's audio is audio.json's (ADR 0344).",
+};
+
+type KnownKey = keyof typeof OWNERS;
+type OwnedBy<O extends ProjectKeyOwner> = { [K in KnownKey]: (typeof OWNERS)[K] extends O ? K : never }[KnownKey];
+const isKnownKey = (key: string): key is KnownKey => Object.hasOwn(OWNERS, key);
+const isRuntimeKey = (key: string): key is RuntimeSettingsKey => Object.hasOwn(RUNTIME_SETTINGS, key);
+
+/** The keys the Project panel's own categories edit: the runtime ones, then `build`. A function, so the player (which never asks) tree-shakes it away. */
+const coreKeys = (): KnownKey[] => (Object.keys(OWNERS) as KnownKey[]).filter((k) => OWNERS[k] === "runtime" || OWNERS[k] === "editor");
+
+/** A settings section (ADR 0151) as far as `project.json` goes: the keys it owns and, optionally, its own checks of them. The editor's `ProjectSettingsSectionContribution` is one. */
+export interface SettingsSectionKeys {
+  readonly id: string;
+  readonly keys: readonly string[];
+  /** What's wrong with its keys in the draft, by field. Runtime keys are checked by their runtime section anyway. */
+  problems?(draft: ProjectSettingsDraft): readonly SettingsIssue[];
+}
+
+/** A value as the Project panel's draft holds it: a section's fields each optional, its unknown fields kept. */
+type Written<T> = T extends readonly unknown[] ? T : T extends object ? Partial<T> & Record<string, unknown> : T;
+
+/** The runtime keys whose parse reads nested lists of records leniently (problems under the key): the draft holds them as plain records, as written. */
+type LenientKey = "graphics" | "lighting2D" | "navigation" | "languages" | "subtitles";
+
+/**
+ * The `project.json` keys the Project panel edits, as written and being edited (ADR 0038, 0151, 0446): the runtime keys
+ * typed field by field from the engine's settings (the lenient ones as plain records), the build keys, and any key a
+ * settings section owns. Values may be wrong; `projectSettingsIssues` says what is.
+ */
+export type ProjectSettingsDraft = { [K in Exclude<OwnedBy<"runtime" | "section">, LenientKey | "plugins">]?: Written<ProjectSettings[K]> } & { [K in LenientKey]?: Record<string, unknown> } & {
+  /** Per-project plugin enabling (ADR 0133): only the plugins that are off. */
+  plugins?: Written<PluginSettings>;
+  /** Game export settings (ADR 0041), read by the exporter; other keys in it are kept. */
+  build?: Written<BuildSettings>;
+  /** A key a settings section owns (ADR 0151), as written. */
+  [key: string]: unknown;
+};
+
+/** Who owns `key` (ADR 0446), given the registered settings sections: undefined for a key nothing owns (`project.json` keeps it untouched). */
+export function projectKeyOwner(key: string, sections: readonly SettingsSectionKeys[] = []): ProjectKeyOwner | undefined {
+  if (isKnownKey(key)) return OWNERS[key];
+  return sections.some((s) => s.keys.includes(key)) ? "section" : undefined;
+}
+
+/** Every key the Project panel edits: its own (`runtime` and `editor`), then the keys `sections` own, in their order, reserved keys left out. */
+export function projectSettingsKeys(sections: readonly SettingsSectionKeys[] = []): string[] {
+  const keys: string[] = coreKeys();
+  for (const section of sections) for (const key of section.keys) if (projectKeyOwner(key) !== "reserved" && !keys.includes(key)) keys.push(key);
+  return keys;
+}
+
+/** Why `section` can't own the keys it declares (one of the Project panel's own, a reserved one, or another of `sections`'), or undefined when it can. */
+export function sectionKeyConflict(section: SettingsSectionKeys, sections: readonly SettingsSectionKeys[] = []): string | undefined {
+  for (const key of section.keys) {
+    const owner = projectKeyOwner(key);
+    if (owner === "runtime" || owner === "editor") return `Project settings section "${section.id}" can't own "${key}": the editor owns that project.json key.`;
+    if (owner === "reserved") return `Project settings section "${section.id}" can't own "${key}": ${RESERVED_BECAUSE[key]}`;
+    const other = sections.find((s) => s.id !== section.id && s.keys.includes(key));
+    if (other) return `Project settings section "${section.id}" can't own "${key}": section "${other.id}" owns it.`;
+  }
+  return undefined;
+}
+
+/** What `projectSettingsIssues` checks against besides the draft. */
+export interface ProjectSettingsCheck {
+  /** The registered settings sections (ADR 0151): their keys are checked, by their runtime section and their own `problems`. */
+  readonly sections?: readonly SettingsSectionKeys[];
+  /** The project's files: autoloads and the build icon must be among them. Omitted: not checked. */
+  readonly files?: readonly string[];
+  /** The plugins the host knows: names in `plugins.disabled` that aren't are warnings. Omitted: not checked. */
+  readonly knownPlugins?: readonly string[];
+}
+
+/**
+ * Everything wrong with the Project panel's draft, for every key it edits (ADR 0446): each runtime key through its
+ * runtime section (what the Engine would warn at start-up, by field), `build` through the exporter's rules, autoloads
+ * and the build icon against the project's files, and each section's own `problems` (a problem the runtime section
+ * already gave is given once). `problems` keep the draft from being saved; `warnings` don't.
+ */
+export function projectSettingsIssues(draft: ProjectSettingsDraft, check: ProjectSettingsCheck = {}): { problems: SettingsIssue[]; warnings: SettingsIssue[] } {
+  const { sections = [], files, knownPlugins } = check;
+  const problems: SettingsIssue[] = [];
+  const warnings: SettingsIssue[] = [];
+  for (const key of projectSettingsKeys(sections)) {
+    if (key === "build") problems.push(...buildSettingsProblems(draft.build, files));
+    else if (isRuntimeKey(key)) {
+      const parsed = RUNTIME_SETTINGS[key].parse(draft[key]);
+      problems.push(...parsed.problems);
+      warnings.push(...parsed.warnings);
+    }
+    if (key === "autoload" && files && Array.isArray(draft.autoload)) {
+      const list: unknown[] = draft.autoload;
+      list.forEach((path, i) => {
+        if (typeof path === "string" && /\.(scene|prefab)\.json$/.test(path) && list.indexOf(path) === i && !files.includes(path)) problems.push({ field: `autoload.${i}`, message: `${path} isn't in the project.` });
+      });
+    }
+    if (key === "plugins") warnings.push(...asIssues("plugins", pluginSettingsProblems(draft.plugins, knownPlugins).warnings));
+  }
+  const given = new Set(problems.map((p) => `${p.field}\n${p.message}`));
+  for (const section of sections) {
+    for (const p of section.problems?.(draft) ?? []) {
+      const id = `${p.field}\n${p.message}`;
+      if (given.has(id)) continue;
+      given.add(id);
+      problems.push(p);
+    }
   }
   return { problems, warnings };
 }

@@ -1,66 +1,35 @@
-// The Project panel's model (ADR 0038, 0151): the parts of `project.json` beyond the bootstrap (name,
-// display, time, render, autoloads, and the keys plugins' settings sections own, such as `physics`) as a
-// draft, edited by pure functions, checked, and written back into the file's text one top-level key at a
-// time so the rest keeps its layout.
-import { defaultSettings, pluginSettingsProblems, RUNTIME_SETTINGS, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
+// The Project panel's model (ADR 0038, 0151, 0446): edits of the draft of `project.json`'s keys the panel owns, as pure
+// functions, and writing the draft back into the file's text one top-level key at a time so the rest keeps its layout.
+// Which keys those are, and what's wrong with a draft, are the engine's settings module's (`projectSettingsKeys`,
+// `projectSettingsIssues`); the functions here only bind them to the registered settings sections.
+import { defaultSettings, projectSettingsIssues, projectSettingsKeys, sectionKeyConflict, type ProjectSettingsDraft, type ProjectSettingsInput, type SettingsIssue } from "../engine/core/settings";
 import { defaultTier, parseGraphics, PLATFORMS, type GraphicsSettings, type Platform, type PlatformDefaults, type QualityTier } from "../engine/core/graphics";
 import { projectSettingsSections } from "./sdk/contributions";
 import { withMember } from "./jsonMember";
 import { uniqueName } from "../engine/core/uniqueName";
 
-/** The top-level keys the shell's own Project panel categories edit (the Worlds panel edits `bootstrap`). */
-const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "input", "autoload", "graphics", "plugins", "build"] as const;
+/** The panel's keys of `project.json`, as written (missing values fall back to the engine's defaults). */
+export type SettingsDraft = ProjectSettingsDraft;
 
-/** Keys no settings section may own: `bootstrap` (the Worlds panel's) and `audio`, which moved to `audio.json` (ADR 0344; the Audio Studio edits it). */
-const RESERVED_KEYS: readonly string[] = ["bootstrap", "audio"];
+/** A problem, with the field it's about (`"display.width"`, `"physics.layers.2"`), for highlighting. */
+export type SettingsProblem = SettingsIssue;
 
-/**
- * Every key the Project panel edits: the core keys, then those the registered settings sections declare
- * (ADR 0151; `physics` while the Physics plugin is on). `bootstrap` stays the Worlds panel's.
- */
-export function settingsKeys(): string[] {
-  const keys: string[] = [...CORE_SETTINGS_KEYS];
-  for (const section of projectSettingsSections.list()) for (const key of section.keys) if (!RESERVED_KEYS.includes(key) && !keys.includes(key)) keys.push(key);
-  return keys;
-}
+/** Every key the Project panel edits: its own, then those the registered settings sections own (ADR 0151, 0446). */
+export const settingsKeys = (): string[] => projectSettingsKeys(projectSettingsSections.list());
 
-/** `section`, if the keys it declares are free: not core, not reserved (`bootstrap`, `audio`), not another registered section's. Throws otherwise. */
+/** `section`, if the keys it declares are free (not the panel's own, not reserved, not another registered section's). Throws otherwise. */
 export function checkSettingsSectionKeys<T extends { readonly id: string; readonly keys: readonly string[] }>(section: T): T {
-  for (const key of section.keys) {
-    if ((CORE_SETTINGS_KEYS as readonly string[]).includes(key) || key === "bootstrap") throw new Error(`Project settings section "${section.id}" can't own "${key}": the editor owns that project.json key.`);
-    if (key === "audio") throw new Error(`Project settings section "${section.id}" can't own "audio": the project's audio is audio.json's (ADR 0344).`);
-    const owner = projectSettingsSections.list().find((s) => s.id !== section.id && s.keys.includes(key));
-    if (owner) throw new Error(`Project settings section "${section.id}" can't own "${key}": section "${owner.id}" owns it.`);
-  }
+  const conflict = sectionKeyConflict(section, projectSettingsSections.list());
+  if (conflict) throw new Error(conflict);
   return section;
 }
 
-/** The panel's sections of `project.json`, as written (missing values fall back to the engine's defaults). */
-export interface SettingsDraft {
-  name?: string;
-  display?: Partial<ProjectSettings["display"]> & Record<string, unknown>;
-  time?: Partial<ProjectSettings["time"]> & Record<string, unknown>;
-  /** Owned by the Physics plugin's settings section (ADR 0151). */
-  physics?: Partial<ProjectSettings["physics"]> & Record<string, unknown>;
-  render?: Partial<ProjectSettings["render"]> & Record<string, unknown>;
-  autoload?: string[];
-  /** Graphics quality tiers (ADR 0050), as written; read leniently by `parseGraphics`. */
-  graphics?: Record<string, unknown>;
-  /** Navigation (ADR 0065): agent types, areas and bake settings, as written; owned by the Navigation plugin's settings section (ADR 0151). */
-  navigation?: Record<string, unknown>;
-  /** Per-project plugin enabling (ADR 0133): only the plugins that are off. */
-  plugins?: { disabled?: string[] } & Record<string, unknown>;
-  /** Game export settings (ADR 0041), read by the exporter; other keys in it are kept. */
-  build?: { icon?: string; identifier?: string; version?: string } & Record<string, unknown>;
-  /** A key a plugin's settings section owns (ADR 0151), as written. */
-  [key: string]: unknown;
-}
+/** Everything wrong with the draft, by field, given the registered sections; `files` (the project's) checks that autoloads and the icon exist. Problems keep the draft from being saved. */
+export const settingsProblems = (draft: SettingsDraft, files?: readonly string[]): SettingsProblem[] => projectSettingsIssues(draft, { files, sections: projectSettingsSections.list() }).problems;
 
-/** A problem, with the field it's about (`"display.width"`, `"physics.layers.2"`), for highlighting. */
-export interface SettingsProblem {
-  field: string;
-  message: string;
-}
+/** Notes that don't stop a save: things that work but are probably unintended. */
+export const settingsWarnings = (draft: SettingsDraft, knownPlugins?: readonly string[]): string[] =>
+  projectSettingsIssues(draft, { knownPlugins, sections: projectSettingsSections.list() }).warnings.map((w) => w.message);
 
 /**
  * `project.json`'s text with the draft's sections written in. Only sections that differ from
@@ -117,11 +86,10 @@ export const moveAutoload = (d: SettingsDraft, index: number, by: number): Setti
 
 // --- action set files (ADR 0433) -------------------------------------------------------------------
 
-/** The draft's `input.actionSets`: the action set files defined at boot, in order. */
+/** The draft's `input.actionSets` (the action set files defined at boot, in order) as written, entry for entry (so entry `i` is the one `input.actionSets.i`'s problems are about; a bad entry stays listed to be removed). */
 export const actionSetsOf = (d: SettingsDraft): string[] => {
-  const input = d.input;
-  const list = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>).actionSets : undefined;
-  return Array.isArray(list) ? list.filter((p): p is string => typeof p === "string") : [];
+  const list: unknown = d.input?.actionSets;
+  return Array.isArray(list) ? list.map(String) : [];
 };
 const withActionSets = (d: SettingsDraft, list: string[]): SettingsDraft => setValue(d, "input", "actionSets", list);
 /** Add an action set file at the end of the list (no change when it's listed already). */
@@ -222,51 +190,6 @@ export function setDefaultTier(draft: SettingsDraft, name: string): SettingsDraf
   const g = graphicsOf(draft);
   if (!g.tiers.some((t) => t.name === name)) return draft;
   return withGraphics(draft, g.tiers, name);
-}
-
-// --- validation -----------------------------------------------------------------------------------
-
-/** The core keys the engine reads itself, checked by their runtime sections (ADR 0272). */
-const RUNTIME_CORE_KEYS = ["name", "display", "time", "render", "autoload", "graphics", "plugins"] as const;
-
-/**
- * Everything wrong with the draft, as sentences. `files` (the project's files) lets autoloads be
- * checked for existing. Problems keep the draft from being saved.
- */
-export function settingsProblems(draft: SettingsDraft, files?: readonly string[]): SettingsProblem[] {
-  const problems: SettingsProblem[] = [];
-  const p = (field: string, message: string) => problems.push({ field, message });
-  // What the engine would warn about at start-up and replace with defaults (ADR 0272), by field.
-  for (const key of RUNTIME_CORE_KEYS) problems.push(...RUNTIME_SETTINGS[key].parse(draft[key]).problems);
-  // Beyond the runtime's checks: autoloads must exist in the project.
-  if (files && Array.isArray(draft.autoload)) {
-    draft.autoload.forEach((path, i) => {
-      if (typeof path === "string" && /\.(scene|prefab)\.json$/.test(path) && draft.autoload!.indexOf(path) === i && !files.includes(path)) p(`autoload.${i}`, `${path} isn't in the project.`);
-    });
-  }
-
-  // The keys plugins' settings sections own check themselves (ADR 0151).
-  for (const section of projectSettingsSections.list()) if (section.problems) problems.push(...section.problems(draft));
-
-  // The export's own checks (src/export/desktop.ts), so a bad value shows here rather than at export.
-  const build = draft.build ?? {};
-  if (build.identifier !== undefined && !(typeof build.identifier === "string" && /^[A-Za-z][\w-]*(\.[A-Za-z][\w-]*)+$/.test(build.identifier))) {
-    p("build.identifier", "The app identifier must be a reverse-DNS name like com.example.mygame.");
-  }
-  if (build.version !== undefined && !(typeof build.version === "string" && /^\d+\.\d+\.\d+$/.test(build.version))) p("build.version", "The version must look like 1.2.3.");
-  if (build.icon !== undefined) {
-    if (typeof build.icon !== "string" || !/\.(png|svg)$/i.test(build.icon)) p("build.icon", "The icon must be a .png or .svg file.");
-    else if (files && !files.includes(build.icon)) p("build.icon", `${build.icon} isn't in the project.`);
-  }
-  return problems;
-}
-
-/** Notes that don't stop a save: things that work but are probably unintended. */
-export function settingsWarnings(draft: SettingsDraft, knownPlugins?: readonly string[]): string[] {
-  const out: string[] = [];
-  out.push(...pluginSettingsProblems(draft.plugins, knownPlugins).warnings);
-  out.push(...RUNTIME_SETTINGS.render.parse(draft.render).warnings.map((w) => w.message));
-  return out;
 }
 
 // --- plugins ----------------------------------------------------------------------------------------

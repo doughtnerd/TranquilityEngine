@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionSetsOf, addActionSet, moveActionSetTo, removeActionSet, addAutoload, addSortingLayer, addTier, graphicsOf, moveTier, removeTier, renameTier, setPlatformDefault, setAutoDetect, setDefaultTier, setTargetFrameRate, setTierValue, moveAutoload, moveSortingLayer, setName, settingsProblems, settingsWarnings, setValue, withSettings, type SettingsDraft } from "./projectSettingsModel";
+import { actionSetsOf, addActionSet, moveActionSetTo, removeActionSet, addAutoload, addSortingLayer, addTier, graphicsOf, moveTier, removeTier, renameTier, setPlatformDefault, setAutoDetect, setDefaultTier, setTargetFrameRate, setTierValue, moveAutoload, moveSortingLayer, setName, settingsKeys, settingsProblems, settingsWarnings, setValue, withSettings, type SettingsDraft } from "./projectSettingsModel";
 import { raw, readDraft } from "./testing";
 
 const FLAPPY = raw["../../samples/flappy/project.json"];
@@ -236,5 +236,24 @@ describe("action set files (ADR 0433)", () => {
     expect(actionSetsOf(d)).toEqual(["input/c.actions.json", "input/a.actions.json", "input/b.actions.json"]);
     d = removeActionSet(d, 1);
     expect(d.input).toEqual({ join: "single", actionSets: ["input/c.actions.json", "input/b.actions.json"] });
+  });
+
+  it("reports a bad join policy, max players and duplicate or misnamed action sets on their fields, and lists every entry to remove", () => {
+    let d = setValue(flappy(), "input", "join", "everyone");
+    d = setValue(d, "input", "maxPlayers", 2.5);
+    d = setValue(d, "input", "actionSets", ["input/a.actions.json", "input/a.actions.json", "notes.txt"]);
+    expect(fields(d)).toEqual(["input.join", "input.maxPlayers", "input.actionSets.1", "input.actionSets.2"]);
+    expect(actionSetsOf(d)).toEqual(["input/a.actions.json", "input/a.actions.json", "notes.txt"]);
+    expect(fields(removeActionSet(removeActionSet(d, 2), 1))).toEqual(["input.join", "input.maxPlayers"]);
+  });
+});
+
+describe("every key the Project panel edits (ADR 0446)", () => {
+  it("keeps a draft with a bad value in any of them from saving, with the problem on that key's field", () => {
+    for (const key of settingsKeys()) {
+      const found = fields({ ...flappy(), [key]: 42 });
+      expect(found.length, `a bad ${key}`).toBeGreaterThan(0);
+      expect(found.every((f) => f === key || f.startsWith(`${key}.`)), `${key}: ${found.join(", ")}`).toBe(true);
+    }
   });
 });
