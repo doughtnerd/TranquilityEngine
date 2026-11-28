@@ -41,6 +41,8 @@ export { CurveField, CurvePreview, type CurveFieldProps } from "../ui/curves/Cur
 export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurveKey, setKeyInterp as setCurveKeyInterp, type Key as CurveEditKey } from "../ui/curves/keyList";
 // ADR 0373: the dope sheet's grid (ruler, rows of keys, box select) and the key-list edits of several keys at once, shared
 // by the curve editor's dope sheet and the Animation window.
+// ADR 0468: the editor's one selection rule (Shift adds, Ctrl/Cmd toggles, a plain press on a selected item keeps the selection).
+export { combineSelection, pressSelection, selectModeFor, type SelectMode } from "../selectMode";
 export { DopeSheetGrid, type DopeBar, type DopeBarPart, type DopeKey, type DopeRow, type DopeSelectMode, type DopeSheetGridProps, type DopeSpan } from "../ui/curves/DopeSheetGrid";
 export { copyKeysAt, fitYRange, pasteKeys, removeKeys, rippleKeys, scaleKeys, shiftKeys, SAME_X, type CopiedKeys, type KeysEdit } from "../ui/curves/keyList";
 export { withEnds as withCurveEnds } from "../ui/curves/curveEditorModel";

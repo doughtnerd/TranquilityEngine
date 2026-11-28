@@ -5,7 +5,7 @@
 // one labelled undo step each. Double-click a state machine to open its canvas.
 import { useMemo, useRef, useState } from "preact/hooks";
 import type { AnimGraph, GraphFamily, GraphNode } from "../../../../engine/animation/animGraph";
-import { Minimap, NO_PAN, NodeSearchPopup, SelectionBox, WireRefusal, handleProps, isFieldTarget, px, startBoxSelect, toGraph, useGraphCanvas, useGraphSearch, useGraphWiring, useNodeDrag, wirePath, type CanvasNode, type EditResult, type GraphDragHooks, type GraphWiringEdits, type Point, type SearchItem, EmptyState } from "../../../../editor/sdk";
+import { Minimap, NO_PAN, NodeSearchPopup, SelectionBox, WireRefusal, handleProps, isFieldTarget, pressItem, px, startBoxSelect, toGraph, useGraphCanvas, useGraphSearch, useGraphWiring, useNodeDrag, wirePath, type CanvasNode, type EditResult, type GraphDragHooks, type GraphWiringEdits, type Point, type SearchItem, EmptyState } from "../../../../editor/sdk";
 import {
   FAMILY_LABELS, OUT, addNode, catalogueEntries, connect, disconnect, inPin, inputPins, kindLabel, moveNodes, nodeById, nodeTitle, pinIndex, removeNodes, whyNotConnect, type Added,
 } from "./graphEditLogic";
@@ -189,12 +189,8 @@ export function PoseCanvas(props: PoseCanvasProps) {
   const onItemDown = (e: PointerEvent, id: string) => {
     if (isFieldTarget(e.target) || e.button !== 0) return;
     canvas.pane.current?.focus({ preventScroll: true });
-    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
-    if (additive) {
-      const next = new Set(selection);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      props.onSelection(next);
-    } else if (!selection.has(id)) props.onSelection(new Set([id]));
+    const next = pressItem(selection, id, e);
+    if (next !== selection) props.onSelection(next);
   };
 
   const byId = new Map(canvasNodes.map((c) => [c.id, c]));

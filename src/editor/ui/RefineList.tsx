@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { combineSelection, rangeBetween } from "../selectionModel";
+import { rangeBetween } from "../selectionModel";
+import { combineSelection } from "../selectMode";
 import { isSelected, refineList, selectedKeys } from "../state";
 import { select } from "../inspectorTarget";
 import { viewportOf } from "../windows/dom";

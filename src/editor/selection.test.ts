@@ -8,7 +8,7 @@ import { writeRemoveNode } from "./overrideWriter";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
-import { ancestorKeys, combineSelection, hierarchyEntries, rangeBetween, selectModeFor, topmostKeys, withDescendants } from "./selectionModel";
+import { ancestorKeys, hierarchyEntries, rangeBetween, topmostKeys, withDescendants } from "./selectionModel";
 import { openScene, sceneCamera, selectedKeys, selectedNodes, selection } from "./state";
 import { select } from "./inspectorTarget";
 import { boxBetween, colliderBounds, colliderHits, idsInBox, keysNear } from "./viewportPicks";
@@ -42,19 +42,6 @@ describe("the selection", () => {
 });
 
 describe("combining a gesture with the selection", () => {
-  it("replaces, adds (Shift) or toggles (Ctrl/Cmd)", () => {
-    expect(combineSelection(["a", "b"], ["c"], "replace")).toEqual(["c"]);
-    expect(combineSelection(["a", "b"], ["b", "c"], "add")).toEqual(["a", "b", "c"]);
-    expect(combineSelection(["a", "b"], ["b", "c"], "toggle")).toEqual(["a", "c"]);
-  });
-
-  it("reads the mode from modifier keys, Ctrl/Cmd over Shift", () => {
-    expect(selectModeFor({ shiftKey: false, ctrlKey: false, metaKey: false })).toBe("replace");
-    expect(selectModeFor({ shiftKey: true, ctrlKey: false, metaKey: false })).toBe("add");
-    expect(selectModeFor({ shiftKey: true, ctrlKey: true, metaKey: false })).toBe("toggle");
-    expect(selectModeFor({ shiftKey: false, ctrlKey: false, metaKey: true })).toBe("toggle");
-  });
-
   it("takes Shift ranges in row order, either direction", () => {
     const order = ["a", "b", "c", "d"];
     expect(rangeBetween(order, "b", "d")).toEqual(["b", "c", "d"]);

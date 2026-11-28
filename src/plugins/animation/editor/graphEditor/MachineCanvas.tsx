@@ -6,7 +6,7 @@
 // state to open its sub-graph.
 import { useRef, useState } from "preact/hooks";
 import type { AnimGraph, MachineState, StateMachine } from "../../../../engine/animation/animGraph";
-import { Minimap, SelectionBox, WireRefusal, handleProps, isFieldTarget, px, startBoxSelect, toGraph, useGraphCanvas, useGraphWiring, useNodeDrag, type CanvasNode, type EditResult, type GraphDragHooks, type GraphWiringEdits, type Point, EmptyState } from "../../../../editor/sdk";
+import { Minimap, SelectionBox, WireRefusal, handleProps, isFieldTarget, pressItem, px, startBoxSelect, toGraph, useGraphCanvas, useGraphWiring, useNodeDrag, type CanvasNode, type EditResult, type GraphDragHooks, type GraphWiringEdits, type Point, EmptyState } from "../../../../editor/sdk";
 import { nodeById } from "./graphEditLogic";
 import {
   ANY_ID, ENTRY_ID, addState, addTransition, entryOf, moveStates, priorityLabel, removeState, setEntry,
@@ -181,11 +181,8 @@ export function MachineCanvas(props: MachineCanvasProps) {
       if (id === ANY_ID) props.onTransition(null);
       return;
     }
-    if (e.shiftKey || e.ctrlKey || e.metaKey) {
-      const next = new Set(selection);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      props.onSelection(next);
-    } else if (!selection.has(id)) props.onSelection(new Set([id]));
+    const next = pressItem(selection, id, e);
+    if (next !== selection) props.onSelection(next);
   };
 
   const at = (name: string): Point | null => {

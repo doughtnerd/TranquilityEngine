@@ -32,16 +32,15 @@ import {
   arrowSelection,
   assetAnchor,
   assetCursor,
-  boxSelection,
   clickSelection,
   AssetBrowserView,
   defaultAssetBrowser,
   lastAssetBrowser,
   renamingAsset,
   selectedAssets,
-  type Modifiers,
 } from "../assetSelection";
 import { previewAssets, select, selectAssets } from "../inspectorTarget";
+import { combineSelection, selectModeFor } from "../selectMode";
 import { installOsDrop } from "../osDrop";
 import { osDrag } from "../osDropController";
 import { newScript, scriptFolderFor } from "../newScript";
@@ -414,7 +413,7 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
     const el = list.current!;
     el.focus();
     const before = selectedAssets.value.filter((x) => entries.includes(x));
-    const mods: Modifiers = { shift: e.shiftKey, toggle: toggleKey(e) };
+    const mode = selectModeFor(e);
     const x0 = e.clientX, y0 = e.clientY;
     startPointerDrag(e, {
       move: (m) => {
@@ -426,13 +425,13 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
             return b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
           })
           .map((item) => item.dataset.entry!);
-        previewAssets(boxSelection(before, hits, mods)); // the Inspector follows once the box is let go
+        previewAssets(combineSelection(before, hits, mode)); // the Inspector follows once the box is let go
       },
       end: (how) => {
         box.value = null;
         if (how === "cancel") previewAssets(before);
         else if (how === "drop") selectAssets(selectedAssets.peek());
-        else if (!mods.shift && !mods.toggle) selectAssets([]); // a click on empty space
+        else if (mode === "replace") selectAssets([]); // a click on empty space
       },
     });
   };

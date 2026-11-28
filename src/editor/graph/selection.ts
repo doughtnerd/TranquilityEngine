@@ -1,5 +1,5 @@
 // The selection and shortcuts every graph panel has (ADR 0228): click, Shift/Ctrl-click and box
-// select on the canvas, and the keyboard block: Ctrl/Cmd+D duplicate, +A select all, +C copy, +X
+// select on the canvas (by the editor's one selection rule, ADR 0468: `pressItem`, `startBoxSelect`), and the keyboard block: Ctrl/Cmd+D duplicate, +A select all, +C copy, +X
 // cut, +V paste, +G group, +F find (ADR 0117, 0259), Delete, Space (the node search), F (frame all)
 // and Escape. It also moves items: node drags (xyflow's, which move the selection together) and
 // group drags by the title, and adds a note in the middle of the view (ADR 0259). The edits go
@@ -10,6 +10,7 @@
 // a row see each other's edits.
 import { useState } from "preact/hooks";
 import { clipboardForPaste, expectPaste, takePaste, writeClipboard, type ClipboardPayload } from "../clipboard";
+import { pressSelection, selectModeFor } from "../selectMode";
 import { KEY_OWNER } from "./keyOwner";
 import { isFieldTarget, startBoxSelect, startPointerDrag, type GraphDragHooks } from "./canvas";
 import type { GraphDocument, GraphPropertyData, GraphVec } from "./document";
@@ -17,6 +18,17 @@ import { toGraph, type CanvasNode, type Point, type View } from "./xyflow";
 
 /** Each graph kind's last copy, by clipboard format: Ctrl+V in any graph of that kind, in any window, takes it (ADR 0226). */
 const copied = new Map<string, ClipboardPayload>();
+
+/**
+ * A graph canvas's selection after a press on item `id` (ADR 0468, the scene view's rule): Shift adds
+ * it, Ctrl/Cmd toggles it, a plain press selects just it unless it's already selected (so the drag
+ * that follows moves the whole selection). Returns `selection` itself when the press changes nothing.
+ */
+export function pressItem(selection: ReadonlySet<string>, id: string, e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }): ReadonlySet<string> {
+  const before = [...selection];
+  const next = pressSelection(before, id, selectModeFor(e));
+  return next === before ? selection : new Set(next);
+}
 
 /** What the selection handlers use of the canvas (`useGraphCanvas` returns it). */
 export interface GraphSelectionCanvas {
@@ -110,12 +122,8 @@ export function useGraphSelection<G, P extends GraphPropertyData, C extends Clip
     if (e.button !== 0) return;
     if (!isFieldTarget(e.target)) focus();
     o.onItemDown?.(e);
-    if (e.shiftKey || e.ctrlKey || e.metaKey) {
-      const next = new Set(selection);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      setSelection(next);
-    } else if (!selection.has(id)) setSelection(new Set([id]));
+    const next = pressItem(selection, id, e);
+    if (next !== selection) setSelection(next);
   };
 
   const onPaneDown = (e: PointerEvent) => {

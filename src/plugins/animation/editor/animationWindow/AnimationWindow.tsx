@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { AnimSource } from "../../../../engine/animation/animSource";
 import { listComponents } from "../../../../engine/editor";
 import type { GameObject } from "../../../../engine/scene/GameObject";
-import { DopeSheetGrid, editor, EmptyState, openCurveEditorDialog, Panel, writeClipboard, type DopeRow, type DopeSelectMode, type EditResult, assetRefTarget } from "../../../../editor/sdk";
+import { DopeSheetGrid, editor, EmptyState, openCurveEditorDialog, Panel, writeClipboard, type DopeRow, type DopeSelectMode, type EditResult, assetRefTarget, combineSelection } from "../../../../editor/sdk";
 import { propertyChoices, type NodeFields } from "./addTrackLogic";
 import { nodePathOf } from "../../../../engine/animation/bindingPath";
 import { animationSession as s, type WindowTarget } from "./animationSession";
@@ -153,12 +153,7 @@ function ClipEditor(props: { target: Exclude<WindowTarget, { kind: "none" }>; cl
     if (s.apply("refused" in result ? result : { next: result.next.clip }, label) && "next" in result) s.selection.value = result.next.selection;
   };
   const select = (ids: readonly string[], mode: DopeSelectMode) => {
-    const leaves = ids.flatMap((id) => leafKeysOf(rows, id));
-    const cur = new Set(s.selection.peek());
-    if (mode === "replace") return void (s.selection.value = leaves);
-    if (mode === "add") leaves.forEach((l) => cur.add(l));
-    else leaves.forEach((l) => (cur.has(l) ? cur.delete(l) : cur.add(l)));
-    s.selection.value = [...cur];
+    s.selection.value = combineSelection(s.selection.peek(), ids.flatMap((id) => leafKeysOf(rows, id)), mode);
   };
   const frame = (dt: number) => Math.round(dt * clip.rate) / clip.rate;
   const pasteTargets = () => {

@@ -15,7 +15,7 @@ import { Assets } from "../../../../engine/scene/Assets";
 import { parseAnimSource } from "../../../../engine/animation/animSource";
 import { parseTimeline } from "../../../../engine/animation/timeline";
 import type { GameObject } from "../../../../engine/scene/GameObject";
-import { AssetPicker, DopeSheetGrid, editor, EmptyState, Panel, registerAssetDropTarget, type DopeRow, type DopeSelectMode, type EditResult, assetRefTarget } from "../../../../editor/sdk";
+import { AssetPicker, DopeSheetGrid, editor, EmptyState, Panel, registerAssetDropTarget, type DopeRow, type DopeSelectMode, type EditResult, assetRefTarget, combineSelection } from "../../../../editor/sdk";
 import { propertyChoices, type NodeFields } from "../animationWindow/addTrackLogic";
 import { fieldPathValue, nodePathOf, parseFieldPath } from "../../../../engine/animation/bindingPath";
 import "../animationWindow/animationWindow.css";
@@ -172,10 +172,7 @@ function TimelineEditor(props: { target: Exclude<TimelineTarget, { kind: "none" 
   };
 
   const select = (ids: readonly string[], mode: DopeSelectMode) => {
-    const cur = new Set(s.selection.peek());
-    if (mode === "replace") return void (s.selection.value = [...ids]);
-    for (const id of ids) mode === "add" ? cur.add(id) : cur.has(id) ? cur.delete(id) : cur.add(id);
-    s.selection.value = [...cur];
+    s.selection.value = combineSelection(s.selection.peek(), ids, mode);
   };
   const frame = (dt: number) => Math.round(dt * tl.rate) / tl.rate;
   const onDrag = (phase: "start" | "move" | "end" | "cancel", part: DragPart, dx: number, alt: boolean, id: string) => {

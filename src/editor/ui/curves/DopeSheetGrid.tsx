@@ -11,6 +11,7 @@
 // - Nothing here edits keys: the host's model does, so the rules live in one place (`keyList.ts`, the host's logic).
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
+import { selectModeFor, type SelectMode } from "../../selectMode";
 import { playheadAt, rulerRange } from "./curveEditorModel";
 import { axisTicks } from "./keyList";
 import "./curveEditor.css";
@@ -66,8 +67,8 @@ export interface DopeRow {
   readonly bars?: readonly DopeBar[];
 }
 
-/** How a selection click combines with what is selected. */
-export type DopeSelectMode = "replace" | "add" | "toggle";
+/** How a selection click combines with what is selected: the editor's one rule (ADR 0468); `combineSelection` applies it. */
+export type DopeSelectMode = SelectMode;
 
 export interface DopeSheetGridProps {
   /** The time axis's length (seconds): x runs 0..length. */
@@ -105,8 +106,6 @@ export interface DopeSheetGridProps {
   /** Something after a row's name (a remove button). */
   aside?(row: DopeRow): ComponentChildren;
 }
-
-const modeOf = (e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }): DopeSelectMode => (e.ctrlKey || e.metaKey ? "toggle" : e.shiftKey ? "add" : "replace");
 
 export function DopeSheetGrid(props: DopeSheetGridProps) {
   const { rows, playhead, range, length } = props;
@@ -197,7 +196,7 @@ export function DopeSheetGrid(props: DopeSheetGridProps) {
               if (e.button !== 0 || e.target !== e.currentTarget) return;
               e.preventDefault();
               (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-              box.current = { x: e.clientX, y: e.clientY, row: row.id, mode: modeOf(e) };
+              box.current = { x: e.clientX, y: e.clientY, row: row.id, mode: selectModeFor(e) };
             }}
             onPointerMove={(e) => {
               const b = box.current;
@@ -235,7 +234,7 @@ export function DopeSheetGrid(props: DopeSheetGridProps) {
                   if (e.button !== 0) return;
                   e.stopPropagation();
                   e.preventDefault();
-                  const mode = p === "move" ? modeOf(e) : "replace";
+                  const mode = p === "move" ? selectModeFor(e) : "replace";
                   if (mode !== "replace" || !on) props.onSelect([b.id], mode);
                   if (mode === "toggle" && on) return;
                   const rect = (e.currentTarget as HTMLElement).closest<HTMLElement>(".ce-drow")!.getBoundingClientRect();
@@ -294,7 +293,7 @@ export function DopeSheetGrid(props: DopeSheetGridProps) {
                     if (e.button !== 0) return;
                     e.stopPropagation();
                     e.preventDefault();
-                    const mode = modeOf(e);
+                    const mode = selectModeFor(e);
                     if (mode !== "replace" || !s) props.onSelect([k.id], mode);
                     if (mode === "toggle" && s) return; // toggled off: nothing to drag
                     const rect = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();

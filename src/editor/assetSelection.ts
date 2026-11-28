@@ -5,6 +5,7 @@
 // (`selectAssets`), which keeps the Assets panel's selection apart from the scene's (ADR 0242).
 import { computed, signal } from "@preact/signals";
 import { entryFolder } from "./assetEntry";
+import { combineSelection } from "./selectMode";
 
 /**
  * One Assets panel's browsing (ADR 0174): the folder it shows, its Back/Forward history and its
@@ -138,20 +139,10 @@ function range(items: readonly string[], a: string, b: string): string[] {
 export function clickSelection(items: readonly string[], selected: readonly string[], anchor: string | null, entry: string, mods: Modifiers): { selected: string[]; anchor: string } {
   if (mods.shift && anchor && items.includes(anchor)) {
     const span = range(items, anchor, entry);
-    return { selected: mods.toggle ? [...new Set([...selected, ...span])] : span, anchor };
+    return { selected: mods.toggle ? combineSelection(selected, span, "add") : span, anchor };
   }
-  if (mods.toggle) return { selected: selected.includes(entry) ? selected.filter((e) => e !== entry) : [...selected, entry], anchor: entry };
+  if (mods.toggle) return { selected: combineSelection(selected, [entry], "toggle"), anchor: entry };
   return { selected: [entry], anchor: entry };
-}
-
-/**
- * The selection while dragging a box over `hits`, from the selection `before` the drag: a plain
- * box replaces it, Shift adds to it, Ctrl/Cmd toggles each hit (the scene view's rules).
- */
-export function boxSelection(before: readonly string[], hits: readonly string[], mods: Modifiers): string[] {
-  if (mods.toggle) return [...before.filter((e) => !hits.includes(e)), ...hits.filter((e) => !before.includes(e))];
-  if (mods.shift) return [...new Set([...before, ...hits])];
-  return [...hits];
 }
 
 /**

@@ -1,24 +1,8 @@
-// Multi-selection rules (ADR 0022): combining a box or click with the current selection, the
-// hierarchy's row order (for Shift ranges and the Alt+click list), and trimming a selection to
-// its topmost nodes (so moving or deleting a parent and its child doesn't act on the child twice).
+// Multi-selection over the scene hierarchy (ADR 0022; how a click or box combines with the selection
+// is `./selectMode.ts`, ADR 0468): the hierarchy's row order (for Shift ranges and the Alt+click
+// list), and trimming a selection to its topmost nodes (so moving or deleting a parent and its child doesn't act on the child twice).
 import { pathKey, type SceneDocument } from "./document";
 import { innerAt, instanceInnerNodes, parseKey, rootOf, type InnerNode } from "./nodeKey";
-
-/** How a box or click combines with the current selection: replace it, add to it (Shift), or toggle (Ctrl/Cmd). */
-export type SelectMode = "replace" | "add" | "toggle";
-
-/** The selection mode for a gesture's modifier keys. Ctrl/Cmd wins over Shift. */
-export function selectModeFor(e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }): SelectMode {
-  return e.ctrlKey || e.metaKey ? "toggle" : e.shiftKey ? "add" : "replace";
-}
-
-/** `current` combined with `hits` under `mode`, keeping selection order (new keys go last). */
-export function combineSelection(current: readonly string[], hits: readonly string[], mode: SelectMode): string[] {
-  if (mode === "replace") return [...new Set(hits)];
-  if (mode === "add") return [...new Set([...current, ...hits])];
-  const toggled = new Set(hits);
-  return [...current.filter((k) => !toggled.has(k)), ...[...toggled].filter((k) => !current.includes(k))];
-}
 
 /** One hierarchy row: a scene node or a node inside a prefab instance. */
 export interface HierarchyEntry {

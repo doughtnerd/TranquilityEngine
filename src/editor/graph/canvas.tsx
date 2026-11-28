@@ -3,6 +3,7 @@
 // state, and the refused wire's hint. Class names (`sg-*`) are the Shader Graph's; the styles are in
 // graph.css.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
+import { combineSelection, selectModeFor } from "../selectMode";
 import { NO_DRAG, NO_PAN, NO_WHEEL, createNodeDrag, createPane, toGraph, type CanvasNode, type DraftWire, type Pane, type Point, type View } from "./xyflow";
 
 /** A CSS length (Preact 11 doesn't add `px` to numbers). */
@@ -105,7 +106,7 @@ export interface BoxSelectOptions {
   pane: HTMLElement;
   view(): View;
   nodes(): readonly CanvasNode[];
-  /** The selection before the drag: kept when the drag is additive (Shift, Ctrl or Cmd). */
+  /** The selection before the drag: a plain box replaces it, Shift adds to it, Ctrl/Cmd toggles each hit (ADR 0468, the scene view's rule). */
   selection: ReadonlySet<string>;
   onSelection(ids: Set<string>): void;
   /** The rectangle being dragged in pane pixels, or null when it ends. */
@@ -116,9 +117,9 @@ export interface BoxSelectOptions {
 export function startBoxSelect(e: PointerEvent, o: BoxSelectOptions): void {
   const rect = o.pane.getBoundingClientRect();
   const a = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  const additive = e.shiftKey || e.ctrlKey || e.metaKey;
-  const base = additive ? new Set(o.selection) : new Set<string>();
-  if (!additive) o.onSelection(base);
+  const mode = selectModeFor(e);
+  const before = [...o.selection];
+  if (mode === "replace") o.onSelection(new Set());
   const el = o.pane;
   el.setPointerCapture(e.pointerId);
   const move = (m: PointerEvent) => {
@@ -126,9 +127,8 @@ export function startBoxSelect(e: PointerEvent, o: BoxSelectOptions): void {
     o.onBox({ a, b });
     const g0 = toGraph({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y) }, o.view());
     const g1 = toGraph({ x: Math.max(a.x, b.x), y: Math.max(a.y, b.y) }, o.view());
-    const next = new Set(base);
-    for (const n of o.nodes()) if (n.x < g1.x && n.x + n.width > g0.x && n.y < g1.y && n.y + n.height > g0.y) next.add(n.id);
-    o.onSelection(next);
+    const hits = o.nodes().filter((n) => n.x < g1.x && n.x + n.width > g0.x && n.y < g1.y && n.y + n.height > g0.y).map((n) => n.id);
+    o.onSelection(new Set(combineSelection(before, hits, mode)));
   };
   const up = () => {
     o.onBox(null);
