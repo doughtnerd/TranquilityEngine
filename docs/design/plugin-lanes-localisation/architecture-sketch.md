@@ -57,6 +57,8 @@ flowchart TB
     Writer["Capture writer<br/>.sporesample (framing moved to the engine)"]
     Topic["Debug link topic 'diagnostics'"]
     Key["Record key<br/>F9 / three-finger hold"]
+    Assets["Build asset index + files<br/>(files sources declare for<br/>re-execution and deep links)"]
+    Assets --> Topic
     Sources -.->|"register"| Registry
     Registry --> Hub
     Sources -->|"host.write(type, payload, time)"| Hub
@@ -77,6 +79,9 @@ flowchart TB
       Model["Capture model, reader, worker"]
       Play["Playback (time cursor)"]
       Views["View registry"]
+      AssetSet["Build asset set<br/>downloaded on connect,<br/>mounted when a capture opens"]
+      Client --> AssetSet
+      AssetSet --> Model
     end
     Screens["Take and Profiler screens<br/>(views on the module)"]
     HostIF["Profiler host interface<br/>open/save files, status, theme,<br/>open asset (deep links)"]
