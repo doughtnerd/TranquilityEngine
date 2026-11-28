@@ -14,6 +14,7 @@
 import { Assets, fetchAssetBytes } from "../../../engine/scene/Assets";
 import { fileSampleRate, readLoopPoints } from "./loopPointsReader";
 import { onAudioSessionReleased } from "./audioSession";
+import { normalizeAssetPath } from "../../../engine/scene/assetPath";
 
 /** A loop region in seconds; `end` is exclusive. */
 export interface LoopPoints {
@@ -24,8 +25,6 @@ export interface LoopPoints {
 /** What the files said, by clip path: absent = not decoded/read yet, null = decoded and has no loop points. */
 const fileByPath = new Map<string, LoopPoints | null>();
 const waiters = new Map<string, Set<(points: LoopPoints | null) => void>>();
-
-const keyOf = (path: string): string => path.replace(/^asset:/, "").replace(/^\.?\//, "");
 
 /** `known` is false while the answer still waits on the decoder; `points` is then null. */
 function resolve(path: string): { known: boolean; points: LoopPoints | null } {
@@ -42,12 +41,12 @@ function resolve(path: string): { known: boolean; points: LoopPoints | null } {
 
 /** The clip's loop points (sidecar over file), or null when it has none or they aren't known yet. */
 export function loopPointsFor(path: string): LoopPoints | null {
-  return resolve(keyOf(path)).points;
+  return resolve(normalizeAssetPath(path)).points;
 }
 
 /** Records the points the decoder (core path) or the TypeScript reader (Babylon path) found in the file at `path`. */
 export function setFileLoopPoints(path: string, points: LoopPoints | null): void {
-  const key = keyOf(path);
+  const key = normalizeAssetPath(path);
   fileByPath.set(key, points);
   const set = waiters.get(key);
   if (!set || set.size === 0) return;
@@ -68,7 +67,7 @@ export function setFileLoopPoints(path: string, points: LoopPoints | null): void
  * from the decoder, so they are usually unknown at PLAY. Returns an unsubscribe function.
  */
 export function onLoopPoints(path: string, cb: (points: LoopPoints | null) => void): () => void {
-  const key = keyOf(path);
+  const key = normalizeAssetPath(path);
   const now = resolve(key);
   if (now.known) {
     cb(now.points);
@@ -110,7 +109,7 @@ function scanFileLoopPoints(path: string, bytes: Uint8Array): void {
   } catch {
     frames = null;
   }
-  setFileLoopFrames(keyOf(path), frames, rate ?? 0);
+  setFileLoopFrames(normalizeAssetPath(path), frames, rate ?? 0);
 }
 
 const scans = new Map<string, Promise<void>>();
@@ -121,7 +120,7 @@ const scans = new Map<string, Promise<void>>();
  * themselves (the Babylon fallback hands the URL to the engine).
  */
 export function loadFileLoopPoints(path: string, url: string): Promise<void> {
-  const key = keyOf(path);
+  const key = normalizeAssetPath(path);
   let p = scans.get(key);
   if (!p) {
     p = fetchAssetBytes(url).then(

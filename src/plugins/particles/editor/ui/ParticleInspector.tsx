@@ -7,7 +7,7 @@ import { compileEffectGraph, effectFileMigrated, particleDocument } from "../par
 import { parseBlockAsset, parseSubgraphAsset, type AssetPort } from "../../../../engine/scene/particleSubgraphs";
 import { assetDocKind, docToAsset } from "../particleGraph/assetDocs";
 import { ParticlePropertyValue } from "./ParticlePropertyValue";
-import { AssetDocumentFrame, editor, type EditorProject, type NodePath, type OpenScene, LargePreview, sectionField, useFieldDrag, type InspectorSectionProps } from "../../../../editor/sdk";
+import { AssetDocumentFrame, editor, type EditorProject, type NodePath, type OpenScene, LargePreview, sectionField, useFieldDrag, type InspectorSectionProps, assetRefTarget } from "../../../../editor/sdk";
 
 /** What expanding and compiling a graph reports (ADR 0315; its parse problems are the document's). */
 const compileProblems = (project: EditorProject, graph: ParticleGraph): string[] => compileEffectGraph(project, graph).problems.map((p) => p.message);
@@ -126,7 +126,7 @@ function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; index: 
   // A colour pick, or a curve or gradient drag, is one undo step: the value field reports its drag (ADR 0290).
   const drag = useFieldDrag(place, "Edit particle property");
   const [id] = path;
-  const asset = props.effectPath.replace(/^asset:/, "");
+  const asset = assetRefTarget(props.effectPath);
   const project = editor.project.current;
   const set = (field: string, value: unknown) => editor.scene.writeField(place, field, value);
   const hasEmbedded = props.embedded !== null && props.embedded !== undefined;

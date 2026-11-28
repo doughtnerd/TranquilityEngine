@@ -153,6 +153,10 @@ describe("pose nodes (T51)", () => {
     g = ok(setSlot(g, "slot2", { name: "UpperBody", group: "Actions" }));
     g = add(g, "slots", "linked").graph;
     expect(refusalOf(setLinked(g, "linked", { graph: "asset:graphs/me.animgraph.json" }, "graphs/me.animgraph.json"))).toMatch(/can't link itself/);
+    // Every written form of the reference names the graph itself (ADR 0459): the runtime reads `asset:./x` as `x`.
+    for (const graph of ["asset:./graphs/me.animgraph.json", "/graphs/me.animgraph.json", "graphs/me.animgraph.json"]) {
+      expect(refusalOf(setLinked(g, "linked", { graph }, "graphs/me.animgraph.json"))).toMatch(/can't link itself/);
+    }
     g = ok(setLinked(g, "linked", { name: "Weapon", graph: "asset:graphs/sword.animgraph.json" }, "graphs/me.animgraph.json"));
     g = ok(addLayer(g, "slot"));
     expect(refusalOf(setLayer(g, "Layer", { weightParameter: "grounded" }))).toMatch(/type mismatch/);

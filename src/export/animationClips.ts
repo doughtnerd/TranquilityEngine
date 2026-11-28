@@ -23,6 +23,7 @@ import { prepareClipJob } from "../plugins/animation/editor/compile/jobs";
 import { loadClipSource, loadSkeletonBytes } from "../plugins/animation/runtime/features/clipSources";
 import { MANIFEST_FILE } from "./format";
 import { copiedPath, type WebBuildPlan } from "./webBuild";
+import { normalizeAssetPath } from "../engine/scene/assetPath";
 
 export interface CompileClipsOptions {
   readonly platform: ImportPlatform;
@@ -65,8 +66,8 @@ export async function withCompiledClips(plan: WebBuildPlan, options: CompileClip
   for (const path of plan.copies) {
     if (!path.toLowerCase().endsWith(".json") || path === "project.json") continue;
     walkStrings(await readJson(path), "", (s, key) => {
-      if (isClipSource(s)) clips.add(s.replace(/^asset:/, "").replace(/^\.?\//, ""));
-      else if (modelSkeletonOf(s) !== null || (key === "skeleton" && s !== "")) skeletons.add(s.replace(/^asset:/, "").replace(/^\.?\//, ""));
+      if (isClipSource(s)) clips.add(normalizeAssetPath(s));
+      else if (modelSkeletonOf(s) !== null || (key === "skeleton" && s !== "")) skeletons.add(normalizeAssetPath(s));
     });
   }
   if (!clips.size && !skeletons.size) return plan;

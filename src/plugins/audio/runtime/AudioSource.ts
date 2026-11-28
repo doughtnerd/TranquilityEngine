@@ -23,6 +23,7 @@ import { playlists } from "./playlists/playlistSystem";
 import type { PlaylistInstance } from "./playlists/instance";
 import { playlistHandleOf } from "./playlists/handle";
 import { takePlayOptions, takeTap, type TakeEmitter } from "./capture/takeTap";
+import { normalizeAssetPath } from "../../../engine/scene/assetPath";
 
 
 export type { Rolloff } from "./backend";
@@ -135,7 +136,7 @@ export class AudioSource extends Component {
   play(): void {
     if (!this.clip || !worldPlays(this._world)) return;
     this.stop();
-    const path = this.clip.replace(/^asset:/, "");
+    const path = normalizeAssetPath(this.clip);
     // An old audio event goes to the playlist runtime too, which refuses it with the migration's message.
     if (isPlaylistPath(path) || isAudioEventPath(path)) {
       this.playlist = playlists().play(path, {
@@ -241,7 +242,7 @@ export class AudioSource extends Component {
   _sync(): void {
     if (this.playlist) return this.applyPlaylist();
     if (!this.voice) return;
-    this.apply(this.clip.replace(/^asset:/, ""));
+    this.apply(normalizeAssetPath(this.clip));
   }
 
   /**

@@ -9,6 +9,7 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../scene/Assets";
 import { identityLut, lutStripRGBA8, parseCubeLut, type CubeLut } from "../lut";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 interface Entry {
   texture: RawTexture | null;
@@ -29,7 +30,7 @@ export class BabylonLuts {
 
   /** The texture and table size for a `.cube` path, or null while it loads or when it failed (logged once). */
   get(path: string): { texture: RawTexture; size: number } | null {
-    const key = path.replace(/^asset:/, "");
+    const key = normalizeAssetPath(path);
     let e = this.entries.get(key);
     if (!e) {
       const entry: Entry = { texture: null, size: 0 };

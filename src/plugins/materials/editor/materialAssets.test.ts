@@ -4,7 +4,7 @@ import { useEditorPlugins } from "../../testEditorPlugins";
 import { materialsEditorPlugin } from ".";
 import { moveAssets } from "../../../editor/assetOps";
 import type { MaterialSettings } from "../../../engine/scene/material";
-import { withKeywordValue } from "./materialAssets";
+import { materialShaderFile, withKeywordValue } from "./materialAssets";
 import { parseMaterial } from "../../../engine/scene/material";
 import { joinPath, openFolderProject } from "../../../editor/projects";
 import { currentProject } from "../../../editor/state";
@@ -89,5 +89,14 @@ describe("material keywords and instancing (ADR 0106)", () => {
     expect([settings.keywords, settings.instancing]).toEqual([{ RIM: true }, "thin"]);
     await edit(doc, (now) => ({ keywords: withKeywordValue(now.keywords, { name: "RIM" }, false), instancing: "auto" }));
     expect(fs.files.get(joinPath(ROOT, "m.material.json"))).not.toMatch(/keywords|instancing/);
+  });
+});
+
+describe("materialShaderFile (ADR 0459)", () => {
+  it("names the project file however the reference is written, so a ./ form isn't reported missing", () => {
+    for (const shader of ["asset:shaders/a.shadergraph.json", "asset:./shaders/a.shadergraph.json", "/shaders/a.shadergraph.json"]) {
+      expect(materialShaderFile({ shader })).toBe("shaders/a.shadergraph.json");
+    }
+    expect(materialShaderFile({ shader: "lit" })).toBeNull();
   });
 });

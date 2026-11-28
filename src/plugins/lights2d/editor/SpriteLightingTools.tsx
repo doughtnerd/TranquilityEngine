@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { SpriteSlice } from "../../../engine/scene/importSettings";
 import { traceOutline } from "../../../engine/render/sprites/outlineTrace";
-import { AssetPicker, editor, pressPoints, type ImportSettingsViewProps, type SpriteEditorToolProps, type V2 } from "../../../editor/sdk";
+import { AssetPicker, editor, pressPoints, type ImportSettingsViewProps, type SpriteEditorToolProps, type V2, assetRefTarget } from "../../../editor/sdk";
 import { litPreview, type PreviewPixels } from "./litPreview";
 import { customRows, newTextureName, removeTexture, renameProblem, renameTexture } from "./secondaryTexturesModel";
 import "./spriteTools.css";
@@ -18,8 +18,6 @@ const MAPS = [
   { name: "normalMap", label: "Normal Map" },
   { name: "maskMap", label: "Mask Map" },
 ] as const;
-
-const bare = (ref: string) => ref.replace(/^asset:/, "");
 
 /** An image's pixels from its URL (null when it can't be read). */
 async function imagePixels(url: string): Promise<PreviewPixels | null> {
@@ -39,7 +37,7 @@ async function imagePixels(url: string): Promise<PreviewPixels | null> {
 }
 
 const urlOf = (ref: string): string | null => {
-  const path = bare(ref);
+  const path = assetRefTarget(ref);
   const url = path ? editor.project.peek()?.assets.get(path) : null;
   return typeof url === "string" ? url : null;
 };

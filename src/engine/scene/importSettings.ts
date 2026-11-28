@@ -71,6 +71,7 @@ import { parseSampleEdits, sampleEditsToJson } from "../audio/sample/format";
 import type { SampleEdits } from "../audio/sample/types";
 import { modelAnimationToJson, parseModelAnimation, type ModelAnimationSettings } from "../animation/import/clips";
 import { flipbooksToJson, parseFlipbooks, parseSliceSkin, sliceSkinToJson, type SliceSkin, type SpriteFlipbook } from "../animation/sprites/sidecar";
+import { normalizeAssetPath } from "./assetPath";
 
 export const IMPORT_FORMAT = "myco.import@1";
 export const SIDECAR_SUFFIX = ".meta.json";
@@ -246,7 +247,7 @@ export const sidecarAsset = (path: string): string => path.slice(0, -SIDECAR_SUF
  * `{ path: "images/a.png", slice: "walk_0" }`; without `#`, `slice` is null.
  */
 export function splitSpriteRef(ref: string): { path: string; slice: string | null } {
-  const p = ref.replace(/^asset:/, "").replace(/^\.?\//, "");
+  const p = normalizeAssetPath(ref);
   const i = p.indexOf("#");
   return i < 0 ? { path: p, slice: null } : { path: p.slice(0, i), slice: p.slice(i + 1) };
 }

@@ -3,7 +3,7 @@
 // and a slot's name (what `anim.play(…, { slot })` names) and group. Each edit is refused-or-next (duplicate names, the
 // graph linking itself), one undo step.
 import type { AnimGraph, GraphNode } from "../../../../engine/animation/animGraph";
-import { AssetPicker, TextField, editor, type EditResult } from "../../../../editor/sdk";
+import { AssetPicker, TextField, editor, type EditResult, assetRefTarget } from "../../../../editor/sdk";
 import { setLinked, setSlot } from "./graphEditLogic";
 
 export interface LinkedGraphPickerProps {
@@ -27,10 +27,10 @@ export function LinkedGraphPicker(props: LinkedGraphPickerProps) {
         </label>
         <label class="ag-field"><span>Default graph</span>
           <AssetPicker value={graphRef} kinds={["animgraph"]} label={`${node.id} default graph`} disabled={readOnly} accepts={(p) => p !== self}
-            onCommit={(v) => apply(setLinked(graph, node.id, { graph: v || null }, self), `Link ${node.linked!.name} to ${v ? editor.assets.fileName(v.replace(/^asset:/, "")) : "nothing"}`)} />
+            onCommit={(v) => apply(setLinked(graph, node.id, { graph: v || null }, self), `Link ${node.linked!.name} to ${v ? editor.assets.fileName(assetRefTarget(v)) : "nothing"}`)} />
         </label>
         {graphRef && (
-          <button class="ag-link" onClick={() => editor.assets.open(graphRef.replace(/^asset:/, ""))}>Open the linked graph</button>
+          <button class="ag-link" onClick={() => editor.assets.open(assetRefTarget(graphRef))}>Open the linked graph</button>
         )}
       </div>
     );

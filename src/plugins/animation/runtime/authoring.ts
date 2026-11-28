@@ -17,6 +17,7 @@ import { modelBoneMap } from "./features/retarget/maps";
 import type { RagdollDescription } from "./ragdoll";
 import { skinningMatrices } from "./skeletonInstances";
 import { BONE_BODY, RAGDOLL_BONE, RAGDOLL_INFO } from "./wasm/wire/physics";
+import { normalizeAssetPath } from "../../../engine/scene/assetPath";
 
 export { loadSkeletonBytes, readSkeletonInfo, type SkeletonInfo };
 
@@ -51,7 +52,7 @@ export function decodeRagdollDescription(bytes: Uint8Array): RagdollDescription 
 async function profileIn(core: AnimationCore, path: string): Promise<{ readonly handle: number; readonly bytes: Uint8Array } | { readonly error: string }> {
   let value: unknown;
   try {
-    value = await readJsonAsset(path.replace(/^asset:/, ""));
+    value = await readJsonAsset(normalizeAssetPath(path));
   } catch {
     return { error: `the skeleton profile "${path}" can't be read.` };
   }

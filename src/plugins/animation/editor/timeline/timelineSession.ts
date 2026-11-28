@@ -16,13 +16,14 @@ import { parseTimeline, type Timeline } from "../../../../engine/animation/timel
 import type { Binding } from "../../../../engine/animation/tracks";
 import { Assets } from "../../../../engine/scene/Assets";
 import type { GameObject } from "../../../../engine/scene/GameObject";
-import { applyEdit, applyToDocument, editor, openAssetDocument, type AssetDocument, type EditResult, type NodePath, type OpenScene } from "../../../../editor/sdk";
+import { applyEdit, applyToDocument, editor, openAssetDocument, type AssetDocument, type EditResult, type NodePath, type OpenScene, assetRefTarget } from "../../../../editor/sdk";
 import { TimelineDirector } from "../../runtime/components/TimelineDirector";
 import { restoreBindings } from "../animationWindow/animationSession";
 import { ClipPlayhead } from "../scene/clipPreviewLogic";
 import { TIMELINE_WINDOW_PANEL } from "./panelId";
-import { animatedBindings, breadcrumbs, isTimelineRef, openNested, refPath, type Crumb, type NestedStack } from "./timelineModelLogic";
+import { animatedBindings, breadcrumbs, isTimelineRef, openNested, type Crumb, type NestedStack } from "./timelineModelLogic";
 import { TimelinePreviewPlayer } from "./timelinePreviewLogic";
+import { clipRefKind } from "../../../../engine/animation/compile/keys";
 
 export { TIMELINE_WINDOW_PANEL };
 
@@ -39,7 +40,7 @@ function nestedBindings(tl: Timeline, depth: number, seen: Set<string>): Binding
   for (const t of tl.tracks) {
     if (t.kind !== "subclip") continue;
     for (const k of t.keys) {
-      const path = refPath(k.clip);
+      const path = assetRefTarget(k.clip);
       if (seen.has(path) || !Assets.has(path)) continue;
       seen.add(path);
       try {
@@ -80,7 +81,7 @@ class TimelineSession {
     const director = node?.getComponent(TimelineDirector);
     if (scene && node && director) {
       const path = scene.sync.pathOf(node);
-      if (path) return { kind: "director", scene, path, node, director, file: director.timeline ? refPath(director.timeline) : null };
+      if (path) return { kind: "director", scene, path, node, director, file: director.timeline ? assetRefTarget(director.timeline) : null };
     }
     const file = editor.assets.openIn(TIMELINE_WINDOW_PANEL);
     if (file) return { kind: "file", file };
@@ -110,7 +111,7 @@ class TimelineSession {
   readonly document = computed<AssetDocument<Timeline> | null>(() => {
     const project = editor.project.current;
     const file = this.file.value;
-    if (!project || !file || !file.toLowerCase().endsWith(".timeline.json") || !project.files.includes(file)) return null;
+    if (!project || !file || clipRefKind(file) !== "timeline" || !project.files.includes(file)) return null;
     return openAssetDocument<Timeline>(project, file, "timeline");
   });
 

@@ -17,11 +17,11 @@
 import { resolveNodePath, trackBinding, type PathNode } from "../../../../engine/animation/bindingPath";
 import type { Binding, SubclipTrack, Track, TrackKind } from "../../../../engine/animation/tracks";
 import type { Timeline } from "../../../../engine/animation/timeline";
-import { TIMELINE_SUFFIX } from "../../../../engine/animation/timeline";
-import { accept, refuse, type EditResult } from "../../../../editor/sdk";
+import { accept, refuse, type EditResult, assetRefTarget } from "../../../../editor/sdk";
 import { SAME_X } from "../../../../editor/sdk";
 import { MAX_DEPTH } from "../../runtime/wasm/wire/timeline";
 import { channelKeys, channelsOf } from "../animationWindow/trackRowsLogic";
+import { clipRefKind } from "../../../../engine/animation/compile/keys";
 
 /** The keyed track kinds, whose tracks hold `keys` of `{ time, end? }` records. */
 export const KEYED_KINDS = ["event", "audio", "activation", "subclip", "control", "marker"] as const;
@@ -124,11 +124,9 @@ const range = (a: number, b: number) => `${fmt(a)} – ${fmt(b)} s`;
 const title = (type: string) => type.replace(/^[^.]*\./, "");
 /** The file's name in a reference (`asset:clips/wave.anim.json` → `wave.anim.json`). */
 export const refName = (ref: string): string => ref.slice(ref.lastIndexOf("/") + 1);
-/** A reference as a project path. */
-export const refPath = (ref: string): string => ref.replace(/^asset:/, "");
 
 /** Whether a subclip key's clip is a timeline (opens in the window). */
-export const isTimelineRef = (ref: string): boolean => refPath(ref).toLowerCase().endsWith(TIMELINE_SUFFIX);
+export const isTimelineRef = (ref: string): boolean => clipRefKind(ref) === "timeline";
 
 /** A track's row label. */
 export function trackLabel(track: Track): string {
@@ -305,7 +303,7 @@ export function breadcrumbs(stack: NestedStack): Crumb[] {
  * missing from the project, is one already open (a timeline can't nest itself), or the stack is as deep as the runtime plays.
  */
 export function openNested(stack: NestedStack, ref: string, files: readonly string[]): EditResult<NestedStack> {
-  const path = refPath(ref);
+  const path = assetRefTarget(ref);
   if (!isTimelineRef(path)) return refuse(`${refName(path)} is an animation clip, not a timeline; edit it in the Animation window`);
   if (!files.includes(path)) return refuse(`${path} isn't in the project`);
   if (stack.includes(path)) return refuse(`${refName(path)} is already open above this one: a timeline can't nest itself`);
@@ -316,6 +314,6 @@ export function openNested(stack: NestedStack, ref: string, files: readonly stri
 /** The timelines a timeline's subclip keys open, once each in order. */
 export function nestedRefs(tl: Timeline): string[] {
   const seen = new Set<string>();
-  for (const t of tl.tracks) if (t.kind === "subclip") for (const k of t.keys) if (isTimelineRef(k.clip)) seen.add(refPath(k.clip));
+  for (const t of tl.tracks) if (t.kind === "subclip") for (const k of t.keys) if (isTimelineRef(k.clip)) seen.add(assetRefTarget(k.clip));
   return [...seen];
 }

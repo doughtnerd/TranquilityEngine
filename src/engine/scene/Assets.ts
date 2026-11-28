@@ -12,6 +12,7 @@
  * same on every host.
  */
 import { projectFileKind } from "./projectFiles";
+import { normalizeAssetPath } from "./assetPath";
 import { localisedParts, variantPath } from "../localisation/variants";
 import { defaultImportSettings, parseImportSettings, resolveImportSettings, sidecarPath, splitSpriteRef, type ImportPlatform, type ImportSettings } from "./importSettings";
 
@@ -30,10 +31,7 @@ const sources: AssetSource[] = [];
 /** Files the engine provides (the input glyphs, ADR 0337): looked up after the game's sources, and kept by `clearSources`. */
 const builtinSources: AssetSource[] = [];
 
-/** Strip the `asset:` prefix and leading `./` or `/`. */
-export function normalizeAssetPath(path: string): string {
-  return path.replace(/^asset:/, "").replace(/^\.?\//, "");
-}
+export { normalizeAssetPath } from "./assetPath";
 
 const defaults: ImportSettings = Object.freeze({ ...defaultImportSettings(), pivot: Object.freeze([0.5, 0.5]) as [number, number], sprites: Object.freeze([]) as unknown as [], platforms: Object.freeze({}) });
 /** Parsed sidecars by their raw JSON value, so a sidecar rewritten in the editor is parsed again. */

@@ -7,7 +7,7 @@ import { AudioReverbZone } from "../runtime/AudioReverbZone";
 import type { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider } from "../../physics/runtime";
 import { getComponentClass } from "../../../engine/core/registry";
 import type { ComponentClass } from "../../../engine/core/registry";
-import { componentNotes } from "../../../editor/sdk";
+import { componentNotes, assetRefTarget } from "../../../editor/sdk";
 import { compileHit, type HitCost } from "../../../engine/audio/occlusionMaterials";
 import type { AudioSettings } from "../../../engine/audio/settings";
 import type { GameObject } from "../../../engine";
@@ -191,14 +191,14 @@ export function zoneNotices(zone: Pick<AudioReverbZone, "output" | "ir" | "prese
   if (audio.backend === "babylon") out.push({ kind: "warning", text: "This project's audio backend is Babylon, which has no reverb zones: they are inert and every source sounds dry. Switch the backend to Core in the Audio Studio." });
   else if (zoneWarnings(audio).some((w) => w.code === "zonesOff")) out.push({ kind: "warning", text: "Reverb zones are off in this project (Max active is 0 under Reverb zones on the Audio Studio's Spatial screen), so this zone does nothing." });
   if (zone.output !== "" && !audio.buses.some((b) => b.name === zone.output)) out.push({ kind: "warning", text: `There is no bus named "${zone.output}" in the project's mix (the Audio Studio's Mixer): the reverb returns to Master instead.` });
-  const ir = zone.ir.replace(/^asset:/, "");
+  const ir = assetRefTarget(zone.ir);
   if (ir !== "" && projectFiles && !projectFiles.includes(ir)) out.push({ kind: "warning", text: `The impulse response "${ir}" is not in the project, so the ${zone.preset} preset plays instead.` });
   return out;
 }
 
 /** Which reverb this zone uses: an impulse response (it overrides the preset) or the preset. */
 export const zoneReverbLine = (zone: Pick<AudioReverbZone, "ir" | "preset">): string => {
-  const ir = zone.ir.replace(/^asset:/, "");
+  const ir = assetRefTarget(zone.ir);
   return ir !== "" ? `Reverb: the impulse response ${ir} (it overrides the ${zone.preset} preset).` : `Reverb: the ${zone.preset} preset.`;
 };
 

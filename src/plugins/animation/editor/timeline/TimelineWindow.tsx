@@ -15,7 +15,7 @@ import { Assets } from "../../../../engine/scene/Assets";
 import { parseAnimSource } from "../../../../engine/animation/animSource";
 import { parseTimeline } from "../../../../engine/animation/timeline";
 import type { GameObject } from "../../../../engine/scene/GameObject";
-import { AssetPicker, DopeSheetGrid, editor, EmptyState, Panel, registerAssetDropTarget, type DopeRow, type DopeSelectMode, type EditResult } from "../../../../editor/sdk";
+import { AssetPicker, DopeSheetGrid, editor, EmptyState, Panel, registerAssetDropTarget, type DopeRow, type DopeSelectMode, type EditResult, assetRefTarget } from "../../../../editor/sdk";
 import { propertyChoices, type NodeFields } from "../animationWindow/addTrackLogic";
 import { fieldPathValue, nodePathOf, parseFieldPath } from "../../../../engine/animation/bindingPath";
 import "../animationWindow/animationWindow.css";
@@ -28,6 +28,7 @@ import {
 import { bindingProblem, parseItemId, refName, timelineRows, trackNodePath, type TimelineRow } from "./timelineModelLogic";
 import { timelineSession as s, type TimelineTarget } from "./timelineSession";
 import "./timelineWindow.css";
+import { clipRefKind } from "../../../../engine/animation/compile/keys";
 
 const seconds = (t: number) => `${t.toFixed(2)} s`;
 const fileName = (p: string) => p.slice(p.lastIndexOf("/") + 1);
@@ -112,7 +113,7 @@ function lengthOf(path: string): number | undefined {
   try {
     if (!Assets.has(path)) return undefined;
     const raw = Assets.json(path);
-    return (path.toLowerCase().endsWith(".timeline.json") ? parseTimeline(raw).value : parseAnimSource(raw).value).duration;
+    return (clipRefKind(path) === "timeline" ? parseTimeline(raw).value : parseAnimSource(raw).value).duration;
   } catch {
     return undefined;
   }
@@ -455,7 +456,7 @@ function AddAtPlayhead(props: { timeline: Timeline; track: number | null; at: nu
     case "subclip":
       return (
         <span class="tw-add">
-          <AssetPicker value="" kinds={["animclip", "timeline"]} label="Add clip at playhead" none="Add clip at playhead…" accepts={(p) => p !== props.file} class="tw-add-pick" disabled={props.readOnly} onCommit={(v) => v && add({ kind: "subclip", clip: v, length: lengthOf(v.replace(/^asset:/, "")) }, "Add clip")} />
+          <AssetPicker value="" kinds={["animclip", "timeline"]} label="Add clip at playhead" none="Add clip at playhead…" accepts={(p) => p !== props.file} class="tw-add-pick" disabled={props.readOnly} onCommit={(v) => v && add({ kind: "subclip", clip: v, length: lengthOf(assetRefTarget(v)) }, "Add clip")} />
         </span>
       );
     case "audio":

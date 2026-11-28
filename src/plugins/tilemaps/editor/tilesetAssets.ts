@@ -5,11 +5,11 @@
 import { newTileset, type TileDef, type TilesetData } from "../runtime/tileset";
 import type { ImportSettings } from "../../../engine/scene/importSettings";
 import { randomUuid } from "../../../engine/core/uuid";
-import { editor, type EditorProject } from "../../../editor/sdk";
+import { editor, type EditorProject, assetRefTarget } from "../../../editor/sdk";
 
 /** A tile's sprite reference split into its image and slice (null for a reference that isn't `asset:<image>#<slice>`). */
 export function splitSprite(sprite: string): { image: string; slice: string } | null {
-  const ref = sprite.replace(/^asset:/, "");
+  const ref = assetRefTarget(sprite);
   const i = ref.indexOf("#");
   return i > 0 ? { image: ref.slice(0, i), slice: ref.slice(i + 1) } : null;
 }

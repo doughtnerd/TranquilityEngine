@@ -5,6 +5,7 @@ import type { AnimSource } from "../../../../engine/animation/animSource";
 import { MARKER_KINDS, type Track } from "../../../../engine/animation/tracks";
 import type { EditResult } from "../../../../editor/sdk";
 import { jsonText, removeRowKey, setActivationRange, setAudioKey, setEventKey, setMarkerKey } from "./rowEditorsLogic";
+import { assetRefTarget } from "../../../../editor/sdk";
 
 export interface RowEditorProps {
   readonly clip: AnimSource;
@@ -95,7 +96,7 @@ export function RowEditor(props: RowEditorProps) {
         {head("Audio")}
         <label>
           Audio
-          <input type="text" value={k.audio.replace(/^asset:/, "")} spellcheck={false} onChange={(e) => onApply(setAudioKey(clip, ti, ki, { audio: value(e) }), "Set audio")} />
+          <input type="text" value={assetRefTarget(k.audio)} spellcheck={false} onChange={(e) => onApply(setAudioKey(clip, ti, ki, { audio: value(e) }), "Set audio")} />
         </label>
         <label>
           Params (JSON)

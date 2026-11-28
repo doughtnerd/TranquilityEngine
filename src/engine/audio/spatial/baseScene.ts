@@ -28,6 +28,7 @@ import { mapFieldNodeRefs } from "../../scene/nodeReferences";
 import { resolveScene, type ResolvedComponent, type ResolvedNode } from "../../scene/resolvedScene";
 import { CURRENT_FORMAT_VERSION, SCENE_FORMAT, type ComponentEntry, type NodeEntry } from "../../scene/SceneLoader";
 import type { SceneBox, Vec3 } from "./testSceneTypes";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /** The audio components a base scene contributes. */
 export const BASE_AUDIO_COMPONENTS = ["engine.AudioSource", "engine.AudioZone", "engine.AudioReverbZone", "engine.AudioOccluder"] as const;
@@ -165,7 +166,7 @@ const roundV = (v: Vec3): Vec3 => ({ x: round(v.x), y: round(v.y), z: round(v.z)
 
 const nameOf = (n: ResolvedNode): string => n.name ?? n.id.slice(n.id.lastIndexOf("/") + 1);
 const dataOf = (c: ResolvedComponent): Record<string, unknown> => (isRecord(c.data) ? c.data : {});
-const assetPath = (v: unknown): string => (typeof v === "string" ? v.replace(/^asset:/, "") : "");
+const assetPath = (v: unknown): string => (typeof v === "string" ? normalizeAssetPath(v) : "");
 
 /** The base scene at `path`: the nodes and components the Studio loads underneath a test scene, and where they are. */
 export function importBaseScene(path: string, options: BaseSceneOptions = {}): BaseSceneImport {

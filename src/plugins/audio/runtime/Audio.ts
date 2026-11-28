@@ -36,6 +36,7 @@ import {
 import { LineHandle, onLine, playLine, type AudioLineEvent, type AudioLineHandle, type LineOptions } from "./localisation/lines";
 import { onCaption, type AudioCaptionEvent } from "./localisation/captions";
 import { audioDialogue, dialogueSystem, type AudioDialogue, type AudioDialogueDebug, type SayOptions } from "./dialogue/dialogueSystem";
+import { normalizeAssetPath } from "../../../engine/scene/assetPath";
 
 /**
  * `Audio.debug()`: the backend's state plus the rows composed above the seam (ADR 0249, `audioRows.ts`): the playlist
@@ -258,7 +259,7 @@ export const Audio = {
     try {
       if (!worldPlays(World.active)) return INERT;
       const o: OneShotOptions = typeof options === "number" ? { volume: options } : options !== null && typeof options === "object" ? options : {};
-      const path = String(clip).replace(/^asset:/, "");
+      const path = normalizeAssetPath(String(clip));
       // ADR 0354 §2–§3: a localised clip plays its file in the current language's chain (the clip resolver swaps it).
       const local = localiseClip(path);
       if (local === null) { noteMissingLanguage(path, audioLanguage()); return MISSING_LANGUAGE; }
@@ -321,7 +322,7 @@ export const Audio = {
   play(pathOrSample: string, options?: EventOptions): AudioPlaylistHandle {
     try {
       const o = options !== null && typeof options === "object" ? options : {};
-      const asset = String(pathOrSample).replace(/^asset:/, "");
+      const asset = normalizeAssetPath(String(pathOrSample));
       // ADR 0351 §7: the strict rule for a packaged playlist or sample (`playlistRefusal` for a playlist).
       if (worldPlays(World.active)) {
         // ADR 0360: a generator (`*.generator.json`) is JSON, never packaged media: nothing to refuse.

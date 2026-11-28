@@ -6,11 +6,11 @@
 import { CONTROL_ACTIONS, type ControlAction } from "../../../../engine/animation/tracks";
 import type { Timeline } from "../../../../engine/animation/timeline";
 import type { GameObject } from "../../../../engine/scene/GameObject";
-import { AssetPicker, type EditResult } from "../../../../editor/sdk";
+import { AssetPicker, type EditResult, assetRefTarget } from "../../../../editor/sdk";
 import { RowEditor, ROW_EDITOR_KINDS } from "../animationWindow/RowEditor";
 import { BindingPicker } from "./BindingPicker";
 import { asClip, fromClipEdit, moveItems, patchItem, trimItem, type ItemsResult } from "./timelineEditLogic";
-import { isTimelineRef, itemSpan, keyedKeys, parseItemId, refName, refPath } from "./timelineModelLogic";
+import { isTimelineRef, itemSpan, keyedKeys, parseItemId, refName,} from "./timelineModelLogic";
 
 export interface ItemEditorProps {
   readonly timeline: Timeline;
@@ -82,7 +82,7 @@ export function ItemEditor(props: ItemEditorProps) {
           <input type="number" min={0} step={1 / tl.rate} value={sec(key.blendOut as number)} onChange={(e) => patch({ blendOut: num(e) }, "Set ease-out")} />
         </label>
         {isTimelineRef(clip) && (
-          <button type="button" class="aw-tb" title="Open this nested timeline in the window" onClick={() => props.onOpen(refPath(clip))}>
+          <button type="button" class="aw-tb" title="Open this nested timeline in the window" onClick={() => props.onOpen(assetRefTarget(clip))}>
             Open timeline
           </button>
         )}

@@ -16,12 +16,13 @@
 //   handle bound to the module in the host the core calls (`./host.ts`).
 //
 // Every failure is one warning; the graph's plugin nodes then pass their input through. Internal to the animation plugin.
-import { pluginModulePath, registerPluginNodeModule } from "../../../../../engine/animation/graphNodes/plugin";
+import { registerPluginNodeModule } from "../../../../../engine/animation/graphNodes/plugin";
 import { parseAnimationNodes, NODE_FUEL } from "../../../../../engine/animation/pluginNodes";
 import { Assets, fetchAssetBytes } from "../../../../../engine/scene/Assets";
 import type { AnimationWorldCore } from "../../core/AnimationWorldCore";
 import { bindNodeModule } from "./host";
 import { isMeteredModule, NodeModule } from "./module";
+import { normalizeAssetPath } from "../../../../../engine/scene/assetPath";
 
 /** @internal The fuel pass: unmetered module bytes → metered ones; rejects with the reason a module is refused. */
 export type NodeModuleMeter = (bytes: Uint8Array) => Promise<Uint8Array>;
@@ -166,7 +167,7 @@ function watch(): void {
  */
 export function loadNodeModule(ref: string): Promise<LoadedNodeModule | null> {
   watch();
-  const path = pluginModulePath(ref);
+  const path = normalizeAssetPath(ref);
   const known = loads.get(path);
   if (known) return known.promise;
   const entry: { promise: Promise<LoadedNodeModule | null>; unregister: (() => void) | null } = { promise: Promise.resolve(null), unregister: null };
@@ -180,7 +181,7 @@ export function loadNodeModule(ref: string): Promise<LoadedNodeModule | null> {
 
 /** @internal Forgets a loaded module (its descriptor leaves the catalogue); the next use loads it again. */
 export function unloadNodeModule(ref: string): void {
-  const path = pluginModulePath(ref);
+  const path = normalizeAssetPath(ref);
   const entry = loads.get(path);
   if (!entry) return;
   loads.delete(path);
@@ -213,7 +214,7 @@ export async function loadGraphNodeModules(source: unknown): Promise<string> {
   if (!Array.isArray(nodes)) return "";
   const paths = new Set<string>();
   for (const n of nodes as { family?: unknown; params?: { module?: unknown; node?: unknown } }[]) {
-    if (n?.family === "plugin" && typeof n.params?.module === "string" && typeof n.params.node === "string" && n.params.module !== "") paths.add(pluginModulePath(n.params.module));
+    if (n?.family === "plugin" && typeof n.params?.module === "string" && typeof n.params.node === "string" && n.params.module !== "") paths.add(normalizeAssetPath(n.params.module));
   }
   if (!paths.size) return "";
   const loaded = await Promise.all([...paths].sort().map(async (p) => `${p}:${(await loadNodeModule(p))?.id ?? 0}`));

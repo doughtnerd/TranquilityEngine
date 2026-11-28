@@ -12,8 +12,9 @@ import { graphInstanceOf } from "../graph/runtime";
 import { animatorRuntime } from "../instances";
 import { ANIM_FRAME, ANIM_KEY, ANIM_RAW, ANIM_SELECT, ANIM_TARGET, encodeFrameRecord } from "./frameRecord";
 import { AnimatorRecorder, type RecordedEntry } from "./animatorRecorder";
-import { graphAnimators, graphPath } from "./targets";
+import { graphAnimators,} from "./targets";
 import { RawEncoder, TAKE_MAX_TARGETS, encodeKey, encodeSelect, encodeTarget, graphHash } from "./takeRecords";
+import { normalizeAssetPath } from "../../../../../engine/scene/assetPath";
 
 /** Seconds between keyframes in a take (the recorder's default). */
 export const TAKE_KEYFRAME_SECONDS = 1;
@@ -43,7 +44,7 @@ export const animationTakeSource: TakeSource = {
       if (follow.declared !== hash) {
         const several = worlds().length > 1;
         const node = follow.recorder.animator.node;
-        const info = { id: follow.id, label: several ? `${node.name} (${node.world.name})` : node.name, graph: graphPath(follow.recorder.animator.graph), graphHash: hash, bones: animatorRuntime(follow.recorder.animator)?.skeleton?.info?.bones ?? 0, tables: gi.meta.compiled };
+        const info = { id: follow.id, label: several ? `${node.name} (${node.world.name})` : node.name, graph: normalizeAssetPath(follow.recorder.animator.graph), graphHash: hash, bones: animatorRuntime(follow.recorder.animator)?.skeleton?.info?.bones ?? 0, tables: gi.meta.compiled };
         const payload = encodeTarget(info);
         if (!payload) {
           console.warn(`[myco] Audio.take: the graph of "${node.name}" has tables too large to record; its animation isn't in the take.`);

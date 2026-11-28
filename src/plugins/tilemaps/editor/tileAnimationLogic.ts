@@ -4,6 +4,7 @@
 // shows. Durations are seconds, > 0. Removing the last frame removes the animation (the field is left out), and the
 // default start, "together", is left out too. `TilesetInspector.tsx` draws it; each change is one tileset edit.
 import type { TileAnimation, TileFrameDef } from "../runtime/tileset";
+import { assetRefTarget } from "../../../editor/sdk";
 
 /** An edit's result: the tile's next `animation` (undefined: the field is removed), or why it was refused. */
 export type AnimationEdit = { animation: TileAnimation | undefined } | { problem: string };
@@ -13,7 +14,7 @@ export const DEFAULT_FRAME_DURATION = 0.1;
 
 /** The image a sprite reference draws from: `asset:images/water.png#water_0` and `images/water.png` are `images/water.png`. */
 export function spriteImage(sprite: string): string {
-  const ref = sprite.replace(/^asset:/, "");
+  const ref = assetRefTarget(sprite);
   const hash = ref.indexOf("#");
   return hash >= 0 ? ref.slice(0, hash) : ref;
 }

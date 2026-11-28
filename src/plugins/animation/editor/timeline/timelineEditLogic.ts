@@ -19,14 +19,15 @@
 import { emptyAnimSource, type AnimSource } from "../../../../engine/animation/animSource";
 import { CONTROL_ACTIONS, DEFAULT_NOTIFY_THRESHOLD, TRACK_LIMITS, type Binding, type ControlAction, type MarkerKind, type Track } from "../../../../engine/animation/tracks";
 import type { Timeline } from "../../../../engine/animation/timeline";
-import { accept, mapEdit, refuse, type EditResult } from "../../../../editor/sdk";
+import { accept, mapEdit, refuse, type EditResult, assetRefTarget } from "../../../../editor/sdk";
 import { copyKeysAt, pasteKeys, removeKeys, SAME_X, shiftKeys } from "../../../../editor/sdk";
 import { addKeyedTrack, addPropertyTrack as addPropertyToClip, keyField } from "../animationWindow/clipEditLogic";
 import { channelKeys, channelsOf, withChannelKeys } from "../animationWindow/trackRowsLogic";
 import {
-  blendRegions, isKeyedTrack, hasNodeBinding, itemSpan, keyItemId, keyedKeys, parseItemId, propertyItemAt, propertyTimes, refPath, whyBadNodePath, withKeyed,
+  blendRegions, isKeyedTrack, hasNodeBinding, itemSpan, keyItemId, keyedKeys, parseItemId, propertyItemAt, propertyTimes, whyBadNodePath, withKeyed,
   type ItemRef, type Keyed,
 } from "./timelineModelLogic";
+import { clipRefKind } from "../../../../engine/animation/compile/keys";
 
 /** An edit's result: the timeline after it and the items to select. */
 export interface ItemsResult {
@@ -299,7 +300,7 @@ export function addItem(tl: Timeline, track: number, at: number, item: NewItem, 
     case "subclip": {
       const clip = item.clip.trim();
       if (!clip) return refuse("a clip item needs a clip or timeline");
-      if (self && refPath(clip) === self) return refuse("a timeline can't contain itself");
+      if (self && assetRefTarget(clip) === self) return refuse("a timeline can't contain itself");
       const end = span(item.length);
       if (end === null) return refuse(`there's no room for a clip at ${fmt(time)}: the timeline ends at ${fmt(tl.duration)}`);
       key = { time, end, clip: toRef(clip), offset: 0, speed: 1, blendIn: 0, blendOut: 0 };
@@ -430,7 +431,7 @@ export function patchItem(tl: Timeline, id: string, patch: ItemPatch, self?: str
     const why = num(patch.offset, "the offset", 0, TRACK_LIMITS.duration) ?? num(patch.speed, "the speed", -100, 100) ?? num(patch.blendIn, "the ease-in", 0, TRACK_LIMITS.duration) ?? num(patch.blendOut, "the ease-out", 0, TRACK_LIMITS.duration);
     if (why) return refuse(why);
     if (patch.clip !== undefined && !patch.clip.trim()) return refuse("a clip item needs a clip or timeline");
-    if (patch.clip !== undefined && self && refPath(patch.clip) === self) return refuse("a timeline can't contain itself");
+    if (patch.clip !== undefined && self && assetRefTarget(patch.clip) === self) return refuse("a timeline can't contain itself");
     next = { ...key, ...(patch.clip !== undefined ? { clip: toRef(patch.clip.trim()) } : {}), ...(patch.offset !== undefined ? { offset: patch.offset } : {}), ...(patch.speed !== undefined ? { speed: patch.speed } : {}), ...(patch.blendIn !== undefined ? { blendIn: patch.blendIn } : {}), ...(patch.blendOut !== undefined ? { blendOut: patch.blendOut } : {}) };
     const len = (next.end ?? next.time) - next.time;
     if ((next.blendIn as number) + (next.blendOut as number) > len + SAME_X) return refuse(`the ease-in and ease-out together (${fmt((next.blendIn as number) + (next.blendOut as number))}) are longer than the clip (${fmt(len)})`);
@@ -492,8 +493,9 @@ export const dragLabel = (part: DragPart, count: number): string =>
 
 /** What a dropped project file becomes on a timeline: a clip or nested timeline (`subclip`), audio, or nothing. */
 export function assetDropKind(path: string): "subclip" | "audio" | null {
+  const kind = clipRefKind(path);
+  if (kind === "source" || kind === "timeline") return "subclip";
   const p = path.toLowerCase();
-  if (p.endsWith(".anim.json") || p.endsWith(".timeline.json")) return "subclip";
   if (p.endsWith(".playlist.json") || /\.(wav|mp3|ogg|flac|m4a|aac|opus)$/.test(p)) return "audio";
   return null;
 }

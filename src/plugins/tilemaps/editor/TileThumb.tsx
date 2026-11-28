@@ -4,7 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { TileDef } from "../runtime/tileset";
 import { findSlice } from "../../../engine/scene/importSettings";
 import { splitSprite } from "./tilesetAssets";
-import { editor, type EditorProject } from "../../../editor/sdk";
+import { editor, type EditorProject, assetRefTarget } from "../../../editor/sdk";
 import "./tileThumb.css";
 
 const sizes = new Map<string, [number, number]>();
@@ -34,7 +34,7 @@ function useImageSize(url: string | null): [number, number] | null {
 /** A tile's sprite source: its image's URL, and its slice's rect (pixels from the top-left), or null for the whole image. Null without an image. */
 export function tileSpriteSource(project: EditorProject, tile: TileDef): { url: string; rect: [number, number, number, number] | null } | null {
   const ref = splitSprite(tile.sprite);
-  const image = ref?.image ?? tile.sprite.replace(/^asset:/, "");
+  const image = ref?.image ?? assetRefTarget(tile.sprite);
   const url = image ? project.assets.get(image) : null;
   if (typeof url !== "string") return null;
   const slice = ref ? findSlice(editor.assets.importSettings(project, image).settings, ref.slice) : undefined;

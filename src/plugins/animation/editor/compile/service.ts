@@ -11,13 +11,14 @@ import { SIDECAR_SUFFIX, sidecarPath } from "../../../../engine/scene/importSett
 import { isModelPath, loadModel } from "../../../../engine/scene/models";
 import { ANIM_SOURCE_SUFFIX } from "../../../../engine/animation/animSource";
 import { usesBones } from "../../../../engine/animation/compile/rawClip";
-import { clipPathOf, modelClipOf } from "../../../../engine/animation/compile/keys";
+import { modelClipOf } from "../../../../engine/animation/compile/keys";
 import { referencePath } from "../../../../engine/animation/shared";
 import type { AnimationProjectSettings } from "../../../../engine/animation/compile/settings";
 import { loadClipSource, type CompiledClipRequest, type CompiledClipSource } from "../../runtime/features/clipSources";
 import type { ClipCompileCache, CompiledClip } from "./cache";
 import type { ClipReport } from "./compiler";
 import { prepareClipJob } from "./jobs";
+import { normalizeAssetPath } from "../../../../engine/scene/assetPath";
 
 /** @internal What the service reads of the open project. */
 export interface ClipCompileEnv {
@@ -33,7 +34,7 @@ export interface ClipCompileEnv {
 export type ClipCompileResult = { readonly clip: CompiledClip; readonly problems: readonly string[] } | { readonly error: string };
 
 const CLIP_SUB = "#Anim/";
-const requestId = (platform: ImportPlatform, r: CompiledClipRequest) => `${platform}\n${clipPathOf(r.clip)}\n${r.skeleton ? clipPathOf(r.skeleton) : ""}`;
+const requestId = (platform: ImportPlatform, r: CompiledClipRequest) => `${platform}\n${normalizeAssetPath(r.clip)}\n${r.skeleton ? normalizeAssetPath(r.skeleton) : ""}`;
 
 export class ClipCompileService implements CompiledClipSource {
   /** Requests asked for this session, by id: what `refresh` compiles again. */
@@ -91,7 +92,7 @@ export class ClipCompileService implements CompiledClipSource {
    * clip source itself where its skeleton is known (`compileChangedSource`).
    */
   refresh(changed: string): Promise<void> {
-    const path = clipPathOf(changed);
+    const path = normalizeAssetPath(changed);
     const touches = (r: CompiledClipRequest) => {
       if (path === "project.json") return true;
       const model = modelClipOf(r.clip);
@@ -117,7 +118,7 @@ export class ClipCompileService implements CompiledClipSource {
       const a = await loadModel(model).then((m) => m.animation, () => undefined);
       for (const c of a?.clips ?? []) clips.push(`${model}${CLIP_SUB}${c.name}`);
     }
-    const fresh = clips.filter((clip) => !done.some((r) => clipPathOf(r.clip) === clip && r.skeleton === null));
+    const fresh = clips.filter((clip) => !done.some((r) => normalizeAssetPath(r.clip) === clip && r.skeleton === null));
     await Promise.all(fresh.map((clip) => this.compileClip({ clip, skeleton: null })));
   }
 

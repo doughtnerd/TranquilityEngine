@@ -12,11 +12,11 @@
 import type { CompiledAnimGraph } from "../../../../engine/animation/graphCompile";
 import type { Animator } from "../../runtime/components/Animator";
 import type { AnimatorDebugFrame } from "../../runtime/features/debug/frame";
-import { graphPath } from "../../runtime/features/debug/targets";
 import { compareGraph, type TakeCompat } from "../../runtime/features/debug/takeCompat";
 import type { AnimationTake, AnimationTakeTarget } from "../../runtime/features/debug/takeRead";
 import { TakeReplayer, currentGraphOf } from "../../runtime/features/debug/takeReplay";
 import type { AnimationDebugSource, DebugRecording, DebugTarget } from "./source";
+import { normalizeAssetPath } from "../../../../engine/scene/assetPath";
 
 /** @internal What the take source reads of the editor. */
 export interface TakeSession {
@@ -39,7 +39,7 @@ export function createTakeSource(take: AnimationTake, session: TakeSession, name
   const listed: DebugTarget[] = take.targets.map((t) => {
     const id = String(t.info.id);
     byId.set(id, t);
-    return { id, label: t.info.label, graph: graphPath(t.info.graph), tables: t.info.tables as CompiledAnimGraph };
+    return { id, label: t.info.label, graph: normalizeAssetPath(t.info.graph), tables: t.info.tables as CompiledAnimGraph };
   });
   const frames = new Map<string, readonly AnimatorDebugFrame[]>(take.targets.map((t) => [String(t.info.id), t.entries.map((e) => e.frame)]));
   const keys = new Map<string, ReadonlySet<number>>(take.targets.map((t) => [String(t.info.id), new Set(t.entries.filter((e) => e.key).map((e) => e.frame.index))]));
@@ -49,10 +49,10 @@ export function createTakeSource(take: AnimationTake, session: TakeSession, name
   const compat = (id: string): TakeCompat => {
     const t = byId.get(id);
     if (!t) return { poses: false, notes: [] };
-    const animator = session.animator(graphPath(t.info.graph));
+    const animator = session.animator(normalizeAssetPath(t.info.graph));
     if (!animator) {
       const lead = t.changedWhileRecording ? compareGraph(t.info, null, true).notes.slice(0, 1) : [];
-      return { poses: false, notes: [...lead, `No Animator runs "${graphPath(t.info.graph)}" now: play the scene and pause it to see this take's poses.`] };
+      return { poses: false, notes: [...lead, `No Animator runs "${normalizeAssetPath(t.info.graph)}" now: play the scene and pause it to see this take's poses.`] };
     }
     return compareGraph(t.info, currentGraphOf(animator), t.changedWhileRecording);
   };
@@ -81,7 +81,7 @@ export function createTakeSource(take: AnimationTake, session: TakeSession, name
     paused: true,
     readOnly: true,
     targets(graph) {
-      return graph === undefined ? listed : listed.filter((t) => t.graph === graphPath(graph));
+      return graph === undefined ? listed : listed.filter((t) => t.graph === normalizeAssetPath(graph));
     },
     selected: () => null,
     frame: (id) => frames.get(id)?.at(-1) ?? null,
@@ -104,7 +104,7 @@ export function createTakeSource(take: AnimationTake, session: TakeSession, name
             for (const r of replayers.values()) r.show(null);
             return true;
           }
-          const animator = session.animator(graphPath(t.info.graph));
+          const animator = session.animator(normalizeAssetPath(t.info.graph));
           if (!animator || !compat(id).poses) return false;
           const r = replayerFor(id, animator);
           return r?.show(index) ?? false;

@@ -18,6 +18,7 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../scene/Assets";
 import { parseRenderTexture, type RenderTextureSettings } from "../renderTexture";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 interface Entry {
   raw: unknown;
@@ -62,7 +63,7 @@ export class BabylonRenderTextures {
   }
 
   private entry(path: string): Entry | null {
-    const key = path.replace(/^asset:/, "");
+    const key = normalizeAssetPath(path);
     if (!key) return null;
     let raw: unknown;
     try {

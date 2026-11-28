@@ -8,6 +8,7 @@ import { SceneInstance, collectAssetRefs, instantiateFile, loadSceneFile } from 
 import { warmSet, warmSetEmpty, type WarmSet } from "./warmUp";
 import { _startWorldServicesForScene } from "../core/worldServices";
 import { resolvedComponents } from "./resolvedScene";
+import { normalizeAssetPath } from "./assetPath";
 
 export interface LoadSceneOptions {
   /** Keep already-loaded scene nodes instead of replacing them (ADR 0016). */
@@ -125,15 +126,15 @@ async function prepareAssets(world: World, files: readonly string[], onProgress:
   for (const f of files) for (const r of collectAssetRefs(f)) all.add(splitSpriteRef(r).path);
   // As `collectAssetRefs` gives them: without `asset:`.
   for (const m of warm.meshes) {
-    if (m.mesh) all.add(splitSpriteRef(m.mesh.replace(/^asset:/, "")).path);
-    if (m.material) all.add(splitSpriteRef(m.material.replace(/^asset:/, "")).path);
-    for (const slot of m.materials ?? []) if (slot) all.add(splitSpriteRef(slot.replace(/^asset:/, "")).path);
+    if (m.mesh) all.add(splitSpriteRef(normalizeAssetPath(m.mesh)).path);
+    if (m.material) all.add(splitSpriteRef(normalizeAssetPath(m.material)).path);
+    for (const slot of m.materials ?? []) if (slot) all.add(splitSpriteRef(normalizeAssetPath(slot)).path);
   }
   const refs = [...all];
   // A model's import settings can name material assets for its materials (ADR 0089): their textures too.
   for (const m of refs.filter((p) => isModelPath(p) && Assets.has(p))) {
     try {
-      for (const material of Object.values(Assets.importSettings(m).materials)) refs.push(splitSpriteRef(material.replace(/^asset:/, "")).path);
+      for (const material of Object.values(Assets.importSettings(m).materials)) refs.push(splitSpriteRef(normalizeAssetPath(material)).path);
     } catch {
       // reported when the model loads
     }

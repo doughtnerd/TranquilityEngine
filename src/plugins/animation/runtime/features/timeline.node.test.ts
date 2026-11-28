@@ -183,6 +183,14 @@ describe("TimelineDirector", () => {
     expect(a.intensity).toBeCloseTo(3, TOL);
   });
 
+  it("plays an authored clip nested as a subclip whatever the case of its ending (ADR 0460)", async () => {
+    // The editor's drop accepts `clips/Glow.Anim.JSON` as a clip; the runtime reads it as one, not as a timeline.
+    ASSETS["tl/Glow.Anim.JSON"] = { format: "myco.anim-source@1", duration: 1, tracks: [light("A", [[0, 6]])] };
+    ASSETS["tl/nest.timeline.json"] = timeline(1, [{ kind: "subclip", keys: [{ time: 0, end: 1, clip: "asset:tl/Glow.Anim.JSON" }] }]);
+    const { a } = await rig("tl/nest.timeline.json");
+    expect(a.intensity).toBeCloseTo(6, TOL);
+  });
+
   it("drives a bound node instead of the track's path (bindingTracks / bindingNodes)", async () => {
     const other = GameObject.create("Other");
     made.push(other);

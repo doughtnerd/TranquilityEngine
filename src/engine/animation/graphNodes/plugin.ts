@@ -21,12 +21,10 @@ import type { NodeParamValue } from "../animGraph";
 import { f32Bits } from "../binaryWriter";
 import type { PluginModuleDescriptor, PluginNodeDescriptor, PluginParamDescriptor } from "../pluginDescriptor";
 import { I, kind, NONE, P, type NodeFamilyCatalogue, type NodeKindSchema, type NodePacker, type NodeParamSchema, type NodeResolveContext } from "./schema";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /** `anim-plugin-sdk`'s `abi::MAX_INPUTS`. */
 const MAX_INPUTS = 8;
-
-/** @internal A plugin module reference as the registry keys it: the project path, without `asset:` or a leading `./`. */
-export const pluginModulePath = (ref: string): string => ref.replace(/^asset:/, "").replace(/^\.?\//, "");
 
 // --- the registry ----------------------------------------------------------------------------------------------------
 
@@ -47,7 +45,7 @@ const changed = () => {
  * earlier one; returns the unregister, which removes it only while it is still the module's.
  */
 export function registerPluginNodeModule(module: string, descriptor: PluginModuleDescriptor): () => void {
-  const path = pluginModulePath(module);
+  const path = normalizeAssetPath(module);
   modules.set(path, descriptor);
   changed();
   return () => {
@@ -59,7 +57,7 @@ export function registerPluginNodeModule(module: string, descriptor: PluginModul
 
 /** @internal The registered descriptor of a module (project path or asset reference), or undefined. */
 export function pluginNodeModuleDescriptor(module: string): PluginModuleDescriptor | undefined {
-  return modules.get(pluginModulePath(module));
+  return modules.get(normalizeAssetPath(module));
 }
 
 /** @internal One node kind a registered module provides. */
@@ -182,7 +180,7 @@ export function pluginNodeKindSchema(module: string, node: string, descriptor = 
   if (known) return known;
   const d = descriptor.nodes.find((n) => n.name === node);
   if (!d) return undefined;
-  const out = generateKind(pluginModulePath(module), descriptor, d);
+  const out = generateKind(normalizeAssetPath(module), descriptor, d);
   byNode.set(node, out);
   return out;
 }
@@ -190,7 +188,7 @@ export function pluginNodeKindSchema(module: string, node: string, descriptor = 
 const resolve = (params: Readonly<Record<string, NodeParamValue>>, context: NodeResolveContext): NodeKindSchema | undefined => {
   const { module, node } = params;
   if (typeof module !== "string" || typeof node !== "string") return undefined;
-  return pluginNodeKindSchema(module, node, context.pluginDescriptor(pluginModulePath(module)));
+  return pluginNodeKindSchema(module, node, context.pluginDescriptor(normalizeAssetPath(module)));
 };
 
 /** The generic kind: raw words, or (with `node` and a known descriptor) the generated kind through `resolve`. */

@@ -17,6 +17,7 @@
 import { Assets } from "./Assets";
 import type { ContextKind, GraphBlock, GraphEdge, GraphInputValue, GraphNode, GraphProblem, ParticleGraph } from "./particleGraph";
 import { outputType, portRate, splitRef, whyNotConnect, type PortType, type Rate } from "./particleNodes";
+import { normalizeAssetPath } from "./assetPath";
 
 export const SUBGRAPH_FORMAT = "myco.particlesubgraph@1";
 export const BLOCK_FORMAT = "myco.particleblock@1";
@@ -156,7 +157,7 @@ function expandOnce(graph: ParticleGraph, resolve: AssetResolver, problems: Grap
     const ref = subgraphRef(n);
     const asset = ref ? parseSubgraphAsset(resolve(ref)) : null;
     if (!asset) {
-      problems.push({ severity: "warning", message: ref ? `Sub-graph "${ref.replace(/^asset:/, "")}" isn't in the project (or isn't a particle sub-graph); its node is left out.` : `A Sub-graph node has no asset.`, at: n.id });
+      problems.push({ severity: "warning", message: ref ? `Sub-graph "${normalizeAssetPath(ref)}" isn't in the project (or isn't a particle sub-graph); its node is left out.` : `A Sub-graph node has no asset.`, at: n.id });
       edgesOut = edgesOut.filter((e) => !e.from.startsWith(`${n.id}.`) && !e.to.startsWith(`${n.id}.`));
       continue;
     }
@@ -210,7 +211,7 @@ function expandOnce(graph: ParticleGraph, resolve: AssetResolver, problems: Grap
         const ref = customBlockRef(b);
         const asset = ref ? parseBlockAsset(resolve(ref)) : null;
         if (!asset) {
-          problems.push({ severity: "warning", message: ref ? `Custom block "${ref.replace(/^asset:/, "")}" isn't in the project (or isn't a particle block); it's left out.` : "A Custom block has no asset.", at: `${s.id}.${b.id}` });
+          problems.push({ severity: "warning", message: ref ? `Custom block "${normalizeAssetPath(ref)}" isn't in the project (or isn't a particle block); it's left out.` : "A Custom block has no asset.", at: `${s.id}.${b.id}` });
           edgesOut = edgesOut.filter((e) => !e.to.startsWith(`${s.id}.${b.id}.`));
           continue;
         }

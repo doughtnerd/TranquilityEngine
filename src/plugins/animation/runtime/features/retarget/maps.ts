@@ -26,6 +26,7 @@ import type { AnimationWorldCore } from "../../core/AnimationWorldCore";
 import { loadSkeletonBytes, resolveSkeleton } from "../clipSources";
 import { readJsonAsset } from "../graph/jsonAsset";
 import type { MaskRig } from "../graph/masks";
+import { normalizeAssetPath } from "../../../../../engine/scene/assetPath";
 
 const warned = new Set<string>();
 function warnOnce(key: string, message: string): void {
@@ -38,8 +39,7 @@ function warnOnce(key: string, message: string): void {
 const MAP_ALIGN = 1;
 const NO_BONE = 0xffff;
 
-const stripRef = (ref: string): string => ref.replace(/^asset:/, "").replace(/^\.?\//, "");
-const isProfile = (ref: string): boolean => /\.skelprofile\.json$/i.test(stripRef(ref));
+const isProfile = (ref: string): boolean => /\.skelprofile\.json$/i.test(normalizeAssetPath(ref));
 
 /** @internal The rig a RETARGET node's map is made for: the target Skeleton and its `retargetSource`. */
 export interface RetargetTarget extends MaskRig {
@@ -55,8 +55,8 @@ export interface RetargetBinding {
 
 /** Where a RETARGET node's source side comes from (see the file header); null without a source skeleton. */
 function retargetSourceOf(mapRef: string, retargetSource: string): { readonly skeleton: string; readonly profile: string } | null {
-  const own = retargetSource ? stripRef(retargetSource) : "";
-  const map = stripRef(mapRef);
+  const own = retargetSource ? normalizeAssetPath(retargetSource) : "";
+  const map = normalizeAssetPath(mapRef);
   const skeleton = own && !isProfile(own) ? own : map && !isProfile(map) ? map : "";
   const profile = own && isProfile(own) ? own : map && isProfile(map) ? map : "";
   return skeleton ? { skeleton, profile } : null;
@@ -66,7 +66,7 @@ function retargetSourceOf(mapRef: string, retargetSource: string): { readonly sk
 export function retargetNodes(graph: AnimGraph): readonly { readonly map: string; readonly source: string }[] {
   return graph.nodes
     .filter((n) => n.family === "retarget" && n.kind === "retarget")
-    .map((n) => ({ map: typeof n.params.map === "string" ? stripRef(n.params.map) : "", source: typeof n.params.source === "string" ? stripRef(n.params.source) : "" }));
+    .map((n) => ({ map: typeof n.params.map === "string" ? normalizeAssetPath(n.params.map) : "", source: typeof n.params.source === "string" ? normalizeAssetPath(n.params.source) : "" }));
 }
 
 interface Side {
@@ -154,7 +154,7 @@ export async function acquireRetargetMap(ns: AnimationWorldCore, mapRef: string,
     warnOnce(`retarget-nosource:${mapRef}:${target.path}`, `[myco] animation: the retarget node's map "${mapRef}" names no source skeleton, and the Skeleton "${target.path}" has no retargetSource skeleton; it plays nothing.`);
     return null;
   }
-  const [src, tgt] = await Promise.all([side(ns, source.skeleton, source.profile, held), side(ns, target.path, target.profile ? stripRef(target.profile) : "", held)]);
+  const [src, tgt] = await Promise.all([side(ns, source.skeleton, source.profile, held), side(ns, target.path, target.profile ? normalizeAssetPath(target.profile) : "", held)]);
   if (!src || !tgt || !ns.open) return null;
   const key = `retarget:${src.skeleton}:${src.profile}:${Array.from(src.map).join(",")}|${tgt.skeleton}:${tgt.profile}:${Array.from(tgt.map).join(",")}`;
   const map = ns.acquire(key, "retargetMap", {

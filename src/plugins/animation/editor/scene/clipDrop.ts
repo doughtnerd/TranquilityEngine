@@ -8,17 +8,17 @@
 //
 // Every drop goes through the refused-or-next result (ADR 0307, 0313) and `applyEdit`: a refusal is reported, an
 // accepted one is one undo step (of the scene for a default clip, of the graph's document for a state).
-import { accept, applyEdit, applyToDocument, editor, mapEdit, openAssetDocument, refuse, refusalOf, type EditResult, type NodePath, type OpenScene } from "../../../../editor/sdk";
+import { accept, applyEdit, applyToDocument, editor, mapEdit, openAssetDocument, refuse, refusalOf, type EditResult, type NodePath, type OpenScene, assetRefTarget } from "../../../../editor/sdk";
 import type { AnimGraph } from "../../../../engine/animation/animGraph";
-import { ANIM_SOURCE_SUFFIX } from "../../../../engine/animation/animSource";
 import { addClipAsState, type ClipState } from "../graphEditor/machineLogic";
 import { normalizeAssetPath } from "../../../../engine/scene/Assets";
 import { Animator } from "../../runtime/components/Animator";
+import { clipRefKind } from "../../../../engine/animation/compile/keys";
 
 /** The Assets panel entry is a clip: an authored clip, a compiled one, or a model's clip (`model.glb#Anim/<name>`). */
 export function isClipAsset(entry: string): boolean {
-  const lower = entry.toLowerCase();
-  return lower.endsWith(ANIM_SOURCE_SUFFIX) || lower.endsWith(".anim.bin") || /#Anim\/[^#]+$/.test(entry);
+  const kind = clipRefKind(entry);
+  return kind === "source" || kind === "compiled" || kind === "model";
 }
 
 /** A clip's name for messages: a model clip's own name, else the file's name without its endings. */
@@ -57,7 +57,7 @@ function graphPath(animator: AnimatorClips): string | null {
 function addAsStateEdit(animator: AnimatorClips, clip: string, entry: string): EditResult<ClipState> {
   const path = graphPath(animator);
   const project = editor.project.current;
-  if (!path || !project) return refuse(`its graph ${animator.graph.replace(/^asset:/, "")} isn't in the project`);
+  if (!path || !project) return refuse(`its graph ${assetRefTarget(animator.graph)} isn't in the project`);
   const graph = editor.assets.read<AnimGraph>(project, path).value;
   return addClipAsState(graph, clip, clipName(entry).replace(/[^A-Za-z0-9_ .-]/g, "") || "State");
 }
@@ -81,7 +81,7 @@ export function clipDropLabel(scene: OpenScene, path: NodePath, assets: readonly
   return refused ? `Can't add ${clipName(entry)}: ${refused}` : labelFor(animator, entry);
 }
 
-const graphName = (animator: AnimatorClips) => animator.graph.replace(/^asset:/, "").split("/").pop()!.replace(/\.animgraph\.json$/i, "");
+const graphName = (animator: AnimatorClips) => assetRefTarget(animator.graph).split("/").pop()!.replace(/\.animgraph\.json$/i, "");
 
 function labelFor(animator: Animator, entry: string): string {
   const node = animator.node.name;

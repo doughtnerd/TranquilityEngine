@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { AnimSource } from "../../../../engine/animation/animSource";
 import { listComponents } from "../../../../engine/editor";
 import type { GameObject } from "../../../../engine/scene/GameObject";
-import { DopeSheetGrid, editor, EmptyState, openCurveEditorDialog, Panel, writeClipboard, type DopeRow, type DopeSelectMode, type EditResult } from "../../../../editor/sdk";
+import { DopeSheetGrid, editor, EmptyState, openCurveEditorDialog, Panel, writeClipboard, type DopeRow, type DopeSelectMode, type EditResult, assetRefTarget } from "../../../../editor/sdk";
 import { propertyChoices, type NodeFields } from "./addTrackLogic";
 import { nodePathOf } from "../../../../engine/animation/bindingPath";
 import { animationSession as s, type WindowTarget } from "./animationSession";
@@ -20,6 +20,7 @@ import { RowEditor, ROW_EDITOR_KINDS } from "./RowEditor";
 import { addRowKey } from "./rowEditorsLogic";
 import { leafKeysOf, parseKeyId, parseRowId, summarySelected, trackRows, type TrackRow } from "./trackRowsLogic";
 import "./animationWindow.css";
+import { clipRefKind } from "../../../../engine/animation/compile/keys";
 
 const seconds = (t: number) => `${t.toFixed(2)} s`;
 const fileName = (p: string) => p.slice(p.lastIndexOf("/") + 1);
@@ -61,7 +62,7 @@ export function AnimationWindow() {
 
 /** The bound Animator's clip choice: its default clip or another authored clip of the project. */
 function ClipPicker(props: { target: Extract<WindowTarget, { kind: "animator" }> }) {
-  const files = (editor.project.current?.files ?? []).filter((f) => f.toLowerCase().endsWith(".anim.json"));
+  const files = (editor.project.current?.files ?? []).filter((f) => clipRefKind(f) === "source");
   const key = props.target.path.join("/");
   const chosen = s.chosen.value.get(key) ?? "";
   return (
@@ -402,7 +403,7 @@ function ClipEditor(props: { target: Exclude<WindowTarget, { kind: "none" }>; cl
               <span class="aw-muted">{sp.nodePath || rootName}</span>
               {sp.frames.map((f) => (
                 <span key={f.offset} class={`aw-onion-frame${f.offset === 0 ? " now" : ""}`} title={`${f.offset > 0 ? "+" : ""}${f.offset} · ${seconds(f.t)}`}>
-                  {fileName(f.sprite.replace(/^asset:/, "")) || "—"}
+                  {fileName(assetRefTarget(f.sprite)) || "—"}
                 </span>
               ))}
             </div>

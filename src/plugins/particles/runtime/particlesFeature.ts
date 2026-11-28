@@ -17,6 +17,7 @@ import type { ParticleStats } from "../../../engine/render/RenderSurface";
 import type { BabylonFeature, BabylonFeatureFactory, BabylonFeatureHost, DrawnDescription } from "../../../engine/render/babylon/feature";
 import { BabylonParticles, type BabylonParticleHost } from "../../../engine/render/babylon/particles";
 import { WARM_PREFIX, type WarmCustom, type WarmItem } from "../../../engine/render/babylon/warmUp";
+import { normalizeAssetPath } from "../../../engine/scene/assetPath";
 
 declare module "../../../engine/render/RenderSurface" {
   interface RenderFeatureDiagnostics {
@@ -99,7 +100,7 @@ export class ParticlesFeature implements BabylonFeature {
   describe(drawn: object): DrawnDescription | null {
     const system = this.particles.ownerOf(drawn);
     if (!system) return null;
-    return { node: system.node, what: `The particle effect of "${system.node.name}"`, ...(system.effect ? { asset: system.effect.replace(/^asset:/, "") } : {}) };
+    return { node: system.node, what: `The particle effect of "${system.node.name}"`, ...(system.effect ? { asset: normalizeAssetPath(system.effect) } : {}) };
   }
 
   dispose(): void {

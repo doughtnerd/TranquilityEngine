@@ -21,7 +21,7 @@ const MAX_CLIPS = 4096;
 
 /** The baked file a pose-database reference loads: the `*.posedb.bin` beside a source, or the reference itself. */
 function bakedPoseDatabasePath(ref: string): string {
-  const path = normalizeAssetPath(ref.replace(/^asset:/, ""));
+  const path = normalizeAssetPath(normalizeAssetPath(ref));
   return /\.posedb\.json$/i.test(path) ? path.replace(/\.posedb\.json$/i, ".posedb.bin") : path;
 }
 
@@ -50,7 +50,7 @@ export async function acquirePoseDatabase(ns: AnimationWorldCore, ref: string, s
   }
   await Promise.all(
     refs.map(async (clipRef, i) => {
-      const resolved = await resolveClip(clipRef.replace(/^asset:/, ""), skeleton);
+      const resolved = await resolveClip(normalizeAssetPath(clipRef), skeleton);
       if (!ns.open) return;
       const handle = !resolved ? 0 : "path" in resolved ? await ns.acquireFile(resolved.path, "clip") : ns.acquire(resolved.key, "clip", { kind: "clip", bytes: resolved.bytes });
       if (!handle) {

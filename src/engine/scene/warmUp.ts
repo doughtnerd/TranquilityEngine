@@ -7,6 +7,7 @@
  */
 import { Assets } from "./Assets";
 import { resolveScene } from "./resolvedScene";
+import { normalizeAssetPath } from "./assetPath";
 export { scriptAssetRefs } from "./scriptAssetRefs";
 
 /** One mesh to warm: what a MeshRenderer with this data draws, in every pass the frame puts it in. */
@@ -55,7 +56,7 @@ let scriptRefs: readonly string[] = [];
 
 /** @internal Editor and player script loading: the prefab and material files the project's scripts name. */
 export function _setScriptAssetRefs(paths: readonly string[]): void {
-  scriptRefs = [...new Set(paths.map((p) => p.replace(/^asset:/, "")))];
+  scriptRefs = [...new Set(paths.map((p) => normalizeAssetPath(p)))];
 }
 
 /** @internal Tests and the warm-up: the files the loaded scripts name. */
@@ -63,7 +64,6 @@ export function _scriptAssetRefs(): readonly string[] {
   return scriptRefs;
 }
 
-const bare = (p: string) => p.replace(/^asset:/, "");
 const has = (p: string) => Assets.has(p) || Assets.has(`asset:${p}`);
 
 /**
@@ -84,12 +84,12 @@ export function warmSet(path: string | null, extra: readonly string[] = []): War
   };
   const walkData = (v: unknown, out: string[]): void => {
     if (typeof v === "string") {
-      if (v.startsWith("asset:") && v.endsWith(".prefab.json")) out.push(bare(v));
+      if (v.startsWith("asset:") && v.endsWith(".prefab.json")) out.push(normalizeAssetPath(v));
     } else if (Array.isArray(v)) v.forEach((x) => walkData(x, out));
     else if (v && typeof v === "object") Object.values(v).forEach((x) => walkData(x, out));
   };
   const walkFile = (file: string): void => {
-    const p = bare(file);
+    const p = normalizeAssetPath(file);
     if (seen.has(p)) return;
     seen.add(p);
     if (!has(p)) return;
@@ -107,7 +107,7 @@ export function warmSet(path: string | null, extra: readonly string[] = []): War
     const scene = resolveScene(p);
     if (!scene.files.includes(p)) return;
     if (p.endsWith(".prefab.json")) prefabs.add(p);
-    for (const f of scene.files) if (bare(f).endsWith(".prefab.json")) prefabs.add(bare(f));
+    for (const f of scene.files) if (normalizeAssetPath(f).endsWith(".prefab.json")) prefabs.add(normalizeAssetPath(f));
     const referenced: string[] = [];
     for (const node of scene.nodes) {
       const components = node.components;
@@ -127,7 +127,7 @@ export function warmSet(path: string | null, extra: readonly string[] = []): War
         }
         else if (c.type === "engine.ParticleSystem") {
           if (typeof data.effect === "string" && data.effect) {
-            const effect = bare(data.effect);
+            const effect = normalizeAssetPath(data.effect);
             if (has(effect)) effects.set(effect, effect);
           } else if (data.embeddedEffect && typeof data.embeddedEffect === "object") effects.set(data.embeddedEffect, data.embeddedEffect as Record<string, unknown>);
         } else if (c.type === "engine.UICanvas" && data.mode === "world") worldUI = true;
@@ -140,7 +140,7 @@ export function warmSet(path: string | null, extra: readonly string[] = []): War
   };
   if (path) walkFile(path);
   // The scene's `settings.preload`, from the file the resolved view already read (missing or broken: nothing).
-  const root = path ? bare(path) : null;
+  const root = path ? normalizeAssetPath(path) : null;
   const settings = root ? resolveScene(root).raw.get(root)?.settings : undefined;
   const listed = settings && typeof settings === "object" ? (settings as { preload?: unknown }).preload : undefined;
   for (const p of [...(Array.isArray(listed) ? listed : []), ...extra, ...scriptRefs]) {

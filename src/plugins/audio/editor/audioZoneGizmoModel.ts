@@ -4,6 +4,7 @@
 // by construction: the gizmo passes the zone's own world box (`AudioZone._worldBox`, an `UprightBox`).
 import type { UprightBox } from "../runtime/core/spatial";
 import type { AudioZone } from "../runtime/AudioZone";
+import { assetRefTarget } from "../../../editor/sdk";
 
 export type V3 = [number, number, number];
 
@@ -43,7 +44,7 @@ export function audioZoneHeardLine(zone: Pick<AudioZone, "heard" | "feather">): 
 /** What the Inspector says: no sound, a sound that isn't in the project, a box without height, the inside-bed stand-in. */
 export function audioZoneNotices(zone: Pick<AudioZone, "sound" | "heard" | "bottom" | "top">, projectFiles: readonly string[] | null): AudioZoneNotice[] {
   const out: AudioZoneNotice[] = [];
-  const sound = zone.sound.replace(/^asset:/, "");
+  const sound = assetRefTarget(zone.sound);
   if (sound === "") out.push({ kind: "warning", text: "Pick a sound (a playlist or a sample): the zone is silent without one." });
   else if (projectFiles && !projectFiles.includes(sound)) out.push({ kind: "warning", text: `The sound "${sound}" is not in the project, so the zone is silent.` });
   if (!(zone.top > zone.bottom)) out.push({ kind: "warning", text: "The top is not above the bottom: the box has no height, so only its floor counts as inside." });

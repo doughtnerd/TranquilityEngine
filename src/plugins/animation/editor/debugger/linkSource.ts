@@ -13,8 +13,8 @@ import type { CompiledAnimGraph } from "../../../../engine/animation/graphCompil
 import type { DebugLinkPeer, PeerSubscription } from "../../../../engine/debugLink/client";
 import type { AnimatorDebugFrame, DebugParamValue } from "../../runtime/features/debug/frame";
 import { ANIM_FRAME, decodeFrameRecord } from "../../runtime/features/debug/frameRecord";
-import { graphPath } from "../../runtime/features/debug/targets";
 import type { AnimationDebugSource, DebugRecording, DebugTarget } from "./source";
+import { normalizeAssetPath } from "../../../../engine/scene/assetPath";
 
 /** The topic's name. */
 export const ANIMATION_TOPIC = "animation";
@@ -96,7 +96,7 @@ export function createLinkSource(build: LinkBuild, options: LinkSourceOptions = 
     paused: false,
     targets(graph) {
       refresh();
-      return graph === undefined ? targets : targets.filter((t) => t.graph === graphPath(graph));
+      return graph === undefined ? targets : targets.filter((t) => t.graph === normalizeAssetPath(graph));
     },
     selected: () => null,
     frame(id) {

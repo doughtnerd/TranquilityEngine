@@ -19,9 +19,6 @@ export interface GraphAnimator {
 /** @internal An Animator's debugger id. */
 export const debugTargetId = (world: World, animator: Animator): string => `${world.name}#${animator.node.entity}`;
 
-/** @internal A graph reference as a project path (`asset:` and `./` dropped). */
-export const graphPath = (ref: string): string => ref.replace(/^asset:/, "").replace(/^\.?\//, "");
-
 /** @internal The live Animators of `worlds` that run a graph. */
 export function graphAnimators(worlds: readonly World[]): GraphAnimator[] {
   return worlds.flatMap((world) => [...animatorsOf(world)].filter((rt) => rt.animator.graph && rt.animator.node.isValid).map((rt) => ({ world, animator: rt.animator, id: debugTargetId(world, rt.animator) })));

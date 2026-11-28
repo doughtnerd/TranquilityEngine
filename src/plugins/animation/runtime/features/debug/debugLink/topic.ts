@@ -15,7 +15,8 @@ import type { DebugSubscription, DebugTopic, DebugTopicHost } from "../../../../
 import { graphInstanceOf } from "../../graph/runtime";
 import { ANIM_FRAME, encodeFrameRecord } from "../frameRecord";
 import { AnimatorRecorder } from "../animatorRecorder";
-import { graphAnimators, graphPath, paramValue, wireParamValue } from "../targets";
+import { graphAnimators, paramValue, wireParamValue } from "../targets";
+import { normalizeAssetPath } from "../../../../../../engine/scene/assetPath";
 
 /** Samples per second each subscription sends at most (every frame since the last one goes in each). */
 export const ANIMATION_TOPIC_RATE = 30;
@@ -38,8 +39,8 @@ export function animationTopic(host: DebugTopicHost): DebugTopic {
       for (const a of graphAnimators(worlds())) {
         const gi = graphInstanceOf(a.animator);
         if (!gi) continue; // still loading
-        const path = graphPath(a.animator.graph);
-        if (typeof graph === "string" && path !== graphPath(graph)) continue;
+        const path = normalizeAssetPath(a.animator.graph);
+        if (typeof graph === "string" && path !== normalizeAssetPath(graph)) continue;
         out.push({ id: a.id, label: several ? `${a.animator.node.name} (${a.world.name})` : a.animator.node.name, graph: path, tables: { ...gi.meta.compiled, bytes: null } });
       }
       return out;

@@ -1,7 +1,7 @@
 // A baked pose database's summary (ADR 0373; T55): the lines `describeSummary` makes, the clips with their frame counts and the
 // tags with theirs. The Bake card shows it for the file beside the source, and it is the Inspector view of a
 // `*.posedb.bin` selected in the Assets panel (`BakedPoseDatabase`).
-import { editor } from "../../../../editor/sdk";
+import { editor, assetRefTarget } from "../../../../editor/sdk";
 import { describeSummary, type PoseDbSummary } from "./summaryLogic";
 import { useBakedSummary } from "./poseDbHooks";
 import "./poseDatabase.css";
@@ -26,7 +26,7 @@ export function BakedSummary(props: { summary: PoseDbSummary; path: string }) {
             <ul>
               {summary.clips.map((c, i) => (
                 <li key={i}>
-                  {c.asset.replace(/^asset:/, "")}: {c.frames} frames
+                  {assetRefTarget(c.asset)}: {c.frames} frames
                 </li>
               ))}
             </ul>

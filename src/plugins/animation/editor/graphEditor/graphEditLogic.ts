@@ -13,7 +13,7 @@ import {
   type AnimGraph, type ChooserTable, type Condition, type GraphFamily, type GraphLayer, type GraphNode, type GraphParamType, type LayerMode, type NodeParamValue, type StateMachine,
 } from "../../../../engine/animation/animGraph";
 import { NODE_CATALOGUE, nodeKindSchema, type AssetRefKind, type NodeKindSchema, type NodeParamSchema } from "../../../../engine/animation/graphNodes";
-import { accept, refuse, type EditResult } from "../../../../editor/sdk";
+import { accept, refuse, type EditResult, assetRefTarget } from "../../../../editor/sdk";
 import { uniqueName, type Numbering } from "../../../../engine/core/uniqueName";
 
 /** `walk`, `walk2`, `walk3`…: node ids, slot and linked names (no spaces, so they stay valid names). */
@@ -405,7 +405,7 @@ export function setLinked(graph: AnimGraph, id: string, patch: { name?: string; 
   if (name === "") return refuse("a linked graph needs a name");
   if (graph.nodes.some((m) => m.id !== id && m.linked?.name === name)) return refuse(`another linked graph is named "${name}"`);
   const ref = patch.graph === undefined ? n.linked.graph : patch.graph || null;
-  if (ref && self && ref.replace(/^asset:/, "") === self) return refuse("a graph can't link itself (that would be a cycle)");
+  if (ref && self && assetRefTarget(ref) === self) return refuse("a graph can't link itself (that would be a cycle)");
   return accept(mapNode(graph, id, (x) => ({ ...x, linked: { name, graph: ref } })));
 }
 

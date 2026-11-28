@@ -90,8 +90,6 @@ export interface ResolvedMaterial {
   warnings: MaterialWarning[];
 }
 
-const where = (path: string) => path.replace(/^asset:/, "");
-
 /** The graph or shader asset a material path draws: itself when it names one, else the material's `graph`. */
 function graphPathOf(path: string, raw: unknown): string | null {
   if (isShaderGraphPath(path) || isShaderAssetPath(path)) return path;
@@ -154,7 +152,7 @@ export function compileMaterialShader(graphRaw: unknown, graphWhere: string, sha
  */
 export function resolveMaterial(path: string, opts: { shaderLevel: ShaderLevel; target: ShaderTarget; read?: AssetRead }): ResolvedMaterial {
   const read = opts.read ?? readAsset;
-  const at = where(path);
+  const at = normalizeAssetPath(path);
   const raw = read(path);
   const graphPath = graphPathOf(path, raw);
   const graphRaw = graphPath ? read(graphPath) : undefined;
@@ -180,8 +178,8 @@ export function resolveMaterial(path: string, opts: { shaderLevel: ShaderLevel; 
     try {
       const settings = graphPath === path ? null : parseMaterial(raw, at).settings;
       out.settings = settings;
-      if (graphRaw === undefined) throw new Error(`${isShaderAssetPath(graphPath) ? "shader" : "shader graph"} "${where(graphPath)}" isn't in the project.`);
-      const { compiled, warnings } = compileMaterialShader(graphRaw, where(graphPath), isShaderAssetPath(graphPath), { ...opts, read });
+      if (graphRaw === undefined) throw new Error(`${isShaderAssetPath(graphPath) ? "shader" : "shader graph"} "${normalizeAssetPath(graphPath)}" isn't in the project.`);
+      const { compiled, warnings } = compileMaterialShader(graphRaw, normalizeAssetPath(graphPath), isShaderAssetPath(graphPath), { ...opts, read });
       out.warnings.push(...warnings);
       out.compiled = compiled;
       out.kind = "graph";
@@ -247,7 +245,7 @@ export type SlotSource = { from: "slot"; slot: number; path: string } | { from: 
 export function modelMaterialMap(meshRef: string): Readonly<Record<string, string>> | null {
   if (!meshRef || meshRef.startsWith("builtin:")) return null;
   try {
-    const materials = Assets.importSettings(splitSpriteRef(meshRef.replace(/^asset:/, "")).path).materials;
+    const materials = Assets.importSettings(splitSpriteRef(normalizeAssetPath(meshRef)).path).materials;
     return Object.keys(materials).length ? materials : null;
   } catch {
     return null;
@@ -329,7 +327,7 @@ export interface ScriptValues {
  */
 export function scriptValues(resolved: ResolvedMaterial | null, m: Material): ScriptValues {
   const path = resolved?.path ?? "";
-  const what = path ? where(path) : "the default material";
+  const what = path ? normalizeAssetPath(path) : "the default material";
   const settings = resolved ? resolved.settings : defaultMaterialSettings();
   const values = graphValues(m._values);
   const keywords = Object.fromEntries(m._keywords) as Record<string, KeywordValue>;
@@ -370,7 +368,7 @@ export function overrideWarnings(material: string, node: string, names: Iterable
 
 /** The image a `texture` value asks for: null for none set (the base's), "" for no image. */
 export function textureValue(values: Record<string, GraphValue>): string | null {
-  return typeof values.texture === "string" ? values.texture.replace(/^asset:/, "") : null;
+  return typeof values.texture === "string" ? normalizeAssetPath(values.texture) : null;
 }
 
 // --- Keyword variants (ADR 0106) ------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 // float parameter that may drive it. Every edit is refused-or-next (a duplicate name, a non-float weight parameter), one
 // undo step.
 import { LAYER_MODES, type AnimGraph, type LayerMode } from "../../../../engine/animation/animGraph";
-import { AssetPicker, TextField, editor, type EditResult } from "../../../../editor/sdk";
+import { AssetPicker, TextField, editor, type EditResult, assetRefTarget } from "../../../../editor/sdk";
 import { addLayer, moveLayer, nodeTitle, removeLayer, setLayer } from "./graphEditLogic";
 import type { PlacedProblem } from "./problemLogic";
 
@@ -41,7 +41,7 @@ export function LayersPanel(props: LayersPanelProps) {
                 <AssetPicker value={l.mask ?? ""} kinds={["avatarmask"]} label={`Layer ${l.name} mask`} none="Full body" disabled={readOnly}
                   onCommit={(v) => apply(setLayer(graph, l.name, { mask: v || null }), `Set layer ${l.name} mask`)} />
               </label>
-              {l.mask && <button class="ag-link" onClick={() => editor.assets.open(l.mask!.replace(/^asset:/, ""))}>Open the mask</button>}
+              {l.mask && <button class="ag-link" onClick={() => editor.assets.open(assetRefTarget(l.mask!))}>Open the mask</button>}
               <label class="ag-field"><span>Mode</span>
                 <select aria-label={`Layer ${l.name} mode`} value={l.mode} disabled={readOnly} onChange={(e) => apply(setLayer(graph, l.name, { mode: (e.currentTarget as HTMLSelectElement).value as LayerMode }), `Change layer ${l.name} mode`)}>
                   {LAYER_MODES.map((m) => <option key={m} value={m}>{m === "override" ? "Override" : "Additive"}</option>)}

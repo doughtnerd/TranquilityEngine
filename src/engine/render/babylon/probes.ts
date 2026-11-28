@@ -27,6 +27,7 @@ import { ReflectionProbe } from "../components";
 import { Graphics } from "../Graphics";
 import { Assets } from "../../scene/Assets";
 import { blendProbes, PROBE_RESOLUTION, type BlendBox } from "../probeBoxes";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 interface ProbeEntry {
   probe: BabylonReflectionProbe | null;
@@ -163,7 +164,7 @@ export class BabylonProbes {
    * to capture instead (no map, or it failed: warned once).
    */
   private syncBaked(p: ReflectionProbe, entry: ProbeEntry): boolean {
-    const path = p.refresh === "baked" ? p.bakedMap.replace(/^asset:/, "") : "";
+    const path = p.refresh === "baked" ? normalizeAssetPath(p.bakedMap) : "";
     if (entry.baked && entry.baked.path !== path) {
       entry.baked.texture?.dispose();
       entry.baked = null;

@@ -7,10 +7,7 @@ import type { Tilemap } from "../runtime";
 import { lineCells, rectCells, type Cell } from "../runtime/brushes";
 import { brushPrefabs } from "./brush";
 import { planPrefabStroke, type PlacedInstance } from "./prefabBrushLogic";
-import { editor, type NodePath, type OpenScene } from "../../../editor/sdk";
-
-/** A project path from a tileset's prefab reference (`asset:props/chest.prefab.json`). */
-export const prefabPath = (ref: string): string => ref.replace(/^asset:/, "");
+import { editor, type NodePath, type OpenScene, assetRefTarget } from "../../../editor/sdk";
 
 /** Whether the brush places prefabs with `tool` now: prefabs are chosen and the tool is the pencil, rectangle or eraser. */
 export function paintsPrefabs(tool: string | null): boolean {
@@ -74,7 +71,7 @@ export function commitPrefabStroke(scene: OpenScene, path: NodePath, map: Tilema
     editor.messages.info("The prefab brush paints Tilemaps that aren't inside a prefab instance.");
     return { added: 0, removed: 0 };
   }
-  const prefabs = brushPrefabs.peek().map(prefabPath);
+  const prefabs = brushPrefabs.peek().map(assetRefTarget);
   const plan = planPrefabStroke(mode, cells, placedInstances(scene, path, map), prefabs, map.variantSeed);
   if (plan.remove.length === 0 && plan.add.length === 0) return { added: 0, removed: 0 };
   let added = 0;

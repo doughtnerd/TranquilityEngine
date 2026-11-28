@@ -12,6 +12,7 @@
  * Pure; no plugin, no DOM. Internal to the engine and the animation plugin: not public API.
  */
 import { isRecord, LenientReader, type JsonRecord } from "../audio/lenientRead";
+import { normalizeAssetPath } from "../scene/assetPath";
 
 export { IdScope, isFiniteNumber, isRecord, LenientReader, type JsonRecord } from "../audio/lenientRead";
 
@@ -23,7 +24,7 @@ export interface FormatParse<T> {
 
 /** @internal The project path a reference string names: without `asset:`, a leading `./` or `/`, or a `#sub-asset`. Empty for none. */
 export function referencePath(ref: string): string {
-  const path = ref.replace(/^asset:/, "").replace(/^\.?\//, "");
+  const path = normalizeAssetPath(ref);
   const hash = path.indexOf("#");
   return hash < 0 ? path : path.slice(0, hash);
 }

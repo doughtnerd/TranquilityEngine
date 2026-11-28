@@ -43,6 +43,7 @@ import { getComponentClass } from "../../../../engine/core/registry";
 import type { World } from "../../../../engine/core/World";
 import { Quaternion } from "../../../../engine/core/math";
 import { Assets, normalizeAssetPath } from "../../../../engine/scene/Assets";
+import { clipRefKind } from "../../../../engine/animation/compile/keys";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { TimelineDirector } from "../components/TimelineDirector";
 import type { AnimationWorldCore } from "../core/AnimationWorldCore";
@@ -140,7 +141,7 @@ function sourceOf(path: string): RawClipSource | null {
     warnOnce(`missing:${path}`, `[myco] animation: the timeline "${path}" isn't in the project.`);
     return null;
   }
-  const parsed = path.endsWith(".anim.json") ? parseAnimSource(raw, path) : parseTimeline(raw, path);
+  const parsed = clipRefKind(path) === "source" ? parseAnimSource(raw, path) : parseTimeline(raw, path);
   for (const p of parsed.problems) warnOnce(`problem:${p}`, `[myco] ${p}`);
   const { name, rate, duration, loop, tracks } = parsed.value;
   return { name, rate, duration, loop, tracks };
@@ -156,7 +157,8 @@ async function loadClip(ns: AnimationWorldCore, ref: string, depth: number, out:
   const path = normalizeAssetPath(ref);
   if (!path) return null;
   out.files.set(path, changes.get(path) ?? 0);
-  if (path.endsWith(".timeline.json") || path.endsWith(".anim.json")) {
+  const kind = clipRefKind(path);
+  if (kind === "timeline" || kind === "source") {
     if (chain.includes(path)) {
       warnOnce(`cycle:${path}`, `[myco] animation: the timeline "${path}" nests itself; the inner one doesn't play.`);
       return null;

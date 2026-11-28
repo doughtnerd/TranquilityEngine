@@ -22,6 +22,7 @@ import { rewriteJsonReferences } from "./jsonReferences";
 import { readWavMetadata } from "../sample/wavChunks";
 import { sampleEditsFromWav } from "../sample/wavSample";
 import type { SampleLoop } from "../sample/types";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /** The file access the driver needs; the editor's `FileSystem` (`engine/platform/FileSystem.ts`) has it all. */
 export interface MigrationFileSystem {
@@ -62,8 +63,6 @@ const SCRIPT_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs"];
 const join = (root: string, path: string): string => (root === "" ? path : `${root.replace(/[\\/]+$/, "")}/${path}`);
 const endsWithAny = (path: string, endings: readonly string[]): boolean => endings.some((e) => path.toLowerCase().endsWith(e));
 const folderOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf("/")));
-/** A clip path as a project path (`asset:` and a leading `./` or `/` dropped). */
-const projectPath = (ref: string): string => ref.replace(/^asset:/, "").replace(/^\.?\//, "");
 
 /** Every file under `root` (project paths, forward slashes), skipping dot folders, `node_modules`, `dist` and `target`. */
 export async function listProjectFiles(fs: MigrationFileSystem, root: string, dir = ""): Promise<string[]> {
@@ -113,7 +112,7 @@ export async function migrateProjectAudio(fs: MigrationFileSystem, root: string,
     } catch {
       continue; // migrateProjectAudioEvents notes it
     }
-    for (const clip of eventClips(parseAudioEvent(raw).value).map(projectPath)) {
+    for (const clip of eventClips(parseAudioEvent(raw).value).map(normalizeAssetPath)) {
       if (seconds.has(clip)) continue;
       if (!fileSet.has(clip)) {
         seconds.set(clip, undefined);
@@ -136,7 +135,7 @@ export async function migrateProjectAudio(fs: MigrationFileSystem, root: string,
   }
 
   const migration = migrateProjectAudioEvents(json, {
-    sampleSeconds: (p) => seconds.get(projectPath(p)),
+    sampleSeconds: (p) => seconds.get(normalizeAssetPath(p)),
     fileLoops: (p) => wavLoops.get(p),
   });
   report.notes.push(...migration.notes);

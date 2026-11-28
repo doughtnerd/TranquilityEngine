@@ -22,6 +22,7 @@ import type { GraphValue } from "../../scene/shaderGraph";
 import type { MaterialPropertyValue } from "../components";
 import { onOwnerDisposed } from "./materialClone";
 import { babylonUv, type BabylonUv, type TextureTransform } from "./textureTransform";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /**
  * A PBR material for engine geometry. Front faces are Babylon's left-handed default (ADR 0164): the
@@ -466,7 +467,7 @@ export function applyBuiltinSettings(m: PBRMaterial, settings: MaterialSettings)
 export function builtinTextureSlots(m: PBRMaterial, settings: MaterialSettings): { image: string; srgb: boolean; apply: (tex: Texture) => void }[] {
   const out: { image: string; srgb: boolean; apply: (tex: Texture) => void }[] = [];
   const add = (ref: string, srgb: boolean, apply: (tex: Texture) => void) => {
-    const image = ref.replace(/^asset:/, "");
+    const image = normalizeAssetPath(ref);
     if (image) out.push({ image, srgb, apply });
   };
   add(settings.texture, true, (tex) => (m.albedoTexture = tex));

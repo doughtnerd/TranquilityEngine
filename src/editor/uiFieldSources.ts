@@ -7,6 +7,7 @@ import { AssetRef, type FieldInfo } from "../engine/core/registry";
 import { parseColor } from "../engine/ui/document/stylesheet";
 import type { MarkupAttribute, SourceSpan } from "../engine/ui/document/types";
 import type { NodePath } from "./document";
+import { withoutAssetScheme } from "../engine/scene/assetPath";
 
 /** What a WorldSync gives the UI models (the open scene's, or a test's). */
 export interface NodeLookup {
@@ -91,7 +92,7 @@ export function cssValue(info: FieldInfo | null, raw: string): string {
     return c === null ? "none" : c ? formatValue(c) : v;
   }
   if (info.type === Number) return PX_FIELDS.has(info.name) && number !== null ? pixels(number) : v;
-  if (info.type === AssetRef) return v === "" ? '""' : `url("${v.replace(/^asset:/, "")}")`;
+  if (info.type === AssetRef) return v === "" ? '""' : `url("${withoutAssetScheme(v)}")`;
   if (info.type === String) {
     if (LENGTH_FIELDS.has(info.name)) return number !== null ? pixels(number) : v;
     if (Array.isArray(info.options?.choices) || /^[\w-]+$/.test(v)) return v;

@@ -11,14 +11,15 @@
 import { signal, type Signal } from "@preact/signals";
 import { parseAnimSource } from "../../../../engine/animation/animSource";
 import { Assets } from "../../../../engine/scene/Assets";
-import { modelClipOf } from "../../../../engine/animation/compile/keys";
+import { clipRefKind } from "../../../../engine/animation/compile/keys";
 import { readClipInfo } from "../../runtime/assetInfo";
 import { loadClipSource } from "../../runtime/features/clipSources";
+import { assetRefTarget } from "../../../../editor/sdk";
 
 /** The model a model's clip belongs to (`models/hero.glb#Anim/Run` → `models/hero.glb`), or null for a clip file. */
 export function modelOfClip(entry: string): string | null {
   const at = entry.indexOf("#Anim/");
-  return at > 0 ? entry.slice(0, at).replace(/^asset:/, "") : null;
+  return at > 0 ? assetRefTarget(entry.slice(0, at)) : null;
 }
 
 /** Models the user dragged onto a clip's preview this session, by clip. */
@@ -44,14 +45,15 @@ const UNKNOWN: ClipTiming = { duration: 1, looping: true, known: false };
 
 /** The timing of the clip `entry` (a project path, or `asset:` reference). Never rejects. */
 export async function clipTiming(entry: string): Promise<ClipTiming> {
-  const path = entry.replace(/^asset:/, "");
+  const path = assetRefTarget(entry);
   try {
-    if (modelClipOf(path)) {
+    const kind = clipRefKind(path);
+    if (kind === "model") {
       const data = await loadClipSource(path);
       return data ? { duration: data.source.duration, looping: data.source.loop, known: true } : UNKNOWN;
     }
     if (!Assets.has(path)) return UNKNOWN;
-    if (path.toLowerCase().endsWith(".anim.json")) {
+    if (kind === "source") {
       const clip = parseAnimSource(Assets.get(path)).value;
       return { duration: clip.duration, looping: clip.loop, known: true };
     }

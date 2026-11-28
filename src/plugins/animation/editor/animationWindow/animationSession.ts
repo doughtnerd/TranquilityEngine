@@ -25,7 +25,7 @@ import {
   type FieldWriteInterceptorContribution,
   type InterceptedFieldWrite,
   type NodePath,
-  type OpenScene,
+  type OpenScene, assetRefTarget
 } from "../../../../editor/sdk";
 import { storedFieldValue } from "../../../../editor/sdk";
 import { Animator } from "../../runtime/components/Animator";
@@ -35,6 +35,7 @@ import type { OnionSettings } from "./onionSkinLogic";
 import { ANIMATION_WINDOW_PANEL } from "./panelId";
 import { ClipPreviewPlayer } from "./previewLogic";
 import { recordWrite } from "./recordLogic";
+import { clipRefKind } from "../../../../engine/animation/compile/keys";
 
 export { ANIMATION_WINDOW_PANEL };
 
@@ -43,8 +44,6 @@ export type WindowTarget =
   | { readonly kind: "none"; readonly why: string }
   | { readonly kind: "file"; readonly clip: string }
   | { readonly kind: "animator"; readonly scene: OpenScene; readonly path: NodePath; readonly node: GameObject; readonly animator: Animator; readonly clip: string | null };
-
-const clipPath = (ref: string) => ref.replace(/^asset:/, "");
 
 class AnimationSession {
   /** Seconds into the clip; play, pause and the loop flag. */
@@ -76,7 +75,7 @@ class AnimationSession {
       const path = scene.sync.pathOf(node);
       if (path) {
         const chosen = this.chosen.value.get(path.join("/"));
-        const clip = chosen ?? (animator.defaultClip ? clipPath(animator.defaultClip) : null);
+        const clip = chosen ?? (animator.defaultClip ? assetRefTarget(animator.defaultClip) : null);
         return { kind: "animator", scene, path, node, animator, clip };
       }
     }
@@ -95,7 +94,7 @@ class AnimationSession {
   readonly document = computed<AssetDocument<AnimSource> | null>(() => {
     const project = editor.project.current;
     const file = this.clipFile.value;
-    if (!project || !file || !file.toLowerCase().endsWith(".anim.json") || !project.files.includes(file)) return null;
+    if (!project || !file || clipRefKind(file) !== "source" || !project.files.includes(file)) return null;
     return openAssetDocument<AnimSource>(project, file, "animclip");
   });
 

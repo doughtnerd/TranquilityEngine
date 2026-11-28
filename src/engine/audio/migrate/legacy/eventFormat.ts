@@ -36,6 +36,7 @@ export { AUDIO_EVENT_FORMAT, AUDIO_EVENT_SUFFIX, isAudioEventPath } from "../../
 import { isLabelled, MAX_LOCAL_PARAMETERS, MAX_PARAMETERS, parseParameters, type ParameterDef } from "../../parameters";
 export { isLabelled, MAX_LOCAL_PARAMETERS, MAX_PARAMETERS, parameterDefault, parameterRange, parseParameters, type LabelledParameter, type NumericParameter, type ParameterDef } from "../../parameters";
 import { audioCurve } from "../../audioCurveLimit";
+import { normalizeAssetPath } from "../../../scene/assetPath";
 
 // --- automation -----------------------------------------------------------------------------------------------------
 
@@ -393,7 +394,7 @@ class Reader {
     const type = raw.type as NodeType;
     switch (type) {
       case "clip": {
-        const clip = this.str(raw.clip, `${where}.clip`, "").replace(/^asset:/, "");
+        const clip = normalizeAssetPath(this.str(raw.clip, `${where}.clip`, ""));
         if (clip === "") this.problems.push(`${where}: clip is empty; it plays nothing.`);
         const node: ClipNode = {
           ...base, type, clip, loop: this.bool(raw.loop, `${where}.loop`, false),
