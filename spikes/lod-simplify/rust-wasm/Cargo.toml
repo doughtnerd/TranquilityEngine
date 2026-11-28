@@ -1,0 +1,16 @@
+[package]
+name = "mw"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+meshopt = "=0.7.0"
+
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+strip = true
