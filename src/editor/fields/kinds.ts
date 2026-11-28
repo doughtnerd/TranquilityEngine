@@ -6,6 +6,7 @@
 // every conversion takes the node-id resolution as a required argument, so neither can be forgotten.
 // The widget for each kind is registered by kind in `../ui/fieldRows.tsx`, keeping this module free of Preact.
 import { AssetRef, Color, GameObject, PlainObject, Quaternion, Vector2, Vector3 } from "../../engine";
+import { formatHex } from "../../engine/core/colorSpace";
 import { isListType, type FieldChoice } from "../../engine/core/registry";
 import type { FieldValue } from "../../engine/editor";
 import { itemField } from "../fieldValues";
@@ -92,8 +93,7 @@ function kind(name: FieldKindName, toJSON: (value: unknown, nodeIds: NodeIds) =>
 
 /** Scene-file JSON for a color: `#rrggbb`, or `#rrggbbaa` when not opaque. */
 function colorJSON(c: Color): string {
-  if (c.a >= 1) return c.toHex();
-  return c.toHex() + Math.round(Math.min(Math.max(c.a, 0), 1) * 255).toString(16).padStart(2, "0");
+  return formatHex([c.r, c.g, c.b], c.a);
 }
 
 /** A vector's axes (array or `toArray()`), or null when it has none. */

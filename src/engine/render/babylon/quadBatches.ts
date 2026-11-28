@@ -30,6 +30,7 @@ import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { Observer } from "@babylonjs/core/Misc/observable.js";
 import type { Scene } from "@babylonjs/core/scene.js";
+import { parseHex } from "../../core/colorSpace";
 import { Assets } from "../../scene/Assets";
 import { authoredSize } from "../../scene/importSettings";
 import { tangents2D } from "../lights2D/tangents";
@@ -51,8 +52,6 @@ export interface BabylonQuadBatchDeps {
   /** A batch was given a sorting layer the project doesn't list (the renderer warns once per layer). */
   unknownLayer(sortingLayer: string): void;
 }
-
-const HEX = /^#[0-9a-f]{6}$/i;
 
 /** @internal How a batch is made (`BabylonQuadBatches.createBatch`). */
 export interface QuadBatchOptions {
@@ -344,10 +343,12 @@ class BabylonQuadBatch implements QuadBatch {
 
   setTint(color: QuadTint, opacity: number): void {
     if (this.disposed) return;
-    const [r, g, b] = typeof color === "string" ? parseHex(color) : [color.r, color.g, color.b];
+    // Text (ADR 0461): its alpha multiplies the opacity; anything that isn't a hex colour tints white.
+    const [r, g, b, alpha] = typeof color === "string" ? (parseHex(color) ?? [1, 1, 1, 1]) : [color.r, color.g, color.b, 1];
+    const a = opacity * alpha;
     const t = this.tint;
-    if (r === t.r && g === t.g && b === t.b && opacity === t.a) return;
-    this.tint = { r, g, b, a: opacity };
+    if (r === t.r && g === t.g && b === t.b && a === t.a) return;
+    this.tint = { r, g, b, a };
     this.updateMaterial();
   }
 
@@ -402,11 +403,5 @@ class BabylonQuadBatch implements QuadBatch {
   }
 }
 
-/** `#rrggbb` as sRGB 0..1 (anything else white). */
-function parseHex(color: string): [number, number, number] {
-  if (!HEX.test(color)) return [1, 1, 1];
-  const n = parseInt(color.slice(1), 16);
-  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
-}
 
 const tmp = new Matrix();

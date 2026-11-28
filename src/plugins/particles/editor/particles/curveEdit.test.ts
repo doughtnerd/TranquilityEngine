@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evalGradient } from "../../../../engine/scene/particles";
-import { addAlphaKey, addColorKey, convertColor, convertNumber, removeColorKey } from "./curveEdit";
+import { addAlphaKey, addColorKey, convertColor, convertNumber, removeColorKey, setColorKey } from "./curveEdit";
 
 describe("convertNumber", () => {
   it("goes constant to random to curves", () => {
@@ -45,5 +45,13 @@ describe("gradient keys", () => {
   });
   it("keeps at least one colour key", () => {
     expect(removeColorKey(removeColorKey(g, 0), 0).colors).toHaveLength(1);
+  });
+});
+
+describe("short and alpha hex forms (ADR 0461)", () => {
+  it("split a short #rgba into the key's #rrggbb and its alpha, never keep it raw", () => {
+    expect(convertColor("#f008", "gradient")).toEqual({ gradient: { colors: [[0, "#ff0000"], [1, "#ff0000"]], alphas: [[0, 0x88 / 255], [1, 0x88 / 255]] } });
+    const g = { colors: [[0, "#ffffff"]] as [number, string][], alphas: [] as [number, number][] };
+    expect(setColorKey(g, 0, "#abcd").colors).toEqual([[0, "#aabbcc"]]);
   });
 });

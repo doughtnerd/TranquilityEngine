@@ -35,10 +35,6 @@ export const OVERLAY_GROUP = { lines: 0, wires: 1, outlines: 2, icons: 2, handle
 
 // --- Colours ---------------------------------------------------------------------------------
 
-export function srgbToLinear(v: number): number {
-  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-}
-
 export function r8(c: number): number { return ((c >> 16) & 255) / 255; }
 export function g8(c: number): number { return ((c >> 8) & 255) / 255; }
 export function b8(c: number): number { return (c & 255) / 255; }

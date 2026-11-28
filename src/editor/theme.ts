@@ -6,6 +6,7 @@
 import { computed, effect, signal } from "@preact/signals";
 import { alpha, ensureContrast, luminance, mix, parseHex, readableOn, rgb, toHex } from "./colorMath";
 import { persisted } from "./preferences";
+import { formatHex, parseHex as parseHexText } from "../engine/core/colorSpace";
 
 export { alpha, contrast, luminance, mix, parseHex } from "./colorMath";
 
@@ -412,8 +413,12 @@ export const codeAppearance = computed<CodeAppearance>(() => ({ kind: activePres
 
 /** Monaco's colours for a theme. */
 export function monacoColors(t: ThemeTokens): Record<string, string> {
-  const hex = (c: string) => (parseHex(c) ? toHex(rgb(c)) : c);
-  const withAlpha = (c: string, a: number) => `${hex(c)}${Math.round(a * 255).toString(16).padStart(2, "0")}`;
+  // Hex tokens normalised to #rrggbb[aa] (their own alpha kept, ADR 0461); anything else passes through as written.
+  const hex = (c: string, a = 1) => {
+    const p = parseHexText(c);
+    return p ? formatHex(p, p[3] * a) : c;
+  };
+  const withAlpha = (c: string, a: number) => hex(c, a);
   return {
     "editor.background": hex(t.bgSunken),
     "editor.foreground": hex(t.text),

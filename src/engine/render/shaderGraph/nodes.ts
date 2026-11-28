@@ -5,6 +5,7 @@
 import { Assets, normalizeAssetPath } from "../../scene/Assets";
 import type { GraphNode, GraphProperty, GraphPropertyType, InputValue, ShaderGraph, ShaderGraphTarget } from "../../scene/shaderGraph";
 import { OUTPUT_NODE_TYPE, parseShaderGraph } from "../../scene/shaderGraph";
+import { parseHex } from "../../core/colorSpace";
 import type { ShaderLevel } from "../../core/graphics";
 
 /** A value's type in the shader (`vec3` is WGSL's `vec3f`); `texture` is a texture and its sampler. */
@@ -253,11 +254,8 @@ const swizzleType = (mask: string): ValueType => (["float", "vec2", "vec3", "vec
 
 export const propertyType = (t: GraphPropertyType): ValueType => (t === "float" ? "float" : t === "vector2" ? "vec2" : t === "vector3" ? "vec3" : t === "texture" ? "texture" : "vec4");
 
-/** A `#rrggbb[aa]` colour as sRGB components `[r, g, b, a]` (0–1). */
-const hexComponents = (hex: string): number[] => {
-  const h = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(hex) ? hex : "#ffffff";
-  return [1, 3, 5, 7].map((i) => (i < h.length ? parseInt(h.slice(i, i + 2), 16) / 255 : 1));
-};
+/** A hex colour as sRGB components `[r, g, b, a]` (0–1); anything else reads as white. */
+const hexComponents = (hex: string): number[] => parseHex(hex) ?? [1, 1, 1, 1];
 
 /** A sub-graph property as the Sub Graph node's input: its value is the input's default. */
 export function propertyPort(p: GraphProperty): PortDef {

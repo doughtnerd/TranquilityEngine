@@ -32,6 +32,7 @@
 // Types only: three.js is imported with the first glTF parse (`parseGltf`), never at start-up
 // (ADR 0082, 0088). The helpers below take three's classes from `lib()`.
 import type { BufferAttribute, BufferGeometry, Group, Material, Mesh, Object3D, Texture, Wrapping } from "three";
+import { linearToSrgb } from "../core/colorSpace";
 import { Assets } from "./Assets";
 import type { ModelCamera, ModelLight } from "./models";
 import type { Sampler } from "../animation/import/channels";
@@ -371,7 +372,7 @@ function tagLightsAndCameras(root: Object3D, parser: Parser): void {
 }
 
 /** A linear colour channel as sRGB (the Light component's colour is sRGB). */
-const toSrgb = (c: number) => Math.round((c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055) * 1e6) / 1e6;
+const toSrgb = (c: number) => Math.round(linearToSrgb(c) * 1e6) / 1e6;
 
 /** A KHR_lights_punctual light as the engine Light's values (ADR 0118). */
 function engineLight(def: GltfLight): ModelLight {

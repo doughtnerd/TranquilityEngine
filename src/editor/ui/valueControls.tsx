@@ -10,6 +10,7 @@
 // `doc.edit(next, drag ? { coalesce: true } : undefined)` (ADR 0027); the Inspector opens its field drag on the first
 // drag report and ends it on the closing one (ADR 0257), as its scrub labels do from press to release.
 import { Color } from "../../engine";
+import { parseHex } from "../../engine/core/colorSpace";
 import { hexWithAlpha } from "../colorMath";
 import { MIXED } from "../fields/NumberInput";
 import "./valueControls.css";
@@ -95,7 +96,7 @@ export interface ColorFieldProps {
 /** A colour picker, and with `alpha` an opacity box, over a `#rrggbb[aa]` value. */
 export function ColorField(props: ColorFieldProps) {
   const { label, disabled } = props;
-  const color = Color.from(/^#?([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(props.value.trim()) ? props.value.trim() : "#ffffff");
+  const color = parseHex(props.value) ? Color.from(props.value) : Color.white;
   const opaque = color.toHex();
   const a = color.a;
   const picked = (drag: boolean) => (e: Event) => props.onValue(hexWithAlpha((e.currentTarget as HTMLInputElement).value, a), drag);

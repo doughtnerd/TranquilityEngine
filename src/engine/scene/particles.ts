@@ -32,6 +32,7 @@
  * `{ "randomGradients": [g1, g2] }`.
  */
 
+import { parseHex } from "../core/colorSpace";
 import { evalCurve } from "../core/curve";
 import type { Gradient } from "../core/gradient";
 
@@ -346,18 +347,9 @@ export const BEHAVIOR_LABELS: Record<ParticleBehaviorType, string> = {
 
 // --- evaluation (editor previews, tests) --------------------------------------------------------
 
-/** `#rrggbb[aa]` as 0–1 sRGB components and alpha; bad input reads as opaque white. */
+/** A hex colour (ADR 0461) as 0–1 sRGB components and alpha; bad input reads as opaque white. */
 export function parseHexColor(hex: string): [number, number, number, number] {
-  const m = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
-  if (!m) return [1, 1, 1, 1];
-  const n = parseInt(m[1], 16);
-  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, m[2] ? parseInt(m[2], 16) / 255 : 1];
-}
-
-/** 0–1 sRGB components (and alpha, written when below 1) as `#rrggbb[aa]`. */
-export function hexColor(r: number, g: number, b: number, a = 1): string {
-  const h = (x: number) => Math.round(Math.min(1, Math.max(0, x)) * 255).toString(16).padStart(2, "0");
-  return `#${h(r)}${h(g)}${h(b)}${a < 1 ? h(a) : ""}`;
+  return parseHex(hex) ?? [1, 1, 1, 1];
 }
 
 /** A gradient's colour and alpha at `t`, as 0–1 sRGB components. */

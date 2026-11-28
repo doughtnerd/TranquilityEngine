@@ -82,8 +82,6 @@ export function hsv(h: number, s: number, v: number, a: number): [number, number
   return [rgb[0], rgb[1], rgb[2], a];
 }
 
-export const srgbToLinear = (x: number): number => (x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4));
-
 /**
  * The functions above in KSL (`render/shaderSource`), as the kernel shaders include them: `k_pcg`,
  * `k_rand` (krand), `k_seed` (particleSeed), `k_hashInt`, `k_noise3`, `k_vnoise` (valueNoise), `k_hsv`,

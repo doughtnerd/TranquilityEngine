@@ -5,6 +5,7 @@
 // writes the file through the tileset's asset document and can be undone (Ctrl+Z / Ctrl+Shift+Z over the inspector,
 // or the Undo / Redo buttons of the asset document frame, ADR 0265).
 import { useEffect, useState } from "preact/hooks";
+import { parseHex } from "../../../engine/core/colorSpace";
 import { missingBlobMasks } from "../runtime/autotile";
 import { ANY_PATTERN, type TileDef, type TilesetData, type TilesetPreviewGrid } from "../runtime/tileset";
 import { tilesForSlices } from "./tilesetAssets";
@@ -128,7 +129,7 @@ export function TilesetInspector(props: { path: string }) {
           return (
             <div class="tileset-terrain" key={t.name}>
               <div class="tileset-terrain-row">
-                <ColorField label={`${t.name} colour`} disabled={readOnly} value={/^#[0-9a-f]{6}$/i.test(t.color ?? "") ? t.color! : "#7cb342"} onValue={(color, drag) => set({ terrains: doc.value.peek().terrains.map((o) => (o.name === t.name ? { ...o, color } : o)) }, drag)} />
+                <ColorField label={`${t.name} colour`} disabled={readOnly} value={t.color && parseHex(t.color) ? t.color : "#7cb342"} onValue={(color, drag) => set({ terrains: doc.value.peek().terrains.map((o) => (o.name === t.name ? { ...o, color } : o)) }, drag)} />
                 <input
                   type="text"
                   aria-label={`${t.name} name`}

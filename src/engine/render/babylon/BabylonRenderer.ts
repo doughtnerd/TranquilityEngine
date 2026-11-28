@@ -41,6 +41,7 @@ import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRenderer.js";
 import { EDITOR_LAYER_MASK, type BabylonEditorContext, type EditorDrawn } from "./editorContext";
 import type { BabylonEditorViewport } from "./editorViewport";
+import { parseHex } from "../../core/colorSpace";
 import type { Component } from "../../core/Component";
 import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
@@ -128,11 +129,11 @@ function rgbOf(c: Color): Rgb {
   return [q(c.r), q(c.g), q(c.b)];
 }
 
-/** A CSS colour string or 0xRRGGBB number as a Babylon colour (gamma space, for clearing). */
+/** A hex colour string (ADR 0461; alpha ignored, anything else black) or 0xRRGGBB number as a Babylon colour (gamma space, for clearing). */
 function clearColorOf(v: string | number): Color4 {
   if (typeof v === "number") return Color4.FromColor3(Color3.FromInts((v >> 16) & 255, (v >> 8) & 255, v & 255), 1);
-  const hex = /^#([0-9a-f]{6})$/i.test(v) ? v : /^#([0-9a-f]{3})$/i.test(v) ? "#" + [...v.slice(1)].map((c) => c + c).join("") : "#000000";
-  return Color4.FromColor3(Color3.FromHexString(hex), 1);
+  const [r, g, b] = parseHex(v) ?? [0, 0, 0];
+  return new Color4(r, g, b, 1);
 }
 
 /** @internal Stage 1 Babylon.js renderer (ADR 0075). */

@@ -2,6 +2,7 @@
  * CSS colours for UI stylesheets (ADR 0077): the colour values a declaration, an attribute or a paint value (a shadow,
  * a gradient stop, ADR 0422) takes. Pure and renderer-neutral.
  */
+import { parseHex } from "../../core/colorSpace";
 import { Color } from "../../core/math";
 
 const NAMED_COLORS: Readonly<Record<string, string>> = {
@@ -20,12 +21,8 @@ export function parseColor(raw: string): Color | null | undefined {
   if (v === "transparent") return new Color(0, 0, 0, 0);
   const named = NAMED_COLORS[v];
   if (named) return Color.from(named);
-  if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(v)) {
-    let hex = v.slice(1);
-    if (hex.length <= 4) hex = hex.split("").map((c) => c + c).join("");
-    const n = (i: number) => parseInt(hex.slice(i, i + 2), 16) / 255;
-    return new Color(n(0), n(2), n(4), hex.length === 8 ? n(6) : 1);
-  }
+  const hex = v.startsWith("#") ? parseHex(v) : null; // CSS hex needs its "#"
+  if (hex) return new Color(hex[0], hex[1], hex[2], hex[3]);
   const fn = /^rgba?\(([^)]*)\)$/.exec(v);
   if (fn) {
     const parts = fn[1].split(/[\s,/]+/).filter(Boolean);

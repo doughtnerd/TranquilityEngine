@@ -6,6 +6,7 @@
  * Differences from what's drawn, by design: normal maps aren't applied (the result is the flat light), shadows are hard
  * (softness is a screen-space filter), and a sprite light counts as its rectangle (its texture isn't read on the CPU).
  */
+import { srgbToLinear } from "../../core/colorSpace";
 import { Color } from "../../core/math";
 import type { World } from "../../core/World";
 import type { Point2 } from "../../physics/polygon";
@@ -17,9 +18,6 @@ import { casterGroups, casterOutline, type TextureSizeOf } from "./casterOutline
 import { freeformAttenuation, pointAttenuation } from "./lightShapes";
 import { blendStyleIndex, masksOverlap } from "./settings";
 import { outlineSegments, shadowFactor, unionSegments, type WorldCaster } from "./shadowGeometry";
-
-/** sRGB 0..1 to linear. */
-export const srgbToLinear = (c: number): number => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 
 /** A 2D affine `[a, b, c, d, tx, ty]` (x' = a·x + c·y + tx, y' = b·x + d·y + ty) from a column-major 4×4 at `o`. */
 export function affineOf(m: ArrayLike<number>, o = 0): [number, number, number, number, number, number] {

@@ -17,6 +17,7 @@
 import { blockDef } from "./particleBlocks";
 import type { GraphBlock, GraphInputValue, GraphProblem, OutputContext, OutputSettings, OutputType, ParticleGraph, ParticleGraphSystem } from "./particleGraph";
 import { compileUniform, curveSetting, gradientSetting, indexOf, inlineValue, isDefinitionNode, nodeDef, portRate, setting, splitRef, type EvalContext, type Index, type NodeValue } from "./particleNodes";
+import { parseHex, srgbToLinear } from "../core/colorSpace";
 import { evalCurve } from "../core/curve";
 import { parseHexColor, type CurveKey, type ParticleColor, type ParticleGradient, type ParticleNumber } from "./particles";
 
@@ -285,8 +286,7 @@ export function resultWidth(o: KOp, args: KExpr[]): number {
   return w || 1;
 }
 
-const srgbToLinear = (x: number): number => (x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4));
-/** `#rrggbb[aa]` as linear RGBA. */
+/** A hex colour (ADR 0461) as linear RGBA; bad text reads as white. */
 export function linearColor(hex: string): number[] {
   const [r, g, b, a] = parseHexColor(hex);
   return [srgbToLinear(r), srgbToLinear(g), srgbToLinear(b), a];
@@ -449,7 +449,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
     if (typeof v === "boolean") return { e: c(v ? 1 : 0) };
     if (Array.isArray(v) && v.every((x) => typeof x === "number")) return { e: source ? uniform("vector", source, v.length) : c(...(v as number[])) };
     if (typeof v === "string") {
-      if (!/^#?[0-9a-f]{6}([0-9a-f]{2})?$/i.test(v)) return null;
+      if (!parseHex(v)) return null;
       return { e: source ? uniform("color", source, 4) : c(...linearColor(v)) };
     }
     if (!v || typeof v !== "object") return null;

@@ -1,16 +1,13 @@
 // A model surface as material asset settings (ADR 0089, 0118): the conversion materialExtract.ts
 // uses when it extracts a model's materials. Pure: it reads the surface and names textures through
 // the caller's function.
+import { linearToSrgb } from "../engine/core/colorSpace";
 import { Color } from "../engine/core/math";
 import { MATERIAL_MAPS, defaultMaterialSettings, type MaterialMapKey, type MaterialSettings } from "../engine/scene/material";
 import type { SurfaceInfo, TextureInfo } from "../engine/scene/models";
 
-/** One linear channel in sRGB (material assets store sRGB colours; model surfaces are linear). */
-const toSrgb = (c: number) => {
-  const v = Math.min(1, Math.max(0, c));
-  return v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055;
-};
-const srgb = (rgb: readonly number[], a = 1) => new Color(toSrgb(rgb[0]), toSrgb(rgb[1]), toSrgb(rgb[2]), a);
+/** Linear channels in sRGB (material assets store sRGB colours; model surfaces are linear). */
+const srgb = (rgb: readonly number[], a = 1) => new Color(linearToSrgb(rgb[0]), linearToSrgb(rgb[1]), linearToSrgb(rgb[2]), a);
 
 /** What extracting a surface keeps and loses. */
 export interface ExtractedMaterial {

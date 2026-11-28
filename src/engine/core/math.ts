@@ -6,6 +6,8 @@
  * on change, so `transform.position.x += 1` moves the node.
  */
 
+import { formatHex, parseHex } from "./colorSpace";
+
 export const DEG2RAD = Math.PI / 180;
 export const RAD2DEG = 180 / Math.PI;
 
@@ -624,22 +626,22 @@ export class Color {
   static get white(): Color { return new Color(1, 1, 1, 1); }
   static get black(): Color { return new Color(0, 0, 0, 1); }
 
-  /** Parse `#rgb`, `#rrggbb`, `#rrggbbaa`, `[r, g, b, a?]` (0..1) or a Color. */
+  /**
+   * Parse hex text (`#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`), `[r, g, b, a?]` (0..1) or a Color.
+   * Throws for text that isn't a hex colour (such as `"red"`) rather than giving NaN components.
+   */
   static from(value: string | readonly number[] | Color): Color {
     if (value instanceof Color) return value.clone();
     if (Array.isArray(value)) return new Color(value[0] ?? 1, value[1] ?? 1, value[2] ?? 1, value[3] ?? 1);
-    let hex = (value as string).replace("#", "");
-    if (hex.length === 3) hex = hex.split("").map((c) => c + c).join("");
-    const n = parseInt(hex.slice(0, 6), 16);
-    const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1;
-    return new Color(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, a);
+    const c = typeof value === "string" ? parseHex(value) : null;
+    if (!c) throw new Error(`Color.from: ${JSON.stringify(value)} isn't a colour; give #rgb, #rgba, #rrggbb, #rrggbbaa or [r, g, b, a].`);
+    return new Color(c[0], c[1], c[2], c[3]);
   }
 
   clone(): Color { return new Color(this.r, this.g, this.b, this.a); }
 
   toHex(): string {
-    const h = (v: number) => Math.round(Mathf.clamp(v, 0, 1) * 255).toString(16).padStart(2, "0");
-    return `#${h(this.r)}${h(this.g)}${h(this.b)}`;
+    return formatHex([this.r, this.g, this.b]);
   }
 
   toCss(): string {

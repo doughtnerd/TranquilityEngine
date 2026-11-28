@@ -8,6 +8,8 @@
  * reads as its default and is reported, never thrown.
  */
 
+import { parseHex, srgbToLinear } from "../core/colorSpace";
+
 export const SKY_FORMAT = "myco.sky@1";
 
 /** The most cloud layers a sky draws. */
@@ -280,13 +282,8 @@ export const cloneSky = (s: SkySettings): SkySettings => structuredClone(s);
 /** True for a sky asset path. */
 export const isSkyPath = (path: string): boolean => /\.sky\.json$/i.test(path.split(/[?#]/)[0]!);
 
-/** `#rrggbb` (sRGB) to linear RGB 0–1; bad text reads as black. */
+/** A hex colour (sRGB, ADR 0461; alpha ignored) to linear RGB 0–1; bad text reads as black. */
 export function hexToLinear(hex: string): [number, number, number] {
-  const out: [number, number, number] = [0, 0, 0];
-  if (!HEX.test(hex)) return out;
-  for (let i = 0; i < 3; i++) {
-    const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
-    out[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  }
-  return out;
+  const c = parseHex(hex);
+  return c ? [srgbToLinear(c[0]), srgbToLinear(c[1]), srgbToLinear(c[2])] : [0, 0, 0];
 }

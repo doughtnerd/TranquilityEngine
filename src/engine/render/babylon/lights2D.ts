@@ -37,7 +37,8 @@ import { CompositeShadowCaster2D, Light2D, ShadowCaster2D } from "../components"
 import { casterGroups, casterOutline, type CasterOutline } from "../lights2D/casterOutlines";
 import { layerBatches, type LayerBatch } from "../lights2D/layerBatches";
 import { falloffExponent, freeformBounds, freeformMesh, insidePolygon, type LightMesh } from "../lights2D/lightShapes";
-import { affineOf, srgbToLinear, targetsLayer } from "../lights2D/sample";
+import { srgbToLinear } from "../../core/colorSpace";
+import { affineOf, targetsLayer } from "../lights2D/sample";
 import { blendStyleIndex, masksOverlap, type LightBlendStyle } from "../lights2D/settings";
 import type { Light2DLayout } from "../passPlan";
 import { spriteFrame } from "../spriteFrame";

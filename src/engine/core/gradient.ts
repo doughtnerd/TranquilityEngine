@@ -6,10 +6,11 @@
  * { "colors": [[0, "#ffffff"], [1, "#ff8000"]], "alphas": [[0, 1], [1, 0]] }
  * ```
  *
- * - Colours are `#rrggbb` (sRGB) and blend linearly in sRGB between keys, as particles always have; alphas are 0..1.
+ * - Colours are hex text (sRGB, `#rrggbb` or the short form; any alpha digits are ignored, ADR 0461) and blend linearly in sRGB between keys, as particles always have; alphas are 0..1.
  * - Before the first key a channel holds the first key's value, after the last the last's (as `Curve` does).
  * - No colour keys read as white; no alpha keys as opaque.
  */
+import { parseHex } from "./colorSpace";
 import { evalCurve, type CurveKey } from "./curve";
 
 /** A gradient: colour keys (`#rrggbb`) and alpha keys, each at `t` from 0 to 1. */
@@ -20,13 +21,12 @@ export interface Gradient {
 
 const parsed = new Map<string, readonly [number, number, number]>();
 
-/** `#rrggbb` as 0–1 sRGB components; anything else reads as white. */
+/** A hex colour as 0–1 sRGB components (its alpha ignored: alpha keys hold opacity); anything else reads as white. */
 function rgbOf(hex: string): readonly [number, number, number] {
   let c = parsed.get(hex);
   if (c) return c;
-  const m = /^#?([0-9a-f]{6})/i.exec(hex.trim());
-  const n = m ? parseInt(m[1]!, 16) : 0xffffff;
-  c = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+  const p = parseHex(hex);
+  c = p ? [p[0], p[1], p[2]] : [1, 1, 1];
   if (parsed.size > 4096) parsed.clear();
   parsed.set(hex, c);
   return c;
