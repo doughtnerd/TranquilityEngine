@@ -37,3 +37,9 @@ Coordinator's log of merges, checks and findings. Newest last.
 - **LOD e2e (`tests/e2e/lod.spec.ts`): 6 passed** — import panel levels, placement adds the group and the LOD bar, models
   without levels get none, far camera draws a coarser level and fewer triangles and a too-small group is culled, forceLevel
   pins, a culled group keeps casting its shadow, scenes without groups unchanged.
+- **Checks on the merged waves 3–4:** `npm test` 13,747 passed and 1 failed: the skinned render feature imported a
+  Babylon type outside the backend (ADR 0075 import rule); fixed by deriving the type from the feature interface.
+  `npm run test:e2e` 291 passed, 4 failed: `audio-mix-smoke.spec.ts:182` and `codefiles.spec.ts:32` passed on re-run
+  (flaky under load); `dragdrop.spec.ts:69` and `hierarchy.spec.ts:54` are the pre-existing master failures.
+- **M1 (LOD, hard switches) and M2 (crossfade, skinned levels, rig LOD) are built.** Open for them: a browser pixel check
+  of a fade (no holes), the scene-camera marker and click-to-preview on the LOD bar (T11), and the benchmark run.
