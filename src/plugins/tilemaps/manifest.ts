@@ -9,4 +9,8 @@ export const tilemapsManifest: PluginManifest = {
   description: "Tile maps, tilesets with auto-tiling terrains, and their drawing.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
+  // Where the Add Component menu lists its Components.
+  componentCategories: {
+    Rendering: ["engine.Tilemap", "engine.MapObject"],
+  },
 };

@@ -15,14 +15,17 @@ import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
 import type { Camera, ReflectionProbe } from "../components";
 import type { ViewportUI } from "../editorViewport";
-import type { DrawnNode, DrawnShape } from "./feature";
+import type { DrawnCommon, DrawnQuads, DrawnShape } from "./feature";
 
 /**
  * @internal What a render feature drew for a node (ADR 0276), as the editor tools read it: the renderer
- * has resolved quad batches to its meshes, so the shape is a quad, meshes or a canvas rectangle (or none).
+ * has resolved quad batches to its meshes, one drawing per place the batches report (ADR 0445), so the shape is a quad,
+ * meshes or a canvas rectangle (or none), and every drawing has its pick order.
  */
-export interface EditorDrawn extends Omit<DrawnNode, "shape"> {
-  readonly shape: Exclude<DrawnShape, { kind: "quads" }> | null;
+export interface EditorDrawn extends DrawnCommon {
+  readonly shape: Exclude<DrawnShape, DrawnQuads> | null;
+  /** Pick order, higher on top: layered 2D content its draw place, else a `PICK_ORDER`. Equal orders go nearest first. */
+  readonly order: number;
 }
 
 /** @internal The renderer state the editor helpers read. */

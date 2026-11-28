@@ -8,7 +8,7 @@ import type { Tilemap } from "../runtime";
 import type { Cell } from "../runtime/brushes";
 import { FLIP_X, FLIP_Y } from "../runtime/format";
 import { TURN_CLOCKWISE } from "../runtime/tileFlips";
-import { activeLayer, canRotateOn, chooseBlock, commitTilemap, tilemapOf } from "./brush";
+import { activeLayer, chooseBlock, commitTilemap, tilemapOf, turnRefusal } from "./brush";
 import { clearSelection, copySelection, moveSelection, selectionLayers, selectRect, transformSelection, usedCells, type CellSelection, type SelectMode } from "./selectionLogic";
 import { editor } from "../../../editor/sdk";
 
@@ -97,15 +97,16 @@ export function deleteTiles(): boolean {
 }
 
 /**
- * Flip (X, Y) or turn (Z) the selected cells in place, as one undo step. On hexagonal maps the tiles' images flip
- * where they are and Rotate does nothing (ADR 0437).
+ * Flip (X, Y) or turn (Z) the selected cells in place, as one undo step. Where a quarter turn isn't a symmetry of the
+ * grid (hexagonal maps) the tiles' images flip where they are and Rotate does nothing but say why (ADR 0437).
  */
 export function transformTiles(axis: "x" | "y" | "rotate"): boolean {
   const t = target();
   if (!t) return false;
-  const layout = canRotateOn(t.map);
-  if (axis === "rotate" && !layout) {
-    editor.messages.info("Hexagonal maps can't turn tiles a quarter turn.");
+  const refusal = turnRefusal(t.map);
+  const layout = refusal === null;
+  if (axis === "rotate" && refusal) {
+    editor.messages.info(`${refusal}.`);
     return false;
   }
   const flags = axis === "x" ? FLIP_X : axis === "y" ? FLIP_Y : TURN_CLOCKWISE;

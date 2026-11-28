@@ -1,7 +1,8 @@
 // The Physics settings section's model (ADR 0038, 0116, 0151): `project.json`'s `physics` key, which the
 // Physics plugin's settings section owns: gravity, the layers and their collision matrix, as pure edits of
 // the Project panel's draft. Reading it and its problems are the engine's runtime physics section's
-// (`RUNTIME_SETTINGS.physics`, ADR 0272), so the panel and the Engine's start-up warnings say the same.
+// (`RUNTIME_SETTINGS.physics`, ADR 0272), so the panel and the Engine's start-up warnings say the same:
+// the section declares no `problems` of its own, `projectSettingsIssues` gives the runtime section's (ADR 0446).
 import { RUNTIME_SETTINGS } from "../../../engine/core/settings";
 import { settingsSection, type NamedList, type SettingsDraft } from "../../../editor/sdk";
 import { uniqueName } from "../../../engine/core/uniqueName";
@@ -16,7 +17,6 @@ export const physicsSettings = settingsSection({
   key: "physics",
   parse: (written) => ({ settings: PHYSICS.parse(written).value }),
   edits: "written",
-  problems: (draft) => PHYSICS.parse(draft.physics).problems,
 });
 
 const layersOf = (d: SettingsDraft): string[] => physicsSettings.read(d).layers;

@@ -140,6 +140,28 @@ describe("animationNodes (ADR 0370, T45t)", () => {
   });
 });
 
+describe("componentCategories (ADR 0447)", () => {
+  const plan = (componentCategories: unknown) =>
+    planPluginCode({ json: new Map([["plugins/acme/plugin.json", JSON.stringify(manifest({ name: "acme", componentCategories } as never))]]), code: new Map([["plugins/acme/runtime/index.ts", ""]]) }, { editor: true });
+
+  it("reads the Add Component submenus of the plugin's Components", async () => {
+    const p = await plan({ Rendering: ["acme.Spinner"], Acme: ["acme.Wobble"] });
+    expect(p.problems).toEqual([]);
+    expect(p.plugins[0]!.manifest.componentCategories).toEqual({ Rendering: ["acme.Spinner"], Acme: ["acme.Wobble"] });
+    expect(p.plugins[0]!.warnings).toBeUndefined();
+  });
+
+  it("is lenient: a bad section or entry is a warning, never a refusal", async () => {
+    const p = await plan({ Rendering: ["acme.Spinner"], "": ["acme.X"], Bad: "acme.Y" });
+    expect(p.problems).toEqual([]);
+    expect(p.plugins[0]!.manifest.componentCategories).toEqual({ Rendering: ["acme.Spinner"] });
+    expect(p.plugins[0]!.warnings).toEqual([expect.stringContaining('componentCategories ""'), expect.stringContaining('componentCategories "Bad"')]);
+    const odd = await plan(["acme.Spinner"]);
+    expect(odd.plugins[0]!.manifest.componentCategories).toBeUndefined();
+    expect(odd.plugins[0]!.warnings).toEqual([expect.stringContaining('"componentCategories" must be an object')]);
+  });
+});
+
 describe("discovery", () => {
   it("finds plugins/<folder>/plugin.json with its entries", async () => {
     const { json, code } = readFixture();

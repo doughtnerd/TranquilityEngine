@@ -1,5 +1,5 @@
 /**
- * Wake trails (ADR 0445): the path a wake's stern has passed and how strongly a moving node churns
+ * Wake trails (ADR 0451): the path a wake's stern has passed and how strongly a moving node churns
  * the water. Plain maths, no World or renderer: `wakes.ts` drives it, its tests drive it directly.
  */
 

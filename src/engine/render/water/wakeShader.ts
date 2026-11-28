@@ -1,5 +1,5 @@
 /**
- * The wake shader (ADR 0445), written once in KSL (ADR 0250): the water's renderer splices it into
+ * The wake shader (ADR 0451), written once in KSL (ADR 0250): the water's renderer splices it into
  * its fragment shader (and, in "field" mode, its vertex shader). It reads what `wakes.ts` packs:
  * - `mycoWake` (mode: 0 off, 1 trail, 2 field; trail wakes in use; water time; unused);
  * - `mycoWakeArea` (the field's world origin x, z, its side and its cells per side);

@@ -28,7 +28,7 @@ class SkinnedSpritesFeature implements BabylonFeature {
   }
 
   *drawn(): Iterable<DrawnNode> {
-    for (const d of this.sprites.drawn()) yield { component: d.renderer, shape: { kind: "quads", batches: d.batches }, order: d.order };
+    for (const d of this.sprites.drawn()) yield { component: d.renderer, shape: { kind: "quads", batches: d.batches } };
   }
 
   describe(drawn: object): DrawnDescription | null {

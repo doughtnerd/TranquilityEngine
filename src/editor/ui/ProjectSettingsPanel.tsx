@@ -435,7 +435,7 @@ function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: Editor
 /** Input players (ADR 0337) and the action sets (ADR 0433): the files in load order, then the sets scripts define. */
 function InputSettings(props: { s: PanelState; draft: SettingsDraft; project: EditorProject; problems: readonly SettingsProblem[] }) {
   const { s, draft, project, problems } = props;
-  const input = (draft.input ?? {}) as { join?: string; maxPlayers?: number };
+  const input = draft.input ?? {};
   const defaults = defaultSettings.input;
   const at = (field: string) => problems.filter((p) => p.field === field || p.field.startsWith(`${field}.`));
   const set = (label: string, next: SettingsDraft) => edit(s, label, next);

@@ -13,6 +13,7 @@ import { readProject, ServerError } from "../server/project";
 import { nodePackageSource, nodeUIRuntimeSource } from "../server/packages";
 import { DEBUG_LISTENER_CRATES, DEBUG_MULTICAST_PLUGIN, DEFAULT_ICON_SVG, ICON_FILES, ICON_SOURCES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
 import { PLAYER_FILE_LIST } from "./format";
+import { buildSettingsProblems } from "../engine/core/buildSettings";
 import { acquireProjectContext } from "../engine/core/projectContext";
 import { bakeModelFile } from "../engine/scene/models";
 import { NOTICES_FILE, writeWebBuild, type BuildFolder, type FileSource } from "./buildWriter";
@@ -250,7 +251,8 @@ function nodeFolder(root: string): BuildFolder {
  */
 async function makeIcons(projectRoot: string, icon: string | undefined, folder: BuildFolder, tauriDir: string, building: boolean, log: (line: string) => void): Promise<(typeof ICON_SOURCES)[number]> {
   const path = icon?.replace(/^\.?\//, "");
-  if (path && !/\.(png|svg)$/i.test(path)) throw new ExportError(`project.json's build.icon "${icon}" must be a square PNG or SVG.`);
+  const bad = !path ? undefined : buildSettingsProblems({ icon }).find((p) => p.field === "build.icon");
+  if (bad) throw new ExportError(`project.json's build.icon "${icon}": ${bad.message}`);
   const name = path?.toLowerCase().endsWith(".png") ? "app-icon.png" : "app-icon.svg";
   if (path) {
     const from = join(projectRoot, ...path.split("/"));

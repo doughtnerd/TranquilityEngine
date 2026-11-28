@@ -257,7 +257,12 @@ describe("tile editing in the editor (ADR 0441, 0442)", () => {
       })
       .sort();
   };
-  const GRIDS = (["staggered", "hexagonal"] as const).flatMap((shape) => (["y", "x"] as const).flatMap((axis) => (["odd", "even"] as const).map((index) => ({ shape, axis, index }))));
+  // One staggered and one hexagonal map, between them both stagger axes and indices: that every grid variant's blocks keep
+  // their shape is the grid's own test (grids.test.ts, ADR 0448); this checks copies and saved stamps keep their frame as the grid says.
+  const GRIDS = [
+    { shape: "staggered", axis: "y", index: "even" },
+    { shape: "hexagonal", axis: "x", index: "odd" },
+  ] as const;
 
   for (const { shape, axis, index } of GRIDS) {
     it(`keeps the shape of a copied stamp, and of a saved one read back, on a ${shape} map (axis ${axis}, ${index}) (ADR 0444)`, () => {

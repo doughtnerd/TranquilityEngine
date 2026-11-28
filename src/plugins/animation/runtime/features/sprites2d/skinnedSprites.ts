@@ -22,7 +22,6 @@ import { rectMesh } from "../../../../../engine/animation/sprites/spriteMesh";
 import type { World } from "../../../../../engine/core/World";
 import { SpriteRenderer } from "../../../../../engine/render/components";
 import type { QuadBatch, QuadBatchHost } from "../../../../../engine/render/quadBatches";
-import { drawPlace, ySortWithin } from "../../../../../engine/render/sortOrder";
 import type { SkinGeometry } from "../../../../../engine/render/skinning/skinData";
 import { PALETTE_FLOATS } from "../../../../../engine/render/skinning/skinKernel";
 import { JsSkinRuns, type SkinPalette, type SkinRun, type SkinRuns } from "../../../../../engine/render/skinning/skinRuns";
@@ -69,7 +68,6 @@ interface Entry {
   skinned: number | null;
   /** The texture's size was asked for and hasn't loaded: rebuild once it has. */
   waiting: boolean;
-  order: number;
   visible: boolean;
   /**
    * ADR 0415: the slice outline tied to the mesh, per point its nearest rest vertex and its offset from it (units), so the
@@ -137,9 +135,9 @@ export class SkinnedSprites {
     );
   }
 
-  /** What it drew: each visible skinned sprite with its batch and draw order. */
-  *drawn(): Iterable<{ renderer: SpriteRenderer; batches: readonly QuadBatch[]; order: number }> {
-    for (const [renderer, e] of this.entries) if (e.visible && e.run) yield { renderer, batches: [e.batch], order: e.order };
+  /** What it drew: each visible skinned sprite with its batch (which reports its place, ADR 0445). */
+  *drawn(): Iterable<{ renderer: SpriteRenderer; batches: readonly QuadBatch[] }> {
+    for (const [renderer, e] of this.entries) if (e.visible && e.run) yield { renderer, batches: [e.batch] };
   }
 
   dispose(): void {
@@ -151,7 +149,7 @@ export class SkinnedSprites {
   private syncOne(world: World, r: SpriteRenderer, skeleton: Skeleton2D, skin: SliceSkinSource): void {
     let e = this.entries.get(r);
     if (!e) {
-      e = { key: "", batch: this.host.createBatch(`skinned-sprite:${r.node.name}`), run: null, palette: null, skeletonNode: null, texture: "", rebind: [], positions: new Float32Array(0), uvs: new Float32Array(0), indices: new Uint32Array(0), skinned: null, waiting: false, order: 0, visible: false, outline: null };
+      e = { key: "", batch: this.host.createBatch(`skinned-sprite:${r.node.name}`), run: null, palette: null, skeletonNode: null, texture: "", rebind: [], positions: new Float32Array(0), uvs: new Float32Array(0), indices: new Uint32Array(0), skinned: null, waiting: false, visible: false, outline: null };
       this.entries.set(r, e);
     }
     const skelSkin = sliceSkin(skeleton.bones, world.settings.render.pixelsPerUnit);
@@ -165,9 +163,8 @@ export class SkinnedSprites {
       this.build(e, r, skeleton, skin, skelSkin, size);
     }
     // In a y-sorted layer (ADR 0440) its sort point is the sprite node's world position, as a plain sprite's.
-    const render = world.settings.render, y = world.worldMatrix(r.node.entity)[r.node.entity * 16 + 13]!;
-    e.order = drawPlace(render, r.sortingLayer, r.orderInLayer, y); // for picking; the batch warns about an unknown layer
-    e.batch.setOrder(r.sortingLayer, r.orderInLayer, ySortWithin(render, r.sortingLayer, y));
+    const y = world.worldMatrix(r.node.entity)[r.node.entity * 16 + 13]!;
+    e.batch.setOrder(r.sortingLayer, r.orderInLayer, { y });
     e.batch.setTint(r.color.toHex(), r.color.a);
     e.batch.setMaterial(r.material); // ADR 0399: a normal map then follows the bones (the host's tangents)
     e.visible = r.isActiveAndEnabled && !!e.run;

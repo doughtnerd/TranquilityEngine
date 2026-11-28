@@ -10,7 +10,7 @@ import { addMarker, addRegion, deleteNote, editNote, moveNote, noteColourCss, se
 import { FIXTURE_DURATION, FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
 import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeEmptyCopy, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
 import { busStrip, instanceParametersAt, mixerStripRows, parameterRows, playheadSummary, valueText } from "./takeInspectorModel";
-import { findInstance, labelSegments, parameterText, pathLabel, pathTitle, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
+import { findInstance, labelSegments, laneValueAt, parameterText, pathLabel, pathTitle, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
 import { frameIndexAt, pictureStrip, visibleFrames } from "../../components/filmstripModel";
 
 const take = fixtureTake();
@@ -68,6 +68,15 @@ describe("the take timeline", () => {
     expect(rpm).toMatchObject({ path: "vehicles/engine.playlist.json", label: "Rpm · engine" });
     expect(tl.parameters[0]!.path).toBeNull();
     expect(tl.marks.map((m) => m.text)).toEqual(["Canyon entry", "Bridge"]);
+  });
+
+  it("reads a lane's value at a time as the last point at or before it, the first point before it starts, null when empty", () => {
+    const lane = { ...tl.parameters.find((p) => p.key === "global:Speed")!, points: [{ t: 1, v: 10 }, { t: 3, v: 30 }] };
+    expect(laneValueAt(lane, 0)).toBe(10);
+    expect(laneValueAt(lane, 2.9)).toBe(10);
+    expect(laneValueAt(lane, 3)).toBe(30);
+    expect(laneValueAt(lane, 99)).toBe(30);
+    expect(laneValueAt({ ...lane, points: [] }, 1)).toBeNull();
   });
 
   it("merges equal labels and ends the last segment at the take's end", () => {

@@ -221,7 +221,7 @@ describe("the water WGSL", () => {
     expect(all).not.toMatch(/^\s*uniform /m);
   });
 
-  it("draws wakes with WAKE_SHADER (ADR 0445): the slope after the ripples, the foam with the crest foam, the field's height before the world position", () => {
+  it("draws wakes with WAKE_SHADER (ADR 0451): the slope after the ripples, the foam with the crest foam, the field's height before the world position", () => {
     for (const code of [vertex.CUSTOM_VERTEX_DEFINITIONS, fragment.CUSTOM_FRAGMENT_DEFINITIONS]) {
       expect(code).toContain(WAKE_SHADER.text("wgsl", { declarations: "omit" }));
       expect(code).toContain("var mycoWakeTrail: texture_2d<f32>;");
@@ -326,7 +326,7 @@ describe("the water Babylon draws is the water physics samples (pirates: hulls u
     return out;
   }
 
-  it("binds the World's wakes (ADR 0445): the trail texture in trail mode, the height field and its area in field mode, nothing off", () => {
+  it("binds the World's wakes (ADR 0451): the trail texture in trail mode, the height field and its area in field mode, nothing off", () => {
     const sea = GameObject.create("sea").addBehavior(WaterSurface);
     const boat = GameObject.create("boat");
     boat.addComponent(WaterWake, { fullSpeed: 6 });

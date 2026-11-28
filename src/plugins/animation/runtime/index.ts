@@ -1,7 +1,7 @@
 // The Animation plugin's runtime half (ADR 0133, 0135, 0370–0372): its Components, buffers, built-in systems and
 // feature registrations, over the engine's Rust/WebAssembly core (`wasm/`, loaded lazily by the core feature). `myco`
-// (`src/myco.ts`) exports the public parts from here; the ragdoll plugin imports `PHYSICAL_ANIMATION` from here (ADR
-// 0133: a plugin's one public module). Runtime code: never imports from `src/editor/` or the plugin's `editor/` folder.
+// exports its public parts (`./public.ts`); the ragdoll plugin imports `PHYSICAL_ANIMATION` from here. Runtime code:
+// never imports from `src/editor/` or the plugin's `editor/` folder.
 //
 // `activate()` is written once: Components, systems (predicted root motion only with physics, ADR 0374), then every
 // feature's registration seam (`features/<feature>/register.ts`) in a fixed order, so each build task fills only its
@@ -38,16 +38,7 @@ import { registerWarp } from "./features/warp/register";
 import type { AnimationIntegrations, FeatureRegistration } from "./registration";
 import { ANIMATION_SYSTEMS, PREDICTED_ROOT_MOTION_SYSTEM } from "./systems";
 
-// Public (`myco`).
-export { Animator } from "./components/Animator";
-export { BoneAttachment } from "./components/BoneAttachment";
-export { Skeleton } from "./components/Skeleton";
-export { Skeleton2D } from "./components/Skeleton2D";
-export { SkinnedMeshRenderer } from "./components/SkinnedMeshRenderer";
-export { TimelineDirector } from "./components/TimelineDirector";
-export { Tweens } from "./components/Tweens";
-export { AnimationEvents, AnimatorStateChanges, RootMotion, type AnimationEvent, type AnimationEventPhase, type AnimatorStateChange, type RootMotionRecord } from "./buffers";
-export { animatorParams, parallel, sequence, tween } from "./api";
+export * from "./public";
 export type * from "./types";
 
 // First-party plugins only (the ragdoll plugin, ADR 0375): not exported from `myco`.

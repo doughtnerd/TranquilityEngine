@@ -124,7 +124,7 @@ describe("the 2D materials (ADR 0418)", () => {
     expect(light2D(materials2D.acquire(at("Default")).material)?.setup.normal).toBe(tex);
     expect(materials2D.acquire(at("Default", { texture: "plain.png" })).normalMapped).toBe(false);
 
-    const quads = new BabylonQuadBatches({ scene, materials2D, texture: () => tex, sortOrder: (_layer, order) => order });
+    const quads = new BabylonQuadBatches({ scene, materials2D, texture: () => tex, sortSettings: () => ({ sortingLayers: ["Default"] }), unknownLayer: () => {} });
     const batch = quads.createBatch("skinned");
     batch.setOrder("Default", 0);
     batch.setMaterial("");

@@ -12,4 +12,9 @@ export const physicsManifest: PluginManifest = {
   description: "2D and 3D bodies, colliders, joints, character controllers and buoyancy, over a physics backend.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
+  // Where the Add Component menu lists its Components.
+  componentCategories: {
+    "Physics 2D": ["engine.RigidBody2D", "engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D", "engine.ShapeCollider2D", "engine.CharacterController2D", "engine.FixedJoint2D", "engine.HingeJoint2D", "engine.SliderJoint2D", "engine.RopeJoint2D", "engine.SpringJoint2D"],
+    "Physics 3D": ["engine.RigidBody", "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider", "engine.MeshCollider", "engine.CharacterController", "engine.FixedJoint", "engine.HingeJoint", "engine.SliderJoint", "engine.BallJoint", "engine.RopeJoint", "engine.SpringJoint", "engine.Buoyancy"],
+  },
 };

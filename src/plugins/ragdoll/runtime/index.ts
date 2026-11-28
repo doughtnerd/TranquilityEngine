@@ -9,7 +9,7 @@ import { connectSource, disconnectSource } from "./bodies";
 import { Ragdoll } from "./Ragdoll";
 import { RAGDOLL_SYSTEMS } from "./systems";
 
-export { Ragdoll, type RagdollBone, type RagdollMode, type RagdollShape } from "./Ragdoll";
+export * from "./public";
 /** @internal For the editor's ragdoll builder (T55). */
 export { generateRagdollBones, type RagdollRigData } from "./generate";
 

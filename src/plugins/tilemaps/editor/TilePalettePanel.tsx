@@ -22,7 +22,6 @@ import {
   brushStamp,
   brushTerrain,
   brushTool,
-  canRotateOn,
   chooseBlock,
   choosePrefabs,
   chooseStamp,
@@ -31,6 +30,7 @@ import {
   flipBrush,
   pickBrushTool,
   tilemapOf,
+  turnRefusal,
 } from "./brush";
 import { blockStamp, commitLayers, commitTileset, editedLayers, replaceTileIn, type ReplaceScope } from "./palette";
 import { prefabPath } from "./prefabBrush";
@@ -242,10 +242,10 @@ export function TilePalettePanel() {
   );
 }
 
-/** The tool buttons, random toggle and flip buttons. Rotate is off on hexagonal maps (ADR 0437). */
+/** The tool buttons, random toggle and flip buttons. Rotate is off where the grid can't turn (hexagonal maps, ADR 0437). */
 function BrushBar(props: { map: Tilemap }) {
   const tool = brushTool.value, flags = brushFlags.value;
-  const canRotate = canRotateOn(props.map);
+  const noTurn = turnRefusal(props.map);
   return (
     <div class="tile-brushbar" role="toolbar" aria-label="Brush">
       {BRUSH_TOOLS.map((t) => (
@@ -266,8 +266,8 @@ function BrushBar(props: { map: Tilemap }) {
       <button
         class={flags & FLIP_DIAGONAL ? "active" : ""}
         aria-pressed={!!(flags & FLIP_DIAGONAL)}
-        disabled={!canRotate}
-        title={canRotate ? "Rotate what is painted a quarter turn (Z)" : "A quarter turn isn't a symmetry of a hexagonal grid"}
+        disabled={noTurn !== null}
+        title={noTurn ?? "Rotate what is painted a quarter turn (Z)"}
         onClick={() => flipBrush("rotate", props.map)}
       >
         Rotate
@@ -282,7 +282,7 @@ function SelectionBar(props: { map: Tilemap }) {
   const selected = selectionOf(props.map).size;
   if (brushTool.value !== "select" && selected === 0) return null;
   const none = selected === 0;
-  const canRotate = canRotateOn(props.map);
+  const noTurn = turnRefusal(props.map);
   return (
     <div class="tile-brushbar tile-selectionbar" role="toolbar" aria-label="Selection">
       <span class="hint">{none ? "Drag cells to select them" : `${selected} ${selected === 1 ? "cell" : "cells"} selected`}</span>
@@ -302,7 +302,7 @@ function SelectionBar(props: { map: Tilemap }) {
       <button disabled={none} title="Mirror the selection top to bottom in place (Y)" onClick={() => transformTiles("y")}>
         Flip Y
       </button>
-      <button disabled={none || !canRotate} title={canRotate ? "Turn the selection a quarter turn in place (Z)" : "A quarter turn isn't a symmetry of a hexagonal grid"} onClick={() => transformTiles("rotate")}>
+      <button disabled={none || noTurn !== null} title={noTurn ?? "Turn the selection a quarter turn in place (Z)"} onClick={() => transformTiles("rotate")}>
         Rotate
       </button>
       <label class="tile-dim" title="Select, copy, cut and delete on every unlocked layer">

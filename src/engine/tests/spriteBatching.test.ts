@@ -17,6 +17,7 @@ import { BabylonSprites } from "../render/babylon/sprites";
 import type { FeatureSyncContext } from "../render/babylon/feature";
 import { batchedSpriteMaterial, layeredQuadMaterial, SpriteBatcher, type SpriteItem } from "../render/babylon/layeredQuads";
 import { BabylonMaterials2D } from "../render/babylon/materials2D";
+import { BabylonQuadBatches } from "../render/babylon/quadBatches";
 import { nullEngine, shaderText } from "./pbrShaderSource";
 import { _registeredRenderFeatures } from "../render/renderFeatures";
 import { claimSprites } from "../render/spriteClaims";
@@ -168,17 +169,19 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
   const quads = (f: BabylonSprites) => [...f.drawn()].flatMap((d) => (d.shape?.kind === "quad" ? [d.shape.mesh] : []));
   /** The nodes with a sprite drawn now, batched or not (`RenderDiagnostics.drawn`). */
   const drawnNodes = (f: BabylonSprites) => [...f.drawn()].map((d) => d.component.node);
-  const make = (): BabylonSprites =>
-    new BabylonSprites({
+  const make = (): BabylonSprites => {
+    const texture = (path: string) => textures.get(path) ?? null;
+    const materials2D = new BabylonMaterials2D({ scene, library: { texture } });
+    // The renderer's quad batches (ADR 0450): lone sprites' batches, and every sprite's place and unknown-layer warning.
+    const quads = new BabylonQuadBatches({
       scene,
-      pixelsPerUnit: () => world.settings.render.pixelsPerUnit,
-      sortingLayers: () => world.settings.render.sortingLayers,
-      ySortedLayers: () => ySorted ?? world.settings.render.ySortedLayers,
-      texture: (path) => textures.get(path) ?? null,
-      materials2D: new BabylonMaterials2D({ scene, library: { texture: (path) => textures.get(path) ?? null } }),
-      drawPolicy: () => policy,
-      warnOnce: (key) => void warnings.push(key),
+      materials2D,
+      texture,
+      sortSettings: () => ({ sortingLayers: world.settings.render.sortingLayers, ySortedLayers: ySorted ?? world.settings.render.ySortedLayers }),
+      unknownLayer: (l) => void (warnings.includes(`layer|${l}`) || warnings.push(`layer|${l}`)),
     });
+    return new BabylonSprites({ scene, pixelsPerUnit: () => world.settings.render.pixelsPerUnit, quads, texture, materials2D, drawPolicy: () => policy, warnOnce: (key) => void warnings.push(key) });
+  };
 
   beforeEach(async () => {
     Assets.clearSources();
@@ -294,12 +297,17 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
   it("orders by sorting layer, warns once-per-key on an unknown layer, and sizes sprites", () => {
     const f = make();
     const layers = world.settings.render.sortingLayers;
-    expect(f.sortOrder(layers[0], 5)).toBe(5);
-    if (layers.length > 1) expect(f.sortOrder(layers[1], 5)).toBe(10005);
-    expect(f.sortOrder("nope", 3)).toBe(3);
-    expect(warnings).toEqual(["layer|nope"]);
+    const first = sprite("first", 0, { sortingLayer: layers[0], orderInLayer: 5 });
+    const second = layers.length > 1 ? sprite("second", 0, { sortingLayer: layers[1], orderInLayer: 5 }) : null;
+    const unknown = sprite("unknown", 0, { sortingLayer: "nope", orderInLayer: 3 });
     const sized = sprite("a", 0, { size: new Vector2(2, 3) });
     f.sync(world, ctx);
+    f.sync(world, ctx);
+    const order = (r: SpriteRenderer) => [...f.drawn()].find((d) => d.component === r)?.order;
+    expect(order(first)).toBe(5);
+    if (second) expect(order(second)).toBe(10005);
+    expect(order(unknown)).toBe(3); // an unknown layer counts as the first
+    expect(warnings).toEqual(["layer|nope"]);
     expect([...f.drawn()].find((d) => d.component === sized)?.size).toEqual([2, 3]);
     f.dispose();
   });
@@ -359,6 +367,39 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     expect(mesh(high).alphaIndex).toBeLessThan(mesh(low).alphaIndex);
     expect(placed.get(high)!.order).toBe(mesh(high).alphaIndex);
     expect(placed.get(low)!.order).toBe(mesh(low).alphaIndex);
+    f.dispose();
+  });
+
+  it("draws and picks a lone 9-sliced sprite in a y-sorted layer at the place of a batched sprite at its height (ADR 0440, 0450)", () => {
+    ySorted = ["Default"];
+    const f = make();
+    const atlas = RawTexture.CreateRGBATexture(new Uint8Array(16 * 8 * 4), 16, 8, scene); // as if loaded (ADR 0127)
+    vi.spyOn(atlas, "getBaseSize").mockReturnValue({ width: 16, height: 8 }); // the null engine reports no size
+    textures.set("images/ui.png", atlas);
+    const sliced = sprite("panel", 0, { sprite: "asset:images/ui.png#panel", size: new Vector2(3, 2) });
+    const plain = sprite("dot", 1, { sprite: "asset:images/ui.png#dot" });
+    const lower = sprite("lower", 2, { sprite: "asset:images/ui.png#dot" });
+    sliced.node.transform!.position.set(0, 2.5, 0);
+    plain.node.transform!.position.set(1, 2.5, 0);
+    lower.node.transform!.position.set(2, -1, 0);
+    f.sync(world, ctx);
+    const placed = new Map([...f.drawn()].map((d) => [d.component, d]));
+    const lone = placed.get(sliced)!;
+    expect(lone.shape?.kind).toBe("quad"); // its own quad: the batcher's quads can't draw a 9-slice
+    expect(placed.get(plain)!.shape).toBeNull(); // batched
+    const mesh = (lone.shape as { mesh: AbstractMesh }).mesh;
+    const [atHeight, below] = batches(scene); // the batcher's runs, higher first
+    // Draws at the batched sprite's place, and picks at it.
+    expect(mesh.alphaIndex).toBe(atHeight!.alphaIndex);
+    expect(lone.order).toBe(placed.get(plain)!.order);
+    expect(lone.order).toBe(mesh.alphaIndex);
+    // In the y-sorted band: under the sprite lower down, which draws and picks over both.
+    expect(mesh.alphaIndex).toBeLessThan(below!.alphaIndex);
+    expect(lone.order).toBeLessThan(placed.get(lower)!.order!);
+    // Still 9-sliced: the 4 × 4 grid, its inner lines at the 2-pixel border (16 px per unit) of a 3 × 2 sprite.
+    const xs = [...new Set(Array.from(mesh.getVerticesData("position")!).filter((_, i) => i % 3 === 0).map((v) => +v.toFixed(4)))];
+    expect(mesh.getTotalVertices()).toBe(16);
+    expect(xs).toEqual([-0.5, +(2 / 16 / 3 - 0.5).toFixed(4), +(0.5 - 2 / 16 / 3).toFixed(4), 0.5]);
     f.dispose();
   });
 

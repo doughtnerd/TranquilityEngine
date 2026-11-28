@@ -23,7 +23,6 @@ export const physicsEditorPlugin: EditorPlugin = {
       title: "Physics",
       after: "Time",
       keys: [physicsSettings.key],
-      problems: physicsSettings.problems,
       names: [physicsLayers],
       view: () => import("./PhysicsSettingsSection").then((m) => m.PhysicsSettingsSection),
     });
