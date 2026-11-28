@@ -109,7 +109,7 @@ async function ensureOcclusion(scene) {
 }
 
 // --- stage 4: the matrix -----------------------------------------------------------------------------------------------
-const ORACLES = { base: "none", lod: "none", "lod+keep": "keep", "lod+remove": "remove" };
+const ORACLES = { base: "none", lod: "none", "lod+keep": "keep", "lod+remove": "remove", "lod+engine": "none" };
 /** @type {{id:string, scene:string, oracle:string, mode:string, cfg:object}[]} */
 const configs = [];
 for (const scene of SCENES) for (const mode of ["static", "fly"]) for (const [oracle, occlusion] of Object.entries(ORACLES)) configs.push({ id: `${scene}-auto-${mode}-${oracle}`, scene, oracle, mode, cfg: { mode, occlusion } });
@@ -184,7 +184,7 @@ for (const j of jobs) {
     const { context, page } = await openBench(`${c.scene}-auto-${c.oracle === "base" ? "base" : "lod"}`, throttle);
     info ??= await page.evaluate(() => window.bench.info());
     const t0 = Date.now();
-    const res = await page.evaluate((cfg) => window.bench.run(cfg), { ...c.cfg, frames: j.frames, warmup: j.warmup });
+    const res = await page.evaluate((cfg) => window.bench.run(cfg), { ...c.cfg, frames: j.frames, warmup: j.warmup, engineOcclusion: c.oracle === "lod+engine" });
     runs.push(res.rows); settle.push(res.settleFrames);
     secondsDone += (Date.now() - t0) / 1000; framesDone += j.frames + j.warmup;
     await context.close();

@@ -22,6 +22,7 @@ import { EngineStore } from "@babylonjs/core/Engines/engineStore.js";
 import { Frustum } from "@babylonjs/core/Maths/math.frustum.js";
 import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Camera, GameObject } from "../../src/engine";
+import { loadOcclusionCore } from "../../src/engine/render/visibility/occlusion/core";
 import { generateLods } from "../../src/engine/scene/lod/generate";
 import { memoryLodCache, setLodHost } from "../../src/engine/scene/lod/cache";
 import { visibilityService } from "../../src/engine/render/visibility/service";
@@ -52,6 +53,8 @@ export type RunConfig = {
   capture?: boolean;
   /** minimum wall-clock time of the settle phase. */
   settleMs?: number;
+  /** The engine's own occlusion culling (ADR 0447) on the main camera; off (default) measures LOD alone. */
+  engineOcclusion?: boolean;
 };
 type OccData = { ids: string[]; poses: { s: number; inFrustum: number; visible: number; occluded: number }[]; visible: number[][]; inFrustum: number[][]; tookMs: number };
 
@@ -300,6 +303,12 @@ world._afterPropagation(() => {
 });
 
 async function run(cfg: RunConfig) {
+  const cam = camNode.getComponent(Camera)!;
+  cam.occlusionCulling = !!cfg.engineOcclusion;
+  if (cfg.engineOcclusion) {
+    stepFrame(1 / 30); // asks for the core
+    await loadOcclusionCore(256, 128);
+  }
   if (cfg.occlusion !== "none" && !occData) occData = await (await fetch(new URL(`../occlusion/${scene}.json`, document.baseURI).href)).json();
   // restore a clean state
   hideCount = 0;
