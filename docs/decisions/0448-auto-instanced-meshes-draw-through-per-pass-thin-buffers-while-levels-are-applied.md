@@ -23,7 +23,10 @@ build log ("CPU against no LOD", 2026-11-28; SwiftShader, 1280×720, High, ms p5
 | city static | 30.6 | 23.5 | 10.3M → 1.8M |
 | city fly | 27.7 | 33.3 | 6.9M → 1.4M |
 
-Profiles of the forest fly-through put the remaining cost in the per-instance design:
+Split by code (forest fly-through, profiled, ms per frame), LOD added about 48 ms: **+17 in Babylon** and **+29 in
+the engine**. About 9.5 ms of the engine's share was the visibility stage rediscovering membership every frame. That is
+fixed separately, without this record: it rebuilds on structure changes and recomputes bounds on transform versions.
+The rest of the engine's share, and all of Babylon's, comes from the per-instance design:
 - **Babylon's per-mesh walk:** every scene mesh is visited each frame (readiness, enabled state, world matrix), and
   each auto instance is frustum-tested and tested against each shadow cascade. The engine has already culled it.
 - **Level-switch churn:** a switch disables one instance and enables (or makes) another. Recycling instances within a
