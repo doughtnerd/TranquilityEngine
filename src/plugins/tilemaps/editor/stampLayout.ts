@@ -3,6 +3,7 @@
 // tileFlips.ts's one convention. Pure.
 import type { Stamp } from "../runtime/brushes";
 import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, cellValue, flagsOf, tileIdOf } from "../runtime/format";
+import { frameOfBlockCell, type BlockFrame } from "../runtime/grids";
 import { compose, flipPoint } from "../runtime/tileFlips";
 
 /** A cell value with `flags` applied after the tile's own; 0 (empty) stays 0. */
@@ -23,8 +24,8 @@ export function orientCell(c: number, r: number, width: number, height: number, 
 
 /**
  * The stamp laid out under the flips `flags`: the block transformed as one tile is (mirrored, and turned with width
- * and height swapped), each tile's own flips composed with `flags`. Without `layout` (hexagonal maps, ADR 0437) only
- * the tiles' images flip: the layout stays and turns are dropped.
+ * and height swapped), each tile's own flips composed with `flags`. Without `layout` (a grid without the square's
+ * symmetries, `TileGrid.quarterTurn`: hexagonal maps, ADR 0437) only the tiles' images flip: the layout stays and turns are dropped.
  */
 export function orientedStamp(stamp: Stamp, flags: number, layout = true): Stamp {
   if (!layout) flags &= FLIP_X | FLIP_Y;
@@ -40,4 +41,21 @@ export function orientedStamp(stamp: Stamp, flags: number, layout = true): Stamp
     }
   }
   return { width, height, values };
+}
+
+/**
+ * The frame (ADR 0444) of a `width × height` block laid out under the flips `flags` (`orientedStamp`): the frame of the
+ * cell that becomes its bottom-left. Unchanged without `layout` (grids without the square's symmetries, where only
+ * images flip).
+ */
+export function orientedFrame(frame: BlockFrame | null | undefined, width: number, height: number, flags: number, layout = true): BlockFrame | null {
+  if (!frame) return null;
+  if (!layout || !flags) return frame;
+  for (let r = 0; r < height; r++) {
+    for (let c = 0; c < width; c++) {
+      const at = orientCell(c, r, width, height, flags);
+      if (at.c === 0 && at.r === 0) return frameOfBlockCell(frame, c, r);
+    }
+  }
+  return frame;
 }

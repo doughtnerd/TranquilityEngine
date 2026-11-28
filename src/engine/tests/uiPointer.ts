@@ -3,10 +3,36 @@ import { DomInput } from "./domInput";
 import { UICore } from "../ui/UICore";
 import type { World } from "../core/World";
 import type { UIComponentType } from "../ui/components";
+import type { UICoreLike } from "../ui/uiCoreTypes";
+import type { UITextEntry } from "../ui/textEntry";
+import { UI_KIND_TYPES, isInteractiveKind, isRaycastTarget, uiKindOf } from "../ui/elementKinds";
 
 // Test helpers that drive UI the way a player does: a UI core lays a World's UI out and routes the
 // pointer as the renderer's does (ADR 0076), and presses go in through `Input`'s DOM adapter (`dom`). A headless World has
 // no core of its own, so its buttons never click and its fields never change or submit without one.
+
+/** The UI element on `node` (the first, as the core lays out), or null. */
+function uiComponentOf(node: UIComponentType["owner"]): UIComponentType | null {
+  for (const type of UI_KIND_TYPES) {
+    const c = node.getComponent(type);
+    if (c) return c;
+  }
+  return null;
+}
+
+/**
+ * The element the pointer at a canvas CSS point goes to (ADR 0385), read from what the core reports to every caller:
+ * the topmost raycast target among the drawn elements `pickAll` lists there, or the button or input field (any
+ * interactive element) it's in, below its canvas. Null when no raycast target is there: the pointer reaches the game.
+ */
+export function pointerTargetAt(core: UICoreLike, x: number, y: number): UIComponentType | null {
+  const target = core.pickAll(x, y).find(isRaycastTarget);
+  if (!target) return null;
+  for (let at: UIComponentType | null = target; at && uiKindOf(at) !== "canvas"; at = at.owner.parent ? uiComponentOf(at.owner.parent) : null) {
+    if (isInteractiveKind(uiKindOf(at))) return at;
+  }
+  return target;
+}
 
 /** A UI core for `world` at a canvas size, and pointer gestures on its elements. */
 export class UIPointer {
@@ -18,13 +44,15 @@ export class UIPointer {
     private readonly world: World,
     readonly width: number,
     readonly height: number,
+    textEntry?: UITextEntry,
   ) {
-    this.core = new UICore({ interactive: true });
+    this.core = new UICore({ interactive: true, textEntry });
     this.dom = DomInput.attach();
   }
 
-  static async create(world: World, width = 1280, height = 720): Promise<UIPointer> {
-    const p = new UIPointer(world, width, height);
+  /** `textEntry`: how typing reaches fields (ADR 0449); by default the DOM's, which types nothing in Node unless `stubDocument` stands in. */
+  static async create(world: World, width = 1280, height = 720, options: { textEntry?: UITextEntry } = {}): Promise<UIPointer> {
+    const p = new UIPointer(world, width, height, options.textEntry);
     await p.core.ready;
     p.sync();
     return p;
@@ -56,7 +84,7 @@ export class UIPointer {
     const r = this.core.rectOf(el);
     if (!r) throw new Error(`"${el.owner.name}" isn't laid out on a screen canvas.`);
     const at = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    const hit = this.core.hitTest(at.x, at.y);
+    const hit = pointerTargetAt(this.core, at.x, at.y);
     if (hit !== el) throw new Error(`The pointer at "${el.owner.name}" would hit ${hit ? `"${hit.owner.name}"` : "nothing"}.`);
     return at;
   }
@@ -83,7 +111,11 @@ export class UIPointer {
   }
 }
 
-/** Node has no document: a minimal stand-in for the one hidden `<input>` a UI core types into. */
+/**
+ * Node has no document: a minimal stand-in for the hidden `<input>` the DOM text entry adapter (ADR 0449, the core's
+ * default) makes, so tests drive that adapter itself. Tests of typing that don't need the DOM give the core a
+ * `MemoryTextEntry` (`memoryTextEntry.ts`) instead.
+ */
 export class FakeInput {
   value = "";
   maxLength = -1;

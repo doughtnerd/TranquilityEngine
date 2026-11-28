@@ -7,4 +7,8 @@ export const waterManifest: PluginManifest = {
   description: "The WaterSurface component and its drawing.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
+  // Where the Add Component menu lists its Components.
+  componentCategories: {
+    Rendering: ["engine.WaterSurface"],
+  },
 };

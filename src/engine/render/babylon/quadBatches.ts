@@ -1,6 +1,8 @@
 /**
  * Quad batches on Babylon (ADR 0136, 0418): the backend half of `QuadBatchHost`. Each batch is one mesh. Like sprites,
- * quads are layered 2D quads: `layeredQuads.ts` gives them their place in the draw order (ADR 0014, 0186), and the 2D
+ * quads are layered 2D quads: each batch works out its place in the draw order from the sorting layer, order in layer and
+ * sort point its feature gives (`drawPlace`: y-sorted layers, unknown layers; ADR 0440, 0445) and reports it for picking;
+ * `layeredQuads.ts` puts the mesh there (ADR 0014, 0186), and the 2D
  * materials (`materials2D.ts`) their material, from the batch's texture, material asset, sorting layer, blend, mask and
  * tint: shared by batches asking for the same, lit by the sorting layer's 2D lights or not, replaced in place when the
  * 2D lighting changes. Knows nothing of tiles or bones: the features (tiles, 2D lines and decals, skinned sprites with
@@ -27,7 +29,8 @@ import { Assets } from "../../scene/Assets";
 import { authoredSize } from "../../scene/importSettings";
 import { tangents2D } from "../lights2D/tangents";
 import type { QuadBatch, QuadBatchHost, QuadBlend, QuadMask } from "../quadBatches";
-import { placeInLayer, withinOrder } from "./layeredQuads";
+import { drawPlace, isYSorted, type DrawSort, type YSortSettings } from "../sortOrder";
+import { placeInLayer } from "./layeredQuads";
 import { TANGENT_2D_ATTRIBUTE } from "./lights2DMaterial";
 import type { BabylonMaterials2D, Material2D, Material2DRequest, Tint2D } from "./materials2D";
 
@@ -38,8 +41,10 @@ export interface BabylonQuadBatchDeps {
   readonly materials2D: BabylonMaterials2D;
   /** A loaded colour texture, or null (and it starts loading): `onReady` runs once it has (the material library's `texture`). */
   texture(path: string, onReady: () => void): Texture | null;
-  /** Draw order for a sorting layer and order in layer (`sortingOrder`, warning once about an unknown layer). */
-  sortOrder(sortingLayer: string, orderInLayer: number): number;
+  /** The project's sorting layers and which are y-sorted (`render` of the project settings): what places are worked out on. */
+  sortSettings(): YSortSettings;
+  /** A batch was given a sorting layer the project doesn't list (the renderer warns once per layer). */
+  unknownLayer(sortingLayer: string): void;
 }
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -120,9 +125,13 @@ export class BabylonQuadBatches implements QuadBatchHost {
     return this.deps.materials2D;
   }
 
-  /** @internal */
-  sortOrder(sortingLayer: string, orderInLayer: number): number {
-    return this.deps.sortOrder(sortingLayer, orderInLayer);
+  ySorted(sortingLayer: string): boolean {
+    return isYSorted(this.deps.sortSettings(), sortingLayer);
+  }
+
+  /** @internal A batch's place (ADR 0440, 0445): `drawPlace` on the project's sorting layers, warning once about an unknown layer. */
+  placeOf(sortingLayer: string, orderInLayer: number, sort: DrawSort | undefined): number {
+    return drawPlace(this.deps.sortSettings(), sortingLayer, orderInLayer, sort ?? {}, (l) => this.deps.unknownLayer(l));
   }
 
   /** @internal */
@@ -167,7 +176,8 @@ class BabylonQuadBatch implements QuadBatch {
   /** The matrix for the camera drawing now (ADR 0444), set from a camera listener; the mesh holds it while `cameraHeld`. */
   private readonly cameraMatrix = Matrix.Identity();
   private cameraHeld = false;
-  private order = 0;
+  /** Its place in the draw order (`drawPlace`), what `place` reports. */
+  private _place = 0;
   private visible = false;
   private disposed = false;
 
@@ -228,7 +238,7 @@ class BabylonQuadBatch implements QuadBatch {
       data.applyToMesh(mesh, updatable);
       this.applyColors(mesh, colors);
       mesh.alwaysSelectAsActiveMesh = true;
-      placeInLayer(mesh, this.order);
+      placeInLayer(mesh, this._place);
       mesh.freezeWorldMatrix(this.cameraHeld ? this.cameraMatrix : this.matrix);
       mesh.setEnabled(this.visible);
       this.mesh = mesh;
@@ -298,10 +308,14 @@ class BabylonQuadBatch implements QuadBatch {
     this.mesh?.freezeWorldMatrix(this.matrix);
   }
 
-  setOrder(sortingLayer: string, orderInLayer: number, within = 0): void {
+  get place(): number {
+    return this._place;
+  }
+
+  setOrder(sortingLayer: string, orderInLayer: number, sort?: DrawSort): void {
     if (this.disposed) return;
-    this.order = this.owner.sortOrder(sortingLayer, orderInLayer) + withinOrder(within);
-    if (this.mesh) placeInLayer(this.mesh, this.order);
+    this._place = this.owner.placeOf(sortingLayer, orderInLayer, sort);
+    if (this.mesh) placeInLayer(this.mesh, this._place);
     if (sortingLayer === this.sortingLayer) return;
     this.sortingLayer = sortingLayer;
     if (this.materialAsset !== null) this.updateMaterial(); // lit by that layer's 2D lights

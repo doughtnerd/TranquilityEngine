@@ -87,7 +87,8 @@ export function describeDrawn(features: Iterable<BabylonFeature | null>, drawn: 
  * - `meshes`: meshes of its own (a MeshRenderer's, a water surface's, a world-space UI canvas's plane):
  *   picked against their triangles, framed and outlined by their boxes.
  * - `quads`: quad batches it drew through the renderer's `QuadBatchHost` (a tile layer's chunks, ADR 0136):
- *   the renderer resolves them to its meshes, so a renderer-neutral feature names no Babylon type.
+ *   the renderer resolves them to its meshes, so a renderer-neutral feature names no Babylon type, and picks each
+ *   at the place the batch reports (ADR 0445).
  * - `box`: a box with no mesh of its own (a decal projector's volume, ADR 0395): `matrix` is the column-major
  *   world matrix of the unit cube (-0.5..0.5). Framed and outlined by it; a feature reports it `pickable: false`.
  * - `polyline`: a line through world-space `points` (xyz, `closed` joining the last to the first), `halfWidth`
@@ -108,13 +109,26 @@ export const PICK_ORDER = {
   depthTested: -1e12,
 } as const;
 
-/** @internal One node's drawing by a feature (ADR 0276). A node drawn by several Components or features has several. */
-export interface DrawnNode {
+/** A drawing as quad batches (`DrawnShape` `quads`). */
+export type DrawnQuads = Extract<DrawnShape, { kind: "quads" }>;
+
+/**
+ * @internal One node's drawing by a feature (ADR 0276). A node drawn by several Components or features has several.
+ * A drawing as quad batches carries no pick order: each batch reports its own place (`QuadBatch.place`, ADR 0445), so a
+ * tile layer's rows, at different heights in a y-sorted layer, pick as they draw.
+ */
+export type DrawnNode =
+  | (DrawnCommon & {
+      readonly shape: Exclude<DrawnShape, DrawnQuads> | null;
+      /** Pick order, higher on top: layered 2D content its draw place, else a {@link PICK_ORDER}. Equal orders go nearest first. */
+      readonly order: number;
+    })
+  | (DrawnCommon & { readonly shape: DrawnQuads; readonly order?: undefined });
+
+/** @internal What every drawing reports beside its shape and pick order (`DrawnNode`). */
+export interface DrawnCommon {
   /** The Component it drew (its node is the one picked, framed and outlined). */
   readonly component: Component;
-  readonly shape: DrawnShape | null;
-  /** Pick order, higher on top: layered 2D content its draw order, else a {@link PICK_ORDER}. Equal orders go nearest first. */
-  readonly order: number;
   /**
    * False when a scene-view click reaches it another way: the UI core picks UI canvases and elements, by
    * its own rules (ADR 0117). It is still framed, box-selected, outlined and reported. Default true.

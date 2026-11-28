@@ -165,7 +165,20 @@ function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | nul
       });
     }
   }
-  if (problems.length > 0) return { manifest: null, problems, warnings: [...nodes.problems] };
+  // ADR 0447: the Add Component menu's submenus for the plugin's Components, leniently: menu labels never refuse a plugin.
+  const categoryWarnings: string[] = [];
+  let componentCategories: Record<string, string[]> | undefined;
+  if (r.componentCategories !== undefined) {
+    if (typeof r.componentCategories !== "object" || r.componentCategories === null || Array.isArray(r.componentCategories)) categoryWarnings.push(`"componentCategories" must be an object of submenu labels and Component type ids; ignored`);
+    else {
+      componentCategories = {};
+      for (const [label, ids] of Object.entries(r.componentCategories as Record<string, unknown>)) {
+        if (label.trim() !== "" && Array.isArray(ids) && ids.every((id) => typeof id === "string")) componentCategories[label] = ids as string[];
+        else categoryWarnings.push(`componentCategories "${label}" must list Component type ids under a non-empty label; ignored`);
+      }
+    }
+  }
+  if (problems.length > 0) return { manifest: null, problems, warnings: [...nodes.problems, ...categoryWarnings] };
   const manifest: ThirdPartyManifest = {
     name: name!,
     version: version!,
@@ -180,8 +193,9 @@ function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | nul
     ...(assetKinds && { assetKinds }),
     ...(audio && { audio }),
     ...(nodes.modules.length > 0 && { animationNodes: nodes.modules }),
+    ...(componentCategories && Object.keys(componentCategories).length > 0 && { componentCategories }),
   };
-  return { manifest, problems, warnings: [...nodes.problems] };
+  return { manifest, problems, warnings: [...nodes.problems, ...categoryWarnings] };
 }
 
 // --- discovery ------------------------------------------------------------------------------------

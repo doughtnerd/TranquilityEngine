@@ -7,7 +7,7 @@
 import type { Stamp } from "../runtime/brushes";
 import { cellValue, decodeRuns, encodeChunk, flagsOf, tileIdOf } from "../runtime/format";
 import type { Tileset, TileStamp, TileStampLayer, TilesetData } from "../runtime/tileset";
-import type { StampFrame } from "./stampLattice";
+import type { BlockFrame } from "../runtime/grids";
 
 /** One named layer of a block: `width × height` cell values (tileset id plus flips; 0 leaves the map's cell alone), row 0 at the bottom. */
 export interface StampBlockLayer {
@@ -22,13 +22,13 @@ export interface StampBlock {
   layers: StampBlockLayer[];
   /**
    * ADR 0444: where the block was laid out on a staggered or hexagonal map, so it keeps its shape wherever it's placed
-   * (`stampLattice.ts`). Absent: its cells land cell for cell.
+   * (`TileGrid.placeCell`). Absent: its cells land cell for cell.
    */
-  frame?: StampFrame;
+  frame?: BlockFrame;
 }
 
 /** A one-layer stamp as a block whose layer is called `name`, laid out in `frame` (absent: cell for cell). */
-export function blockOfStamp(stamp: Stamp, name = "", frame?: StampFrame | null): StampBlock {
+export function blockOfStamp(stamp: Stamp, name = "", frame?: BlockFrame | null): StampBlock {
   const block: StampBlock = { width: stamp.width, height: stamp.height, layers: [{ name, values: [...stamp.values] }] };
   if (frame) block.frame = frame;
   return block;

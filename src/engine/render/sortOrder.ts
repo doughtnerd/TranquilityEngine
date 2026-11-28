@@ -49,8 +49,8 @@ export interface YSortSettings {
 
 /**
  * @internal The one place that decides a 2D draw's `within` from its height (ADR 0440): `ySortFraction(y)` when `layer` is
- * y-sorted in `render` (`render.ySortedLayers`), else 0. Render features pass it to `QuadBatch.setOrder` or add
- * `withinOrder` of it to their draw order (`drawPlace`).
+ * y-sorted in `render` (`render.ySortedLayers`), else 0. `drawPlace` adds `withinOrder` of it to a draw order; quad
+ * batches work it out themselves from the height they are given (`QuadBatch.setOrder`, ADR 0445).
  */
 export function ySortWithin(render: YSortSettings, layer: string, y: number): number {
   return render.ySortedLayers?.includes(layer) ? ySortFraction(y) : 0;
@@ -62,9 +62,22 @@ export function isYSorted(render: YSortSettings, layer: string): boolean {
 }
 
 /**
- * @internal A 2D draw's place (what `layeredQuads.ts` sets as `alphaIndex`, and what picking ranks by, ADR 0276): its draw
- * order (`sortingOrder`) plus, in a y-sorted layer, its height's offset into that order (`ySortWithin`, ADR 0440).
+ * @internal Where a 2D draw sorts among the draws of its own order (ADR 0437, 0440, 0445): `y`, its sort point's world
+ * height, counts in a y-sorted layer; `within` ([0, 1), larger later) is an explicit sub-order, used where the height
+ * doesn't count (an isometric tile layer's chunks in painter's order). Neither: the start of its order.
  */
-export function drawPlace(render: YSortSettings, layer: string, order: number, y: number, warn?: (layer: string) => void): number {
-  return sortingOrder(render.sortingLayers, layer, order, warn) + withinOrder(ySortWithin(render, layer, y));
+export interface DrawSort {
+  readonly y?: number;
+  readonly within?: number;
+}
+
+/**
+ * @internal A 2D draw's place (what `layeredQuads.ts` sets as `alphaIndex`, and what picking ranks by, ADR 0276): its draw
+ * order (`sortingOrder`) plus its offset into that order: in a y-sorted layer its height's (`ySortWithin`, ADR 0440),
+ * otherwise the explicit `within` (ADR 0437). `at` is a height alone or a {@link DrawSort}.
+ */
+export function drawPlace(render: YSortSettings, layer: string, order: number, at: number | DrawSort, warn?: (layer: string) => void): number {
+  const sort = typeof at === "number" ? { y: at, within: undefined } : at;
+  const within = sort.y !== undefined && isYSorted(render, layer) ? ySortFraction(sort.y) : (sort.within ?? 0);
+  return sortingOrder(render.sortingLayers, layer, order, warn) + withinOrder(within);
 }
