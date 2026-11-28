@@ -103,3 +103,6 @@ Coordinator's log of merges, checks and findings. Newest last.
 
   LOD p99 on the fly-through: 45–61 ms (no LOD 60–72; before 0448, LOD 190–235). Triangles: static 61.4M → 15.2M,
   fly 48.1M → 16.4M. 0446's target "JS CPU ≤ baseline with LODs on" now holds on both forest paths.
+- **City, interleaved, after 0448** (ms p50 per round): fly no LOD 21.1, 22.3, 20.8 against LOD 17.9, 16.2, 16.6
+  (mean 21.4 → **16.9**, −21 %); static 22.4, 20.8, 23.1 against 15.3, 14.9, 15.1 (22.1 → **15.1**, −32 %).
+  Triangles: fly 6.9M → 1.4M, static 10.3M → 1.8M. All four gate paths now meet "JS CPU ≤ baseline".
