@@ -32,10 +32,11 @@ import type { World } from "../../../../engine/core/World";
 import { Transform } from "../../../../engine/scene/Transform";
 import { Tweens } from "../components/Tweens";
 import type { AnimationWorldCore } from "../core/AnimationWorldCore";
-import { encodeRecord, type RecordFields } from "../core/records";
+import type { RecordFields } from "../core/records";
 import { animationCoreOf, startAnimationCore } from "../core/service";
+import { encodeSequence } from "../../../../engine/tween/backend";
 import type { AnimationFrame } from "../stages/frame";
-import { CHANGE_FINISHED, CHANGE_MEMBER_DONE, FLAG_PLAY, OP_KILL as TL_KILL, OP_PAUSE as TL_PAUSE, OP_PLAY as TL_PLAY, SEQ_CREATE, SEQ_MEMBER, WRAP_ONCE } from "../wasm/wire/timeline";
+import { CHANGE_FINISHED, CHANGE_MEMBER_DONE, FLAG_PLAY, OP_KILL as TL_KILL, OP_PAUSE as TL_PAUSE, OP_PLAY as TL_PLAY, WRAP_ONCE } from "../wasm/wire/timeline";
 import {
   CHANGE_COMPLETED,
   EASE_LINEAR,
@@ -566,8 +567,6 @@ function markRunning(item: Item, run: Run): void {
   }
 }
 
-const MAX_OFFSET = 3.4e38;
-
 function startGroup(store: Store, ns: AnimationWorldCore, g: Group): void {
   const all: { leaf: Leaf; offset: number }[] = [];
   flatten(g, 0, all);
@@ -597,29 +596,12 @@ function startGroup(store: Store, ns: AnimationWorldCore, g: Group): void {
   if (compiled.length === 0) return g.childEnded();
   const id = newId();
   const first = compiled[0]!.leaf;
-  const records: Uint8Array[] = [
-    encodeRecord(SEQ_CREATE, { world: ns.id, hostId: id, timeMode: timeMode(first.options), wrap: WRAP_ONCE, flags: FLAG_PLAY, speed: 1, members: compiled.length }),
-  ];
-  for (const m of compiled) {
+  const records = compiled.map((m) => {
     const leaf = m.leaf;
     leaf.hostId = newId();
-    records.push(
-      encodeRecord(SEQ_MEMBER, {
-        ...leaf.spec(),
-        hostId: leaf.hostId,
-        column: leaf.hostId,
-        offset: Math.min(m.offset, MAX_OFFSET),
-        duration: leaf.duration / leaf.speed,
-        delay: leaf.delay / leaf.speed,
-      }),
-    );
-  }
-  const bytes = new Uint8Array(records.reduce((n, r) => n + r.length, 0));
-  let at = 0;
-  for (const r of records) {
-    bytes.set(r, at);
-    at += r.length;
-  }
+    return { ...leaf.spec(), hostId: leaf.hostId, column: leaf.hostId, offset: m.offset, duration: leaf.duration / leaf.speed, delay: leaf.delay / leaf.speed };
+  });
+  const bytes = encodeSequence(ns.id, { hostId: id, timeMode: timeMode(first.options), wrap: WRAP_ONCE, flags: FLAG_PLAY, speed: 1 }, records);
   const handle = ns.createSequence(bytes);
   const info = handle ? ns.core.timelineInfo(handle) : null;
   if (!handle || !info) {

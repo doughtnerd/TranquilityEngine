@@ -22,7 +22,6 @@ import { defineComponent, i32, type DataComponentDef, type Schema } from "../cor
 import { defineBuiltinSystem } from "../core/systems";
 import { _redefineInput, defineInput } from "../net/input";
 import type { InputDef } from "../net/messages";
-import { Replicated } from "../net/Replicated";
 import { netSession } from "../net/session";
 import type { GameObject } from "../scene/GameObject";
 import { ActionEvents, ActionPhase, EDGE_FLAGS, onActionSetDefined, type ActionEventPhase, type ActionSetDef } from "./actions";
@@ -151,10 +150,7 @@ function apply(world: World, replayOnly: boolean): void {
 
 /** The connection node of the connection that owns `node` (`Replicated.ownerId`), or `node` itself if it is one. */
 function connectionNode(world: World, node: GameObject): GameObject | null {
-  const session = netSession(world);
-  if (!session) return null;
-  const peer = session.peerOf(node) ?? session.ownerPeer((node.isValid && node.getBehavior(Replicated)?.ownerId) || 0);
-  return peer?.node ?? null;
+  return netSession(world)?.connectionOf(node)?.node ?? null;
 }
 
 defineBuiltinSystem({ name: "engine.InputNetSend", phase: "fixedUpdate", after: ["engine.InputTick", "engine.PredictionTick"], before: ["engine.FixedUpdateScripts"], run: (w) => send(w) });

@@ -68,7 +68,6 @@ import { defineBuiltinSystem } from "../core/systems";
 import type { GameObject } from "../scene/GameObject";
 import { createBitReader, createBitWriter, recordCodec, type RecordCodec } from "./codec";
 import type { InputDef, InputOptions } from "./messages";
-import { Replicated } from "./Replicated";
 import { checkMessageId, defineMessage, forgetMessage, inputKindName } from "./catalogue";
 import { netSession, type NetPeer, type NetSession } from "./session";
 import { TickHistory } from "./tickHistory";
@@ -141,11 +140,6 @@ const synthetic = new WeakMap<World, Set<string>>();
 
 /** Client Worlds: the `serverTick` of their latest fixed step (-1 while not connected). */
 const fixedTicks = new WeakMap<World, number>();
-
-/** The connection `node` stands for: its own if it's a connection node, else its `Replicated` owner's (T11). */
-function connectionOf(session: NetSession, node: GameObject): NetPeer | null {
-  return session.peerOf(node) ?? session.ownerPeer((node.isValid && node.getBehavior(Replicated)?.ownerId) || 0);
-}
 
 // --- defining -----------------------------------------------------------------------------------
 
@@ -243,12 +237,12 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
       const session = netSession(world);
       if (!session) return null;
       if (session.isServer) {
-        const peer = connectionOf(session, node);
+        const peer = session.connectionOf(node);
         const state = peer ? stream.servers.get(session)?.get(peer)?.get(player) : undefined;
         return (state?.current as Readonly<DataView<S>> | undefined) ?? null;
       }
       // A client has its own input only, for its connection node (or a node it owns, T11).
-      const peer = connectionOf(session, node);
+      const peer = session.connectionOf(node);
       if (!peer || peer !== session.serverPeer) return null;
       const state = stream.clients.get(world)?.get(player);
       if (!state) return null;
@@ -261,7 +255,7 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
       const world = World.require();
       const session = netSession(world);
       if (!session?.isServer) return null;
-      const peer = connectionOf(session, node);
+      const peer = session.connectionOf(node);
       const state = peer ? stream.servers.get(session)?.get(peer)?.get(player) : undefined;
       return state ? { ...state.stats } : null;
     },

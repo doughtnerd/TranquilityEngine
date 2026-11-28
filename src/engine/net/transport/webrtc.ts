@@ -54,6 +54,7 @@
  */
 import type { Channel, ConnectionState, Transport, TransportConnection, TransportEvent } from "../Transport";
 import type { PeerConnectionConstructor } from "./datagramLane";
+import { readSeq, SEQUENCE_BYTES, UnreliableSequence, withSeq } from "./sequence";
 
 /** The reliable, ordered data channel's label. */
 export const RELIABLE_CHANNEL = "myco-r";
@@ -122,7 +123,6 @@ const UNRELIABLE_BIT = 0x01;
 const MORE_BIT = 0x02;
 const CLOSE_BIT = 0x04;
 const RESERVED_BITS = 0xf8;
-const SEQUENCE_BYTES = 4;
 /** Payload bytes of one `myco-r` fragment. */
 const FRAGMENT_BYTES = WEBRTC_MAX_MESSAGE_BYTES - 1;
 /** The largest unreliable payload that travels on `myco-u`. */
@@ -141,11 +141,6 @@ const MIN_QUEUED_BYTES = 4 * 1024 * 1024;
 const MAX_SIGNALS = 256;
 /** After a local close, the peer connection is closed once `myco-r` has drained, or after this long, ms. */
 const CLOSE_DRAIN_MS = 5000;
-
-/** Whether sequence number `a` is newer than `b`, across the 32-bit wrap (serial number arithmetic). */
-function newer(a: number, b: number): boolean {
-  return ((a - b) | 0) > 0;
-}
 
 function bytesOf(data: unknown): Uint8Array | null {
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
@@ -184,8 +179,8 @@ class WebRtcConnection implements TransportConnection {
   private parts: Uint8Array[] = [];
   private partsBytes = 0;
   private partsHeader = 0;
-  private sendSeq = 0;
-  private newestSeq: number | null = null;
+  /** Its unreliable messages' numbers, on whichever channel they go (0333). */
+  private readonly sequence = new UnreliableSequence();
 
   constructor(
     readonly id: number,
@@ -249,19 +244,15 @@ class WebRtcConnection implements TransportConnection {
       this.enqueue(0, data);
       return;
     }
-    const seq = this.sendSeq;
-    this.sendSeq = (seq + 1) >>> 0;
+    const seq = this.sequence.next();
     if (data.byteLength <= MAX_DATAGRAM_PAYLOAD) {
       const u = this.unreliable!;
       if (u.bufferedAmount > UNRELIABLE_BACKLOG_BYTES) {
         this.droppedUnreliable++;
         return;
       }
-      const datagram = new Uint8Array(data.byteLength + SEQUENCE_BYTES);
-      new DataView(datagram.buffer).setUint32(0, seq);
-      datagram.set(data, SEQUENCE_BYTES);
       try {
-        u.send(datagram);
+        u.send(withSeq(seq, data));
       } catch {
         this.droppedUnreliable++; // lost, as a datagram may be
       }
@@ -272,10 +263,7 @@ class WebRtcConnection implements TransportConnection {
       this.droppedUnreliable++;
       return;
     }
-    const sequenced = new Uint8Array(data.byteLength + SEQUENCE_BYTES);
-    new DataView(sequenced.buffer).setUint32(0, seq);
-    sequenced.set(data, SEQUENCE_BYTES);
-    this.enqueue(UNRELIABLE_BIT, sequenced);
+    this.enqueue(UNRELIABLE_BIT, withSeq(seq, data));
   }
 
   close(reason = "closed"): void {
@@ -424,8 +412,7 @@ class WebRtcConnection implements TransportConnection {
   private receiveDatagram(datagram: Uint8Array): void {
     if (datagram.byteLength < SEQUENCE_BYTES || datagram.byteLength > WEBRTC_MAX_MESSAGE_BYTES) return; // malformed: dropped like a lost one
     if (!this.account(datagram.byteLength)) return;
-    const seq = new DataView(datagram.buffer, datagram.byteOffset, datagram.byteLength).getUint32(0);
-    this.deliverUnreliable(seq, datagram.subarray(SEQUENCE_BYTES));
+    this.deliverUnreliable(readSeq(datagram, 0), datagram.subarray(SEQUENCE_BYTES));
   }
 
   private receiveFrame(frame: Uint8Array): void {
@@ -469,13 +456,12 @@ class WebRtcConnection implements TransportConnection {
       return;
     }
     if (message.byteLength < SEQUENCE_BYTES) return this.close("protocol error: short unreliable message");
-    this.deliverUnreliable(new DataView(message.buffer).getUint32(0), message.subarray(SEQUENCE_BYTES));
+    this.deliverUnreliable(readSeq(message, 0), message.subarray(SEQUENCE_BYTES));
   }
 
   /** Deliver an unreliable payload unless something newer was delivered already (0333). */
   private deliverUnreliable(seq: number, data: Uint8Array): void {
-    if (this.newestSeq !== null && !newer(seq, this.newestSeq)) return; // stale
-    this.newestSeq = seq;
+    if (!this.sequence.accept(seq)) return; // stale
     this.events.push({ kind: "data", connection: this, channel: "unreliable", data });
   }
 

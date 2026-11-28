@@ -6,7 +6,7 @@ import type { Curve } from "../core/curve";
 import { openTweenBackend, TWEEN_BACKEND_PROVIDER, type TweenBackend } from "./backend";
 import { createTweenModuleLoader, openStandaloneTweenBackend } from "./standalone";
 import { PASS_FIXED, PASS_NORMAL, STATUS_OK, STATUS_STALE_HANDLE } from "./wasm/wire/core";
-import { BLOCK_MEMBER, CHANGE_FINISHED, CHANGE_MEMBER_DONE, FLAG_PLAY, NONE, OP_PAUSE as SEQ_PAUSE, OP_PLAY as SEQ_PLAY, WRAP_ONCE } from "./wasm/wire/sequence";
+import { BLOCK_MEMBER, CHANGE_FINISHED, CHANGE_MEMBER_DONE, FLAG_PLAY, NONE, OP_KILL as SEQ_KILL, OP_PAUSE as SEQ_PAUSE, OP_PLAY as SEQ_PLAY, WRAP_ONCE } from "./wasm/wire/sequence";
 import { CHANGE_COMPLETED, CHANGE_KILLED, EASE_LINEAR, KIND_VALUE, OP_KILL, OP_PAUSE, OP_RESUME, TIME_FIXED, TIME_SCALED, TIME_UNSCALED } from "./wasm/wire/tween";
 
 async function open(): Promise<TweenBackend> {
@@ -87,6 +87,26 @@ describe("the standalone tween backend", () => {
     expect(values(b).get(4)).toBe(8);
     expect(b.releaseCurve(c)).toBe(true);
     expect(b.releaseCurve(c)).toBe(false);
+    b.dispose();
+  });
+
+  it("never starts a member placed after an endless one (offset Infinity): encodeSequence clamps it to the largest f32 (ADR 0470)", async () => {
+    const b = await open();
+    const h = b.createSequence({ hostId: 40, timeMode: TIME_SCALED, wrap: WRAP_ONCE, flags: FLAG_PLAY, speed: 1 }, [
+      { ...linear, hostId: 41, column: 41, offset: 0, duration: 0.5 },
+      { ...linear, hostId: 42, column: 42, offset: Infinity, duration: 0.5 },
+    ]);
+    expect(h, `status ${b.lastStatus()}`).not.toBe(0);
+    const info = b.sequenceInfo(h)!;
+    const blocks = b.sequenceBlocks(h);
+    expect(blocks.map((x) => x.hostId)).toEqual([41, 42]);
+    b.update(PASS_NORMAL, 0.25, 0.25);
+    // The second member hasn't started (an offset the module read as non-finite would have placed it at 0).
+    const out = b.sequenceOutputs();
+    expect(blocks.map((x) => out.weights[info.weightOffset + x.index])).toEqual([1, 0]);
+    expect(info.duration).toBeGreaterThan(1e38);
+    b.controlSequence(h, SEQ_KILL);
+    b.update(PASS_NORMAL, 0, 0); // its kill is reported here, not in the next test's frames
     b.dispose();
   });
 

@@ -44,6 +44,7 @@ import type { FieldInfo } from "../../core/registry";
 import { defineBuiltinSystem } from "../../core/systems";
 import type { World } from "../../core/World";
 import { openTweenBackend, type TweenBackend } from "../../tween/backend";
+import { CurveCache } from "../../tween/curveCache";
 import { PASS_NORMAL } from "../../tween/wasm/wire/core";
 import { EASE_LINEAR, KIND_VALUE, OP_KILL, OP_PAUSE, OP_RESUME, TIME_UNSCALED } from "../../tween/wasm/wire/tween";
 import type { UIAnimationSpec, UITimingFunction, UITransitionSpec } from "../document/animationValues";
@@ -129,6 +130,8 @@ interface Track {
   /** How the current segment runs: a tween on the backend, or evaluated here. */
   mode: "none" | "tween" | "js";
   handle: number;
+  /** The curve its tween eases through (a reference held in the animator's curve cache), or 0. */
+  curve: number;
   column: number;
   segStart: number;
   segEnd: number;
@@ -349,7 +352,7 @@ function startValue(run: Run, track: Track): unknown {
 }
 
 function newTrack(field: string, kind: AnimatedKind, stops: readonly Stop[]): Track {
-  return { field, kind, stops, seg: -1, mode: "none", handle: 0, column: 0, segStart: 0, segEnd: 0, pair: null, out: undefined, overridden: false, dirty: false, held: undefined };
+  return { field, kind, stops, seg: -1, mode: "none", handle: 0, curve: 0, column: 0, segStart: 0, segEnd: 0, pair: null, out: undefined, overridden: false, dirty: false, held: undefined };
 }
 
 // --- The animator ------------------------------------------------------------------------------------
@@ -397,11 +400,12 @@ export function uiAnimationOwnerGone(world: World, owner: object): void {
 /** @internal */
 export class UIAnimator {
   private backend: TweenBackend | null = null;
+  /** The backend's curves the tweens ease through, each held while a tween uses it. */
+  private curves: CurveCache | null = null;
   private opening: Promise<void> | null = null;
   private disposed = false;
   private readonly elements = new Map<UIComponentType, ElementState>();
   private readonly owners = new Set<object>();
-  private readonly loaded = new Map<string, number>();
   private readonly byColumn = new Map<number, Track>();
   private nextColumn = 1;
   private events: QueuedEvent[] = [];
@@ -418,7 +422,10 @@ export class UIAnimator {
     this.opening ??= openTweenBackend().then(
       (b) => {
         if (this.disposed) b?.dispose();
-        else this.backend = b;
+        else if (b) {
+          this.backend = b;
+          this.curves = new CurveCache(b);
+        }
       },
       (err: unknown) => console.error("[myco] couldn't open the tween backend for UI animation:", err),
     );
@@ -457,6 +464,8 @@ export class UIAnimator {
     this.events = this.events.filter((e) => e.owner !== owner);
     if (this.owners.size === 0) {
       this.disposed = true;
+      this.curves?.releaseAll();
+      this.curves = null;
       this.backend?.dispose();
       this.backend = null;
       animators.delete(this.world);
@@ -737,6 +746,7 @@ export class UIAnimator {
   private release(t: Track): void {
     if (t.mode === "tween" && t.handle && this.backend) this.backend.control(t.handle, OP_KILL);
     if (t.column) this.byColumn.delete(t.column);
+    this.dropCurve(t);
     t.mode = "none";
     t.handle = 0;
     t.column = 0;
@@ -786,17 +796,19 @@ export class UIAnimator {
     this.events.push({ owner: s.owner, element: s.element, event });
   }
 
-  /** The tween easing of a timing function in a direction: linear, or its loaded curve (0 when it can't load). */
+  /**
+   * The tween easing of a timing function in a direction: linear, or a reference to its loaded curve (linear when it
+   * can't load; tried again next time). A curve reference is the tween's track's to give back (`dropCurve`).
+   */
   private ease(tf: UITimingFunction, reversed: boolean): number {
     const curve = curveOf(tf, reversed);
-    if (!curve) return EASE_LINEAR;
-    const key = timingKey(tf, reversed);
-    let h = this.loaded.get(key);
-    if (h === undefined) {
-      h = this.backend!.loadCurve(curve);
-      this.loaded.set(key, h);
-    }
-    return h;
+    return curve ? this.curves!.acquire(curve, timingKey(tf, reversed)) : EASE_LINEAR;
+  }
+
+  /** Gives back the curve reference a track's tween held. */
+  private dropCurve(t: Track): void {
+    if (t.curve) this.curves?.release(t.curve);
+    t.curve = 0;
   }
 
   // --- The frame -----------------------------------------------------------------------------------
@@ -907,7 +919,10 @@ export class UIAnimator {
       const seg = segmentAt(run, t, at);
       if (seg.id !== t.seg) {
         if (t.mode === "tween" && t.segEnd > at) this.release(t); // left before its end (a jump)
-        else if (t.column) this.byColumn.delete(t.column);
+        else {
+          if (t.column) this.byColumn.delete(t.column);
+          this.dropCurve(t);
+        }
         t.seg = seg.id;
         t.segStart = seg.start;
         t.segEnd = seg.end;
@@ -920,12 +935,13 @@ export class UIAnimator {
           const column = this.nextColumn;
           this.nextColumn = this.nextColumn >= 0xfffffff0 ? 1 : this.nextColumn + 1;
           const p = t.pair;
+          const ease = this.ease(seg.timing, seg.reversed);
           const handle = backend.create({
             hostId: column,
             column,
             valueKind: KIND_VALUE,
             width: p.width,
-            ease: this.ease(seg.timing, seg.reversed),
+            ease,
             flags: 0,
             timeMode: TIME_UNSCALED,
             loops: 1,
@@ -938,9 +954,10 @@ export class UIAnimator {
           if (handle) {
             t.mode = "tween";
             t.handle = handle;
+            t.curve = ease;
             t.column = column;
             this.byColumn.set(column, t);
-          }
+          } else if (ease !== EASE_LINEAR) this.curves!.release(ease);
         }
       }
       if (t.mode === "tween") live++;
