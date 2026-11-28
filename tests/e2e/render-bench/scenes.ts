@@ -41,6 +41,7 @@ interface Comp { type: string; data: Record<string, unknown> }
 interface Node { id: string; name: string; components: Comp[] }
 
 /** Round to a millimetre. */
+const utf8 = new TextEncoder();
 const r3 = (v: number) => +v.toFixed(3);
 
 /** A rotation about +y by `yaw`, pitched about x by `pitch` (qy * qx), as a quaternion. */
@@ -177,8 +178,9 @@ function projectFiles(b: Built, variant: Variant): ProjectFiles {
   }
   for (const [name, parts] of Object.entries(b.meshes)) {
     const materials = [...new Set(parts.map((p) => p.material))];
-    files[`models/${name}.mtl`] = materials.map((m) => `newmtl ${m}\nKd ${kd(MATERIALS[m]!.color)}\n`).join("\n");
-    files[`models/${name}.obj`] = toObj(name, parts, `${name}.mtl`);
+    // The editor reads model files as bytes (`memoryFs.readBinary`), so they go in as UTF-8, not text.
+    files[`models/${name}.mtl`] = utf8.encode(materials.map((m) => `newmtl ${m}\nKd ${kd(MATERIALS[m]!.color)}\n`).join("\n"));
+    files[`models/${name}.obj`] = utf8.encode(toObj(name, parts, `${name}.mtl`));
     // TODO(lod): `models/${name}.obj.meta.json` sidecar with `lod` levels, and the `${name}_lod1..3.obj` files, for the lod variants.
   }
   files["scenes/main.scene.json"] = JSON.stringify({ format: "myco.scene@5", nodes: [...baseNodes(b.camera, b.groundScale, b.groundMaterial), ...b.nodes] });
