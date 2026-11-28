@@ -4,7 +4,7 @@
 - **Date:** 2026-11-28
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0133, 0135, 0139, 0144, 0171, 0172, 0224, 0261, 0275, 0341, 0348, 0373, 0376, 0403, 0408, 0409, 0411, 0412, 0416, 0417, 0451
+- **Related:** 0133, 0135, 0139, 0144, 0171, 0172, 0224, 0261, 0275, 0341, 0348, 0373, 0376, 0403, 0408, 0409, 0410, 0411, 0412, 0416, 0417, 0451
 
 Design folder: [`docs/design/plugin-lanes-localisation/`](../design/plugin-lanes-localisation/goal.md). RFC round:
 [`docs/rfc/0451-0452/`](../rfc/0451-0452/) and the owner's open choices in
@@ -41,6 +41,9 @@ Design folder: [`docs/design/plugin-lanes-localisation/`](../design/plugin-lanes
   playing a capture's sounds through the current project.
 - **Deep link:** an event that names an asset, so clicking it opens that asset's editor.
 - **Diagnostics views:** the profiler tracks and panels a plugin contributes for its own sources.
+- **Build asset set:** the build's files a source's re-execution and deep links need, downloaded from a connected build
+  into the tool, so a capture can be replayed and its assets opened without the project. Today's audio-only version is
+  the **build audio set** (0410).
 
 ## Context
 
@@ -71,6 +74,12 @@ Design folder: [`docs/design/plugin-lanes-localisation/`](../design/plugin-lanes
   build's key stops the take without saving it for the player (0417).
 - **Live:** the Profiler follows a connected build's capture from connect (0411). The Take screen shows a take only
   while one records (0411 item 1; 0411 rejected streaming the take live, for link traffic).
+
+**Build audio sets (0410):** the build lists its audio over the `audio` topic (`build.audio`: project name,
+`audioHash`, media table, files with kinds and JSON hashes) and sends files (`build.file`) through the take upload's
+chunked subscription. The Studio downloads them on connect when the Connect dialog's "Download the build's audio for
+replays" is on (the default), into `.build-audio/<project>-<audioHash>/` in the recordings folder, and mounts the
+matching set when a recording opens, so replay works without the project.
 
 **Other profiled data uses separate routes.** Play Stats (`src/editor/playStats.ts`) reads frame and phase times,
 render counters, node counts and heap through `EngineTiming`, and plugin counters and tables through
@@ -155,6 +164,21 @@ every recording is a **capture**, and separate the **profiler** into a self-cont
 - **Re-execution** is a source's optional hook. Audio's replay through the current project (0348) and animation's
   take replay port onto it. Whether re-execution works on the live window is the owner's call (owner list).
 
+**Build asset sets**
+
+- 0410's build audio set becomes part of diagnostics. A source may declare the **build files** its re-execution and
+  deep links need (a filter over the build's project files and build files).
+- A capture records, per source with an asset declaration, a **content hash** of those files, replacing the single
+  `audioHash`.
+- The `diagnostics` topic serves the asset index and the files, taking over `build.audio` and `build.file` and their
+  chunked upload from the `audio` topic.
+- The tool downloads into a **build asset set** keyed by project and hash, skipping files it already has, and mounts
+  the matching set when a capture opens, as 0410 does for audio. The Connect option becomes "Download the build's
+  assets for replays".
+- Deep links in a capture opened without the project open the asset read-only from the mounted set.
+- **Phase 1:** the mechanism is generic, but only audio declares files (today's set: JSON project files, sounds,
+  packages and streamed media). Animation declares its clips and graphs when it gets profiler views.
+
 **The profiler**
 
 - A self-contained module, which the Studio and any later host use only through its interface. It takes the capture
@@ -207,15 +231,15 @@ per-source budgets and cost baselines; a profiler app of its own.
   already works.
 - Every capture has a timebase, with or without audio, and a future plugin with its own clock (a physics step, a network tick) lines up the same way.
 - Takes and captures collapse into one concept, one key and one Export option.
-- Deep links and re-execution become available to every plugin.
+- Deep links and re-execution become available to every plugin, with the build's assets downloaded for them.
 
 **Negative / costs**
 - Moving framing, recorder, triggers, ownership and the profiler model out of audio touches every reader and both
   Studio screens.
 - A live Take screen adds link traffic (requests always; pictures while shown).
 - The Play Stats points stay as shims while navigation is frozen.
-- **Provisional estimate:** 95–130 table-days with a third in reserve (revision 1 said 85–115; the push contract,
-  clocks and live streaming add risk). Table-days are the relative unit of earlier plans; the M4 milestone's 290 ran
+- **Provisional estimate:** 103–140 table-days with a third in reserve (revision 1 said 85–115; the push contract,
+  clocks and live streaming add risk; generalising build asset sets adds 6–10, owner, 2026-11-28). Table-days are the relative unit of earlier plans; the M4 milestone's 290 ran
   in about two days of agent time (`docs/plans/2026-11-audio-mix-m5-waves.md`). Calibrated against estimates, not
   actuals; the technical design's task table replaces it.
 
@@ -225,7 +249,9 @@ per-source budgets and cost baselines; a profiler app of its own.
 - The take concept: the TAKE flag, `Audio.take`, `Audio.capture`, F10, the take Export options (replaced by captures,
   engine capture control, F9 and one `capture` option).
 - The audio plugin's ownership of the capture format, recorder, triggers, take ownership and the profiler model.
-- Amends, on acceptance: 0348 (takes are captures), 0411 item 1 (the Take screen is live), 0416 (the editor records
+- The audio topic's `build.audio`/`build.file` requests and the audio-only build audio set (generalised into build
+  asset sets on the `diagnostics` topic).
+- Amends, on acceptance: 0410 (build audio sets become build asset sets), 0348 (takes are captures), 0411 item 1 (the Take screen is live), 0416 (the editor records
   nothing; its `Audio.take`/`Audio.capture` wording changes), 0417 (take ownership becomes capture ownership), 0261
   (the track kit moves), 0373 and 0378 (animation's records become a source), 0172 (one key).
 
