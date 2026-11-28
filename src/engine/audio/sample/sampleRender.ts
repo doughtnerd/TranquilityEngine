@@ -23,6 +23,7 @@
  * Works in the browser and in Node (the wasm loads on first use). It loads a module but reads nothing else: no plugin,
  * no DOM.
  */
+import { dbToGain } from "../decibels";
 import { effectSpec, isPluginEffectType } from "../effects/catalogue";
 import { EFFECT_TYPES, type EffectParamSpec } from "../effects/types";
 import { curveKeyHandles, curveKeyInterpCode } from "../../core/curve";
@@ -160,7 +161,7 @@ export async function renderSample(input: SamplePcm, edits: SampleEdits, options
   const spec = specOf(edits, warnings, session);
   const raw = await renderOffline(pcm, channels, input.rate, spec, session ?? undefined);
   warnings.push(...warningLines(raw.warnings, edits));
-  const gain = edits.normalize.mode === "off" ? 1 : Math.pow(10, edits.normalize.gainDb / 20);
+  const gain = edits.normalize.mode === "off" ? 1 : dbToGain(edits.normalize.gainDb);
   if (gain !== 1) for (let i = 0; i < raw.pcm.length; i++) raw.pcm[i] *= gain;
   return { pcm: raw.pcm, channels, rate: input.rate, frames: raw.frames, warnings };
 }

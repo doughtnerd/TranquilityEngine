@@ -30,6 +30,14 @@ describe("PlaylistBody.automation", () => {
     expect(lastVolume(1)).toBeCloseTo(db(-15), 4);
   });
 
+  it("a volume lane keyed at the −60 dB floor is silence, not 0.001 (ADR 0456)", async () => {
+    await kit.boot({
+      "s.playlist.json": pla("clip", [sample("a.wav")], { automation: [{ id: "a", target: "volume", input: "voiceTime", curve: [[0, -60], [2, -60]] }] }),
+    });
+    Audio.play("s.playlist.json");
+    expect(fake.plays[0]!.volume).toBe(0);
+  });
+
   it("a parameter-keyed lane on a gain effect binds: the voices follow the parameter (the effect's own gain is replaced)", async () => {
     await kit.boot({
       "g.playlist.json": pla("clip", [sample("a.wav")], {

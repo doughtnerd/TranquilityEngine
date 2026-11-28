@@ -3,6 +3,7 @@
 // folder by moving what's in it up, and the playlists that use a sample ("Used by", the Delete prompt). Pure: the view
 // passes the project's paths and parsed files.
 import { isDerivedSamplePath } from "../../../engine/audio/sample/format";
+import { meterParts } from "../../../engine/audio/meter";
 import type { DerivedSampleAsset, SampleEdits, SampleKind } from "../../../engine/audio/sample/types";
 import { parsePlaylist } from "../../../engine/audio/playlist/format";
 import { referencedPaths } from "../../../engine/audio/playlist/references";
@@ -96,7 +97,7 @@ export function metaLine(path: string, edits: SampleEdits | null, length: number
   const parts = [KIND_NAMES[kind]];
   if (length !== null) {
     if (kind === "music" && edits?.tempo) {
-      const beats = Number(edits.tempo.meter.split("/")[0]) || 4;
+      const beats = meterParts(edits.tempo.meter).beatsPerBar;
       parts.push(`${Math.round((length * edits.tempo.bpm) / 60 / beats)} bars`);
     } else parts.push(shortLength(length));
   }

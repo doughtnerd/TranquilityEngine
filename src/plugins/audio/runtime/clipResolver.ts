@@ -24,6 +24,7 @@
  * ambisonic clip: its FuMa gain and its length) and the active backend's clip facts (`AudioBackend.clipCache`, G-1). It
  * imports neither `AudioSource.ts` nor the playlist runtime, so every caller imports it directly.
  */
+import { dbToGain } from "../../../engine/audio/decibels";
 import { mixer } from "../../../engine/audio/mixer";
 import { Assets } from "../../../engine/scene/Assets";
 import { ambisonicImportGain, ambisonicStreamsByDefault } from "./core/clipRegistry";
@@ -189,7 +190,7 @@ export function samplePlan(path: string): SamplePlan {
     const loop = edits.loops.find((l) => l.end > l.start) ?? null;
     const source: SamplePlan = {
       trim: edits.trim ? [edits.trim[0], edits.trim[1]] : null,
-      gain: edits.normalize.mode === "off" ? 1 : Math.pow(10, edits.normalize.gainDb / 20),
+      gain: edits.normalize.mode === "off" ? 1 : dbToGain(edits.normalize.gainDb),
       loop: loop ? { start: loop.start, end: loop.end, count: loop.count, behaviour: { active: loop.active, exit: loop.exit, exitFadeMs: loop.exitFadeMs, reentry: loop.reentry, ...(loop.binding ? { binding: loop.binding } : {}) } } : null,
     };
     cached = { source, render: { ...source, gain: 1 } };

@@ -27,6 +27,7 @@
 import { evalCurve, type Curve, type CurveKey } from "../../../../engine/core/curve";
 import type { Quantize } from "../../../../engine/audio/playlist/types";
 import { evalCurveBy, secondValueOf, type CurveBy } from "../../../../engine/audio/curveBy";
+import { dbToGain, semitonesToRatio } from "../../../../engine/audio/decibels";
 import type { GridSpec } from "../../../../engine/audio/musicTypes";
 import type { ParameterDef } from "../../../../engine/audio/parameters";
 import { AutoTarget, MAX_BINDINGS, QUANTIZED_RAMP_SECONDS, TimeParam, timeParam, type Binding } from "../automation";
@@ -41,8 +42,6 @@ const EPS = 1e-9;
 /** The most steps a voice's stepped curve keeps (two keys each; the core's curves hold 64 keys). */
 const MAX_STEPS = 24;
 
-const dbToGain = (db: number): number => Math.pow(10, db / 20);
-const stToRatio = (st: number): number => Math.pow(2, st / 12);
 
 /** What a quantised lane moves: the voice's gain, or one of the controls a voice binding drives. */
 export type QuantTarget = "gain" | "pitch" | "pan" | "lowpass" | "highpass";
@@ -164,7 +163,7 @@ export class QuantizedLanes {
     const y = l.pre && Number.isFinite(raw) ? l.pre(raw) : raw;
     switch (l.target) {
       case "gain": return Number.isFinite(y) ? dbToGain(y) : 1;
-      case "pitch": return Number.isFinite(y) ? stToRatio(y) : 1;
+      case "pitch": return Number.isFinite(y) ? semitonesToRatio(y) : 1;
       case "pan": return Number.isFinite(y) ? Math.min(1, Math.max(-1, y)) : 0;
       case "lowpass": return Number.isFinite(y) ? y : 24000;
       case "highpass": return Number.isFinite(y) ? y : 0;

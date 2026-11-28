@@ -34,12 +34,12 @@ import {
   OccluderCache,
   colliderLabel,
   compileHit,
-  dbToGain,
   occlusionNote,
   type OccluderMaterial,
   type OccluderParams,
   type ResolvedHit,
 } from "../../../../engine/audio/occlusionMaterials";
+import { dbToGain } from "../../../../engine/audio/decibels";
 import { blockedOfDb, occlusionCutoffHz, occlusionVolumeDb, type OcclusionCurves } from "../../../../engine/audio/occlusionCurves";
 import { AudioOccluder, nearestOccluder } from "../AudioOccluder";
 import type { AudioOcclusionDebug } from "../backend";

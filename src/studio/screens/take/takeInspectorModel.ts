@@ -4,7 +4,7 @@
 // authored volume × script volume × ducking) with its peak, or beside the level the take recorded at the playhead while
 // the replay isn't playing (owner's defect list: the Mixer panel shows the bus levels at the playhead). Pure: the panels
 // pass the readings in.
-import { gainToDb } from "../../../engine/audio/project/gain";
+import { gainToDb } from "../../../engine/audio/decibels";
 import type { Take } from "../../../engine/audio/take/reader";
 import { formatDb } from "../../components/faderModel";
 import type { TakeInstance } from "./takeTimeline";

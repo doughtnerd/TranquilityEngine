@@ -481,6 +481,9 @@ export const isStagedFrameHost = (b: unknown): b is StagedFrameHost =>
  */
 export const CURVE_DRIVEN_ATTENUATION = Object.freeze({ minDistance: 100000, maxDistance: 100000, rolloff: "inverse" as const });
 
+/** @internal The distance law of a voice that names none (ADR 0162's default distances and law): inverse, 1 m to 100 m. */
+export const DEFAULT_ROLLOFF_ATTENUATION = Object.freeze({ minDistance: 1, maxDistance: 100, rolloff: "inverse" as const });
+
 /** @internal The send curve a curve-driven voice plays with: flat 1, so the `reverbSend` curve alone shapes its send. */
 export const FLAT_SEND_CURVE: SendCurve = [[0, 1], [1, 1]];
 
@@ -516,9 +519,6 @@ export function evalAttenuation(curves: AttenuationCurveSet, distance: number, o
   out.spreadDeg = curves.spread && curves.spread.length > 0 ? Math.min(360, Math.max(0, evalCurve(curves.spread, d))) : -1;
   return out;
 }
-
-/** dB to linear gain; -60 dB and below is silence (the engine's dB floor, decision log D8). */
-export const curveDbToGain = (db: number): number => (db <= -60 ? 0 : Math.pow(10, db / 20));
 
 /**
  * ADR 0347: an edge audio zone heard from outside spreads its sound by distance: `min(180°, 40° + 600°/max(3 m, d))`

@@ -6,6 +6,7 @@
  *
  * Pure: no DOM.
  */
+import { dbToGain } from "../../../engine/audio/decibels";
 import type { CurveLane } from "./curveEditorModel";
 import type { WaveformFn } from "./CurvePlot";
 
@@ -62,6 +63,6 @@ export function waveformFromPeaks(src: PeakSource, opts: WaveformOptions = {}): 
     const before = peakAmplitude(src, s - half, s + half);
     if (lanes.length === 0) return before;
     const db = lanes.reduce((sum, id) => sum + (values[id] ?? 0), 0);
-    return [before, before * Math.pow(10, db / 20)];
+    return [before, before * dbToGain(db)];
   };
 }
