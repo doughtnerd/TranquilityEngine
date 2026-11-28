@@ -52,9 +52,58 @@ measured gate:
 4. **GPU-driven on WebGPU.** Compute culling and LOD selection, indirect draws, and a hierarchical depth buffer for
    occlusion, with the CPU path kept for WebGL2. Cluster LOD (Nanite-like, without a software rasteriser) is a later
    record if WebGPU gains what it needs.
-5. **The GPU layer itself.** Only after 1–4: materials and shaders, shadows, post effects and the device layer move
-   from Babylon to the engine, one at a time, behind the draw-list interface. Whether to do this at all is decided then,
-   from what Babylon still costs.
+5. **The GPU layer itself.** Only after 1–4, and only if Babylon is still measurably in the way. Materials and
+   shaders, shadows and post effects move to the engine one at a time, behind the draw-list interface, by one of two
+   paths chosen by a spike (below).
+
+**Stage 5: two paths.**
+- **(a) Keep Babylon's low-level layer.** Babylon's GPU engines (WebGL2, WebGPU), shader processing (`Effect`),
+  uniform buffers, textures and possibly the frame graph stay an upstream dependency, imported module by module as
+  now. Its scene graph, meshes and material classes go. Shaders and material logic (PBR, shadow filtering, post
+  effects) are copied into the engine and rewired to the draw lists, under 0075's rules for copied code. Babylon is
+  **Apache-2.0**, so each copy:
+  - keeps the license;
+  - notes the Babylon version it came from and that we changed it;
+  - adds Babylon's `NOTICE` text to `THIRD_PARTY_NOTICES.md`.
+
+  Replacing the device layer later stays optional, decided only if it measurably costs or blocks something (GPU-driven
+  drawing, say). This is the cheapest and lowest-risk path, and the closest analogue to Entities Graphics, which sits
+  on Unity's low-level batch API rather than its own GPU code.
+- **(b) A Rust render core on wgpu, compiled to wasm** (`native/render/`, beside `native/nav/` and
+  `native/visibility/`).
+  - **The core:** wgpu (MIT/Apache-2.0) is the device layer, targeting WebGPU, and WebGL2 through its GL backend; naga
+    translates shaders.
+  - **Design reference:** Bevy's renderer (MIT/Apache-2.0), which extracts from an ECS into a render world, then
+    batches and draws. Its shaders can be borrowed under that license.
+  - **Shared data:** the render scene's typed arrays live in wasm memory: the TypeScript ECS writes changes there, and
+    the core reads them without copying.
+  - **What it costs:** every WebGPU call from wasm crosses a JS shim, which GPU-driven drawing mostly removes. The wasm
+    module adds about 1–3 MB (estimate). Debugging through wasm is harder. We rebuild what Babylon gives us (materials,
+    shadows, post effects) and lose its browser workarounds. Threads in web builds need cross-origin isolation.
+  - **What it gives:** the closest fit to the ECS and threading goals (stages 3–4 already belong in wasm), and the
+    highest performance ceiling.
+- **Choosing.** Stage 5 starts with a spike: the forest gate scene drawn through a minimal instanced path in each
+  (Babylon's low-level layer; wgpu in wasm). It measures JS CPU per frame, start-up bytes, WebGL2 parity, and how much
+  of a PBR material carries over. The spike's results and the choice get their own record.
+- **Not chosen as a path:**
+  - Filament (Google, Apache-2.0) is a mature render-only PBR library in wasm with an entity-component scene, but
+    brings a C++ toolchain, and its WebGPU backend's maturity needs checking. It can be reconsidered at the spike if
+    (b) falls short.
+  - bgfx and Diligent are device layers only, with nothing over wgpu for us.
+  - Other JS engines (PlayCanvas) only swap one scene graph for another.
+
+**Timeline.** These are estimates, not measurements, in person-weeks for a solo developer working with agents:
+
+| | From scratch | Path (a) | Path (b) |
+|---|---|---|---|
+| Stages 1–4 | 13–22 | 12–19 | 12–19 |
+| Stage 5 | 50–80 | 10–18 | 25–40 |
+| **Total** | 63–102 | **22–37** | **37–59** |
+
+- **Stages 1–4:** reuse helps them little; they build what Babylon lacks.
+- **Path (a):** saves most because the device layer (~35k lines of compiled JS in Babylon 9.32) stays upstream, and
+  the shaders (~40k lines across GLSL and WGSL) are copied, not written.
+- **Path (b):** saves by borrowing Bevy's design and shaders, but still builds a full render core.
 
 **Rules that hold throughout:**
 - **The public API doesn't change for it.** Components, assets and scripts stay as they are (0010).
@@ -86,13 +135,17 @@ measured gate:
 - Two scene representations during the transition (engine draw lists for some meshes, Babylon meshes for the rest
   and for the editor), and tests that cover both.
 - The engine takes on picking, bounds and debug views that Babylon gave for free, as each moves.
-- Stage 5, if done, is the largest: materials, shadows and post effects are much of Babylon's value.
+- Stage 5, if done, is the largest: materials, shadows and post effects are much of Babylon's value. Path (a) keeps its
+  device layer and its weekly browser fixes; path (b) takes all of it on.
+- Copied Babylon code (path a) is ours to maintain from the version it came from: upstream fixes no longer reach it.
 
 ## Deprecates
 
 Nothing yet. Each stage's record says what it retires.
 
 ## Open questions
+
+- Stage 5's path, (a) or (b), from its spike.
 
 - Which spikes stage 2 needs first: draw-list building from ECS columns at 10k and 100k instances, and how mesh and
   material IDs map onto Babylon objects.
@@ -106,3 +159,7 @@ Nothing yet. Each stage's record says what it retires.
 - `docs/design/lod-occlusion/build-log.md` (the CPU measurements and profiles).
 - `spikes/occlusion-gate/profile.mjs` (CPU profiler for the gate scenes).
 - Unity Entities Graphics (BatchRendererGroup), Unreal's mesh draw command caching and Nanite (for comparison).
+- Babylon.js 9.32.0 `license.md` (Apache-2.0) and `NOTICE.md`; 0075 §"Subsystems we want to own are copied in".
+- wgpu, naga and Bevy (MIT/Apache-2.0); Filament (Apache-2.0).
+- Subsystem sizes: lines of compiled JS in `node_modules/@babylonjs/core` 9.32.0 (Engines 35k, Shaders and
+  ShadersWGSL 40k, Materials 74k, PostProcesses 17k, FrameGraph 20k, Meshes 55k).
