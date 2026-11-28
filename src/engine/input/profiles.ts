@@ -11,6 +11,7 @@
  */
 import type { World } from "../core/World";
 import type { InputContextSpec, MappingSpec } from "./contextTypes";
+import { withParts } from "./mappingShape";
 
 /** Accessibility settings, per player (Rewired's input behaviours). Action names may be `"set.Id:action"` or bare. */
 export interface InputAccessibility {
@@ -103,26 +104,6 @@ function parseLegacyKey(key: string): { context: string; index: number; part: st
   return { context: parts.join("/"), index, part };
 }
 
-/** The parts of each mapping shape that take a control (a chord's `modifier0`… too). */
-const SHAPE_PARTS: Record<string, readonly string[]> = { single: ["control"], modifier: ["control"], dpad: ["up", "down", "left", "right"], axis: ["negative", "positive"] };
-
-/** A mapping with some of its controls replaced (parts its shape doesn't have are ignored). */
-function withControls(spec: MappingSpec, parts: Readonly<Record<string, string>>): MappingSpec {
-  const out: Record<string, unknown> = { ...spec };
-  for (const [part, path] of Object.entries(parts)) {
-    const mod = /^modifier(\d+)$/.exec(part);
-    if (mod) {
-      if (spec.composite !== "modifier") continue;
-      const list = typeof out.modifier === "string" ? [out.modifier] : [...((out.modifier as readonly string[] | undefined) ?? [])];
-      const i = Number(mod[1]);
-      if (i >= list.length) continue;
-      list[i] = path;
-      out.modifier = list;
-    } else if (SHAPE_PARTS[spec.composite ?? "single"]?.includes(part)) out[part] = path;
-  }
-  return out as unknown as MappingSpec;
-}
-
 /** One mapping of a context with a profile applied. */
 export interface ProfileMapping {
   /** The mapping, its controls replaced by the profile's overrides. */
@@ -177,7 +158,7 @@ export function profileMappings(spec: InputContextSpec, profile: PlayerProfile, 
     const name = stale[0].slice(stale[0].lastIndexOf(":") + 1);
     console.warn(`[myco] Saved binding for "${name}" in "${ctx}" no longer matches the context; it was reset.`);
   }
-  return all.filter((m) => !removed.has(m.index)).map((m) => (replaced.has(m.index) ? { ...m, spec: withControls(m.spec, replaced.get(m.index)!) } : m));
+  return all.filter((m) => !removed.has(m.index)).map((m) => (replaced.has(m.index) ? { ...m, spec: withParts(m.spec, replaced.get(m.index)!) } : m));
 }
 
 /** Give a context's format 1 overrides the action of the mapping now at their index (those past its end are dropped). */
@@ -200,7 +181,7 @@ export interface MappingRef {
 /** @internal Replace controls of a mapping: an added mapping is changed in place, one of the context's own gets overrides. */
 export function setControls(profile: PlayerProfile, ctx: string, m: MappingRef, parts: Readonly<Record<string, string>>): void {
   const added = profile.additions[ctx];
-  if (m.addition >= 0 && added?.[m.addition]) added[m.addition] = withControls(added[m.addition], parts);
+  if (m.addition >= 0 && added?.[m.addition]) added[m.addition] = withParts(added[m.addition], parts);
   else for (const [part, path] of Object.entries(parts)) profile.overrides[overrideKey(ctx, m.index, m.action, part)] = path;
   profile.version++;
 }

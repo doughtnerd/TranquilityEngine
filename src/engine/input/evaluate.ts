@@ -31,6 +31,7 @@ import { DEFAULT_CONTEXT, InputContext, activeContexts, bindingsVersion, registe
 import { PRESS_POINT, controlById, requireControl, type Control } from "./controls";
 import { DeviceKind, GamepadState, InputDevice, PenState, TouchState, deviceNodes, takesLocalInput } from "./deviceEntities";
 import { devices, mouseKey } from "./devices";
+import { modifierList, partPath, partsOf, shapeOf } from "./mappingShape";
 import { compileModifier, deadzone, type Modifier } from "./modifiers";
 import { ControlledBy, InputPlayer, playerNodes } from "./players";
 import { profileMappings, profileOf, type InputAccessibility, type PlayerProfile } from "./profiles";
@@ -126,21 +127,23 @@ function compileMapping(spec: MappingSpec, context: string, index: number, addit
     problems.push(`${where}: there's no action "${spec.action}".`);
     return null;
   }
-  const ctl = (part: string, path: string | undefined): Control => {
-    if (!path) throw new Error(`${where}: "${part}" is missing.`);
-    return requireControl(path, where);
-  };
   try {
-    let source: Source;
-    if (spec.composite === "dpad") source = { kind: "dpad", up: ctl("up", spec.up), down: ctl("down", spec.down), left: ctl("left", spec.left), right: ctl("right", spec.right) };
-    else if (spec.composite === "axis") source = { kind: "axis", negative: ctl("negative", spec.negative), positive: ctl("positive", spec.positive) };
-    else if (spec.composite === "modifier") {
-      const mods = typeof spec.modifier === "string" ? [spec.modifier] : [...(spec.modifier ?? [])];
-      if (!mods.length) throw new Error(`${where}: a modifier composite needs a modifier.`);
-      source = { kind: "modifier", modifiers: mods.map((m, i) => ctl(`modifier${i}`, m)), control: ctl("control", spec.control) };
-    } else if (spec.composite !== undefined) throw new Error(`${where}: composite "${spec.composite}" isn't dpad, axis or modifier.`);
-    else source = { kind: "single", control: ctl("control", spec.control) };
-    const all: Control[] = source.kind === "single" ? [source.control] : source.kind === "dpad" ? [source.up, source.down, source.left, source.right] : source.kind === "axis" ? [source.negative, source.positive] : [...source.modifiers, source.control];
+    const shape = shapeOf(spec);
+    if (!shape) throw new Error(`${where}: composite "${spec.composite}" isn't dpad, axis or modifier.`);
+    if (shape === "modifier" && !modifierList(spec).length) throw new Error(`${where}: a modifier composite needs a modifier.`);
+    const all = partsOf(spec).map((part): Control => {
+      const path = partPath(spec, part);
+      if (!path) throw new Error(`${where}: "${part}" is missing.`);
+      return requireControl(path, where);
+    });
+    const source: Source =
+      shape === "dpad"
+        ? { kind: "dpad", up: all[0], down: all[1], left: all[2], right: all[3] }
+        : shape === "axis"
+          ? { kind: "axis", negative: all[0], positive: all[1] }
+          : shape === "modifier"
+            ? { kind: "modifier", modifiers: all.slice(0, -1), control: all[all.length - 1] }
+            : { kind: "single", control: all[0] };
     const options = target.action.type.options;
     const specs: ModifierSpec[] = (spec.modifiers ?? []).filter((m) => !m.off); // a turned-off modifier is as if absent
     const stick = all.some(isStickControl);
