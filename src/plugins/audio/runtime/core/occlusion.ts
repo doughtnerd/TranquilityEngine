@@ -26,7 +26,8 @@
 // Nothing allocates per frame once a World's state and its sources' exclusion sets exist.
 import type { AudioSettings } from "../../../../engine/audio/settings";
 import type { World } from "../../../../engine/core/World";
-import { _worldServiceOf, raycastInto, rayGroupsFor, type WorldRayInto, type WorldRayQuery } from "../../../../engine/core/worldServices";
+import { _worldServiceOf, raycastInto, type WorldRayInto, type WorldRayQuery } from "../../../../engine/core/worldServices";
+import { filterOf, layerTable, type LayerTable } from "../../../../engine/physics/layers";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import {
   CUTOFF_OPEN_HZ,
@@ -108,8 +109,8 @@ export interface OcclusionVoiceDebug {
  */
 export interface OcclusionEnvironment {
   raycastInto(world: World, out: WorldRayInto, origin: Vec3Out, dir: Vec3Out, maxDistance: number, query: WorldRayQuery): boolean;
-  /** `rayGroupsFor` (D0): throws on a layer the project doesn't define. */
-  rayGroupsFor(world: World, layers: readonly string[]): number | undefined;
+  /** The World's physics layer table (ADR 0464): `occlusion.layers` → ray groups. */
+  physicsLayers(world: World): LayerTable;
   /** Whether `world` runs the service `id` (`myco.physics3d`, `myco.physics2d`). */
   hasService(world: World, id: string): boolean;
   /** A number that changes when an `AudioOccluder` of `world` is added, removed, enabled or disabled. */
@@ -146,7 +147,7 @@ function engineOcclusionEnvironment(): OcclusionEnvironment {
   const now = (): number => performance.now();
   engineEnv = {
     raycastInto,
-    rayGroupsFor,
+    physicsLayers: (world) => layerTable(world.settings.physics),
     hasService: (world, id) => !!_worldServiceOf(world, id),
     occluderSignature(world) {
       const list = world._componentsOfType(AudioOccluder);
@@ -457,9 +458,9 @@ export class OcclusionPass {
   }
 
   /**
-   * `occlusion.layers` → ray groups, once per change. `rayGroupsFor` throws on a layer the project doesn't define (the
-   * settings parse drops unknown names only when it was given the physics layers), so each layer is tried alone and
-   * an unknown one is left out with a note.
+   * `occlusion.layers` → ray groups, once per change, through the physics layer table (ADR 0464). A layer the project
+   * doesn't define (the settings parse drops unknown names only when it was given the physics layers) matches no
+   * collider and is named in the note; when none of the layers exists the pass is off.
    */
   private configureLayers(ws: WorldOcclusion, world: World, env: OcclusionEnvironment, layers: readonly string[] | null): void {
     ws.groups = undefined;
@@ -471,26 +472,15 @@ export class OcclusionPass {
       ws.layersNote = "occlusion.layers is empty";
       return;
     }
-    let membership = 0;
-    let filter = 0;
-    const unknown: string[] = [];
-    for (const l of layers) {
-      try {
-        const g = env.rayGroupsFor(world, [l]);
-        if (g !== undefined) {
-          membership |= g & 0xffff;
-          filter = g >>> 16;
-        }
-      } catch {
-        unknown.push(l);
-      }
-    }
+    const table = env.physicsLayers(world);
+    const unknown = layers.filter((l) => table.indexOf(l) < 0);
     if (unknown.length) ws.layersNote = `unknown occlusion layer${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}`;
-    if (membership === 0) {
+    const groups = table.queryGroups(layers);
+    if (groups === undefined || filterOf(groups) === 0) {
       ws.layersOn = false;
       return;
     }
-    ws.groups = (filter << 16) | membership; // as `rayGroupsFor` packs it
+    ws.groups = groups;
   }
 
   /**

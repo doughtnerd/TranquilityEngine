@@ -5,6 +5,7 @@ import type { AudioSettings } from "../../../../engine/audio/settings";
 import { BUILTIN_MATERIALS, builtinMaterials, type OccluderParams } from "../../../../engine/audio/occlusionMaterials";
 import type { World } from "../../../../engine/core/World";
 import type { WorldRayInto, WorldRayQuery } from "../../../../engine/core/worldServices";
+import { layerTable, type LayerTable } from "../../../../engine/physics/layers";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { LP_TOP } from "../wire.generated";
 import { encodeVoiceId } from "./ids";
@@ -67,10 +68,8 @@ class FakeEnv implements OcclusionEnvironment {
     out.point.z = o.z + d.z * bestT;
     return true;
   }
-  rayGroupsFor(_w: World, layers: readonly string[]): number | undefined {
-    const i = this.layers.indexOf(layers[0]!);
-    if (i < 0) throw new Error(`rayGroupsFor: unknown physics layer "${layers[0]}".`);
-    return (0xffff << 16) | (1 << i);
+  physicsLayers(): LayerTable {
+    return layerTable({ layers: this.layers });
   }
   hasService(_w: World, id: string): boolean {
     return id === "myco.physics3d" ? this.has3d : id === "myco.physics2d" ? this.has2d : false;
@@ -460,7 +459,7 @@ describe("rays: exclusion, multi-ray and hits", () => {
     expect(pass2.counters.occlusionRays).toBe(5);
   });
 
-  it("guards unknown layers (rayGroupsFor throws) and treats an empty list as off", () => {
+  it("leaves unknown layers out (they match nothing, ADR 0464) and treats an empty list as off", () => {
     const env = new FakeEnv();
     env.walls.push({ x: 5, halfWidth: 100, node: node("W") });
     const view = new FakeView(4);

@@ -10,7 +10,8 @@ import { effect } from "@preact/signals";
 import type { ReadonlySignal } from "@preact/signals";
 import type { GameObject } from "../../../engine";
 import type { World } from "../../../engine/core/World";
-import { rayGroupsFor, raycastInto, type WorldRayInto, type WorldRayQuery } from "../../../engine/core/worldServices";
+import { raycastInto, type WorldRayInto, type WorldRayQuery } from "../../../engine/core/worldServices";
+import { layerTable } from "../../../engine/physics/layers";
 import { mixer } from "../../../engine/audio/mixer";
 import { addEditorOverlay, removeEditorOverlay, type EditorOverlay } from "../../../engine/editor";
 import { Camera } from "../../../engine/render/components";
@@ -60,9 +61,10 @@ function worldOcclusionOverlay(world: World, colors: OcclusionColors, enabled: b
   for (const s of world._componentsOfType(AudioSource)) if (s._voiceId !== 0) sources.set(s._voiceId, s);
   let groups: number | undefined;
   try {
-    groups = rayGroupsFor(world, mixer.audioSettings.occlusion.layers ?? undefined);
+    // As the pass casts (ADR 0464): an unknown layer matches no collider.
+    groups = layerTable(world.settings.physics).queryGroups(mixer.audioSettings.occlusion.layers);
   } catch {
-    groups = undefined; // a layer the project doesn't define: the pass reports it; the overlay just casts at every layer
+    groups = undefined; // physics settings the table can't read (the settings parse reports them): cast at every layer
   }
   const out: WorldRayInto = { node: null, distance: 0, point: { x: 0, y: 0, z: 0 } };
   const pos = listenerPose(listener).position;

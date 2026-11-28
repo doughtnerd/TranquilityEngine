@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   Assets,
   BoxCollider2D,
@@ -40,11 +40,11 @@ const project = {
   },
 };
 
-async function setup() {
+async function setup(settings: { physics: { gravity: [number, number]; layers: string[]; collisionMatrix?: Record<string, string[]> } } = project) {
   events.length = 0;
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", settings: { physics: "2d" }, nodes: [] } }));
-  const engine = await Engine.create({ headless: true, project });
+  const engine = await Engine.create({ headless: true, project: settings });
   await SceneManager.load("s.json");
   return engine;
 }
@@ -133,5 +133,37 @@ describe("2D physics on Rapier (ADR 0005)", () => {
     const hit = Physics2D.raycast({ x: 0, y: 0 }, { x: 1, y: 0 }, 100);
     expect(hit?.collider.node.name).toBe("wall");
     expect(hit?.distance).toBeCloseTo(3.5);
+  });
+});
+
+describe("physics layers through the layer table (ADR 0464)", () => {
+  it("a query naming only an unknown layer hits nothing (not layer 0's colliders) and warns once", async () => {
+    // No matrix: every layer collides with every layer, so a query can hit a "Default" (layer 0) collider.
+    const engine = await setup({ physics: { gravity: [0, -10], layers: ["Default", "Wall"] } });
+    const wall = GameObject.create("wall");
+    wall.transform!.position.x = 4;
+    wall.addBehavior(BoxCollider2D); // on "Default", layer 0
+    steps(engine, 1);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(Physics2D.raycast({ x: 0, y: 0 }, { x: 1, y: 0 }, 100, ["Nope"])).toBeNull();
+      expect(Physics2D.raycast({ x: 0, y: 0 }, { x: 1, y: 0 }, 100, ["Nope"])).toBeNull();
+      expect(warn.mock.calls.filter(([m]) => String(m).includes('"Nope"'))).toHaveLength(1);
+      expect(Physics2D.raycast({ x: 0, y: 0 }, { x: 1, y: 0 }, 100, ["Nope", "Default"])?.collider.node.name).toBe("wall");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("a repeated layer name is its first layer, so the collision matrix applies to it", async () => {
+    const engine = await setup({ physics: { gravity: [0, -10], layers: ["Default", "Enemy", "Enemy", "Wall"], collisionMatrix: { Enemy: ["Wall"] } } });
+    const floor = GameObject.create("floor");
+    floor.transform!.position.y = -2;
+    floor.addBehavior(BoxCollider2D, { layer: "Wall" }).size.set(10, 1);
+    const ball = GameObject.create("ball");
+    ball.addBehavior(RigidBody2D);
+    ball.addBehavior(CircleCollider2D, { radius: 0.5, layer: "Enemy" });
+    steps(engine, 90);
+    expect(ball.transform!.position.y).toBeCloseTo(-1, 1);
   });
 });

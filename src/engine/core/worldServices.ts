@@ -11,7 +11,6 @@
  * Plugins register services through their runtime context (`registerWorldService`). Other plugins reach
  * one through a typed key (`defineWorldService`, `worldService`) for optional coupling (ADR 0133).
  */
-import { layerGroups } from "../physics/layers";
 import type { GameObject } from "../scene/GameObject";
 import { getComponentId, type ComponentClass } from "./registry";
 import type { World } from "./World";
@@ -54,7 +53,7 @@ export interface WorldRayInto {
 
 /** @internal What `raycastInto` may hit (ADR 0162, C14). The caller reuses one query object across calls. */
 export interface WorldRayQuery {
-  /** Which colliders can be hit: `rayGroupsFor(world, layers)`, computed when settings change; undefined: every layer. */
+  /** Which colliders can be hit: `layerTable(physics).queryGroups(layers)` (ADR 0464), computed when settings change; undefined: every layer. */
   groups: number | undefined;
   /** Colliders on these nodes are never hit (the source's subtree, the listener's node); tested inside the query. */
   excludeNodes: ReadonlySet<GameObject>;
@@ -314,23 +313,6 @@ export function raycastInto(world: World, out: WorldRayInto, origin: { x: number
     if (def?.raycastInto) return def.raycastInto(s.instances.get(id), out, origin, dir, maxDistance, query);
   }
   return false;
-}
-
-/**
- * @internal The `WorldRayQuery.groups` mask for colliders on any of `layers` (physics layer names; none:
- * every layer), read from the World's physics settings, so it needs no running service. Compute it when
- * settings change, not per call. Throws on a layer the project doesn't define.
- */
-export function rayGroupsFor(world: World, layers?: readonly string[]): number | undefined {
-  if (!layers?.length) return undefined;
-  const map = layerGroups(world.settings.physics);
-  let membership = 0;
-  for (const l of layers) {
-    const g = map.get(l);
-    if (g === undefined) throw new Error(`rayGroupsFor: unknown physics layer "${l}".`);
-    membership |= g >>> 16;
-  }
-  return (0xffff << 16) | membership;
 }
 
 /**

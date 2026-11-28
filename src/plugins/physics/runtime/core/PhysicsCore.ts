@@ -13,7 +13,7 @@
 import type { Component } from "../../../../engine/core/Component";
 import type { BufferDef } from "../../../../engine/core/data";
 import type { World } from "../../../../engine/core/World";
-import { layerGroups } from "../../../../engine/physics/layers";
+import { layerTable, type LayerTable } from "../../../../engine/physics/layers";
 import type { BodyType, CollisionFlags } from "../../../../engine/physics/types";
 import { GameObject } from "../../../../engine/scene/GameObject";
 import type { Transform } from "../../../../engine/scene/Transform";
@@ -96,7 +96,7 @@ type Hook = "Enter" | "Stay" | "Exit";
 export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<D>> {
   readonly backend: PhysicsWorldBackend<D>;
   protected readonly colliderById = new Map<number, T["collider"]>();
-  private readonly layerGroups: Map<string, number>;
+  private readonly layers: LayerTable;
   private readonly warned = new Set<string>();
   /** The last fixed step's length (joint breaks need it). */
   private dt = 0;
@@ -155,7 +155,7 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
   ) {
     this.capabilities = backend.capabilities;
     this.backend = backend.createWorld({ gravity, warn: (key, message) => this.warnOnce(key, message) });
-    this.layerGroups = layerGroups(world.settings.physics);
+    this.layers = layerTable(world.settings.physics, (key, message) => this.warnOnce(key, message));
   }
 
   readonly capabilities: PhysicsCapabilities;
@@ -178,21 +178,9 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
     console.warn(`[myco] ${message}`);
   }
 
-  /** Layer name → collision groups (membership in the high 16 bits, filter in the low 16). */
+  /** A collider's collision groups on `layer` (ADR 0464: an unknown layer warns once and uses the first). */
   protected groupsFor(layer: string): number {
-    const g = this.layerGroups.get(layer);
-    if (g === undefined) {
-      const first = this.world.settings.physics.layers[0];
-      this.warnOnce(`layer:${layer}`, `unknown physics layer "${layer}"; using "${first}".`);
-      return this.layerGroups.get(first)!;
-    }
-    return g;
-  }
-
-  /** A query's filter: colliders on any of `layers` (undefined: all). */
-  protected queryGroups(layers?: string[]): number | undefined {
-    if (!layers?.length) return undefined;
-    return (0xffff << 16) | layers.reduce((m, l) => m | (this.groupsFor(l) >>> 16), 0);
+    return this.layers.groupsOf(layer);
   }
 
   protected arr(v: D["vec"] | D["ang"]): number[] {
@@ -667,7 +655,7 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
   raycast(origin: D["vec"], dir: D["vec"], maxDistance: number, layers?: string[]): { collider: T["collider"]; point: D["vec"]; normal: D["vec"]; distance: number } | null {
     const d = this.arr(dir);
     const len = Math.hypot(...d) || 1;
-    const hit = this.backend.raycast(origin, this.vec(d.map((v) => v / len)), maxDistance, this.queryGroups(layers));
+    const hit = this.backend.raycast(origin, this.vec(d.map((v) => v / len)), maxDistance, this.layers.queryGroups(layers));
     const collider = hit ? this.colliderById.get(hit.collider) : undefined;
     return hit && collider ? { collider, point: hit.point, normal: hit.normal, distance: hit.distance } : null;
   }
@@ -676,19 +664,19 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
   castShape(shape: D["queryShape"], position: D["vec"], rotation: D["rot"], direction: D["vec"], maxDistance: number, layers?: string[]): { collider: T["collider"]; point: D["vec"]; normal: D["vec"]; distance: number } | null {
     const d = this.arr(direction);
     const len = Math.hypot(...d) || 1;
-    const hit = this.backend.castShape(shape, position, rotation, this.vec(d.map((v) => v / len)), maxDistance, this.queryGroups(layers));
+    const hit = this.backend.castShape(shape, position, rotation, this.vec(d.map((v) => v / len)), maxDistance, this.layers.queryGroups(layers));
     const collider = hit ? this.colliderById.get(hit.collider) : undefined;
     return hit && collider ? { collider, point: hit.point, normal: hit.normal, distance: hit.distance } : null;
   }
 
   /** @internal Every collider intersecting the shape. */
   overlap(shape: D["queryShape"], position: D["vec"], rotation: D["rot"], layers?: string[]): T["collider"][] {
-    return this.collidersOf(this.backend.overlap(shape, position, rotation, this.queryGroups(layers)));
+    return this.collidersOf(this.backend.overlap(shape, position, rotation, this.layers.queryGroups(layers)));
   }
 
   /** @internal Every collider containing the point. */
   overlapPoint(point: D["vec"], layers?: string[]): T["collider"][] {
-    return this.collidersOf(this.backend.overlapPoint(point, this.queryGroups(layers)));
+    return this.collidersOf(this.backend.overlapPoint(point, this.layers.queryGroups(layers)));
   }
 
   private collidersOf(ids: number[]): T["collider"][] {

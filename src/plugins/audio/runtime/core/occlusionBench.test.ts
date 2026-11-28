@@ -14,6 +14,7 @@ import type { AudioSettings } from "../../../../engine/audio/settings";
 import { builtinMaterials, type OccluderParams } from "../../../../engine/audio/occlusionMaterials";
 import type { World } from "../../../../engine/core/World";
 import type { WorldRayInto, WorldRayQuery } from "../../../../engine/core/worldServices";
+import { layerTable, type LayerTable } from "../../../../engine/physics/layers";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { LP_TOP } from "../wire.generated";
 import { encodeVoiceId } from "./ids";
@@ -51,8 +52,8 @@ class BenchEnv implements OcclusionEnvironment {
     out.point.z = o.z + d.z * t;
     return true;
   }
-  rayGroupsFor(): number | undefined {
-    return (0xffff << 16) | 1;
+  physicsLayers(): LayerTable {
+    return layerTable({ layers: ["Default"] });
   }
   hasService(_w: World, id: string): boolean {
     return id === "myco.physics3d";

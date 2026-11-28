@@ -1,7 +1,8 @@
 // ADR 0162 C14 (task D0): the allocation-free, exclusion-aware ray query the audio occlusion pass uses.
 import { beforeEach, describe, expect, it } from "vitest";
 import { Assets, BoxCollider, CapsuleCollider, Engine, GameObject, SceneManager } from "../../myco";
-import { raycastInto, rayGroupsFor, type WorldRayInto, type WorldRayQuery } from "../core/worldServices";
+import { raycastInto, type WorldRayInto, type WorldRayQuery } from "../core/worldServices";
+import { layerTable } from "../physics/layers";
 import { PhysicsWorld3D } from "../../plugins/physics/runtime/core/PhysicsWorld3D";
 import { initRapier3D, rapier3DBackend } from "../../plugins/physics-rapier/runtime/rapier3d";
 import { PHYSICS_3D_SERVICE } from "../../plugins/physics/runtime/dimensions";
@@ -98,16 +99,28 @@ describe("raycastInto (C14)", () => {
     wall("wallLayer", 6, { layer: "Walls" });
     step();
     const out = newOut();
-    const walls = rayGroupsFor(engine.world, ["Walls"]);
+    const table = layerTable(engine.world.settings.physics);
+    const walls = table.queryGroups(["Walls"]);
     expect(raycastInto(engine.world, out, O, X, 50, query({ groups: walls }))).toBe(true);
     expect(out.node?.name).toBe("wallLayer");
-    const ghost = rayGroupsFor(engine.world, ["Ghost"]);
+    const ghost = table.queryGroups(["Ghost"]);
     expect(raycastInto(engine.world, out, O, X, 50, query({ groups: ghost }))).toBe(true);
     expect(out.node?.name).toBe("ghost");
     expect(raycastInto(engine.world, out, O, X, 50, query({ groups: undefined }))).toBe(true);
     expect(out.node?.name).toBe("ghost");
-    expect(rayGroupsFor(engine.world)).toBeUndefined();
-    expect(() => rayGroupsFor(engine.world, ["Nope"])).toThrow(/unknown physics layer/);
+    expect(table.queryGroups(undefined)).toBeUndefined();
+    expect(table.queryGroups([])).toBeUndefined();
+  });
+
+  it("hits nothing for a query naming only an unknown layer, not layer 0's colliders (ADR 0464)", () => {
+    wall("onDefault", 2);
+    wall("onWalls", 6, { layer: "Walls" });
+    step();
+    const out = newOut();
+    const table = layerTable(engine.world.settings.physics);
+    expect(raycastInto(engine.world, out, O, X, 50, query({ groups: table.queryGroups(["Nope"]) }))).toBe(false);
+    expect(raycastInto(engine.world, out, O, X, 50, query({ groups: table.queryGroups(["Nope", "Walls"]) }))).toBe(true);
+    expect(out.node?.name).toBe("onWalls");
   });
 
   it("leaves out untouched on a miss", () => {
