@@ -1,7 +1,7 @@
 // ADR 0415: 2D light volumes, the meshes and the renderer-neutral volume batches against a fake quad-batch host.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Color, Engine, GameObject, Light2D, SceneManager, Vector2 } from "../../../myco";
-import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
+import { memoryQuadHost } from "../../../engine/tests/memoryQuadHost";
 import { pointAttenuation } from "../../../engine/render/lights2D/lightShapes";
 import { Lights2DVolumes } from "./volumeRenderer";
 import { spriteVolume, volumeLayer, volumeMesh, type VolumeLight } from "./volumes";
@@ -57,28 +57,7 @@ describe("light volume meshes", () => {
 });
 
 function fakeQuads() {
-  const batches: (QuadBatch & { positions: Float32Array | null; colors: Float32Array | null; texture: string; order: [string, number]; material: string | null; visible: boolean; disposed: boolean; matrix: number[]; blend: string })[] = [];
-  const quads: QuadBatchHost = {
-    createBatch() {
-      const b: (typeof batches)[number] = {
-        positions: null, colors: null, texture: "", order: ["", 0], material: null, visible: false, disposed: false, matrix: [], blend: "alpha",
-        setMaterial(m) { b.material = m; },
-        setBlend(m) { b.blend = m; },
-        setQuads() {},
-        setTriangles(t, p) { b.texture = t; b.positions = p; },
-        setMask() {},
-        setMatrix(x, o = 0) { b.matrix = Array.from(x).slice(o, o + 16); },
-        setOrder(layer, inLayer) { b.order = [layer, inLayer]; },
-        setTint() {},
-        setVisible(v) { b.visible = v; },
-        dispose() { b.disposed = true; },
-      };
-      batches.push(b);
-      return b;
-    },
-    textureSize: () => [1, 1],
-    onCameraRender: () => () => {},
-  };
+  const { host: quads, batches } = memoryQuadHost({ size: [1, 1] });
   return { quads, batches };
 }
 
@@ -111,7 +90,7 @@ describe("light volume batches (ADR 0415)", () => {
     volumes.sync(engine.world);
     expect(batches).toHaveLength(1);
     const b = batches[0]!;
-    expect(b).toMatchObject({ blend: "additive", visible: true, order: ["Default", 9999], material: null }); // unlit, on top of its highest target layer
+    expect(b).toMatchObject({ blend: "additive", visible: true, sortingLayer: "Default", place: 19999, material: null }); // unlit, on top of its highest target layer (Default, the second)
     expect(b.matrix.slice(12, 14)).toEqual([3, 1]);
     const first = b.positions;
     volumes.sync(engine.world);

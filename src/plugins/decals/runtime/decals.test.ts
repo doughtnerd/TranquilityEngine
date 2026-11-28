@@ -3,20 +3,18 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Camera, Color, Engine, GameObject, Quaternion, SceneManager, SpriteRenderer, Vector2, Vector3 } from "../../../myco";
 import type { DecalBatch, DecalHost, DecalLook } from "../../../engine/render/decals";
-import type { QuadBatch, QuadBatchHost, QuadMask } from "../../../engine/render/quadBatches";
-import { drawPlace, ySortFraction } from "../../../engine/render/sortOrder";
+import type { QuadBatch } from "../../../engine/render/quadBatches";
+import { memoryQuadHost, type MemoryQuadBatch } from "../../../engine/tests/memoryQuadHost";
+import { drawPlace } from "../../../engine/render/sortOrder";
 import { Decal2D, DecalProjector } from "./components";
 import { DecalRenderer } from "./decalRenderer";
 import { Decals } from "./Decals";
 
 type FakeDecalBatch = DecalBatch & { look: DecalLook; count: number; matrices: Float32Array; colors: Float32Array; uvs: Float32Array; angles: Float32Array; order: number; disposed: boolean };
-/** `order` is the sorting layer and order in layer it was given; `within` how far into that order (ADR 0440), undefined when not passed. */
-type FakeQuads = QuadBatch & { texture: string; positions: Float32Array; colors: Float32Array | null; mask: QuadMask | null; order: [string, number]; within: number | undefined; material: string | null; disposed: boolean };
 
 /** Fake hosts; `view` is the view camera distance fades are measured from (none by default). */
 function fakeHosts(view: () => Camera | null = () => null) {
   const boxes: FakeDecalBatch[] = [];
-  const quads: FakeQuads[] = [];
   const decals: DecalHost = {
     createBatch(_name, look) {
       const b: FakeDecalBatch = {
@@ -31,27 +29,7 @@ function fakeHosts(view: () => Camera | null = () => null) {
       return b;
     },
   };
-  const quadHost: QuadBatchHost = {
-    createBatch() {
-      const b: FakeQuads = {
-        texture: "", positions: new Float32Array(), colors: null, mask: null, order: ["", 0], within: undefined, material: null, disposed: false,
-        setMaterial(m) { b.material = m; },
-        setBlend() {},
-        setQuads() {},
-        setTriangles(t, p, _uv, _i, c) { b.texture = t; b.positions = p; b.colors = c ?? null; },
-        setMask(m) { b.mask = m; },
-        setMatrix() {},
-        setOrder(layer, inLayer, within) { b.order = [layer, inLayer]; b.within = within; },
-        setTint() {},
-        setVisible() {},
-        dispose() { b.disposed = true; },
-      };
-      quads.push(b);
-      return b;
-    },
-    textureSize: () => [100, 50],
-    onCameraRender: () => () => {},
-  };
+  const { host: quadHost, batches: quads } = memoryQuadHost({ size: [100, 50] });
   return { host: { decals, quads: quadHost, pixelsPerUnit: () => 100, viewCamera: view }, boxes, quads };
 }
 
@@ -124,7 +102,7 @@ describe("decal drawing (ADR 0395)", () => {
     decals.sync(engine.world);
     expect(quads).toHaveLength(1);
     const q = quads[0]!;
-    expect(q.order).toEqual(["Default", 2]);
+    expect([q.sortingLayer, q.place]).toEqual(["Default", 10002]);
     expect(q.material).toBe(""); // the default 2D material (Sprite Lit)
     expect(q.texture).toBe("splat.png");
     expect(Array.from(q.positions.subarray(0, 3))).toEqual([3.5, -0.25, 0]); // its own 1 × 0.5 quad around the node at x = 4
@@ -146,7 +124,7 @@ describe("2D decals in a y-sorted sorting layer (ADR 0440)", () => {
     return node.addBehavior(Decal2D, { sprite: "splat.png", sortingLayer: layer, orderInLayer: 2 });
   };
   /** Each placed decal's pick order, from what the feature reports drawn. */
-  const pickOrders = (decals: DecalRenderer): Map<string, number> => new Map([...decals.drawn()].map((d) => [d.component.node.name, d.order]));
+  const pickOrders = (decals: DecalRenderer): Map<string, number> => new Map([...decals.drawn()].map((d) => [d.component.node.name, d.order ?? (d.shape as { batches: readonly QuadBatch[] }).batches[0]!.place]));
 
   it("places placed decals by height within their order in layer, lower on top, and follows a decal that moves", async () => {
     const engine = await headless(1000, ["Default"]);
@@ -156,11 +134,11 @@ describe("2D decals in a y-sorted sorting layer (ADR 0440)", () => {
     const low = stamp("low", "Default", -1);
     decals.sync(engine.world);
     expect(quads).toHaveLength(2);
-    const [high, lowQuads] = quads as [FakeQuads, FakeQuads];
-    expect(high.order).toEqual(["Default", 2]);
-    expect(high.within).toBe(ySortFraction(3));
-    expect(lowQuads.within).toBe(ySortFraction(-1));
-    expect(lowQuads.within!).toBeGreaterThan(high.within!); // the lower one draws later, over the higher
+    const [high, lowQuads] = quads as [MemoryQuadBatch, MemoryQuadBatch];
+    expect(high.sortingLayer).toBe("Default");
+    expect(high.place).toBe(drawPlace(RENDER, "Default", 2, 3));
+    expect(lowQuads.place).toBe(drawPlace(RENDER, "Default", 2, -1));
+    expect(lowQuads.place).toBeGreaterThan(high.place); // the lower one draws later, over the higher
     // Picking ranks by the same places: in the band of order 2 of the second layer, the lower one on top.
     let orders = pickOrders(decals);
     expect(orders.get("high")).toBe(drawPlace(RENDER, "Default", 2, 3));
@@ -171,8 +149,8 @@ describe("2D decals in a y-sorted sorting layer (ADR 0440)", () => {
     low.node.transform!.position.y = 5; // now above the other: drawn under it
     decals.sync(engine.world);
     expect(quads).toHaveLength(2); // the same batch, moved
-    expect(lowQuads.within).toBe(ySortFraction(5));
-    expect(lowQuads.within!).toBeLessThan(high.within!);
+    expect(lowQuads.place).toBe(drawPlace(RENDER, "Default", 2, 5));
+    expect(lowQuads.place).toBeLessThan(high.place);
     orders = pickOrders(decals);
     expect(orders.get("low")).toBe(drawPlace(RENDER, "Default", 2, 5));
     expect(orders.get("low")!).toBeLessThan(orders.get("high")!);
@@ -185,7 +163,7 @@ describe("2D decals in a y-sorted sorting layer (ADR 0440)", () => {
     stamp("high", "Back", 3);
     stamp("low", "Back", -1);
     decals.sync(engine.world);
-    expect(quads.map((q) => q.within)).toEqual([0, 0]);
+    expect(quads.map((q) => q.place)).toEqual([2, 2]);
     expect([...pickOrders(decals).values()]).toEqual([2, 2]);
   });
 
@@ -198,12 +176,12 @@ describe("2D decals in a y-sorted sorting layer (ADR 0440)", () => {
     Decals.stamp({ position: new Vector2(0, 2), sprite: "splat.png", sortingLayer: "Back" });
     Decals.stamp({ position: new Vector2(1, -2), sprite: "splat.png", sortingLayer: "Back" });
     decals.sync(engine.world);
-    const ySorted = quads.filter((q) => q.order[0] === "Default");
-    expect(ySorted.map((q) => q.within)).toEqual([ySortFraction(2), ySortFraction(-2)]);
+    const ySorted = quads.filter((q) => q.sortingLayer === "Default");
+    expect(ySorted.map((q) => q.place)).toEqual([drawPlace(RENDER, "Default", 0, 2), drawPlace(RENDER, "Default", 0, -2)]);
     expect(ySorted.every((q) => q.positions.length === 12)).toBe(true); // one quad each
-    const back = quads.filter((q) => q.order[0] === "Back");
+    const back = quads.filter((q) => q.sortingLayer === "Back");
     expect(back).toHaveLength(1);
-    expect(back[0]!.within).toBe(0);
+    expect(back[0]!.place).toBe(0);
     expect(back[0]!.positions.length).toBe(24); // both quads
   });
 });

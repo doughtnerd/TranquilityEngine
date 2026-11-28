@@ -26,7 +26,7 @@
  *   (`QuadBatchHost.onCameraRender`), a parallax layer's batches get the matrix for that camera, for its draw only. A
  *   World with no view camera (a thumbnail's) draws parallax layers with the node, for every camera.
  * - **Y-sorted layers** (ADR 0440). On a y-sorted sorting layer each chunk draws one batch per row and texture (split
- *   further by the tiles' `sortOffset`), each at its sort point's world height (`ySortWithin`): the bottom of the row's
+ *   further by the tiles' `sortOffset`), each given its sort point's world height (the batch places it): the bottom of the row's
  *   cell boxes on square grids, the row's bottom corner on the others, raised by `sortOffset` cells.
  * - **Dim inactive layers** (ADR 0441): a layer's opacity is multiplied by the Tilemap's view-only factor
  *   (`Tilemap._setViewOpacity`, the editor's).
@@ -35,7 +35,6 @@ import type { Component } from "../../../engine/core/Component";
 import type { World } from "../../../engine/core/World";
 import type { BabylonFeature, BabylonFeatureFactory, DrawnNode } from "../../../engine/render/babylon/feature";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
-import { isYSorted, sortingOrder, ySortWithin } from "../../../engine/render/sortOrder";
 import { Assets, sidecarValue } from "../../../engine/scene/Assets";
 import { findSlice, splitSpriteRef } from "../../../engine/scene/importSettings";
 import { ANIMATION_STREAM, cellRandom } from "./cellHash";
@@ -101,9 +100,8 @@ interface ChunkEntry {
 
 interface LayerEntry {
   chunks: Map<string, ChunkEntry>;
-  /** Whether the last sync drew it, and in what draw order. */
+  /** Whether the last sync drew it. */
   visible: boolean;
-  order: number;
   /** The batches' matrix when last applied: the node's, with the layer's offset and the view camera's parallax. */
   matrix: Float32Array | null;
   /**
@@ -198,7 +196,6 @@ export class TilemapRenderer implements BabylonFeature {
     const wm = world.worldMatrix(e).subarray(e * 16, e * 16 + 16);
     const grid = map._grid();
     const gridKey = map._gridKey();
-    const render = world.settings.render;
     // ADR 0437, 0444: the map's animation clock, advanced by this frame's scaled time × speed; the edit World shows first frames (null).
     entry.clock += (world.time.time - entry.clockAt) * mapSpeed(map);
     entry.clockAt = world.time.time;
@@ -208,11 +205,9 @@ export class TilemapRenderer implements BabylonFeature {
       let le = entry!.layers[li];
       const visible = active && layer.meta.visible && !!tileset;
       const { sortingLayer, orderInLayer } = layer.meta;
-      const order = sortingOrder(render.sortingLayers, sortingLayer, orderInLayer); // the batches warn about an unknown layer
-      if (!le) entry!.layers[li] = le = { chunks: new Map(), visible, order, matrix: null, perCamera: null };
+      if (!le) entry!.layers[li] = le = { chunks: new Map(), visible, matrix: null, perCamera: null };
       le.visible = visible;
-      le.order = order;
-      const ySorted = isYSorted(render, sortingLayer);
+      const ySorted = this.host.ySorted(sortingLayer);
       const parallax = layer.meta.parallax;
       const view = parallax ? viewOf() : null;
       if (parallax && view) {
@@ -259,9 +254,9 @@ export class TilemapRenderer implements BabylonFeature {
         ce.batches.forEach((be, j) => {
           const b = be.batch;
           b.setVisible(visible);
-          if (be.sortPoint) b.setOrder(sortingLayer, orderInLayer, ySortWithin(render, sortingLayer, worldY(le.matrix!, be.sortPoint)));
+          if (be.sortPoint) b.setOrder(sortingLayer, orderInLayer, { y: worldY(le.matrix!, be.sortPoint) });
           else if (place === undefined) b.setOrder(sortingLayer, orderInLayer);
-          else b.setOrder(sortingLayer, orderInLayer, place.start + (place.step * j) / ce.batches.length);
+          else b.setOrder(sortingLayer, orderInLayer, { within: place.start + (place.step * j) / ce.batches.length });
           b.setTint(layer.meta.tint, opacity);
           b.setMaterial(map.material);
           if (moved) b.setMatrix(le.matrix!);
@@ -352,8 +347,8 @@ export class TilemapRenderer implements BabylonFeature {
   }
 
   /**
-   * ADR 0276: each tile layer drawn now (visible, with tiles), in map then layer order, as its quad batches in its draw
-   * order (tiles are picked like sprites: by layer, not depth).
+   * ADR 0276: each tile layer drawn now (visible, with tiles), in map then layer order, as its quad batches, each picked at
+   * the place it reports (ADR 0445: a y-sorted row at its height; tiles are picked like sprites: by layer, not depth).
    */
   *drawn(): Iterable<DrawnNode> {
     for (const [map, entry] of this.maps) {
@@ -361,7 +356,7 @@ export class TilemapRenderer implements BabylonFeature {
         if (!le.visible) continue;
         const batches: QuadBatch[] = [];
         for (const ce of le.chunks.values()) for (const be of ce.batches) batches.push(be.batch);
-        if (batches.length) yield { component: map, shape: { kind: "quads", batches }, order: le.order };
+        if (batches.length) yield { component: map, shape: { kind: "quads", batches } };
       }
     }
   }
