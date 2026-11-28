@@ -1,6 +1,6 @@
 # 0449. The engine owns an ECS-driven render scene, and Babylon becomes the GPU layer it draws through
 
-- **Status:** Proposed (direction; each stage gets its own record)
+- **Status:** Accepted (owner, 2026-11-28; direction, each stage gets its own record)
 - **Date:** 2026-11-28
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

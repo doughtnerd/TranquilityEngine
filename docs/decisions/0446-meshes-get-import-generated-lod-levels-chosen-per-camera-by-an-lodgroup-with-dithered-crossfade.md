@@ -1,6 +1,6 @@
 # 0446. Meshes get LOD levels generated at import, chosen per camera by an `LODGroup`, with dithered crossfade
 
-- **Status:** Accepted (owner, 2026-11-28, after the RFC round)
+- **Status:** Accepted (owner, 2026-11-28, after the RFC round); amended by 0448 (auto batches draw through per-pass thin buffers while levels are applied)
 - **Date:** 2026-11-28
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

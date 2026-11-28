@@ -1,6 +1,6 @@
 # 0448. Auto-instanced meshes draw through per-pass thin buffers while levels are applied
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-11-28)
 - **Date:** 2026-11-28
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
