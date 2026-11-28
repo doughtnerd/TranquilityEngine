@@ -13,7 +13,8 @@
 // matrix straight from the World's storage, so the per-Animator test allocates nothing (it used to make a
 // `LocalToWorld` per Animator and per camera, and four vectors per camera test).
 import type { World } from "../../../../../engine/core/World";
-import { Camera } from "../../../../../engine/render/components";
+import { Camera, LODGroup } from "../../../../../engine/render/components";
+import { visibilityService } from "../../../../../engine/render/visibility/service";
 import type { AnimatorRuntime } from "../instances";
 
 /** Extra reach over the rest pose for an animated pose (an arm swinging out). */
@@ -62,6 +63,13 @@ export interface CameraView {
 export interface CameraViews {
   readonly all: readonly CameraView[];
   readonly main: CameraView | null;
+  /**
+   * The level the visibility stage gives the `LODGroup` enclosing `rt`'s Animator for the main camera: -1 when it is
+   * culled by LOD, 0 with no group, no camera or no stage (ADR 0446 §6). The first call of a sub-step brings the
+   * stage up to date, so it is this frame's selection, not last frame's (the stage's own run is after propagation,
+   * which is after the animation gather).
+   */
+  groupLevel(rt: AnimatorRuntime): number;
 }
 
 const sphere: Sphere = { x: 0, y: 0, z: 0, r: 0 };
@@ -118,7 +126,37 @@ function inView(v: CameraView, b: Sphere): boolean {
   return Math.abs(y) - v.ty * z <= b.r * v.hy && Math.abs(x) - v.tx * z <= b.r * v.hx;
 }
 
-const NONE: CameraViews = { all: [], main: null };
+const NONE: CameraViews = { all: [], main: null, groupLevel: () => 0 };
+
+/** The group-level lookup of one gather sub-step over `world` (lazy: a World with no `"lodGroup"` Animator pays nothing). */
+function groupLevels(world: World): (rt: AnimatorRuntime) => number {
+  let ready = false;
+  let service: ReturnType<typeof visibilityService> = null;
+  // Owner entity → its LODGroup, or null for a disabled one (which stops the search, as the stage's member search does).
+  const owners = new Map<number, LODGroup | null>();
+  return (rt) => {
+    if (!ready) {
+      ready = true;
+      service = visibilityService(world);
+      if (service) {
+        service.update();
+        for (const g of world._componentsOfType(LODGroup)) {
+          if (g._destroyed) continue;
+          const e = g.owner.entity;
+          if (g.isActiveAndEnabled && !owners.get(e)) owners.set(e, g);
+          else if (!owners.has(e)) owners.set(e, null);
+        }
+      }
+    }
+    if (!service) return 0;
+    for (let e = rt.animator.gameObject.entity; e !== -1; e = world.parentOf[e]!) {
+      if (!owners.has(e)) continue;
+      const g = owners.get(e);
+      return g ? service.levelOf(g) : 0;
+    }
+    return 0;
+  };
+}
 
 /** @internal The enabled Cameras of `world` with their numbers (read once per gather sub-step). */
 export function cameraViews(world: World): CameraViews {
@@ -126,12 +164,16 @@ export function cameraViews(world: World): CameraViews {
   if (!cams.length) return NONE;
   const all = cams.map(viewOf);
   const main = all.reduce((best, c) => (c.camera.depth < best.camera.depth ? c : best));
-  return { all, main };
+  return { all, main, groupLevel: groupLevels(world) };
 }
 
-/** @internal Whether any camera of `views` sees `rt`'s skeleton (true without cameras or bounds). */
+/**
+ * @internal Whether any camera of `views` sees `rt`'s skeleton (true without cameras or bounds). With
+ * `lodMetric: "lodGroup"`, an enclosing group culled by LOD counts as not seen (ADR 0446 §6).
+ */
 export function isVisible(views: CameraViews, rt: AnimatorRuntime): boolean {
   if (!views.all.length) return true;
+  if (rt.animator.lodMetric === "lodGroup" && views.groupLevel(rt) === -1) return false;
   const b = boundsOf(rt);
   if (!b) return true;
   for (const v of views.all) if (inView(v, b)) return true;
@@ -142,6 +184,11 @@ export function isVisible(views: CameraViews, rt: AnimatorRuntime): boolean {
 export function lodStep(views: CameraViews, rt: AnimatorRuntime): number {
   const a = rt.animator;
   if (a.lodMetric === "off") return 1;
+  if (a.lodMetric === "lodGroup") {
+    // Level 0 every frame, level 1 every 2nd, level 2 and below (and culled) every 4th.
+    const level = views.groupLevel(rt);
+    return level === 0 ? 1 : level === 1 ? 2 : 4;
+  }
   const main = views.main;
   if (!main) return 1;
   const b = boundsOf(rt);

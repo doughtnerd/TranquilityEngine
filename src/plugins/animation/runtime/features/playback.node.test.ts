@@ -7,13 +7,15 @@
 // per frame over 10 frames).
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Animator, Assets, BoneAttachment, Camera, CharacterController, Engine, GameBehavior, GameObject, Quaternion, RigidBody, RootMotion, Skeleton, Vector3 } from "../../../../myco";
+import { Animator, Assets, BoneAttachment, Camera, CharacterController, Engine, GameBehavior, GameObject, LODGroup, Quaternion, RigidBody, RootMotion, Skeleton, Vector3 } from "../../../../myco";
 import type { World } from "../../../../engine/core/World";
 import { Mat4 } from "../../../../engine/core/math";
 import { applyTestPlugins } from "../../../testPlugins";
 import { multiply34, toMat4 } from "../affine";
 import { readClipInfo, readSkeletonInfo } from "../assetInfo";
 import { animationCoreOf } from "../core/service";
+import { animatorsOf } from "./instances";
+import { cameraViews, lodStep } from "./playback/view";
 import { instanceForSkeleton, skinningMatrices, skinningVersion } from "../skeletonInstances";
 import type { AnimationPlayResult, AnimatorCullingMode, AnimatorRootMotion, AnimatorUpdateMode } from "../types";
 
@@ -59,7 +61,9 @@ interface HeroOptions {
   updateMode?: AnimatorUpdateMode;
   cullingMode?: AnimatorCullingMode;
   rootMotion?: AnimatorRootMotion;
-  lodMetric?: "off" | "distance" | "screenSize";
+  lodMetric?: "off" | "distance" | "screenSize" | "lodGroup";
+  /** An `LODGroup` on the hero's node (its members: none; the group alone decides the level). */
+  group?: { levels: number[]; forceLevel?: number; size?: number };
   lodEvery2?: number;
   lodEvery4?: number;
   position?: [number, number, number];
@@ -82,6 +86,7 @@ async function hero(options: HeroOptions = {}): Promise<{ node: GameObject; anim
     lodEvery2: options.lodEvery2 ?? 20,
     lodEvery4: options.lodEvery4 ?? 40,
   });
+  if (options.group) node.addComponent(LODGroup, { levels: options.group.levels, forceLevel: options.group.forceLevel ?? -1, size: options.group.size ?? 2, fade: "none" });
   await vi.waitFor(() => expect(instanceForSkeleton(world, node)).not.toBe(0));
   return { node, anim };
 }
@@ -447,6 +452,79 @@ describe("culling and LOD", () => {
     camera([0, 1, -30]); // the rig covers a few percent of the view's height
     await everySecondFrame({ lodMetric: "screenSize", lodEvery2: 0.5, lodEvery4: 0.001 });
     destroyAll();
+  });
+
+  describe('lodMetric "lodGroup" (ADR 0446 §6)', () => {
+    /** The poses `hero(lod)` shows for 12 frames, each next to the poses of a reference hero at the same frame. */
+    async function sameAsReference(group: HeroOptions["group"], reference: HeroOptions): Promise<void> {
+      const { node: a, anim: grouped } = await hero({ lodMetric: "lodGroup", group });
+      const { node: b, anim: ref } = await hero(reference);
+      grouped.play(WALK);
+      ref.play(WALK);
+      await settle(grouped, ref);
+      for (let f = 0; f < 12; f++) {
+        steps(1);
+        expect(maxDiff(matrices(a), [...matrices(b)!])).toBeLessThan(1e-6);
+      }
+    }
+    const LEVELS = [0.5, 0.1, 0.02];
+
+    it("level 0 updates every frame", async () => {
+      camera([0, 1, -3]);
+      await sameAsReference({ levels: LEVELS, forceLevel: 0 }, { lodMetric: "off" });
+      destroyAll();
+    });
+
+    it("level 1 updates every 2nd frame, interpolated, as distance LOD's step 2 does", async () => {
+      camera([0, 1, -30]);
+      await sameAsReference({ levels: LEVELS, forceLevel: 1 }, { lodMetric: "distance" }); // 30 m: past lodEvery2 (20), before lodEvery4 (40)
+      destroyAll();
+    });
+
+    it("level 2 and below update every 4th frame, as distance LOD's step 4 does", async () => {
+      camera([0, 1, -30]);
+      await sameAsReference({ levels: LEVELS, forceLevel: 2 }, { lodMetric: "distance", lodEvery2: 1, lodEvery4: 2 });
+      destroyAll();
+    });
+
+    it("counts a group culled by LOD as not visible for cullingMode, and sees it again when it draws", async () => {
+      const cam = camera([0, 1, -40]); // far past the last height: the group is culled
+      const { node, anim } = await hero({ lodMetric: "lodGroup", cullingMode: "rootMotionOnly", group: { levels: [0.5, 0.1] } });
+      const group = node.getComponent(LODGroup)!;
+      anim.play(WALK);
+      await settle(anim);
+      steps(3);
+      expect(group.currentLevel).toBe(-1);
+      expect(matrices(node)).toBeNull(); // culled from the start: no pose evaluated
+      cam.transform!.position = [0, 1, -3];
+      steps(2);
+      expect(group.currentLevel).toBe(0);
+      expect(matrices(node)).not.toBeNull();
+      destroyAll();
+    });
+
+    it("an Animator under no group, or a World without one, updates every frame", async () => {
+      camera([0, 1, -30]);
+      await sameAsReference(undefined, { lodMetric: "off" });
+      destroyAll();
+    });
+
+    it("reads the level the group has in the same frame, with no frame of lag", async () => {
+      camera([0, 1, -3]);
+      const { node, anim } = await hero({ lodMetric: "lodGroup", group: { levels: LEVELS, forceLevel: 0 } });
+      anim.play(WALK);
+      await settle(anim);
+      steps(2);
+      const rt = [...animatorsOf(world)].find((r) => r.animator === anim)!;
+      const group = node.getComponent(LODGroup)!;
+      expect(lodStep(cameraViews(world), rt)).toBe(1);
+      // Changed after the stage's own run for this frame (after propagation): the gather still sees it.
+      group.forceLevel = 1;
+      expect(lodStep(cameraViews(world), rt)).toBe(2);
+      group.forceLevel = 2;
+      expect(lodStep(cameraViews(world), rt)).toBe(4);
+      destroyAll();
+    });
   });
 
   it("keeps root motion but freezes the pose of a rootMotionOnly Animator no camera sees", async () => {

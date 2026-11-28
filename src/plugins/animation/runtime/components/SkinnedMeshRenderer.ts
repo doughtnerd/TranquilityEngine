@@ -4,6 +4,8 @@
  * ordinary mesh, so shadows, depth and picking reuse it. Morph weights are animatable fields.
  */
 import { Component } from "../../../../engine/core/Component";
+import type { LodMember, OcclusionRole } from "../../../../engine/render/visibility/types";
+import { meshesIfLoaded, type ModelMesh } from "../../../../engine/scene/models";
 import { Vector3 } from "../../../../engine/core/math";
 import { AssetRef, component, field } from "../../../../engine/core/registry";
 import { GameObject } from "../../../../engine/scene/GameObject";
@@ -11,7 +13,7 @@ import { skinnedMeshHooks } from "../features/skinning";
 import type { SkinnedBoundsMode } from "../types";
 
 @component("engine.SkinnedMeshRenderer")
-export class SkinnedMeshRenderer extends Component {
+export class SkinnedMeshRenderer extends Component implements LodMember {
   /** The skinned mesh (`asset:hero.glb#Body`). */
   @field(AssetRef, { kind: "mesh", animatable: false, description: "The skinned mesh." })
   mesh = "";
@@ -42,6 +44,21 @@ export class SkinnedMeshRenderer extends Component {
   /** Show shadows cast onto it. */
   @field(Boolean, { description: "Show shadows cast onto it." })
   receiveShadows = true;
+
+  /**
+   * Its part in occlusion culling (ADR 0447 §3). A skinned mesh is an occludee only: it is hidden when something covers
+   * it and never hides anything, whatever this says; "none" always draws it.
+   */
+  @field(String, {
+    choices: ["auto", "occluder", "occludee", "none"],
+    description: "Its part in occlusion culling. A skinned mesh never hides anything: it is hidden when covered, unless None (always drawn).",
+  })
+  occlusion: OcclusionRole = "auto";
+
+  /** @internal The LOD0 model meshes it draws (ADR 0446 §2: what an `LODGroup` controls), or null while its model loads. */
+  lodMeshes(): readonly ModelMesh[] | null {
+    return meshesIfLoaded(this.mesh);
+  }
 
   override _onAttach(): void {
     skinnedMeshHooks.attach?.(this);

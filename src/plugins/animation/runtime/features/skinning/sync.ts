@@ -67,8 +67,34 @@ interface PaletteUse {
   seenAt: number;
 }
 
+/**
+ * @internal What a skinned draw adds when it draws its model mesh's LOD levels (ADR 0446 §6): the levels share its
+ * skinned vertex buffer, so one dispatch skins them all. A backend without it draws level 0 only.
+ */
+export interface SkinnedLevels<M> {
+  /** Levels the model mesh has (1 without LODs). */
+  readonly levelCount: number;
+  /** The mesh drawing `level` (0 is `mesh`); made on first ask. */
+  levelMesh(level: number): M;
+  /** Per-view drawing: exactly the levels whose bit is set are enabled (while the draw is on); null: level 0 only. */
+  showLevels(mask: number | null): void;
+}
+
+/** @internal One model mesh of a renderer, as the per-view choices see it. */
+export interface LevelDraw<M> {
+  /** Levels it has. */
+  readonly levels: number;
+  /** The mesh that draws `level` (clamped to its last level, ADR 0446 §2). */
+  mesh(level: number): M;
+  /** Enable exactly the levels in `mask` (bit i = level i), or only level 0 with null. */
+  show(mask: number | null): void;
+}
+
 interface DrawState<M> {
-  readonly draw: SkinnedDraw<M>;
+  readonly draw: SkinnedDraw<M> & Partial<SkinnedLevels<M>>;
+  readonly level: LevelDraw<M>;
+  /** Every mesh it has drawn as (level 0, and the levels asked for since). */
+  readonly all: M[];
   readonly joints: readonly number[];
   readonly needed: number;
   readonly rest: Box6;
@@ -100,6 +126,8 @@ export class SkinningSync<M> {
   private readonly entries = new Map<SkinnedMeshRenderer, Entry<M>>();
   private readonly palettes = new Map<object, PaletteUse>();
   private frame = 0;
+  /** The meshes of every draw (level 0, and levels made since): what a per-view drawing owns. */
+  private readonly owned = new Set<M>();
 
   constructor(
     private readonly draws: SkinnedDraws<M>,
@@ -134,6 +162,22 @@ export class SkinningSync<M> {
   /** Each renderer with its meshes, and whether it shows now. */
   *renderers(): Iterable<{ renderer: SkinnedMeshRenderer; meshes: M[]; visible: boolean }> {
     for (const [renderer, e] of this.entries) yield { renderer, meshes: e.draws.map((d) => d.draw.mesh), visible: e.visible && e.draws.length > 0 };
+  }
+
+  /** A renderer's model meshes with their levels (empty until its model has loaded). */
+  levelDraws(r: SkinnedMeshRenderer): readonly LevelDraw<M>[] {
+    return this.entries.get(r)?.draws.map((d) => d.level) ?? [];
+  }
+
+  /** The renderer drawing `mesh` at any level, or null. */
+  rendererOf(mesh: M): SkinnedMeshRenderer | null {
+    for (const [r, e] of this.entries) if (e.draws.some((d) => d.all.includes(mesh))) return r;
+    return null;
+  }
+
+  /** Whether `mesh` is one of the meshes any renderer draws (level 0 or a level made since). */
+  owns(mesh: M): boolean {
+    return this.owned.has(mesh);
   }
 
   /** Whether every renderer's model has loaded. */
@@ -252,11 +296,30 @@ export class SkinningSync<M> {
 
   private createDraw(s: SkinnedMeshSource, name: string): DrawState<M> {
     const g = s.geometry;
-    return { draw: this.draws.create(s, name), joints: usedJoints(g), needed: jointsNeeded(g), rest: restBox(g), reach: morphReach(g), dirty: true, skinnedWith: -1 };
+    const draw: DrawState<M>["draw"] = this.draws.create(s, name);
+    const all: M[] = [draw.mesh];
+    this.owned.add(draw.mesh);
+    const levels = draw.levelCount ?? 1;
+    const level: LevelDraw<M> = {
+      levels,
+      mesh: (l) => {
+        const m = draw.levelMesh && l > 0 ? draw.levelMesh(Math.min(l, levels - 1)) : draw.mesh;
+        if (!all.includes(m)) {
+          all.push(m);
+          this.owned.add(m);
+        }
+        return m;
+      },
+      show: (mask) => draw.showLevels?.(mask),
+    };
+    return { draw, level, all, joints: usedJoints(g), needed: jointsNeeded(g), rest: restBox(g), reach: morphReach(g), dirty: true, skinnedWith: -1 };
   }
 
   private disposeDraws(e: Entry<M>): void {
-    for (const d of e.draws) d.draw.dispose();
+    for (const d of e.draws) {
+      for (const m of d.all) this.owned.delete(m);
+      d.draw.dispose();
+    }
     e.draws = [];
     e.placed = null;
   }
