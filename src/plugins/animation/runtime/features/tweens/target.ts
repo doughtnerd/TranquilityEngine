@@ -5,11 +5,12 @@
 //
 // - **Transform:** `position` and `scale` (vec3), `rotation` (quaternion), local, through the Transform.
 // - **Component:** an animatable field (`@field(…, { animatable })`) or a sub-path of one (`drive.targetRotation`), or
-//   `material.<name>` on a MeshRenderer (the override's current value; a property with no override can't be read, so
+//   `material.<name>` or `materials[N].<name>` on a MeshRenderer (the override's current value; a property with no override can't be read, so
 //   such a tween needs `from`). The kind comes from the value the field holds: a number (float), a boolean (stepped:
 //   it switches at the end of each cycle), `Vector2`/`Vector3`, `Quaternion` (slerp), `Color` (RGBA), or a plain
 //   object of `x, y[, z[, w]]` or `r, g, b[, a]` numbers (linear).
 // - **Alive:** the target is gone once its node is destroyed or (a component) it was removed.
+import { fieldPathValue, parseFieldPath } from "../../../../../engine/animation/bindingPath";
 import { TRACK_KINDS } from "../../../../../engine/animation/tracks";
 import type { Component } from "../../../../../engine/core/Component";
 import { Color, Quaternion, Vector2, Vector3 } from "../../../../../engine/core/math";
@@ -80,13 +81,6 @@ function shapeOf(v: unknown): Shape | null {
   return null;
 }
 
-/** The value at `path` below `root`. */
-function walk(root: unknown, path: readonly string[]): unknown {
-  let v = root;
-  for (const p of path) v = isRecord(v) || v instanceof Object ? (v as Record<string, unknown>)[p] : undefined;
-  return v;
-}
-
 /** The numbers of a tween value, `width` long; components it lacks are null (filled from the start value). */
 export function tweenNumbers(v: TweenValue | undefined, width: number): (number | null)[] | null {
   if (v === undefined) return null;
@@ -120,9 +114,11 @@ export function resolveTweenTarget(target: TweenTarget, field: string, to: Tween
   const node = c.node;
   if (!node?.isValid || c._destroyed) return "it is destroyed";
   const world = node.world;
-  const material = c instanceof MeshRenderer && field.startsWith("material.") ? field.slice(9) : null;
-  const path = field.split(".");
-  const readValue = (): unknown => (material !== null ? (c as MeshRenderer).getMaterialProperty(material) : walk(c, path));
+  // Read through the same parse the write binds with (`material.<name>`, `materials[N].<name>`, sub-paths).
+  const path = parseFieldPath(field);
+  const mat = c instanceof MeshRenderer ? path.material : undefined;
+  const material = mat ? mat.name : null;
+  const readValue = (): unknown => (mat ? (c as MeshRenderer).getMaterialProperty(mat.name, mat.slot) : fieldPathValue((c as unknown as Record<string, unknown>)[path.head], field));
   const current = readValue();
   const shape = shapeOf(current ?? (material !== null ? materialShapeOf(to) : undefined));
   if (!shape) return current === undefined ? (material !== null ? `the material property "${material}" has no value to start from on this renderer; give \`from\`` : `no field "${field}"`) : `"${field}" isn't a number, boolean, vector, quaternion or colour`;

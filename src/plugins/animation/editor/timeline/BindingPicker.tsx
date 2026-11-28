@@ -4,7 +4,8 @@
 // is typed. A binding that doesn't resolve is flagged with why (`bindingProblem`).
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { editor } from "../../../../editor/sdk";
-import { bindingProblem, nodeChoices, relativeNodePath } from "./timelineModelLogic";
+import { nodePathOf } from "../../../../engine/animation/bindingPath";
+import { bindingProblem, nodeChoices } from "./timelineModelLogic";
 
 export interface BindingPickerProps {
   /** The bound node's path ("" for the director's node). */
@@ -24,7 +25,7 @@ export function BindingPicker(props: BindingPickerProps) {
   const useSelection = () => {
     const node = editor.scene.selection.node();
     if (!root || !node) return editor.messages.error("Can't bind the track: select a node under the director first");
-    const rel = relativeNodePath(root, node);
+    const rel = nodePathOf(root, node);
     if (rel === null) return editor.messages.error(`Can't bind the track: ${node.name} is outside ${root.name} (the director's node); a track binds nodes under it`);
     props.onPick(rel);
   };

@@ -11,7 +11,8 @@ import { listComponents } from "../../../../engine/editor";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { DopeSheetGrid, editor, EmptyState, openCurveEditorDialog, Panel, writeClipboard, type DopeRow, type DopeSelectMode, type EditResult } from "../../../../editor/sdk";
 import { propertyChoices, type NodeFields } from "./addTrackLogic";
-import { animationSession as s, relativePath, type WindowTarget } from "./animationSession";
+import { nodePathOf } from "../../../../engine/animation/bindingPath";
+import { animationSession as s, type WindowTarget } from "./animationSession";
 import { addKeyedTrack, addPropertyTrack, copyKeys, deleteKeys, keysOfRows, moveKeys, pasteClipboard, removeTrack, ripple, rowsOfTrack, scaleSelectedKeys, type KeyedTrackKind, type KeysResult } from "./clipEditLogic";
 import { applyCurveLanes, curveLanes } from "./curveLanesLogic";
 import { DEFAULT_ONION, onionFrames, onionSprites } from "./onionSkinLogic";
@@ -93,7 +94,7 @@ function ClipPicker(props: { target: Extract<WindowTarget, { kind: "animator" }>
 function nodesUnder(root: GameObject): NodeFields[] {
   const out: NodeFields[] = [];
   const walk = (n: GameObject) => {
-    const path = relativePath(root, n);
+    const path = nodePathOf(root, n);
     if (path === null) return;
     out.push({ path, components: listComponents(n).map((c) => ({ type: c.type, fields: c.fields.map((f) => ({ name: f.name, value: f.value })) })) });
     for (const c of n.children) walk(c);
