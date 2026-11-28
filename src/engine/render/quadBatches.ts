@@ -3,8 +3,11 @@
  * sorted, alpha-blended textured quads and triangles in a node's space, layered with sprites: tilemap chunks, 2D lines,
  * 2D decals, skinned sprites and light volumes. The backend implements it (`BabylonQuadBatches`); the feature decides
  * what the geometry is and when it changes. A batch names its 2D material asset; the backend works out its lighting,
- * normal and mask maps and tangents (its 2D materials, ADR 0418). Types only: no backend code here (ADR 0010).
+ * normal and mask maps and tangents (its 2D materials, ADR 0418). A batch also owns its place in the draw order
+ * (ADR 0445): the feature gives a sorting layer, an order in it and a sort point, the batch decides the rest and reports
+ * its `place`, which picking reads. Types only: no backend code here (ADR 0010).
  */
+import type { DrawSort } from "./sortOrder";
 
 /** @internal What a render feature borrows from the renderer to draw quad batches (ADR 0136). */
 export interface QuadBatchHost {
@@ -22,6 +25,11 @@ export interface QuadBatchHost {
    * tools read). Returns a function that removes the listener.
    */
   onCameraRender(listener: (cameraWorldPosition: readonly [number, number, number]) => void): () => void;
+  /**
+   * Whether batches on `sortingLayer` sort by their sort point's height (ADR 0440: a y-sorted layer): for a feature
+   * that splits its geometry by sort point there (a tile layer's rows) or batches draws only at one height.
+   */
+  ySorted(sortingLayer: string): boolean;
 }
 
 /** @internal One batch of textured quads: one draw call. */
@@ -47,11 +55,18 @@ export interface QuadBatch {
    */
   setMatrix(m: ArrayLike<number>, offset?: number): void;
   /**
-   * Its place among layered 2D content (ADR 0014): a sorting layer and an order in it, as sprites have. Lit batches read
-   * that layer's 2D light. `within` (ADR 0437, 0440; [0, 1), default 0) orders draws of the same order among themselves,
-   * larger drawing later: an isometric layer's chunks in painter's order, heights in a y-sorted layer.
+   * Its place among layered 2D content (ADR 0014, 0445): a sorting layer and an order in it, as sprites have. Lit batches
+   * read that layer's 2D light. `sort` orders batches of the same order among themselves (ADR 0437, 0440): `y`, the world
+   * height of its sort point, counts when the layer is y-sorted (higher draws earlier); `within` ([0, 1), larger later) is
+   * an explicit sub-order used otherwise (an isometric layer's chunks in painter's order). The batch works out its place
+   * from these (warning once about a sorting layer the project doesn't list) and reports it as `place`.
    */
-  setOrder(sortingLayer: string, orderInLayer: number, within?: number): void;
+  setOrder(sortingLayer: string, orderInLayer: number, sort?: DrawSort): void;
+  /**
+   * Its place among layered 2D content as of the last `setOrder` (0 before one): what it draws at and what picking ranks
+   * it by (ADR 0276, 0440), comparable with a sprite's. Higher draws later, on top.
+   */
+  readonly place: number;
   /**
    * Its 2D material asset (ADR 0399, 0415): "" the default, Sprite Lit (lit by its sorting layer's 2D lights, with its
    * texture's normal and mask maps); a Sprite Unlit material, or a sprite graph's; or null (the default for a new batch)

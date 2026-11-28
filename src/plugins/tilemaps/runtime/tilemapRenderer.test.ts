@@ -1,92 +1,19 @@
 // ADR 0136: the tile renderer is renderer-neutral, so it's tested against a fake quad-batch host.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, SceneManager, Vector2 } from "../../../myco";
-import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
+import { memoryQuadHost, type MemoryQuadBatch } from "../../../engine/tests/memoryQuadHost";
 import { newLayer } from "./format";
 import { Tilemap } from "./Tilemap";
 import { TilemapRenderer } from "./tilemapRenderer";
 
-interface FakeBatch extends QuadBatch {
-  name: string;
-  texture: string;
-  quads: number;
-  /** The farthest vertex from the map's origin, in local units. */
-  extent: [number, number];
-  order: [string, number];
-  /** `setOrder`'s third argument (ADR 0437): undefined when none was passed. */
-  within: number | undefined;
-  material: string | null;
-  tint: [string, number];
-  visible: boolean;
-  matrix: number[];
-  /** ADR 0444: the matrix each camera of the last `render` drew it with (its own `matrix` unless a listener set one). */
-  drawnWith: number[][];
-  /** A matrix set from a camera listener, for the camera drawing now. */
-  cameraMatrix: number[] | null;
-  disposed: boolean;
-  /** The arrays of the last `setQuads`, and how many times it was called. */
-  positions: Float32Array;
-  uvs: Float32Array;
-  indices: Uint32Array;
-  sets: number;
-}
+/** An in-memory quad-batch host whose textures load on `load()`. */
+const fakeHost = () => memoryQuadHost({ loading: true });
 
-function fakeHost() {
-  const batches: FakeBatch[] = [];
-  let loaded = false;
-  const pending: (() => void)[] = [];
-  const listeners = new Set<(camera: readonly [number, number, number]) => void>();
-  let inCamera = false;
-  const host: QuadBatchHost = {
-    createBatch(name) {
-      const b: FakeBatch = {
-        name, texture: "", quads: 0, extent: [0, 0], order: ["", 0], within: undefined, material: null, tint: ["", 0], visible: false, matrix: [], drawnWith: [], cameraMatrix: null, disposed: false,
-        positions: new Float32Array(0), uvs: new Float32Array(0), indices: new Uint32Array(0), sets: 0,
-        setMaterial(m) { b.material = m; },
-        setBlend() {},
-        setQuads(texture, positions, uvs, indices) {
-          b.texture = texture;
-          b.positions = positions;
-          b.uvs = uvs;
-          b.indices = indices;
-          b.sets++;
-          b.quads = indices.length / 6;
-          b.extent = [0, 0];
-          for (let i = 0; i < positions.length; i += 3) b.extent = [Math.max(b.extent[0], positions[i]), Math.max(b.extent[1], positions[i + 1])];
-        },
-        setTriangles() {},
-        setMatrix(m, offset = 0) {
-          const matrix = Array.from(m).slice(offset, offset + 16);
-          if (inCamera) b.cameraMatrix = matrix;
-          else b.matrix = matrix;
-        },
-        setOrder(layer, inLayer, within) { b.order = [layer, inLayer]; b.within = within; },
-        setTint(c, a) { b.tint = [c, a]; },
-        setMask() {},
-        setVisible(v) { b.visible = v; },
-        dispose() { b.disposed = true; },
-      };
-      batches.push(b);
-      return b;
-    },
-    textureSize: (_path, onLoad) => (loaded ? [64, 32] : (pending.push(onLoad), null)),
-    onCameraRender(listener) {
-      listeners.add(listener);
-      return () => void listeners.delete(listener);
-    },
-  };
-  /** Draw a frame with these cameras (world positions), as the backend does: listeners before each, then back to each batch's own matrix. */
-  const render = (cameras: [number, number, number][]) => {
-    for (const b of batches) b.drawnWith = [];
-    for (const camera of cameras) {
-      inCamera = true;
-      for (const listener of listeners) listener(camera);
-      inCamera = false;
-      for (const b of batches) b.drawnWith.push(b.cameraMatrix ?? b.matrix);
-    }
-    for (const b of batches) b.cameraMatrix = null;
-  };
-  return { host, batches, render, listeners, load: () => ((loaded = true), pending.splice(0).forEach((f) => f())) };
+/** The farthest vertex of a batch from the map's origin, in local units. */
+function extent(b: MemoryQuadBatch): [number, number] {
+  let e: [number, number] = [0, 0];
+  for (let i = 0; i < b.positions.length; i += 3) e = [Math.max(e[0], b.positions[i]), Math.max(e[1], b.positions[i + 1])];
+  return e;
 }
 
 const engines: Engine[] = [];
@@ -122,7 +49,7 @@ describe("the tile renderer (ADR 0103, 0136)", () => {
     tiles.sync(world);
     const first = live();
     expect(first.map((b) => b.quads).sort((a, b) => a - b)).toEqual([4 * 2, 16 * 2]);
-    expect(first.every((b) => b.texture === "t.png" && b.order[0] === "Back" && b.order[1] === 3 && b.within === undefined && b.material === "" && b.visible && b.tint[0] === "#ff0000" && b.tint[1] === 0.5)).toBe(true);
+    expect(first.every((b) => b.texture === "t.png" && b.sortingLayer === "Back" && b.place === 3 && b.material === "" && b.visible && b.tint[0] === "#ff0000" && b.tint[1] === 0.5)).toBe(true);
     // Editing one chunk rebuilds only that chunk.
     map.setTile(18, 0, 0);
     tiles.sync(world);
@@ -165,11 +92,11 @@ describe("the tile renderer (ADR 0103, 0136)", () => {
     const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default")] });
     map.fillRect(0, 0, 2, 1, 1);
     tiles.sync(engine.world);
-    const before = live().map((b) => b.extent);
+    const before = live().map((b) => extent(b));
     expect(before).toHaveLength(1);
     map.cellSize = new Vector2(0.5, 2);
     tiles.sync(engine.world);
-    expect(live().map((b) => b.extent)).toEqual([[before[0][0] * 0.5, before[0][1] * 2]]);
+    expect(live().map((b) => extent(b))).toEqual([[before[0][0] * 0.5, before[0][1] * 2]]);
     // Unchanged again: nothing is rebuilt.
     const drawn = live();
     tiles.sync(engine.world);
@@ -197,20 +124,20 @@ describe("the tile renderer (ADR 0103, 0136)", () => {
     // Chunks (0, 0), (1, 0) and (1, 1): on an isometric map (1, 1) is the farthest back, (0, 0) the front.
     for (const [x, y] of [[0, 0], [16, 0], [16, 16]]) map.setTile(x, y, 1);
     tiles.sync(engine.world);
-    const within = (chunk: string) => live().find((b) => b.name.endsWith(`:${chunk}`))!.within!;
+    const place = (chunk: string) => live().find((b) => b.name.endsWith(`:${chunk}`))!.place;
     expect(live()).toHaveLength(3);
-    expect(within("1,1")).toBeLessThan(within("1,0"));
-    expect(within("1,0")).toBeLessThan(within("0,0"));
+    expect(place("1,1")).toBeLessThan(place("1,0"));
+    expect(place("1,0")).toBeLessThan(place("0,0"));
     for (const b of live()) {
-      expect(b.within).toBeGreaterThanOrEqual(0);
-      expect(b.within).toBeLessThan(1);
+      expect(b.place).toBeGreaterThanOrEqual(0);
+      expect(b.place).toBeLessThan(1);
     }
     // Another grid lays the vertices out again; a square grid passes no painter's order.
     const before = live();
     map.gridShape = "square";
     tiles.sync(engine.world);
     expect(live().some((b) => before.includes(b))).toBe(false);
-    expect(live().every((b) => b.within === undefined)).toBe(true);
+    expect(live().every((b) => b.place === 0)).toBe(true);
   });
 });
 
@@ -505,25 +432,25 @@ describe("the tile renderer on y-sorted sorting layers (ADR 0440)", () => {
     tiles.sync(engine.world);
     const rows = live();
     expect(rows).toHaveLength(5);
-    const row = (y: number, slice = 0) => rows.find((b) => b.texture === "t.png" && Math.abs(b.uvs[0] - sliceU(slice)) < 0.01 && b.extent[1] === y + 1)!;
+    const row = (y: number, slice = 0) => rows.find((b) => b.texture === "t.png" && Math.abs(b.uvs[0] - sliceU(slice)) < 0.01 && extent(b)[1] === y + 1)!;
     const other = rows.find((b) => b.texture === "u.png")!; // in row 2
     expect(row(0).quads).toBe(2);
     expect(row(0, 1).quads).toBe(1); // the sortOffset tile
     expect(other.quads).toBe(1);
-    expect(row(2).within).toBeLessThan(row(1).within!);
-    expect(row(1).within).toBeLessThan(row(0).within!);
-    expect(row(0, 1).within).toBe(row(1).within);
-    expect(other.within).toBe(row(2).within);
+    expect(row(2).place).toBeLessThan(row(1).place);
+    expect(row(1).place).toBeLessThan(row(0).place);
+    expect(row(0, 1).place).toBe(row(1).place);
+    expect(other.place).toBe(row(2).place);
     // Moving the node down raises every row's place (lower things draw later), keeping their order.
-    const before = row(0).within!;
+    const before = row(0).place;
     map.node.transform!.position.y = -5;
     tiles.sync(engine.world);
-    expect(row(0).within).toBeGreaterThan(before);
+    expect(row(0).place).toBeGreaterThan(before);
     // Off a y-sorted layer: one batch per chunk and texture again.
     map.layers = map.toLayerData().map((l) => ({ ...l, sortingLayer: "Ground" }));
     tiles.sync(engine.world);
     expect(live().map((b) => b.quads).sort()).toEqual([1, 8]);
-    expect(live().every((b) => b.within === undefined)).toBe(true);
+    expect(live().every((b) => b.place === 0)).toBe(true);
   });
 
   it("sorts non-square rows by their bottom corner", async () => {
@@ -537,7 +464,7 @@ describe("the tile renderer on y-sorted sorting layers (ADR 0440)", () => {
     const batches = live();
     expect(batches.map((b) => b.quads).sort()).toEqual([1, 2]);
     const front = batches.find((b) => b.quads === 1)!, back = batches.find((b) => b.quads === 2)!;
-    expect(back.within).toBeLessThan(front.within!);
+    expect(back.place).toBeLessThan(front.place);
   });
 });
 
@@ -550,7 +477,7 @@ describe("the tile renderer's painter's order across textures (ADR 0437)", () =>
     map.setTile(1, 1, 2);
     map.setTile(16, 16, 1); // a chunk farther back
     tiles.sync(engine.world);
-    const inChunk = (key: string) => live().filter((b) => b.name.endsWith(`:${key}`)).map((b) => b.within!);
+    const inChunk = (key: string) => live().filter((b) => b.name.endsWith(`:${key}`)).map((b) => b.place);
     const near = inChunk("0,0"), far = inChunk("1,1");
     expect(near).toHaveLength(2);
     expect(new Set(near).size).toBe(2);

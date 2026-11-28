@@ -13,7 +13,6 @@ import type { BabylonFeature, BabylonFeatureFactory, DrawnNode, FeatureSyncConte
 import { type Camera, SpriteRenderer } from "../../../engine/render/components";
 import type { DecalBatch, DecalHost, DecalLook } from "../../../engine/render/decals";
 import type { QuadBatch, QuadBatchHost, QuadMask } from "../../../engine/render/quadBatches";
-import { drawPlace, ySortWithin } from "../../../engine/render/sortOrder";
 import { spriteFrame, type SpriteFrame } from "../../../engine/render/spriteFrame";
 import { Assets } from "../../../engine/scene/Assets";
 import type { GameObject } from "../../../engine/scene/GameObject";
@@ -31,10 +30,10 @@ export interface DecalsHost {
   viewCamera(): Camera | null;
 }
 
-/** A placed decal drawn now (ADR 0276): a projector's box (column-major unit-cube-to-world), or a 2D decal's quad batch and draw order. */
+/** A placed decal drawn now (ADR 0276): a projector's box (column-major unit-cube-to-world), or a 2D decal's quad batch (which reports its place). */
 type DrawnDecal =
   | { readonly component: DecalProjector; readonly kind: "box"; readonly matrix: Float32Array }
-  | { readonly component: Decal2D; readonly kind: "quads"; readonly batch: QuadBatch; readonly order: number };
+  | { readonly component: Decal2D; readonly kind: "quads"; readonly batch: QuadBatch };
 
 interface Instances {
   look: DecalLook;
@@ -50,10 +49,8 @@ interface Quads {
   texture: string;
   sortingLayer: string;
   orderInLayer: number;
-  /** How far into its order it sits: its height in a y-sorted layer (`ySortWithin`, ADR 0440), else 0. */
-  within: number;
-  /** Its draw place (`drawPlace`), for picking. */
-  order: number;
+  /** Its sort point's world height (ADR 0440: counts in a y-sorted layer, where only quads at one height share a batch). */
+  y: number;
   /** Its 2D material asset (ADR 0399: "" the default, Sprite Lit). */
   material: string;
   mask: QuadMask | null;
@@ -131,7 +128,7 @@ export class DecalRenderer implements BabylonFeature {
       if (!c.isActiveAndEnabled || !c.node.transform) continue;
       const e = c.node.entity, m = world.worldMatrix(e);
       const receiver = c.clip === "parentSprite" ? c.node.parent : null;
-      const placed = this.addQuad(world, quads, `c${e}`, c.sprite, c.sortingLayer, c.orderInLayer, m, e * 16, c.size ? [c.size.x, c.size.y] : null, c.color, clamp01(c.opacity), receiver, c.material);
+      const placed = this.addQuad(quads, `c${e}`, c.sprite, c.sortingLayer, c.orderInLayer, m, e * 16, c.size ? [c.size.x, c.size.y] : null, c.color, clamp01(c.opacity), receiver, c.material);
       if (placed) {
         placed.owners.push(c);
         decals2D++;
@@ -140,7 +137,7 @@ export class DecalRenderer implements BabylonFeature {
     for (const d of pool?.decals2D ?? []) {
       if (!d.alive) continue;
       Mat4.copy(box, 0, d.matrix, 0);
-      this.addQuad(world, quads, null, d.look.sprite, d.look.sortingLayer, d.look.orderInLayer, box, 0, d.size2D, d.color, clamp01(d.opacity) * d.fade(), d.clip);
+      this.addQuad(quads, null, d.look.sprite, d.look.sortingLayer, d.look.orderInLayer, box, 0, d.size2D, d.color, clamp01(d.opacity) * d.fade(), d.clip);
     }
 
     // --- hand the batches over ----------------------------------------------------------------------
@@ -164,14 +161,14 @@ export class DecalRenderer implements BabylonFeature {
       usedQuads.add(key);
       let batch = this.quads.get(key);
       if (!batch) this.quads.set(key, (batch = this.host.quads.createBatch(`decal2d:${key}`)));
-      batch.setOrder(q.sortingLayer, q.orderInLayer, q.within);
+      batch.setOrder(q.sortingLayer, q.orderInLayer, { y: q.y });
       batch.setMaterial(q.material);
       batch.setTriangles(q.texture, new Float32Array(q.positions), new Float32Array(q.uvs), quadIndices(q.positions.length / 12), new Float32Array(q.colors));
       batch.setTint("#ffffff", 1);
       batch.setMask(q.mask);
       batch.setMatrix(IDENTITY);
       batch.setVisible(true);
-      for (const owner of q.owners) this.drawnNow.push({ component: owner, kind: "quads", batch, order: q.order });
+      for (const owner of q.owners) this.drawnNow.push({ component: owner, kind: "quads", batch });
     }
     for (const [key, batch] of this.quads) {
       if (usedQuads.has(key)) continue;
@@ -186,7 +183,6 @@ export class DecalRenderer implements BabylonFeature {
    * placed Decal2D), else the one for its texture, draw order and receiver. Null while its texture loads.
    */
   private addQuad(
-    world: World,
     quads: Map<string, Quads>,
     own: string | null,
     sprite: string,
@@ -214,15 +210,14 @@ export class DecalRenderer implements BabylonFeature {
     const [pvx, pvy] = frame?.pivot ?? [0.5, 0.5];
     const [u0, v0, u1, v1] = frame?.uv ?? [0, 0, 1, 1];
     // In a y-sorted layer (ADR 0440) its sort point is its pivot's world height, so only decals at one height share a batch.
-    const render = world.settings.render, y = m[mo + 13]!;
-    const order = drawPlace(render, layer, orderInLayer, y); // the batch warns about an unknown layer
-    const within = ySortWithin(render, layer, y);
+    const y = m[mo + 13]!;
+    const sortKey = `${layer}|${orderInLayer}` + (this.host.quads.ySorted(layer) ? `|y${y}` : "");
     const mask = receiver ? this.maskOf(receiver, m[mo + 14]!) : null;
     if (receiver && mask === undefined) return null; // the receiver's texture is loading
     // A placed Decal2D draws in a batch of its own (picked and framed by itself); spawned ones share by texture, order and receiver.
-    const key = own ?? (mask && receiver ? `${image}|${order}|r${receiver.entity}` : `${image}|${order}`) + (material ? `|${material}` : "");
+    const key = own ?? (mask && receiver ? `${image}|${sortKey}|r${receiver.entity}` : `${image}|${sortKey}`) + (material ? `|${material}` : "");
     let q = quads.get(key);
-    if (!q) quads.set(key, (q = { texture: image, sortingLayer: layer, orderInLayer, within, order, material, mask: mask ?? null, positions: [], uvs: [], colors: [], owners: [] }));
+    if (!q) quads.set(key, (q = { texture: image, sortingLayer: layer, orderInLayer, y, material, mask: mask ?? null, positions: [], uvs: [], colors: [], owners: [] }));
     const corners: [number, number, number, number][] = [
       [-pvx * w, -pvy * h, u0, v0],
       [(1 - pvx) * w, -pvy * h, u1, v0],
@@ -268,12 +263,12 @@ export class DecalRenderer implements BabylonFeature {
 
   /**
    * ADR 0276: each placed projector as its box (not picked: a click on a wall selects the wall) and each placed 2D decal
-   * as its quad batch at its draw order. Spawned decals have no node and aren't reported.
+   * as its quad batch, picked at the place it reports (ADR 0445). Spawned decals have no node and aren't reported.
    */
   *drawn(): Iterable<DrawnNode> {
     for (const d of this.drawnNow) {
       if (d.kind === "box") yield { component: d.component, shape: { kind: "box", matrix: d.matrix }, order: 0, pickable: false };
-      else yield { component: d.component, shape: { kind: "quads", batches: [d.batch] }, order: d.order };
+      else yield { component: d.component, shape: { kind: "quads", batches: [d.batch] } };
     }
   }
 

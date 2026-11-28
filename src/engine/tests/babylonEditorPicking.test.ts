@@ -112,7 +112,7 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
       });
       sprites.sync(world());
       drawn = [];
-      for (const d of sprites.drawn()) if (d.shape?.kind === "quad") drawn.push({ component: d.component, shape: d.shape, order: d.order });
+      for (const d of sprites.drawn()) if (d.shape?.kind === "quad" && d.order !== undefined) drawn.push({ component: d.component, shape: d.shape, order: d.order });
       const picked = queries.pick(400, 300);
       sprites.dispose();
       return picked;

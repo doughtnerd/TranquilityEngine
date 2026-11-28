@@ -72,7 +72,7 @@ import { BabylonDecals } from "./decals";
 import { BabylonDynamicMeshes } from "./dynamicMeshes";
 import { PROBES_SPEC, ProbesFeature } from "./features";
 import { FOG_SPEC, FogFeature } from "./fog";
-import { sortingOrder, unknownLayerMessage } from "../sortOrder";
+import { unknownLayerMessage } from "../sortOrder";
 import { snapToGrid } from "../pixelPerfect";
 import { createEngine } from "./createEngine";
 import { PipelineReadiness } from "./pipelineReadiness";
@@ -241,7 +241,8 @@ export class BabylonRenderer {
       scene,
       materials2D: this.materials2D,
       texture: (path, onReady) => this.materials.texture(path, "color", () => onReady()),
-      sortOrder: (layer, order) => sortingOrder(this.settings.render.sortingLayers, layer, order, (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l))),
+      sortSettings: () => this.settings.render,
+      unknownLayer: (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l)),
     });
     this.lights2D = new BabylonLights2D({
       scene,
@@ -477,7 +478,9 @@ export class BabylonRenderer {
 
   /**
    * ADR 0276: what every loaded feature drew now, with quad batches (a tile layer's) resolved to the meshes
-   * that draw them, so the editor tools and thumbnails read meshes, quads and canvas rectangles alone.
+   * that draw them, so the editor tools and thumbnails read meshes, quads and canvas rectangles alone. Batches
+   * are grouped by the place each reports (ADR 0445): one drawing per place, picked at it, so a tile row drawn
+   * over a sprite in a y-sorted layer picks over it too.
    */
   private *drawn(): Iterable<EditorDrawn> {
     for (const slot of this.slots) {
@@ -486,12 +489,15 @@ export class BabylonRenderer {
           yield d as EditorDrawn;
           continue;
         }
-        const meshes: AbstractMesh[] = [];
+        const byPlace = new Map<number, AbstractMesh[]>();
         for (const b of d.shape.batches) {
           const mesh = this.quads.meshOf(b);
-          if (mesh) meshes.push(mesh);
+          if (!mesh) continue;
+          const meshes = byPlace.get(b.place);
+          if (meshes) meshes.push(mesh);
+          else byPlace.set(b.place, [mesh]);
         }
-        yield { ...d, shape: { kind: "meshes", meshes } };
+        for (const [order, meshes] of byPlace) yield { ...d, shape: { kind: "meshes", meshes }, order };
       }
     }
   }
