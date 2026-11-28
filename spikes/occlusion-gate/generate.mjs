@@ -27,7 +27,7 @@ const q = (yaw, pitch = 0) => {
 };
 const r3 = (v) => +v.toFixed(3);
 
-function writeProject(dir, name, meshes, objects, scene, instancing, bench, stats) {
+function writeProject(dir, name, meshes, objects, scene, instancing, bench, stats, lod = true) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, "models"), { recursive: true });
   mkdirSync(join(dir, "materials"), { recursive: true });
@@ -47,11 +47,13 @@ function writeProject(dir, name, meshes, objects, scene, instancing, bench, stat
       const mats = [...new Set(parts.map((p) => p.material))];
       put(`models/${file}.mtl`, mats.map((m) => `newmtl ${m}\nKd ${(MATERIALS[m].color.match(/\w\w/g) ?? []).slice(0, 3).map((h) => (parseInt(h, 16) / 255).toFixed(3)).join(" ")}\n`).join("\n"));
       put(`models/${file}.obj`, toObj(file, parts, `${file}.mtl`));
-      put(`models/${file}.obj.meta.json`, JSON.stringify({ format: "myco.import@1", lod: { ...LOD_DEFAULTS, permissive: file.startsWith("bld") } }));
+      if (lod) put(`models/${file}.obj.meta.json`, JSON.stringify({ format: "myco.import@1", lod: { ...LOD_DEFAULTS, permissive: file.startsWith("bld") } }));
       stats.meshes[file] = { tris: triCount(parts), parts: parts.map((p) => ({ material: p.material, tris: p.indices.length / 3 })) };
     }
   }
-  put("scenes/main.scene.json", JSON.stringify(scene));
+  // The no-LOD baseline (coordinator, 2026-11-28): no sidecar `lod` and no LODGroups, so the engine draws LOD0 as before LOD existed.
+  const strip = (n) => ({ ...n, components: (n.components ?? []).filter((c) => c.type !== "engine.LODGroup"), children: n.children?.map(strip) });
+  put("scenes/main.scene.json", JSON.stringify(lod ? scene : { ...scene, nodes: scene.nodes.map(strip) }));
   put("bench.json", JSON.stringify(bench));
   writeFileSync(join(dir, "files.json"), JSON.stringify([...files, "files.json"].filter((f) => f !== "bench.json" && f !== "files.json")));
 }
@@ -178,6 +180,7 @@ for (const [sceneName, make] of [["forest", forest], ["city", city]]) {
     const { name, meshes, scene, bench } = make(instancing);
     const stats = { meshes: {} };
     writeProject(join(OUT, `${sceneName}-${instancing}-lod`), name, meshes, null, scene, instancing, bench, stats);
+    writeProject(join(OUT, `${sceneName}-${instancing}-base`), name, meshes, null, scene, instancing, bench, { meshes: {} }, false);
     if (instancing === "auto") summary[sceneName] = stats.meshes;
     console.log(`${sceneName}-${instancing}-lod: ${scene.nodes.length} nodes`);
   }
