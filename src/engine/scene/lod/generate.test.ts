@@ -1,7 +1,7 @@
 // ADR 0446 §1: LOD generation (weld, per-submesh simplification, measured error, occluder, reorder), its cache and its
 // worker protocol, driven through `generateLods`, `cachedLods` and the two ends of the worker port.
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LOD_SETTINGS, type LodSettings } from "./types";
+import { DEFAULT_LOD_SETTINGS, type LodSettings, type OccluderStandIn } from "./types";
 import { generateLods, type GeneratedLods, type LodSource } from "./generate";
 import { cachedLods, memoryLodCache, type LodHost } from "./cache";
 import { lodGeneratorOver, serveLodGeneration, type LodPort } from "./workerGenerator";
@@ -188,6 +188,27 @@ const ROCK = rock(5); // 20,480 triangles
 /** The default ratios with no error limit: for fixtures the limits would stop early (coarse rocks, random attributes). */
 const UNLIMITED: LodSettings = { ...DEFAULT_LOD_SETTINGS, levels: DEFAULT_LOD_SETTINGS.levels.map((l) => ({ ratio: l.ratio, error: 1 })) };
 
+/** A trimmed stand-in's per-triangle arrays: one error (at most 0.5 % of the diagonal) and 3 neighbours per triangle, every neighbour pointing back. */
+function expectTrimmed(occluder: OccluderStandIn): void {
+  const kept = occluder.indices.length / 3;
+  expect(occluder.triangleErrors).toBeInstanceOf(Float32Array);
+  expect(occluder.triangleErrors.length).toBe(kept);
+  for (const e of occluder.triangleErrors) {
+    expect(e).toBeGreaterThanOrEqual(0);
+    expect(e).toBeLessThanOrEqual(0.005);
+  }
+  expect(occluder.neighbors).toBeInstanceOf(Uint32Array);
+  expect(occluder.neighbors.length).toBe(kept * 3);
+  for (let t = 0; t < kept; t++) {
+    for (let k = 0; k < 3; k++) {
+      const n = occluder.neighbors[t * 3 + k];
+      if (n === 0xffffffff) continue;
+      expect(n).toBeLessThan(kept);
+      expect(Array.from(occluder.neighbors.subarray(n * 3, n * 3 + 3))).toContain(t);
+    }
+  }
+}
+
 // --- Tests ----------------------------------------------------------------------------------------------------------
 
 describe("LOD generation (ADR 0446 §1)", () => {
@@ -285,12 +306,25 @@ describe("LOD generation (ADR 0446 §1)", () => {
     expect(flat(a)).toEqual(flat(b));
   }, 60_000);
 
-  it("gives the coarsest level as the occluder stand-in for auto and lod, and none otherwise", async () => {
+  it("gives the coarsest level, hole-trimmed, as the occluder stand-in for auto and lod, and none otherwise", async () => {
     const source = (): LodSource => ({ streams: streamsOf(rock(3)), indices: new Uint32Array(rock(3).indices), groups: [] });
     for (const setting of ["auto", "lod"] as const) {
       const lods = await generateLods(source(), DEFAULT_LOD_SETTINGS, setting);
       const coarsest = lods.levels[lods.levels.length - 1];
-      expect(lods.occluder).toEqual({ indices: coarsest.indices, error: coarsest.error });
+      const occluder = lods.occluder!;
+      expect(occluder.error).toBe(coarsest.error);
+      const kept = occluder.indices.length / 3;
+      expect(kept).toBeGreaterThan(0);
+      expect(kept).toBeLessThanOrEqual(coarsest.triangles);
+      // Each kept triangle is one of the level's, in the level's order.
+      let at = 0;
+      for (let t = 0; t < kept; t++) {
+        const tri = Array.from(occluder.indices.subarray(t * 3, t * 3 + 3));
+        while (at < coarsest.triangles && Array.from(coarsest.indices.subarray(at * 3, at * 3 + 3)).join() !== tri.join()) at++;
+        expect(at).toBeLessThan(coarsest.triangles);
+        at++;
+      }
+      expectTrimmed(occluder);
     }
     expect((await generateLods(source(), DEFAULT_LOD_SETTINGS, "none")).occluder).toBeNull();
     const noLevels = await generateLods(source(), { ...DEFAULT_LOD_SETTINGS, levels: [] }, "auto");
@@ -329,6 +363,35 @@ describe("LOD generation (ADR 0446 §1)", () => {
   }, 60_000);
 });
 
+describe("occluder stand-in trimming (ADR 0447 §3)", () => {
+  /** A sheet on [0, 1]² bumped by `bump` in z, simplified to 1 % of its triangles. */
+  const bumpySheet = (bump: number): LodSource => {
+    const N = 40;
+    const positions: number[] = [], normals: number[] = [], uvs: number[] = [], indices: number[] = [];
+    for (let y = 0; y <= N; y++) for (let x = 0; x <= N; x++) positions.push(x / N, y / N, bump * Math.sin(x) * Math.cos(y)), normals.push(0, 0, 1), uvs.push(x / N, y / N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const i = y * (N + 1) + x;
+      indices.push(i, i + 1, i + N + 1, i + 1, i + N + 2, i + N + 1);
+    }
+    return { streams: streamsOf({ positions, normals, uvs }), indices: new Uint32Array(indices), groups: [] };
+  };
+  const coarse: LodSettings = { ...DEFAULT_LOD_SETTINGS, levels: [{ ratio: 0.01, error: 1 }] };
+
+  it("keeps every triangle of a close stand-in, sharing the level's indices, each with its own error", async () => {
+    const lods = await generateLods(bumpySheet(0.0005), coarse, "auto");
+    const occluder = lods.occluder!;
+    expect(occluder.indices).toBe(lods.levels[1].indices);
+    expectTrimmed(occluder);
+    expect(Math.max(...occluder.triangleErrors)).toBeGreaterThan(0);
+  }, 60_000);
+
+  it("gives no stand-in when trimming drops every triangle (each lies farther than 0.5 % of the diagonal)", async () => {
+    const lods = await generateLods(bumpySheet(0.02), coarse, "auto");
+    expect(lods.levels[1].error).toBeGreaterThan(0.005);
+    expect(lods.occluder).toBeNull();
+  }, 60_000);
+});
+
 describe("the LOD cache", () => {
   it("generates once per mesh and settings", async () => {
     let calls = 0;
@@ -363,6 +426,9 @@ describe("the LOD worker protocol", () => {
       expect(Array.from(remote.streams.positions)).toEqual(Array.from(inline.streams.positions));
       expect(remote.levels.map((l) => [Array.from(l.indices), l.groups, l.error])).toEqual(inline.levels.map((l) => [Array.from(l.indices), l.groups, l.error]));
       expect(remote.occluder!.error).toBe(inline.occluder!.error);
+      expect(Array.from(remote.occluder!.indices)).toEqual(Array.from(inline.occluder!.indices));
+      expect(remote.occluder!.triangleErrors).toEqual(inline.occluder!.triangleErrors);
+      expect(remote.occluder!.neighbors).toEqual(inline.occluder!.neighbors);
       const broken = source();
       await expect(generate({ ...broken, streams: { ...broken.streams, positions: null as unknown as Float32Array } }, DEFAULT_LOD_SETTINGS, "auto")).rejects.toThrow();
     } finally {

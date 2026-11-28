@@ -89,6 +89,22 @@ function bumpyObj(rows = 40, columns = 64): string {
 const OBJ_URL = `data:text/plain;base64,${Buffer.from(bumpyObj()).toString("base64")}`;
 const SIDECAR = { format: "myco.import@1", lod: DEFAULT_LOD_SETTINGS };
 
+/** A baked file with its JSON changed by `edit` (re-padded to 4 bytes; the binary data, its offsets relative to the JSON's end, kept). */
+function withJson(bytes: Uint8Array, edit: (json: Record<string, unknown> & { meshes: unknown[] }) => void): Uint8Array<ArrayBuffer> {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const length = view.getUint32(12, true);
+  const json = JSON.parse(new TextDecoder().decode(bytes.subarray(16, 16 + length)));
+  edit(json);
+  const text = new TextEncoder().encode(JSON.stringify(json));
+  const padded = Math.ceil(text.length / 4) * 4;
+  const out = new Uint8Array(16 + padded + (bytes.length - 16 - length)).fill(0x20, 16, 16 + padded);
+  out.set(bytes.subarray(0, 12));
+  new DataView(out.buffer).setUint32(12, padded, true);
+  out.set(text, 16);
+  out.set(bytes.subarray(16 + length), 16 + padded);
+  return out;
+}
+
 function use(files: Record<string, unknown>): void {
   Assets.clearSources();
   Assets.addSource(Assets.fromObject(files));
@@ -137,7 +153,9 @@ describe("models with generated levels", () => {
     expect(lods.levels[0].triangles).toBe(64 * 2 * 39);
     expect(mesh.data.positions.length / 3).toBeLessThan(lods.levels[0].triangles * 3); // welded (the OBJ loader de-indexes)
     expect(lods.levels[1].triangles).toBeLessThan(lods.levels[0].triangles * 0.6);
-    expect(lods.occluder!.indices).toBe(lods.levels[3].mesh.data.indices);
+    expect(lods.occluder!.indices.length).toBeLessThanOrEqual(lods.levels[3].mesh.data.indices.length);
+    expect(lods.occluder!.triangleErrors.length).toBe(lods.occluder!.indices.length / 3);
+    expect(lods.occluder!.neighbors.length).toBe(lods.occluder!.indices.length);
     expectShared(mesh);
   }, 60_000);
 
@@ -160,6 +178,11 @@ describe("models with generated levels", () => {
     expect(got.occluder!.error).toBe(want.occluder!.error);
     expect(got.occluder!.indices).toBeInstanceOf(Uint32Array);
     expect(Array.from(got.occluder!.indices)).toEqual(Array.from(want.occluder!.indices));
+    expect(want.occluder!.triangleErrors.length).toBeGreaterThan(0);
+    expect(got.occluder!.triangleErrors).toBeInstanceOf(Float32Array);
+    expect(Array.from(got.occluder!.triangleErrors)).toEqual(Array.from(want.occluder!.triangleErrors));
+    expect(got.occluder!.neighbors).toBeInstanceOf(Uint32Array);
+    expect(Array.from(got.occluder!.neighbors)).toEqual(Array.from(want.occluder!.neighbors));
     // Other lod or occluder settings: the caller loads the model file instead.
     expect(decodeBakedModel(bytes.slice().buffer, defaultImportSettings(), (p) => p)).toBeNull();
     expect(decodeBakedModel(bytes.slice().buffer, { ...settingsWithLod(), occluder: "none" }, (p) => p)).toBeNull();
@@ -169,6 +192,22 @@ describe("models with generated levels", () => {
     const plain = await bakeModelFile("models/plain-rock.obj");
     const plainMesh = decodeBakedModel(plain.bytes.slice().buffer, { ...defaultImportSettings(), occluder: "none" }, (p) => p)!.meshes[0];
     expect(plainMesh.lods).toBeUndefined();
+  }, 60_000);
+
+  it("load a version 5 stand-in baked without its per-triangle arrays (before hole trimming) as no occluder", async () => {
+    use({ "models/untrimmed-rock.obj": OBJ_URL, "models/untrimmed-rock.obj.meta.json": SIDECAR });
+    const { bytes } = await bakeModelFile("models/untrimmed-rock.obj");
+    const old = withJson(bytes, (json) => {
+      for (const m of json.meshes as { occluder?: Record<string, unknown> }[]) {
+        expect(m.occluder?.triangleErrors).toBeDefined();
+        delete m.occluder!.triangleErrors;
+        delete m.occluder!.neighbors;
+      }
+    });
+    const [mesh] = decodeBakedModel(old.buffer, settingsWithLod(), (p) => p)!.meshes;
+    expect(mesh.lods!.levels).toHaveLength(4);
+    expect(mesh.lods!.occluder).toBeNull();
+    expect(decodeBakedModel(bytes.slice().buffer, settingsWithLod(), (p) => p)!.meshes[0].lods!.occluder).not.toBeNull();
   }, 60_000);
 
   it("refuse a version 4 file", async () => {

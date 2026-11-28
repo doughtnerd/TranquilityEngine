@@ -13,7 +13,7 @@ import { currentProject } from "./state";
 
 const FOLDER = ".myco/lod";
 const MAGIC = 0x444f4c4d; // "MLOD" read little-endian
-const VERSION = 1;
+const VERSION = 2; // 2: the occluder's per-triangle errors and neighbours (ADR 0447 §3)
 
 type ArrayKind = "f32" | "u16" | "u32";
 type TypedArray = Float32Array | Uint16Array | Uint32Array;
@@ -28,7 +28,7 @@ interface Meta {
     morphs: Record<keyof MorphStreams, number | null>[];
   };
   levels: { indices: number; groups: readonly LodGroup[]; error: number; triangles: number }[];
-  occluder: { indices: number; error: number } | null;
+  occluder: { indices: number; error: number; triangleErrors: number; neighbors: number } | null;
   bounds: Bounds6;
 }
 
@@ -48,7 +48,7 @@ export function encodeLods(lods: GeneratedLods): Uint8Array {
       morphs: s.morphs.map((m) => ({ positions: ref(m.positions), normals: ref(m.normals), tangents: ref(m.tangents) })),
     },
     levels: lods.levels.map((l) => ({ indices: ref(l.indices)!, groups: l.groups, error: l.error, triangles: l.triangles })),
-    occluder: lods.occluder ? { indices: ref(lods.occluder.indices)!, error: lods.occluder.error } : null,
+    occluder: lods.occluder ? { indices: ref(lods.occluder.indices)!, error: lods.occluder.error, triangleErrors: ref(lods.occluder.triangleErrors)!, neighbors: ref(lods.occluder.neighbors)! } : null,
     bounds: lods.bounds,
   };
   let offset = 0;
@@ -96,7 +96,8 @@ export function decodeLods(bytes: Uint8Array): GeneratedLods | null {
     };
     const levels: GeneratedLevel[] = meta.levels.map((l) => ({ indices: need<Uint32Array>(l.indices), groups: l.groups, error: l.error, triangles: l.triangles }));
     if (levels.length === 0) return null;
-    const occluder = meta.occluder ? { indices: need<Uint32Array>(meta.occluder.indices), error: meta.occluder.error } : null;
+    const o = meta.occluder;
+    const occluder = o ? { indices: need<Uint32Array>(o.indices), error: o.error, triangleErrors: need<Float32Array>(o.triangleErrors), neighbors: need<Uint32Array>(o.neighbors) } : null;
     return { streams, levels, occluder, bounds: meta.bounds };
   } catch {
     return null;

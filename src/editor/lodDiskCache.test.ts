@@ -22,7 +22,7 @@ function sample(): GeneratedLods {
       { indices: new Uint32Array([0, 1, 2, 2, 1, 3, 0, 3, 4]), groups: [{ start: 0, count: 6, materialIndex: 0 }, { start: 6, count: 3, materialIndex: 1 }], error: 0, triangles: 3 },
       { indices: new Uint32Array([0, 1, 2]), groups: [], error: 0.0125, triangles: 1 },
     ],
-    occluder: { indices: new Uint32Array([0, 1, 2]), error: 0.0125 },
+    occluder: { indices: new Uint32Array([0, 1, 2]), error: 0.0125, triangleErrors: new Float32Array([0.00375]), neighbors: new Uint32Array([0xffffffff, 0xffffffff, 0xffffffff]) },
     bounds: [0, 0, 0, 2, 2, 2],
   };
 }
@@ -32,6 +32,8 @@ describe("LOD cache files", () => {
     const original = sample();
     const back = decodeLods(encodeLods(original))!;
     expect(back).toEqual(original);
+    expect(back.occluder!.triangleErrors).toBeInstanceOf(Float32Array);
+    expect(back.occluder!.neighbors).toBeInstanceOf(Uint32Array);
     expect(back.streams.positions).toBeInstanceOf(Float32Array);
     expect(back.streams.joints).toBeInstanceOf(Uint16Array);
     expect(back.levels[0].indices).toBeInstanceOf(Uint32Array);
@@ -56,6 +58,16 @@ describe("LOD cache files", () => {
     const other = bytes.slice();
     other[0] ^= 1; // the magic
     expect(decodeLods(other)).toBeNull();
+  });
+
+  it("read a version 1 file (a stand-in from before hole trimming) as a miss", () => {
+    const bytes = encodeLods(sample());
+    const text = new TextDecoder("latin1").decode(bytes); // one character per byte
+    const at = text.indexOf('"version":2');
+    expect(at).toBeGreaterThan(0);
+    const old = bytes.slice();
+    old.set(new TextEncoder().encode('"version":1'), at);
+    expect(decodeLods(old)).toBeNull();
   });
 });
 
