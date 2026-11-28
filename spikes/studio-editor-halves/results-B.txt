@@ -1,0 +1,21 @@
+B-RESULTS
+myco.particles	ok
+myco.materials	ok
+myco.sky	ok
+myco.audio	ok
+myco.navigation	ok
+myco.tilemaps	ok
+myco.physics	ok
+myco.meshes	ok
+myco.environment	ok
+myco.lights2d	ok
+myco.post-processing	ok
+myco.camera-shake	ok
+myco.ui	ok
+myco.lines	ok
+myco.decals	ok
+myco.subtitles	ok
+myco.animation	ok
+myco.ragdoll	ok
+asset kinds registered: 35, panels: 7
+after deactivate: asset kinds 0, panels 0
