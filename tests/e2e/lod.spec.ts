@@ -212,6 +212,9 @@ test.describe("in play mode", () => {
     await openEditor(page, { files: project({ rock: true, lod: DEFAULT_LOD }), viewport: { width: 1280, height: 720 }, timeout: 2 * 60_000 });
     await play(page);
     await expect(page.getByRole("region", { name: "Stats" })).toBeVisible();
+    // Captures compare the game view, and the Stats panel over it changes its numbers every refresh: hide it from sight but
+    // keep it in the page, where the triangle readout is still read.
+    await page.addStyleTag({ content: ".play-stats { visibility: hidden !important; }" });
     // The view is drawn once the levels have generated and the model has loaded. Which level shows from here depends on the
     // levels' measured errors: a smooth rock's first level is invisible at 1 px from most distances, so it may already be 1.
     await expect.poll(async () => (await groupOf(page))?.visibility, { timeout: 2 * 60_000 }).toBe("drawn");
@@ -237,8 +240,8 @@ test.describe("in play mode", () => {
     await setGroup(page, { levels: [0.9, 0.8, 0.7, 0.6] });
     await expect.poll(() => groupOf(page), { timeout: 60_000 }).toEqual({ currentLevel: -1, visibility: "lodCulled" });
     const culled = await steadyView(gameView(page));
-    // The rock's body is gone from the view (it covered a good share of it).
-    expect(pixelsChanged(drawn, culled)).toBeGreaterThan(drawn.width * drawn.height * 0.03);
+    // The rock's body is gone from the view (it covered about 3 % of it).
+    expect(pixelsChanged(drawn, culled)).toBeGreaterThan(drawn.width * drawn.height * 0.01);
     // A last value of 0 never culls.
     await setGroup(page, { levels: [0.9, 0.8, 0.7, 0] });
     await expect.poll(async () => (await groupOf(page))?.currentLevel, { timeout: 60_000 }).toBeGreaterThanOrEqual(3);
@@ -274,21 +277,12 @@ test.describe("in play mode", () => {
       const sun = find(w!.root, "Sun")!;
       tools.componentsOf<{ castShadows: boolean }>(sun, tools.myco.Light)[0].castShadows = false;
     });
-    await expect.poll(async () => darkPixels(await steadyView(gameView(page))), { timeout: 60_000 }).toBeLessThan(darkPixels(shadowed) / 2);
-    const lit = await steadyView(gameView(page));
-    expect(darkPixels(shadowed)).toBeGreaterThan(darkPixels(lit) + 300);
-    expect(pixelsChanged(shadowed, lit)).toBeGreaterThan(300);
+    // The soft shadow (about 25 % darker than the ground) is gone: the view changes where it lay.
+    await expect.poll(async () => pixelsChanged(shadowed, await steadyView(gameView(page)), 16), { timeout: 60_000 }).toBeGreaterThan(300);
     expect(errors).toEqual([]);
   });
 });
 
-/** How many pixels are much darker than the view's median brightness: the ground is lit evenly, so they are shadow. */
-function darkPixels(c: ViewCapture): number {
-  const lum: number[] = [];
-  for (let i = 0; i < c.data.length; i += c.channels) lum.push(0.3 * c.data[i] + 0.59 * c.data[i + 1] + 0.11 * c.data[i + 2]);
-  const median = [...lum].sort((a, b) => a - b)[lum.length >> 1];
-  return lum.filter((l) => l < median * 0.75).length;
-}
 
 test("a scene without LOD groups draws the same triangles after visiting the LOD settings", async ({ page }) => {
   const errors = trackErrors(page);

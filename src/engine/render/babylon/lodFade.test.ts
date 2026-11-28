@@ -71,12 +71,14 @@ describe("the LOD crossfade plugin (ADR 0446 §4)", () => {
     expect(plugin.priority).toBe(220);
   });
 
-  it("discards with Babylon's 4×4 Bayer include in both languages, the incoming side keeping ranks below 16t", () => {
+  it("discards with an inlined 4×4 Bayer rank in both languages (no #include: injected code isn't expanded), the incoming side keeping ranks below 16t", () => {
     const plugin = new MycoLodFadePlugin(new PBRMaterial("m", scene));
     for (const language of [ShaderLanguage.GLSL, ShaderLanguage.WGSL]) {
       const fragment = plugin.getCustomCode("fragment", language)!;
-      expect(fragment.CUSTOM_FRAGMENT_DEFINITIONS).toContain("#include<bayerDitherFunctions>");
-      expect(fragment.CUSTOM_FRAGMENT_MAIN_BEGIN).toContain("bayerDither4(floor(");
+      // Babylon doesn't expand includes in plugin-injected code: one reached the GLSL compiler and no fade effect built.
+      for (const code of Object.values(fragment)) expect(code).not.toContain("#include");
+      expect(fragment.CUSTOM_FRAGMENT_DEFINITIONS).toContain("mycoBayer4(");
+      expect(fragment.CUSTOM_FRAGMENT_MAIN_BEGIN).toContain("mycoBayer4(floor(");
       expect(fragment.CUSTOM_FRAGMENT_MAIN_BEGIN).toContain("discard");
       expect(plugin.getCustomCode("vertex", language)!.CUSTOM_VERTEX_DEFINITIONS).toContain("mycoLodFade");
       expect(plugin.isCompatible(language)).toBe(true);

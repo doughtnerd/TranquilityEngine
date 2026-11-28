@@ -18,6 +18,8 @@ function groupMeshes(root: GameObject): ModelMesh[] | null {
   const meshes: ModelMesh[] = [];
   let loading = false;
   const visit = (node: GameObject, top: boolean) => {
+    // An undo can destroy the node between the section's polls: a dead node has no members.
+    if (!node.isValid) return;
     if (!top && node.getBehavior(LODGroup)) return;
     for (const type of lodMemberTypes()) {
       const member = node.getBehavior(type as unknown as new () => InstanceType<typeof LODGroup>) as unknown as { lodMeshes(): readonly ModelMesh[] | null } | null;
@@ -28,6 +30,7 @@ function groupMeshes(root: GameObject): ModelMesh[] | null {
     }
     for (const child of node.children) visit(child, false);
   };
+  if (!root.isValid) return null;
   visit(root, true);
   return loading && meshes.length === 0 ? null : meshes;
 }

@@ -12,7 +12,7 @@
  *   second thin-instance buffer (thin batches), passed to the fragment shader.
  * - **The value** f (`visibility/select.ts`): |f| is the fade's progress t, rounded to 1/16. f ≥ 0 (outgoing or steady)
  *   keeps the pixels whose Bayer rank is at least 16t; f < 0 (incoming) keeps those below it, the exact complement.
- *   The rank comes from Babylon's own `bayerDitherFunctions` include, in both languages.
+ *   The rank is Babylon's 4x4 Bayer function (`bayerDitherFunctions`), inlined in both languages (see the GLSL note).
  *
  * Not public API (ADR 0010).
  */
@@ -26,8 +26,6 @@ import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import "@babylonjs/core/Meshes/instancedMesh.js"; // Mesh.registerInstancedBuffer
 import "@babylonjs/core/Meshes/thinInstanceMesh.js"; // Mesh.thinInstanceSetBuffer
-import "@babylonjs/core/Shaders/ShadersInclude/bayerDitherFunctions.js";
-import "@babylonjs/core/ShadersWGSL/ShadersInclude/bayerDitherFunctions.js";
 import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 
 /** The per-instance attribute (and instanced-buffer kind) holding each instance's fade value. */
@@ -58,14 +56,17 @@ vMycoLodFade = mycoLodFade;
 const GLSL_FRAGMENT_DEFINITIONS = `
 #ifdef MYCO_LOD_FADE
 varying float vMycoLodFade;
-#include<bayerDitherFunctions>
+// Babylon's 4x4 Bayer rank (Shaders/ShadersInclude/bayerDitherFunctions), inlined: an include directive in plugin-injected code
+// isn't expanded, so the compiler saw the directive and the effect failed to build. Prefixed to stay clear of Babylon's.
+float mycoBayer2(vec2 p) { return mod(2.0 * p.y + p.x + 1.0, 4.0); }
+float mycoBayer4(vec2 p) { return 4.0 * mycoBayer2(mod(p, 2.0)) + mycoBayer2(floor(0.5 * mod(p, 4.0))); }
 #endif
 `;
 const GLSL_FRAGMENT_BEGIN = `
 #ifdef MYCO_LOD_FADE
 {
   float mycoT = floor(abs(vMycoLodFade) * 16.0 + 0.5);
-  float mycoRank = bayerDither4(floor(gl_FragCoord.xy));
+  float mycoRank = mycoBayer4(floor(gl_FragCoord.xy));
   if (vMycoLodFade < 0.0 ? mycoRank >= mycoT : mycoRank < mycoT) { discard; }
 }
 #endif
@@ -85,7 +86,8 @@ vertexOutputs.vMycoLodFade = vertexInputs.mycoLodFade;
 const WGSL_FRAGMENT_DEFINITIONS = `
 #ifdef MYCO_LOD_FADE
 varying vMycoLodFade: f32;
-#include<bayerDitherFunctions>
+fn mycoBayer2(p: vec2f) -> f32 { return (2.0 * p.y + p.x + 1.0) % 4.0; }
+fn mycoBayer4(p: vec2f) -> f32 { return 4.0 * mycoBayer2(p % 2.0) + mycoBayer2(floor(0.5 * (p % 4.0))); }
 #endif
 `;
 const WGSL_FRAGMENT_BEGIN = `
@@ -93,7 +95,7 @@ const WGSL_FRAGMENT_BEGIN = `
 {
   let mycoF = fragmentInputs.vMycoLodFade;
   let mycoT = floor(abs(mycoF) * 16.0 + 0.5);
-  let mycoRank = bayerDither4(floor(fragmentInputs.position.xy));
+  let mycoRank = mycoBayer4(floor(fragmentInputs.position.xy));
   if (select(mycoRank < mycoT, mycoRank >= mycoT, mycoF < 0.0)) { discard; }
 }
 #endif
