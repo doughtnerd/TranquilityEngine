@@ -4,7 +4,7 @@
  * a MeshRenderer or MeshCollider and never sees anything here.
  *
  * A model loads into its meshes in model space: each mesh's place in the file and the model's
- * import settings (scale, up axis, normals; ADR 0040 sidecars) are baked into its geometry, so a
+import settings (scale, up axis, normals; ADR 0040 sidecars) are baked into its geometry, so a
  * mesh drawn at a node's origin sits where it sits in the file. References:
  *
  * - `asset:models/robot.fbx` — every mesh of the model;
@@ -17,6 +17,7 @@
  * An `.mtl` material library on its own loads as a sphere per material (`materialLibraryRoot`): what the
  * editor's preview of the library draws (ADR 0061).
  */
+import type { ModelLods } from "./lod/types";
 // Types only: three.js loads with the first model file parsed (`parseModel`), so it stays out of the
 // start-up bundle of the editor and of games (ADR 0082); the built-in meshes need none of it.
 import type { BufferAttribute, BufferGeometry, Color as ThreeColor, LoadingManager, Material, Matrix4, Mesh, Object3D, Side, Texture } from "three";
@@ -268,6 +269,8 @@ export interface ModelMesh {
   readonly morphTargets?: readonly MorphTargetData[];
   /** x, y, z, w per vertex (the file's tangents, baked like the normals); absent or null: none. */
   readonly tangents?: Float32Array | null;
+  /** Generated levels, occluder stand-in and bounds (ADR 0446); absent: none generated. */
+  readonly lods?: ModelLods;
 }
 
 /** A float attribute as a tightly packed array (copied only when interleaved or not float). */
