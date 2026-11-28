@@ -60,6 +60,21 @@ export const cameraPreviewEnabled = persisted("myco.editor.cameraPreview", true)
 /** Light 2D draws by their 2D lights in the scene view (ADR 0399); off draws them unlit, like Unity's scene lighting toggle. */
 export const lighting2DShown = persisted("myco.editor.lighting2D", true);
 
+/** The scene view's visibility debug view (ADR 0459 §7, 0460 §6): none, renderers tinted by LOD level, or the occlusion buffer. */
+export type VisibilityDebugMode = "none" | "lodLevels" | "occlusion";
+
+/**
+ * The scene view's View menu (ADR 0460 §4, §6): occlusion culling for the scene view (off by default, so editing shows
+ * everything), freeze culling, the validator, and the visibility debug view. Per-user, remembered like the others.
+ */
+export const sceneOcclusion = persisted("myco.editor.sceneOcclusion", false);
+export const freezeCulling = persisted("myco.editor.freezeCulling", false);
+export const occlusionValidator = persisted("myco.editor.occlusionValidator", false);
+export const visibilityDebug = persisted<VisibilityDebugMode>("myco.editor.visibilityDebug", "none");
+
+/** A stored debug mode, or "none" for anything else (older or hand-edited storage). */
+export const cleanDebugMode = (v: unknown): VisibilityDebugMode => (v === "lodLevels" || v === "occlusion" ? v : "none");
+
 /** Round `value` to the nearest multiple of `step` (no step: unchanged), without float noise. */
 export function snapTo(value: number, step: number): number {
   if (!(step > 0)) return value;

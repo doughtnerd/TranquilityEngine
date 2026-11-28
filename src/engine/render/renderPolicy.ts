@@ -35,7 +35,29 @@ export interface RenderPolicy {
    * whatever the camera's distance. Game views never see it. Null: every group chooses by distance.
    */
   lodPreview: { node: GameObject; level: number } | null;
+  /** The scene view's visibility tools (ADR 0459 §7, 0460 §6). Game views never see them. */
+  sceneVisibility: SceneVisibilityTools;
 }
+
+/**
+ * @internal The scene view's visibility tools (ADR 0459 §7, 0460 §6), from the editor's View menu. All off by default,
+ * so editing shows everything.
+ */
+export interface SceneVisibilityTools {
+  /** Run occlusion for the scene view (it keeps one of the tier's `occlusionViews` while on). */
+  readonly occlusion: boolean;
+  /** Keep the scene view's last visibility set (levels and hidden bits) while its camera moves. */
+  readonly freeze: boolean;
+  /** Draw what occlusion hid in the scene view anyway, in `colors.occluded`, so a false occlusion shows. */
+  readonly validator: boolean;
+  /** A debug view: none, each renderer tinted by its LOD level, or the occlusion buffer, culled boxes and readout. */
+  readonly debug: "none" | "lodLevels" | "occlusion";
+  /** The tints, 0xRRGGBB: one per LOD level (the last repeats past it) and the validator's. The editor's theme sets them. */
+  readonly colors: { readonly levels: readonly number[]; readonly occluded: number };
+}
+
+/** @internal The scene view's visibility tools when the editor hasn't set any: everything off. */
+export const SCENE_VISIBILITY_OFF: SceneVisibilityTools = Object.freeze({ occlusion: false, freeze: false, validator: false, debug: "none", colors: Object.freeze({ levels: Object.freeze([0x4caf50, 0x2196f3, 0x9c27b0, 0xe91e63, 0xff9800, 0xffeb3b, 0x00bcd4, 0x795548]), occluded: 0xff0000 }) });
 
 /**
  * @internal The particle preview as render policy (ADR 0057, 0154): which nodes' effects play, the
@@ -90,7 +112,7 @@ export function sameInset(a: PreviewInset | null, b: PreviewInset | null): boole
 }
 
 /** @internal A game's policy: everything off. */
-export const GAME_POLICY: Readonly<RenderPolicy> = Object.freeze({ sceneView: false, drawPolicy: "batched", cameraPreview: null, particlePreview: null, lighting2D: true, lodPreview: null });
+export const GAME_POLICY: Readonly<RenderPolicy> = Object.freeze({ sceneView: false, drawPolicy: "batched", cameraPreview: null, particlePreview: null, lighting2D: true, lodPreview: null, sceneVisibility: SCENE_VISIBILITY_OFF });
 
 /**
  * @internal What a render surface gives its editor viewport handle (ADR 0129): live from the start,

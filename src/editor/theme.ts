@@ -471,3 +471,13 @@ export function viewportColors(t: ThemeTokens): { background: number; grid: numb
   const n = (c: string) => parseInt(toHex(rgb(c)).slice(1), 16);
   return { background: n(t.viewport), grid: n(t.viewportGrid), gridCenter: n(t.viewportGridCenter), outline: n(t.viewportOutline), cameraGizmo: n(t.viewportGizmo), handle: n(t.accent) };
 }
+
+/**
+ * The scene view's visibility debug colours (ADR 0459 §7, 0460 §6) as 0xRRGGBB numbers: the LOD level tints (the
+ * `--lod0..7` tokens), the culled colour (`--lod-culled`), and the occlusion debug's red (`--danger`: the validator's
+ * colour and the culled boxes).
+ */
+export function visibilityColors(t: ThemeTokens): { levels: number[]; culled: number; occluded: number } {
+  const n = (c: string) => parseInt(toHex(rgb(c)).slice(1), 16);
+  return { levels: [t.lod0, t.lod1, t.lod2, t.lod3, t.lod4, t.lod5, t.lod6, t.lod7].map(n), culled: n(t.lodCulled), occluded: n(t.danger) };
+}

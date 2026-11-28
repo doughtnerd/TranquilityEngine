@@ -20,8 +20,9 @@ import type { Camera, ReflectionProbe } from "./components";
 import { LODGroup, SpriteRenderer } from "./components";
 import type { LocalPose } from "./gizmoMath";
 import type { ParticlePreviewSettings } from "./RenderSurface";
-import { visibilityService } from "./visibility/service";
-import { sameInset, type ParticlePreview, type PreviewInset, type RenderPolicyPort } from "./renderPolicy";
+import type { World } from "../core/World";
+import { visibilityService, type OcclusionDebug } from "./visibility/service";
+import { sameInset, SCENE_VISIBILITY_OFF, type ParticlePreview, type PreviewInset, type RenderPolicyPort, type SceneVisibilityTools } from "./renderPolicy";
 
 /** @internal Editor gizmo settings (ADR 0022). */
 export interface GizmoOptions {
@@ -136,12 +137,22 @@ export interface EditorViewport {
    * it culled, null stops. Not saved, and game views and `currentLevel` don't see it.
    */
   setLodPreview(node: GameObject | null, level?: number): void;
+  /**
+   * The scene view's visibility tools (ADR 0459 §7, 0460 §6): occlusion culling, freeze culling, the validator, the
+   * debug view and its tints. Unset fields keep their value; all are off until set.
+   */
+  setSceneVisibility(tools: Partial<SceneVisibilityTools>): void;
 
   // --- Queries (canvas CSS pixels, origin top-left) ------------------------------------------
   /** The grid as drawn, or null. */
   grid(): EditorGrid | null;
   /** The scene camera's screen-relative height of `node`'s `LODGroup` (what its transition heights are compared with), or null before the scene view has drawn. */
   lodScreenHeight(node: GameObject): number | null;
+  /**
+   * `world`'s last occlusion run for the debug view (ADR 0460 §6): the scene view's when it ran occlusion, else the main
+   * camera's. Null unless the debug view is "occlusion" and a view ran occlusion in its last frame.
+   */
+  occlusionDebug(world: World): OcclusionDebug | null;
   /** Nodes whose renderers or icons lie under a canvas point, topmost first. */
   pick(x: number, y: number): GameObject[];
   /** The ray under a canvas point through the view's camera. */
@@ -228,6 +239,8 @@ export class ViewportHandle implements EditorViewport {
   private previewShown: { camera: Camera; inset: PreviewInset } | null = null;
   /** The node whose LOD level the scene view previews. */
   private lodPreviewNode: GameObject | null = null;
+  /** The scene view's visibility tools as last handed to the policy. */
+  private sceneVisibility: SceneVisibilityTools = SCENE_VISIBILITY_OFF;
 
   /**
    * `policy` is the surface's render policy port. An eager handle (an editor World) sets the scene
@@ -364,7 +377,24 @@ export class ViewportHandle implements EditorViewport {
     this.policy.setPolicy({ lodPreview: group && node ? { node, level } : null });
   }
 
+  setSceneVisibility(tools: Partial<SceneVisibilityTools>): void {
+    const was = this.sceneVisibility;
+    const next: SceneVisibilityTools = {
+      occlusion: tools.occlusion ?? was.occlusion,
+      freeze: tools.freeze ?? was.freeze,
+      validator: tools.validator ?? was.validator,
+      debug: tools.debug ?? was.debug,
+      colors: tools.colors ? { levels: [...tools.colors.levels], occluded: tools.colors.occluded } : was.colors,
+    };
+    this.sceneVisibility = next;
+    this.policy.setPolicy({ sceneVisibility: next });
+  }
+
   // --- Queries -----------------------------------------------------------------------------------
+
+  occlusionDebug(world: World): OcclusionDebug | null {
+    return this.sceneVisibility.debug === "occlusion" ? (visibilityService(world)?.occlusionDebug() ?? null) : null;
+  }
 
   lodScreenHeight(node: GameObject): number | null {
     const group = node.isValid ? node.getBehavior(LODGroup) : null;

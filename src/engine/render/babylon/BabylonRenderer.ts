@@ -622,6 +622,9 @@ export class BabylonRenderer {
     this.frame.cascades = null;
     for (const v of views) v.objects = undefined;
     const service = visibilityService(world);
+    // The scene view's tools (ADR 0460 §6): freeze culling, and the occlusion debug view's capture.
+    const tools = this.policy.sceneVisibility;
+    service?.setSceneViewTools({ freeze: this.policy.sceneView && tools.freeze, capture: this.policy.sceneView && tools.debug === "occlusion" });
     const select = (view: FeatureView["visibility"]): VisibilityResult | null => (service ? service.select(view) : null);
     const engine = this.engine;
     const fviews: FeatureView[] = planned.map((p, i) => {
@@ -630,7 +633,8 @@ export class BabylonRenderer {
       const kind: ViewKind = out.kind === "texture" ? "texture" : out.kind === "preview" ? "preview" : this.policy.sceneView && p.editorContent ? "sceneView" : "camera";
       const width = v.target ? v.target.width : Math.max(1, Math.round(v.viewport.width * engine.getRenderWidth()));
       const height = v.target ? v.target.height : Math.max(1, Math.round(v.viewport.height * engine.getRenderHeight()));
-      const visibility = visibilityViewOf(p.camera, width, height, { kind });
+      // The scene view runs occlusion only while its View menu's toggle is on (ADR 0460 §4).
+      const visibility = visibilityViewOf(p.camera, width, height, kind === "sceneView" ? { kind, occlusion: tools.occlusion && p.camera.projection === "perspective" } : { kind });
       return { camera: v.camera, visibility, result: select(visibility) };
     });
     views.forEach((v, i) => this.featureViews.set(v, fviews[i]));
