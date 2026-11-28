@@ -11,7 +11,7 @@ import { UI_TYPES, UIText } from "../components";
 import { isGenericFontFamily } from "../fonts";
 import { UI_TAGS as UI_KIND_TAGS } from "../elementKinds";
 import { HTML_TAGS } from "../host/htmlTags";
-import { resolvePath } from "./sourceText";
+import { resolveRelative } from "../../core/projectPath";
 import { parseColor } from "./cssColor";
 import { parseBackgroundImage, parseCornerRadii, parseShadow } from "./paintValues";
 import { parseRotate, parseScale, parseTransform, parseTransformOrigin, parseTranslate } from "./transformValues";
@@ -505,6 +505,18 @@ function unquote(raw: string): string {
 }
 
 /**
+ * The `asset:` reference a path written in the document `file` names (ADR 0466): `./x` and `../x` from the document's
+ * folder, `/x` and a bare `x` from the project root, an `asset:` reference as written. Undefined for a path that
+ * climbs above the project, which names nothing (the value is left out, with a warning).
+ */
+function documentAssetRef(file: string, path: string): string | undefined {
+  if (path.startsWith("asset:")) return path;
+  const relative = path.startsWith("./") || path.startsWith("../") || path.startsWith("/");
+  const resolved = relative ? resolveRelative(file, path, { leadingSlash: "projectRoot" }) : path;
+  return resolved === null ? undefined : `asset:${resolved}`;
+}
+
+/**
  * Convert a value as written (attribute or declaration, variables already substituted) to a field's
  * type. Undefined when it can't. `file` resolves relative asset paths (`./logo.png`).
  */
@@ -535,8 +547,7 @@ export function convertValue(raw: string, info: FieldInfo, file: string): unknow
     }
     const url = /^url\((.*)\)$/.exec(v);
     const path = unquote(url ? url[1] : v);
-    if (path === "" || path.startsWith("asset:")) return path;
-    return `asset:${path.startsWith("./") || path.startsWith("../") ? resolvePath(file, path) : path.replace(/^\//, "")}`;
+    return path === "" ? path : documentAssetRef(file, path);
   }
   if (type === String) {
     const s = unquote(v);
@@ -619,8 +630,8 @@ const PAINT_VALUES: Readonly<Record<string, (value: string, file: string) => unk
     if (parsed.value.kind === "none") return "";
     if (parsed.value.kind !== "url") return value;
     const path = parsed.value.path;
-    const asset = path.startsWith("asset:") ? path : `asset:${path.startsWith("./") || path.startsWith("../") ? resolvePath(file, path) : path.replace(/^\//, "")}`;
-    return `url("${asset}")`;
+    const asset = documentAssetRef(file, path);
+    return asset === undefined ? undefined : `url("${asset}")`;
   },
 };
 

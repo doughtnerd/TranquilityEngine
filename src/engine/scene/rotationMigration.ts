@@ -13,21 +13,18 @@
  */
 import { DEG2RAD, Quaternion } from "../core/math";
 import type { SceneFile } from "./SceneLoader";
-import { mapSceneFile } from "./sceneFileWalk";
+import { isNumberTuple, mapSceneFile, tidyNumber } from "./sceneFileWalk";
 
 const TRANSFORM = "engine.Transform";
-
-/** Round for the file: 7 decimals, no -0. */
-const tidy = (n: number) => Math.round(n * 1e7) / 1e7 + 0;
 
 /** A version 2 Transform rotation as a version 3 quaternion array; anything else unchanged. */
 function rotationToQuaternion(value: unknown): unknown {
   let q: Quaternion;
   if (typeof value === "number") q = Quaternion.rotateZ(value * DEG2RAD);
-  else if (Array.isArray(value) && value.length === 3 && value.every((n) => typeof n === "number")) q = Quaternion.euler(value[0] * DEG2RAD, value[1] * DEG2RAD, value[2] * DEG2RAD, "ZYX");
+  else if (isNumberTuple(value, 3)) q = Quaternion.euler(value[0] * DEG2RAD, value[1] * DEG2RAD, value[2] * DEG2RAD, "ZYX");
   else return value;
   if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w); // the same rotation; keep w ≥ 0 so files read alike
-  return q.toArray().map(tidy);
+  return q.toArray().map(tidyNumber);
 }
 
 /** The migration itself (registered by `SceneLoader` from version 2). */

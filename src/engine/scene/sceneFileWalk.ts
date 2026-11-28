@@ -15,6 +15,12 @@
  */
 import type { ComponentEntry, NodeEntry, OverrideEntry, SceneFile } from "./SceneLoader";
 
+/** A number as the migrations write it to the file (ADR 0467): rounded to 7 decimals, with no -0. */
+export const tidyNumber = (n: number): number => Math.round(n * 1e7) / 1e7 + 0;
+
+/** True for an array of exactly `length` numbers (a vector or quaternion as a file stores it). */
+export const isNumberTuple = (v: unknown, length: number): v is number[] => Array.isArray(v) && v.length === length && v.every((x) => typeof x === "number");
+
 /** Returned by a field rule to drop the value: a component field goes back to its default, an override goes (the prefab's value shows again). */
 export const REMOVE_FIELD: unique symbol = Symbol("REMOVE_FIELD");
 

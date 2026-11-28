@@ -1,7 +1,7 @@
 // Prefab tools (ADR 0013, 0022, 0026): the structure inside prefab instances, Apply (write an instance's overrides into its prefab file) and Create Prefab (turn a node and
 // its children into a prefab file plus an instance).
 import { Assets } from "../engine";
-import { isScenePath } from "../engine/scene/SceneLoader";
+import { isScenePath } from "../engine/scene/scenePath";
 import { foldNodes, type FoldAdapter, type NodeStep, type OverrideHome } from "../engine/scene/overrideFold";
 import { mapEntryNodeRefs, nodeRefId } from "../engine/scene/nodeReferences";
 import {

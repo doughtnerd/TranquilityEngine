@@ -139,6 +139,15 @@ describe("the cascade's paint (ADR 0422 wave 2)", () => {
     expect(out(["none"])).toBe("");
   });
 
+  it("leaves out a url() that climbs above the project, with a warning (ADR 0466)", () => {
+    const sheet = parseStylesheet(`Panel { background-image: url(../../../wood.png); } .root { background-image: url(/images/../wood.png); }`, "ui/hud/s.css");
+    const warnings: string[] = [];
+    const out = (classes: string[]) => resolveStyle(target("Panel", { classes }), element("Panel"), UIPanel, [sheet], null, (m) => warnings.push(m));
+    expect(out([]).has("backgroundImage")).toBe(false);
+    expect(warnings.join("\n")).toMatch(/isn't a valid backgroundImage/);
+    expect(out(["root"]).get("backgroundImage")?.value).toBe(`url("asset:wood.png")`);
+  });
+
   it("leaves out paint values it can't read, and warns once for each", () => {
     const sheet = parseStylesheet(
       `.bad { box-shadow: inset 1px 1px 3px #123456; text-shadow: 1px; border-radius: 4px / 2px; background-image: conic-gradient(red, blue); }`,

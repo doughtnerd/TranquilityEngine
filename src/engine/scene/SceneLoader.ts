@@ -19,6 +19,7 @@ import { assetRefs } from "./resolvedScene";
 import { nodeRefId } from "./nodeReferences";
 import { foldNodes, type FoldAdapter, type FoldPath, type FoldScope, type NodeStep } from "./overrideFold";
 import { normalizeAssetPath } from "./assetPath";
+import { sceneNodeName } from "./scenePath";
 
 export const SCENE_FORMAT = "myco.scene";
 /**
@@ -159,29 +160,6 @@ export function loadSceneFile(path: string): SceneFile {
 }
 
 /**
- * True for scene files (`*.scene.json`). Instanced inside another scene, a scene becomes a scene
- * node holding its top-level nodes; any other file is a prefab, a single node instanced as itself.
- */
-export function isScenePath(path: string): boolean {
-  return path.toLowerCase().endsWith(".scene.json");
-}
-
-/** Display name for a scene file: `scenes/level-1.scene.json` → `level-1`. */
-export function sceneName(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1).replace(/\.(scene\.)?json$/i, "");
-}
-
-/** The node at `/Name/Child` below `root` (each step the first child with that name), or null. */
-export function nodeAtPath(root: GameObject, path: string): GameObject | null {
-  let node: GameObject | null = root;
-  for (const name of path.split("/").filter((p) => p !== "")) {
-    node = node.children.find((c) => c.name === name) ?? null;
-    if (!node) return null;
-  }
-  return node;
-}
-
-/**
  * Marks a scene node: a node created from a scene file, holding that file's top-level nodes.
  * Loaded scenes sit under the World root; sub-scenes sit inside other scenes (ADR 0016).
  */
@@ -283,7 +261,7 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
    * placed in its parent scene. Overrides with an empty target apply to that scene node.
    */
   sceneNode({ entry, parent }: NodeStep<GameObject>, scene: string): GameObject {
-    const container = this.world._createNode(entry.name ?? sceneName(scene), parent!.entity, { transform: true, id: entry.id });
+    const container = this.world._createNode(entry.name ?? sceneNodeName(scene), parent!.entity, { transform: true, id: entry.id });
     this.made.push(container);
     this.world.setSceneNode(container.entity);
     container.addBehavior(SceneInstance, { source: scene });
@@ -388,7 +366,7 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
   resolveFixups(): void {
     const resolve = (scope: FoldScope<GameObject>, id: string) => {
       // `/Name/Child`: a node outside the file (a persistent node, ADR 0016) by names from the World root (ADR 0013).
-      const found = id.startsWith("/") ? nodeAtPath(this.world.root, id) : (scope.get(id)?.node ?? (scope === this.top ? this.hooks.resolveExternal?.(id) : undefined));
+      const found = id.startsWith("/") ? this.world.root.find(id) : (scope.get(id)?.node ?? (scope === this.top ? this.hooks.resolveExternal?.(id) : undefined));
       if (!found) console.warn(`[myco] node reference "${id}" not found.`);
       else this.world._assertOwns(found, `node reference "${id}"`); // never across Worlds (ADR 0032)
       return found ?? null;
@@ -402,7 +380,7 @@ const REMOVED_UI = new Set(["engine.Text", "engine.LocalizedText", "Text", "Loca
 /** The UI document component ADR 0423 retired, by id and by bare name. */
 const RETIRED_DOCUMENTS = new Set(["engine.UIDocument", "UIDocument"]);
 
-/** A node's path of names from the World root (`/menu/Canvas/Title`), as `nodeAtPath` reads it. */
+/** A node's path of names from the World root (`/menu/Canvas/Title`), as `GameObject.find` on the World root reads it. */
 function nodePath(node: GameObject): string {
   const names: string[] = [];
   for (let n: GameObject | null = node; n?.parent; n = n.parent) names.unshift(n.name);

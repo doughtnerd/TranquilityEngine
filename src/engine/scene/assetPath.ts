@@ -26,7 +26,8 @@ export function normalizeAssetPath(ref: string): string {
 
 /**
  * A reference without its `asset:` scheme only, a leading `./` or `/` kept: for paths a document resolves against its
- * own folder, where `./x` and `/x` (the project root) differ (UI documents, `resolvePath` in `ui/document/sourceText.ts`).
+ * own folder, where `./x` and `/x` (the project root) differ (the CSS a UI field writes, `uiFieldSources.ts`; a
+ * document resolves such a path with `resolveRelative` in `core/projectPath.ts`, ADR 0466).
  * Anything that wants the project path uses `normalizeAssetPath`.
  */
 export const withoutAssetScheme = (ref: string): string => (ref.startsWith(SCHEME) ? ref.slice(SCHEME.length) : ref);

@@ -83,7 +83,7 @@ describe("play mode with several Worlds (ADR 0032)", () => {
     play.engine.step(frame);
     expect(birdX(play.engine, "Client")).toBe(-3);
     const menu = engineWorld(play.engine, "Menu")!;
-    expect(menu.sceneNodes.map((n) => n.name)).toEqual(["music.prefab"]); // its own scene, not the open one
+    expect(menu.sceneNodes.map((n) => n.name)).toEqual(["music"]); // its own scene, not the open one (named without `.prefab.json`, ADR 0467)
     play.stop();
   });
 

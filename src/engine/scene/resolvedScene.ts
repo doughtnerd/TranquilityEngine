@@ -15,7 +15,8 @@
  */
 import { Assets } from "./Assets";
 import { foldNodes, type FoldAdapter, type FoldPath, type NodeStep, type OverrideHome } from "./overrideFold";
-import { loadSceneFile, sceneName, type ComponentEntry } from "./SceneLoader";
+import { loadSceneFile, type ComponentEntry } from "./SceneLoader";
+import { sceneNodeName } from "./scenePath";
 
 export interface ResolvedComponent {
   type: string;
@@ -137,7 +138,7 @@ class Resolver implements FoldAdapter<RNode, ResolvedComponent> {
   }
 
   sceneNode(step: NodeStep<RNode>, scene: string): RNode {
-    const node = this.make(step, scene, step.entry.name ?? sceneName(scene));
+    const node = this.make(step, scene, step.entry.name ?? sceneNodeName(scene));
     node.sceneInstance = true;
     return node;
   }

@@ -13,6 +13,7 @@
 // step; Delete asks nothing and shows a toast whose Undo brings the file (and its entry) back. Mapping cards fold to
 // their heads; the folds last while the dialog is open.
 import { useMemo, useRef, useState } from "preact/hooks";
+import { isSceneFile } from "../../projectPath";
 import { Input } from "../../../engine/input/Input";
 import { inputActionSets } from "../../../engine/editor";
 import { ACTION_SET_EXTENSION, type ActionSetFile } from "../../../engine/input/actionAssets";
@@ -597,7 +598,7 @@ const folderFor = (project: EditorProject) => (project.folders.includes("input")
 function sceneFiles(project: EditorProject): { path: string; nodes: readonly NodeEntry[] }[] {
   const open = openScene.peek();
   return project.files
-    .filter((f) => f.endsWith(".scene.json") || f.endsWith(".prefab.json"))
+    .filter(isSceneFile)
     .flatMap((path) => {
       const file = path === open?.path ? open.doc.toJSON() : (project.assets.get(path) as SceneFile | undefined);
       return file && Array.isArray(file.nodes) ? [{ path, nodes: file.nodes }] : [];
