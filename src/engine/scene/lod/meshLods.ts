@@ -14,6 +14,9 @@ import type { GeneratedLods, LodGroup, LodSource } from "./generate";
 import type { VertexStreams } from "./streams";
 
 /** A mesh's streams and indices as the generator takes them. */
+/** Per-triangle trimming data (ADR 0447 §3) is filled by the occlusion import step (T10); until then a stand-in has none. */
+const EMPTY_F32 = new Float32Array(0);
+const EMPTY_U32 = new Uint32Array(0);
 export function lodSourceOf(mesh: ModelMesh): LodSource {
   const d = mesh.data;
   const streams: VertexStreams = {
@@ -49,7 +52,7 @@ export function attachLods(mesh: ModelMesh, stored: StoredLods): ModelMesh {
     return { ...rest, data };
   };
   const levels: ModelLodLevel[] = [{ mesh: lod0, error: 0, triangles: lod0.data.indices.length / 3 }, ...stored.levels.map((l) => ({ mesh: derived(l.indices, l.groups), error: l.error, triangles: l.triangles }))];
-  const lods: ModelLods = { levels, occluder: stored.occluder, bounds: stored.bounds, pixelError: stored.pixelError };
+  const lods: ModelLods = { levels, occluder: stored.occluder ? { indices: stored.occluder.indices, error: stored.occluder.error, triangleErrors: EMPTY_F32, neighbors: EMPTY_U32 } : null, bounds: stored.bounds, pixelError: stored.pixelError };
   lod0.lods = lods;
   return lod0;
 }

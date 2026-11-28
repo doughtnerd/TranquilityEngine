@@ -85,14 +85,29 @@ export interface VisibilityStats {
   readonly occlusion: { readonly occluders: number; readonly triangles: number; readonly tested: number; readonly culled: number; readonly ms: number } | null;
 }
 
-/** The occlusion core's boundary over the wasm module (ADR 0447 §2); `occlusion/core.ts` implements it. */
+/** One view's camera data the occlusion core needs besides the view-projection (ADR 0447 §4). */
+export interface OcclusionCamera {
+  readonly near: number;
+  readonly far: number;
+  /** Projection scale x and y (the matrix's [0][0] and [1][1]). */
+  readonly sx: number;
+  readonly sy: number;
+  readonly eye: readonly [number, number, number];
+}
+
+/**
+ * The occlusion core's boundary over the wasm module (ADR 0447 §2); `occlusion/core.ts` implements it over
+ * `native/visibility`'s `vis-wasm` exports (layout documented in `vis-wasm/src/lib.rs`). Perspective views only:
+ * orthographic views stay unculled.
+ */
 export interface OcclusionCore {
   /**
-   * Rasterise this view's occluders and test its occludees. `occluders` holds world-space triangles (x, y, z per
-   * vertex, three vertices per triangle) already chosen and budgeted, with each occluder's depth push and shrink in
-   * `occluderParams` (pushWorld, shrinkPx per triangle); `occludees` holds world AABBs (6 floats each). Writes 1 into
+   * Rasterise this view's occluders and test its occludees. `occluders` holds world-space triangles (x, y, z per vertex,
+   * three vertices per triangle, Babylon's default winding); `errors` holds each triangle's final world-space error
+   * (already doubled); `neighbors` 3 edge neighbours per triangle as indices into this frame's list (0xFFFFFFFF =
+   * boundary; rebased when meshes are concatenated). `occludees` holds world AABBs (6 floats each). Writes 1 into
    * `hidden[i]` for each occludee the buffer proves hidden, and leaves other entries untouched.
    */
-  occlude(view: VisibilityView, occluders: Float32Array, occluderParams: Float32Array, occludees: Float32Array, hidden: Uint8Array): { triangles: number; culled: number };
+  occlude(view: VisibilityView, camera: OcclusionCamera, occluders: Float32Array, errors: Float32Array, neighbors: Uint32Array, occludees: Float32Array, hidden: Uint8Array): { triangles: number; culled: number };
   dispose(): void;
 }

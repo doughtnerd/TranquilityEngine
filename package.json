@@ -34,6 +34,7 @@
     "build:input": "node native/input/build.mjs",
     "build:audio": "node native/audio/build.mjs",
     "build:anim": "node native/anim/build.mjs",
+    "build:visibility": "node native/visibility/build.mjs",
     "build:tween": "node native/tween/build.mjs",
     "check:audio-metered": "node tools/audio-bench/metered-gate.mjs",
     "bench:audio-spatial": "node tools/audio-bench/spatial.mjs",

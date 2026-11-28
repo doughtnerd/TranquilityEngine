@@ -26,9 +26,17 @@ export interface ModelLodLevel {
 
 /** An occluder stand-in (ADR 0447 §3): positions are LOD0's; only indices are its own. */
 export interface OccluderStandIn {
+  /** The kept triangles after import-time hole trimming (ADR 0447 §3), into LOD0's positions. */
   readonly indices: Uint32Array;
-  /** Measured two-way sampled Hausdorff error against LOD0, as a fraction of the diagonal. */
+  /** Measured two-way sampled Hausdorff error of the whole stand-in against LOD0, as a fraction of the diagonal. */
   readonly error: number;
+  /**
+   * Per kept triangle: its own measured error, as a fraction of the diagonal, before the runtime doubles it (ADR 0447
+   * §3). Empty until trimming runs (`vis-trim`'s `trim_standin`).
+   */
+  readonly triangleErrors: Float32Array;
+  /** Per kept triangle, 3 edge neighbours (indices into the kept triangles; 0xFFFFFFFF = boundary): silhouette edges. */
+  readonly neighbors: Uint32Array;
 }
 
 /** A model mesh's generated levels, its occluder stand-in and its bounds. */
