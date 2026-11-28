@@ -2,7 +2,7 @@
 
 Feasibility spike, throwaway code. Question: can `.mycomesh` LOD levels be generated at model import, in the editor (browser / Tauri webview) **and** in the Node export CLI, with a maintained simplifier, driven by per-level `{ratio, error limit}` in the model sidecar? Everything below is **measured** unless marked `(est.)` (estimate) or `[U]` (unverified). Tables are generated from `results.json` by `make-readme.mjs`; re-run `node run.mjs` (about 2.5 min) and `node make-readme.mjs` to refresh.
 
-Run environment of the numbers below: Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores, linux 6.18.44-fc-v880, Node v22.23.5, Chromium 158.0.8127.36 (playwright 1.63.0), load average at start 4.23 / 3.67 / 2.67. The machine was shared with other agents, so **timings are a smoke test** (the coordinator re-runs `run.mjs` on an idle machine). Quality, size and determinism numbers do not depend on load.
+Run environment of the numbers below: Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores, linux 6.18.44-fc-v880, Node v22.23.5, Chromium 158.0.8127.36 (playwright 1.63.0), load average at start 1.05 / 1.14 / 1.61. The machine was shared with other agents, so **timings are a smoke test** (the coordinator re-runs `run.mjs` on an idle machine). Quality, size and determinism numbers do not depend on load.
 
 ## Recommendation
 
@@ -75,7 +75,7 @@ Procedural (deterministic seed, `lib/gen.mjs`): **rock** = icosphere level 5 (20
 | browser / Tauri webview other than Chromium | not tested [U] (no WebKit browser installed here) | not tested [U] |
 | we must build wasm ourselves | no (embedded) | **yes**; out of the box `cargo build --target wasm32-unknown-unknown` failed on clang 18 (stub headers lack `floorf`, `log2f`, `ceilf`, `frexpf`, `ldexpf`; link needs `operator new/delete`). `rust-wasm/build.sh` works around both (macro defines to clang builtins + two shim functions) |
 | size of what it ships | simplifier wasm 40,919 B decoded for `simplify`, `simplifyWithAttributes`, sloppy, prune, points, remesh; module 19,160 B min+gzip | our smoke build with **only** `simplify`: 55,120 B wasm, 23,631 B gzip (no attributes, sloppy, optimiser), so a full build would be larger |
-| speed on the rock, `simplify` to 12.5 % | 8.38 ms median (npm) | 7.75 ms median (includes copying into wasm memory; same 2560 triangles) |
+| speed on the rock, `simplify` to 12.5 % | 7.19 ms median (npm) | 8.37 ms median (includes copying into wasm memory; same 2560 triangles) |
 
 Recommendation: npm `meshoptimizer`. Nothing to build, one 26 KB (min+gzip) dependency for simplifier + `reorderMesh`, MIT. The editor can `import()` it lazily on first import; the CLI imports it directly. A pure-Rust crate `meshopt-rs` 0.1.2 (a port, `experimental` feature) also exists [U: not evaluated].
 
@@ -87,52 +87,52 @@ Recommendation: npm `meshoptimizer`. Nothing to build, one 26 KB (min+gzip) depe
 
 | model | LOD0 tris | chain x3 attr (ms) | chain x3 pos (ms) | sloppy 5%+2% (ms) | cache+fetch opt, 4 levels (ms) | whole pipeline incl. weld (ms) | kTri/s (attr chain) |
 |---|---|---|---|---|---|---|---|
-| rock | 20480 | 15.0 / 16.1 / 16.1 | 9.1 / 12.7 / 12.7 | 3.3 / 3.6 / 3.6 | 12.6 / 13.9 / 13.9 | 35.4 / 37.0 / 37.0 | 1361 |
-| tree | 15728 | 11.5 / 15.6 / 15.6 | 7.1 / 7.5 / 7.5 | 1.6 / 1.7 / 1.7 | 11.4 / 14.3 / 14.3 | 27.8 / 30.7 / 30.7 | 1368 |
-| building | 10404 | 9.4 / 10.4 / 10.4 | 5.4 / 6.0 / 6.0 | 1.4 / 1.5 / 1.5 | 8.4 / 8.6 / 8.6 | 22.2 / 27.2 / 27.2 | 1103 |
-| DamagedHelmet | 15452 | 13.9 / 14.5 / 14.5 | 9.4 / 9.9 / 9.9 | 1.6 / 1.7 / 1.7 | 7.8 / 8.1 / 8.1 | 30.6 / 30.8 / 30.8 | 1115 |
-| FlightHelmet | 94722 | 80.8 / 91.6 / 91.6 | 48.3 / 55.3 / 55.3 | 9.7 / 9.9 / 9.9 | 55.1 / 62.2 / 62.2 | 176.0 / 185.8 / 185.8 | 1173 |
-| Lantern | 5394 | 4.7 / 5.1 / 5.1 | 3.0 / 3.2 / 3.2 | 0.6 / 0.7 / 0.7 | 3.1 / 5.2 / 5.2 | 9.7 / 11.0 / 11.0 | 1139 |
-| Avocado | 682 | 0.5 / 1.1 / 1.1 | 0.3 / 0.3 / 0.3 | 0.1 / 0.1 / 0.1 | 0.4 / 0.5 / 0.5 | 1.1 / 1.2 / 1.2 | 1419 |
-| Sponza | 262267 | 348.0 / 425.9 / 425.9 | 237.3 / 259.4 / 259.4 | 31.5 / 32.5 / 32.5 | 350.1 / 384.0 / 384.0 | 846.4 / 925.8 / 925.8 | 754 |
-| CesiumMan | 4672 | 4.7 / 5.2 / 5.2 | 3.4 / 3.7 / 3.7 | 0.4 / 0.5 / 0.5 | 4.3 / 9.4 / 9.4 | 10.8 / 11.7 / 11.7 | 989 |
-| Fox | 576 | 0.7 / 0.8 / 0.8 | 0.5 / 0.8 / 0.8 | 0.1 / 0.1 / 0.1 | 0.4 / 0.4 / 0.4 | 1.8 / 2.5 / 2.5 | 821 |
-| terrain | 8128 | 5.7 / 5.8 / 5.8 | 3.8 / 4.5 / 4.5 | 0.7 / 1.0 / 1.0 | 4.1 / 4.4 / 4.4 | 11.9 / 14.4 / 14.4 | 1435 |
-| ship | 464 | 0.4 / 0.4 / 0.4 | 0.3 / 0.3 / 0.3 | 0.0 / 0.1 / 0.1 | 0.8 / 1.1 / 1.1 | 1.4 / 1.9 / 1.9 | 1164 |
+| rock | 20480 | 16.7 / 17.5 / 17.5 | 9.8 / 12.5 / 12.5 | 2.1 / 2.9 / 2.9 | 13.3 / 15.4 / 15.4 | 34.6 / 35.0 / 35.0 | 1224 |
+| tree | 15728 | 12.5 / 13.0 / 13.0 | 7.8 / 8.1 / 8.1 | 1.7 / 1.7 / 1.7 | 11.4 / 11.7 / 11.7 | 27.2 / 28.9 / 28.9 | 1257 |
+| building | 10404 | 8.5 / 8.7 / 8.7 | 4.9 / 5.0 / 5.0 | 1.4 / 1.4 / 1.4 | 9.0 / 9.4 / 9.4 | 24.8 / 24.9 / 24.9 | 1218 |
+| DamagedHelmet | 15452 | 16.1 / 16.4 / 16.4 | 10.3 / 10.5 / 10.5 | 1.9 / 2.4 / 2.4 | 9.8 / 11.5 / 11.5 | 32.2 / 32.6 / 32.6 | 957 |
+| FlightHelmet | 94722 | 94.9 / 119.5 / 119.5 | 53.1 / 58.0 / 58.0 | 11.1 / 11.6 / 11.6 | 65.4 / 68.9 / 68.9 | 193.5 / 198.4 / 198.4 | 998 |
+| Lantern | 5394 | 6.1 / 7.1 / 7.1 | 3.5 / 3.7 / 3.7 | 0.9 / 1.2 / 1.2 | 4.6 / 5.1 / 5.1 | 11.2 / 11.7 / 11.7 | 880 |
+| Avocado | 682 | 0.6 / 1.2 / 1.2 | 0.3 / 0.4 / 0.4 | 0.1 / 0.1 / 0.1 | 0.4 / 0.5 / 0.5 | 1.3 / 1.9 / 1.9 | 1202 |
+| Sponza | 262267 | 403.4 / 500.1 / 500.1 | 236.7 / 303.6 / 303.6 | 37.7 / 48.5 / 48.5 | 372.2 / 418.2 / 418.2 | 873.9 / 982.8 / 982.8 | 650 |
+| CesiumMan | 4672 | 5.0 / 6.8 / 6.8 | 3.7 / 3.9 / 3.9 | 0.5 / 0.5 / 0.5 | 4.6 / 6.9 / 6.9 | 11.5 / 17.6 / 17.6 | 926 |
+| Fox | 576 | 0.7 / 0.7 / 0.7 | 0.5 / 0.8 / 0.8 | 0.0 / 0.1 / 0.1 | 0.5 / 0.5 / 0.5 | 1.7 / 2.6 / 2.6 | 817 |
+| terrain | 8128 | 6.1 / 7.9 / 7.9 | 4.2 / 4.9 / 4.9 | 0.7 / 0.7 / 0.7 | 4.1 / 5.1 / 5.1 | 13.0 / 13.2 / 13.2 | 1330 |
+| ship | 464 | 0.4 / 0.4 / 0.4 | 0.3 / 0.3 / 0.3 | 0.0 / 0.0 / 0.0 | 0.7 / 0.8 / 0.8 | 1.4 / 2.7 / 2.7 | 1142 |
 
 ### Chromium (headless, via Playwright)
 
 | model | LOD0 tris | chain x3 attr (ms) | chain x3 pos (ms) | sloppy 5%+2% (ms) | cache+fetch opt, 4 levels (ms) | whole pipeline incl. weld (ms) | kTri/s (attr chain) |
 |---|---|---|---|---|---|---|---|
-| rock | 20480 | 17.1 / 17.2 / 17.2 | 9.8 / 10.1 / 10.1 | 2.2 / 3.4 / 3.4 | 15.0 / 26.6 / 26.6 | 37.9 / 48.3 / 48.3 | 1198 |
-| tree | 15728 | 12.6 / 14.0 / 14.0 | 7.7 / 9.0 / 9.0 | 1.7 / 1.8 / 1.8 | 12.1 / 13.6 / 13.6 | 28.0 / 28.5 / 28.5 | 1248 |
-| building | 10404 | 10.1 / 13.6 / 13.6 | 5.2 / 6.1 / 6.1 | 2.2 / 2.2 / 2.2 | 11.1 / 13.7 / 13.7 | 28.8 / 33.1 / 33.1 | 1030 |
-| DamagedHelmet | 15452 | 15.9 / 17.3 / 17.3 | 10.7 / 11.1 / 11.1 | 2.0 / 2.1 / 2.1 | 10.3 / 11.1 / 11.1 | 30.4 / 30.8 / 30.8 | 972 |
-| FlightHelmet | 94722 | 82.4 / 84.4 / 84.4 | 48.4 / 48.7 / 48.7 | 10.4 / 10.7 / 10.7 | 62.3 / 65.2 / 65.2 | 181.5 / 187.3 / 187.3 | 1150 |
-| Lantern | 5394 | 5.2 / 5.3 / 5.3 | 3.5 / 3.5 / 3.5 | 0.7 / 0.7 / 0.7 | 3.8 / 7.9 / 7.9 | 11.2 / 13.7 / 13.7 | 1037 |
-| Avocado | 682 | 0.6 / 1.2 / 1.2 | 0.4 / 0.5 / 0.5 | 0.1 / 0.1 / 0.1 | 0.4 / 0.5 / 0.5 | 1.2 / 1.3 / 1.3 | 1137 |
-| Sponza | 262267 | 376.5 / 416.8 / 416.8 | 231.9 / 277.6 / 277.6 | 33.5 / 33.8 / 33.8 | 406.5 / 471.6 / 471.6 | 881.0 / 964.0 / 964.0 | 697 |
-| CesiumMan | 4672 | 4.6 / 4.7 / 4.7 | 3.4 / 3.8 / 3.8 | 0.5 / 0.6 / 0.6 | 3.8 / 7.8 / 7.8 | 10.1 / 12.6 / 12.6 | 1016 |
-| Fox | 576 | 0.6 / 0.7 / 0.7 | 0.5 / 0.7 / 0.7 | 0.0 / 0.2 / 0.2 | 0.5 / 0.5 / 0.5 | 1.6 / 1.9 / 1.9 | 960 |
-| terrain | 8128 | 5.8 / 6.2 / 6.2 | 3.7 / 3.7 / 3.7 | 0.6 / 0.7 / 0.7 | 4.1 / 4.3 / 4.3 | 12.2 / 21.2 / 21.2 | 1401 |
-| ship | 464 | 0.4 / 0.5 / 0.5 | 0.3 / 1.7 / 1.7 | 0.0 / 0.1 / 0.1 | 0.8 / 0.9 / 0.9 | 1.6 / 1.7 / 1.7 | 1160 |
+| rock | 20480 | 18.1 / 22.5 / 22.5 | 10.0 / 12.0 / 12.0 | 3.2 / 3.4 / 3.4 | 18.7 / 21.3 / 21.3 | 37.0 / 47.5 / 47.5 | 1131 |
+| tree | 15728 | 12.6 / 13.9 / 13.9 | 7.9 / 8.4 / 8.4 | 1.6 / 1.7 / 1.7 | 12.1 / 12.6 / 12.6 | 28.2 / 28.9 / 28.9 | 1248 |
+| building | 10404 | 9.1 / 9.2 / 9.2 | 5.2 / 7.3 / 7.3 | 1.5 / 1.9 / 1.9 | 12.1 / 13.0 / 13.0 | 29.3 / 35.7 / 35.7 | 1143 |
+| DamagedHelmet | 15452 | 18.4 / 20.2 / 20.2 | 11.5 / 11.5 / 11.5 | 2.1 / 2.7 / 2.7 | 13.7 / 15.5 / 15.5 | 37.2 / 38.2 / 38.2 | 840 |
+| FlightHelmet | 94722 | 96.4 / 116.2 / 116.2 | 55.8 / 57.5 / 57.5 | 11.8 / 12.2 / 12.2 | 78.3 / 103.8 / 103.8 | 201.7 / 225.1 / 225.1 | 983 |
+| Lantern | 5394 | 7.7 / 8.3 / 8.3 | 5.1 / 5.4 / 5.4 | 1.1 / 1.3 / 1.3 | 7.0 / 12.0 / 12.0 | 13.1 / 18.2 / 18.2 | 701 |
+| Avocado | 682 | 0.6 / 1.2 / 1.2 | 0.4 / 0.4 / 0.4 | 0.1 / 0.2 / 0.2 | 0.5 / 0.6 / 0.6 | 1.3 / 1.4 / 1.4 | 1137 |
+| Sponza | 262267 | 413.9 / 426.4 / 426.4 | 243.8 / 300.0 / 300.0 | 55.8 / 61.0 / 61.0 | 403.6 / 433.0 / 433.0 | 945.7 / 988.5 / 988.5 | 634 |
+| CesiumMan | 4672 | 5.1 / 5.3 / 5.3 | 3.8 / 3.9 / 3.9 | 0.5 / 0.6 / 0.6 | 4.2 / 6.0 / 6.0 | 11.3 / 13.1 / 13.1 | 916 |
+| Fox | 576 | 1.1 / 1.2 / 1.2 | 0.7 / 1.2 / 1.2 | 0.0 / 0.2 / 0.2 | 0.5 / 2.0 / 2.0 | 1.6 / 1.7 / 1.7 | 524 |
+| terrain | 8128 | 6.2 / 7.0 / 7.0 | 4.0 / 4.5 / 4.5 | 0.7 / 0.8 / 0.8 | 4.3 / 7.5 / 7.5 | 13.1 / 14.7 / 14.7 | 1311 |
+| ship | 464 | 0.5 / 0.5 / 0.5 | 0.3 / 0.4 / 0.4 | 0.0 / 0.2 / 0.2 | 0.9 / 3.3 / 3.3 | 1.6 / 2.1 / 2.1 | 928 |
 
 Other timings (weld cost, skinned attribute chain, browser/Node ratio):
 
 | model | weld p50 node/chromium (ms) | attr+skin weights chain p50 node/chromium (ms) | Chromium / Node, whole pipeline p50 |
 |---|---|---|---|
-| rock | 2.2 / 2.7 |  | 1.07 |
-| tree | 1.7 / 1.7 |  | 1.01 |
-| building | 5.0 / 5.6 |  | 1.30 |
-| DamagedHelmet | 2.3 / 4.5 |  | 0.99 |
-| FlightHelmet | 11.1 / 12.2 |  | 1.03 |
-| Lantern | 0.7 / 0.9 |  | 1.16 |
-| Avocado | 0.1 / 0.1 |  | 1.12 |
-| Sponza | 44.9 / 48.3 |  | 1.04 |
-| CesiumMan | 1.2 / 1.3 | 5.8 / 5.8 | 0.93 |
-| Fox | 0.3 / 0.2 | 0.8 / 0.7 | 0.91 |
-| terrain | 1.9 / 1.8 |  | 1.03 |
-| ship | 0.2 / 0.5 |  | 1.11 |
+| rock | 2.4 / 2.8 |  | 1.07 |
+| tree | 1.6 / 1.8 |  | 1.04 |
+| building | 5.2 / 5.0 |  | 1.18 |
+| DamagedHelmet | 2.9 / 3.6 |  | 1.16 |
+| FlightHelmet | 12.4 / 12.9 |  | 1.04 |
+| Lantern | 0.8 / 1.4 |  | 1.17 |
+| Avocado | 0.1 / 0.1 |  | 1.01 |
+| Sponza | 40.2 / 56.4 |  | 1.08 |
+| CesiumMan | 1.1 / 1.5 | 6.3 / 6.4 | 0.98 |
+| Fox | 0.3 / 0.3 | 0.7 / 0.9 | 0.93 |
+| terrain | 1.6 / 1.9 |  | 1.01 |
+| ship | 0.2 / 0.2 |  | 1.15 |
 
 Notes: throughput is about 0.7-1.4 M LOD0 triangles/s for the attr chain and 1.1-2.3 M/s for positions only; the two sloppy proxies cost 1/5 to 1/13 of the attr chain. Cache/fetch optimisation of the 4 levels costs 0.6-1.0x of the attr chain (up to 2x on tiny meshes). Whole-pipeline time in Chromium is 0.9-1.3x of Node (noise at these sizes, load average was above 4 on 4 cores). Procedural meshes whose raw vertices are not welded (building: 20808 raw vs 11912 welded) pay a visible weld cost (5 ms).
 
@@ -262,46 +262,46 @@ Sidecar-style configuration, 3 levels `{ratio, limit}` = {50 %, 0.5 %}, {25 %, 1
 
 | model | build | level (ratio, limit of max extent) | tris (target) | limit as % of bbox diag | Hausdorff max | max / limit | Hausdorff mean | time for 3 levels (ms, single run) |
 |---|---|---|---|---|---|---|---|---|
-| rock | each level from LOD0 | 1 (50%, 0.5%) | 10240 (10240) | 0.33% | 0.34% | 1 | 0.04% | 39.7 |
+| rock | each level from LOD0 | 1 (50%, 0.5%) | 10240 (10240) | 0.33% | 0.34% | 1 | 0.04% | 19 |
 | rock | each level from LOD0 | 2 (25%, 1%) | 5120 (5120) | 0.66% | 0.73% | 1.1 | 0.09% |  |
 | rock | each level from LOD0 | 3 (12.5%, 2%) | 2560 (2560) | 1.33% | 1.00% | 0.75 | 0.15% |  |
-| rock | chained | 1 (50%, 0.5%) | 10240 (10240) | 0.33% | 0.34% | 1 | 0.04% | 10.3 |
+| rock | chained | 1 (50%, 0.5%) | 10240 (10240) | 0.33% | 0.34% | 1 | 0.04% | 11.7 |
 | rock | chained | 2 (25%, 1%) | 5120 (5120) | 0.66% | 0.61% | 0.92 | 0.09% |  |
 | rock | chained | 3 (12.5%, 2%) | 2560 (2560) | 1.33% | 1.04% | 0.78 | 0.16% |  |
-| tree | each level from LOD0 | 1 (50%, 0.5%) | 7864 (7864) | 0.39% | 0.55% | 1.4 | 0.05% | 17.9 |
+| tree | each level from LOD0 | 1 (50%, 0.5%) | 7864 (7864) | 0.39% | 0.55% | 1.4 | 0.05% | 19.2 |
 | tree | each level from LOD0 | 2 (25%, 1%) | 3932 (3932) | 0.77% | 0.97% | 1.3 | 0.12% |  |
 | tree | each level from LOD0 | 3 (12.5%, 2%) | 1966 (1966) | 1.55% | 1.39% | 0.9 | 0.21% |  |
-| tree | chained | 1 (50%, 0.5%) | 7864 (7864) | 0.39% | 0.55% | 1.4 | 0.05% | 9.18 |
+| tree | chained | 1 (50%, 0.5%) | 7864 (7864) | 0.39% | 0.55% | 1.4 | 0.05% | 10.9 |
 | tree | chained | 2 (25%, 1%) | 3932 (3932) | 0.77% | 0.95% | 1.2 | 0.12% |  |
 | tree | chained | 3 (12.5%, 2%) | 1966 (1966) | 1.55% | 1.33% | 0.86 | 0.21% |  |
-| DamagedHelmet | each level from LOD0 | 1 (50%, 0.5%) | 7726 (7726) | 0.30% | 0.44% | 1.5 | 0.03% | 15.6 |
+| DamagedHelmet | each level from LOD0 | 1 (50%, 0.5%) | 7726 (7726) | 0.30% | 0.44% | 1.5 | 0.03% | 22.4 |
 | DamagedHelmet | each level from LOD0 | 2 (25%, 1%) | 4578 (3863) | 0.59% | 0.95% | 1.6 | 0.11% |  |
 | DamagedHelmet | each level from LOD0 | 3 (12.5%, 2%) | 3850 (1932) | 1.19% | 3.24% | 2.7 | 0.21% |  |
-| DamagedHelmet | chained | 1 (50%, 0.5%) | 7726 (7726) | 0.30% | 0.44% | 1.5 | 0.03% | 13.2 |
+| DamagedHelmet | chained | 1 (50%, 0.5%) | 7726 (7726) | 0.30% | 0.44% | 1.5 | 0.03% | 14.1 |
 | DamagedHelmet | chained | 2 (25%, 1%) | 4746 (3863) | 0.59% | 0.95% | 1.6 | 0.10% |  |
 | DamagedHelmet | chained | 3 (12.5%, 2%) | 3880 (1932) | 1.19% | 1.92% | 1.6 | 0.20% |  |
-| FlightHelmet | each level from LOD0 | 1 (50%, 0.5%) | 47361 (47361) | 0.40% | 0.10% | 0.24 | 0.01% | 93.5 |
+| FlightHelmet | each level from LOD0 | 1 (50%, 0.5%) | 47361 (47361) | 0.40% | 0.10% | 0.24 | 0.01% | 95.1 |
 | FlightHelmet | each level from LOD0 | 2 (25%, 1%) | 23679 (23681) | 0.81% | 0.30% | 0.37 | 0.02% |  |
 | FlightHelmet | each level from LOD0 | 3 (12.5%, 2%) | 11833 (11840) | 1.62% | 0.56% | 0.35 | 0.05% |  |
-| FlightHelmet | chained | 1 (50%, 0.5%) | 47361 (47361) | 0.40% | 0.10% | 0.24 | 0.01% | 53.6 |
+| FlightHelmet | chained | 1 (50%, 0.5%) | 47361 (47361) | 0.40% | 0.10% | 0.24 | 0.01% | 51.6 |
 | FlightHelmet | chained | 2 (25%, 1%) | 23680 (23681) | 0.81% | 0.28% | 0.34 | 0.02% |  |
 | FlightHelmet | chained | 3 (12.5%, 2%) | 11801 (11840) | 1.62% | 0.73% | 0.45 | 0.05% |  |
-| Lantern | each level from LOD0 | 1 (50%, 0.5%) | 2696 (2697) | 0.41% | 0.17% | 0.4 | 0.00% | 7.3 |
+| Lantern | each level from LOD0 | 1 (50%, 0.5%) | 2696 (2697) | 0.41% | 0.17% | 0.4 | 0.00% | 7.12 |
 | Lantern | each level from LOD0 | 2 (25%, 1%) | 1435 (1349) | 0.83% | 1.07% | 1.3 | 0.04% |  |
 | Lantern | each level from LOD0 | 3 (12.5%, 2%) | 929 (674) | 1.66% | 2.83% | 1.7 | 0.21% |  |
-| Lantern | chained | 1 (50%, 0.5%) | 2696 (2697) | 0.41% | 0.17% | 0.4 | 0.00% | 4.23 |
+| Lantern | chained | 1 (50%, 0.5%) | 2696 (2697) | 0.41% | 0.17% | 0.4 | 0.00% | 3.46 |
 | Lantern | chained | 2 (25%, 1%) | 1434 (1349) | 0.83% | 1.07% | 1.3 | 0.04% |  |
 | Lantern | chained | 3 (12.5%, 2%) | 879 (674) | 1.66% | 2.43% | 1.5 | 0.15% |  |
-| Sponza | each level from LOD0 | 1 (50%, 0.5%) | 150193 (131141) | 0.35% | 0.79% | 2.2 | 0.00% | 326 |
+| Sponza | each level from LOD0 | 1 (50%, 0.5%) | 150193 (131141) | 0.35% | 0.79% | 2.2 | 0.00% | 379 |
 | Sponza | each level from LOD0 | 2 (25%, 1%) | 112965 (65572) | 0.71% | 3.29% | 4.7 | 0.01% |  |
 | Sponza | each level from LOD0 | 3 (12.5%, 2%) | 100941 (32787) | 1.41% | 3.29% | 2.3 | 0.02% |  |
-| Sponza | chained | 1 (50%, 0.5%) | 150193 (131141) | 0.35% | 0.79% | 2.2 | 0.00% | 218 |
+| Sponza | chained | 1 (50%, 0.5%) | 150193 (131141) | 0.35% | 0.79% | 2.2 | 0.00% | 281 |
 | Sponza | chained | 2 (25%, 1%) | 111386 (65572) | 0.71% | 3.29% | 4.7 | 0.01% |  |
 | Sponza | chained | 3 (12.5%, 2%) | 98946 (32787) | 1.41% | 3.29% | 2.3 | 0.02% |  |
-| terrain | each level from LOD0 | 1 (50%, 0.5%) | 4063 (4064) | 0.35% | 0.01% | 0.019 | 0.00% | 6.83 |
+| terrain | each level from LOD0 | 1 (50%, 0.5%) | 4063 (4064) | 0.35% | 0.01% | 0.019 | 0.00% | 6.99 |
 | terrain | each level from LOD0 | 2 (25%, 1%) | 2031 (2032) | 0.71% | 0.01% | 0.014 | 0.00% |  |
 | terrain | each level from LOD0 | 3 (12.5%, 2%) | 1015 (1016) | 1.41% | 0.03% | 0.019 | 0.00% |  |
-| terrain | chained | 1 (50%, 0.5%) | 4063 (4064) | 0.35% | 0.01% | 0.019 | 0.00% | 4.11 |
+| terrain | chained | 1 (50%, 0.5%) | 4063 (4064) | 0.35% | 0.01% | 0.019 | 0.00% | 4.47 |
 | terrain | chained | 2 (25%, 1%) | 2032 (2032) | 0.71% | 0.01% | 0.019 | 0.00% |  |
 | terrain | chained | 3 (12.5%, 2%) | 1016 (1016) | 1.41% | 0.02% | 0.015 | 0.00% |  |
 
