@@ -13,11 +13,15 @@ scene) in memory at test time and the spec passes them to `openEditor(page, { fi
 | `meshes.ts` | the tree, rock, building and prop meshes, and the material table |
 | `scenes.ts` | the scenes, their variants (`BENCH_SCENES`) and their project files |
 
-## Adding the LOD and occlusion variants
+## LOD variants and the occlusion variants to come
 
-`scenes.ts` has `TODO(lod)` and `TODO(occlusion)` markers where they go: a `lod` flag on `Variant` (an `LODGroup` beside each
-`MeshRenderer`, model sidecars with `lod` levels, the simplified `_lod1..3` OBJs), an `occlusion` flag, and the extra entries in
-`BENCH_SCENES`. The spec needs no change: it measures whatever `BENCH_SCENES` lists.
+The `lod` flag on `Variant` (ADR 0446) adds `forest-auto-lod`, `forest-thin-lod` and `city-auto-lod`: each model gets a sidecar
+`models/<name>.obj.meta.json` with `lod` (the import panel's defaults; `permissive: true` for buildings) and each tree, rock,
+building and prop an automatic `engine.LODGroup` beside its `MeshRenderer`. The editor generates the levels when the models load, so
+no simplified OBJs are written. The ids of the other variants are unchanged, so the report merges.
+
+`scenes.ts` has a `TODO(occlusion)` marker for the `occlusion` flag and its entries in `BENCH_SCENES`. The spec needs no change: it
+measures whatever `BENCH_SCENES` lists.
 
 ## Running
 

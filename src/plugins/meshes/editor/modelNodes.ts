@@ -2,7 +2,7 @@
 // the `model` asset kind. Moved from the shell's asset browser (ADR 0147).
 import { Color } from "../../../engine/core/math";
 import { composeMatrix, localPoseFromMatrix } from "../../../engine/render/gizmoMath";
-import { modelTreeIfLoaded, type NodePose } from "../../../engine/scene/models";
+import { meshesIfLoaded, modelTreeIfLoaded, type NodePose } from "../../../engine/scene/models";
 import type { NodeEntry, NodeTemplate } from "../../../editor/sdk";
 
 type Vec3 = readonly [number, number, number];
@@ -23,6 +23,19 @@ type Vec3 = readonly [number, number, number];
  * its index in the list.
  */
 export function modelNodeTemplates(modelPath: string, position: Vec3 = [0, 0, 0]): NodeTemplate[] {
+  const templates = modelNodes(modelPath, position);
+  // ADR 0446 §2: a model with generated levels is placed with an automatic LODGroup (empty `levels`) on its root, in the
+  // same undoable add. A prefab made from the placed nodes keeps it, as it keeps any component.
+  if (hasLodLevels(modelPath)) templates[0].components!.push({ type: "engine.LODGroup", data: {} });
+  return templates;
+}
+
+/** Whether any mesh of the loaded model has generated levels (more than LOD0). */
+function hasLodLevels(modelPath: string): boolean {
+  return (meshesIfLoaded(modelPath) ?? []).some((m) => (m.lods?.levels.length ?? 0) > 1);
+}
+
+function modelNodes(modelPath: string, position: Vec3): NodeTemplate[] {
   const tree = modelTreeIfLoaded(modelPath);
   const meshes = tree?.meshes ?? [];
   const extras = (tree?.nodes ?? []).filter((n) => n.light || n.camera);
