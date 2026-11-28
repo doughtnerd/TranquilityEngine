@@ -980,7 +980,8 @@ mod tests {
     /// A flat quad (two triangles) covering `[x0, x1] x [z0, z1]` at height `y`, facing up.
     fn quad(x0: f32, z0: f32, x1: f32, z1: f32, y: f32) -> Vec<InputTriangle> {
         let p = |x: f32, z: f32| Float3::new(x, y, z);
-        vec![InputTriangle::new(p(x0, z0), p(x0, z1), p(x1, z0), 1, 1), InputTriangle::new(p(x1, z0), p(x0, z1), p(x1, z1), 1, 1)]
+        // the engine's winding (ADR 0450): front normal +y
+        vec![InputTriangle::new(p(x0, z0), p(x1, z0), p(x0, z1), 1, 1), InputTriangle::new(p(x1, z0), p(x1, z1), p(x0, z1), 1, 1)]
     }
 
     struct Baked {
@@ -1128,7 +1129,7 @@ mod tests {
     fn a_profile_with_nothing_walkable_builds_nothing() {
         // A single wall triangle only (side bin), floors-only profile: no navmesh for the floor bin.
         let p = |x: f32, y: f32, z: f32| Float3::new(x, y, z);
-        let wall = vec![InputTriangle::new(p(0.0, 0.0, 0.0), p(0.0, 2.0, 0.0), p(0.0, 0.0, 2.0), 1, 1)];
+        let wall = vec![InputTriangle::new(p(0.0, 0.0, 0.0), p(0.0, 0.0, 2.0), p(0.0, 2.0, 0.0), 1, 1)];
         let b = bake(&wall, Float3::new(-1.0, -1.0, -1.0), Float3::new(3.0, 3.0, 3.0), 64);
         assert!(b.build.meshes.iter().all(|m| m.is_none()));
     }

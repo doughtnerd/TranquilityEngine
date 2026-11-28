@@ -9,8 +9,8 @@ import type { NavigationSettings } from "./settings";
 import type { NavBaker } from "./wasm/myco_nav.js";
 
 /**
- * One mesh, in world space, in the nav core's winding: the walkable side faces along `cross(b - a, c - a)`, the
- * opposite of engine meshes (`collectNavGeometry` rewinds them). Coordinates pass through unchanged: the core's
+ * One mesh, in world space, in the engine's winding (`scene/winding.ts`, ADR 0450), which the nav core takes as it is:
+ * the walkable side faces along `frontNormal`. Coordinates pass through unchanged: the core's
  * crowd code already takes +Z as forward and X = up × forward, as the engine does (ADR 0164).
  */
 export interface NavBakeMesh {

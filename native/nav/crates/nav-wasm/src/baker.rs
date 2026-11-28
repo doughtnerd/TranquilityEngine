@@ -129,7 +129,7 @@ mod tests {
         "walk": { "radius": 0.5, "height": 2, "stepHeight": 0.4, "pivotOffset": 0, "speed": 4, "maxSnapDistance": 2 } }] }"#;
 
     fn floor() -> (Vec<f32>, Vec<u32>) {
-        (vec![-10.0, 0.0, -10.0, 10.0, 0.0, -10.0, 10.0, 0.0, 10.0, -10.0, 0.0, 10.0], vec![0, 2, 1, 0, 3, 2])
+        (vec![-10.0, 0.0, -10.0, 10.0, 0.0, -10.0, 10.0, 0.0, 10.0, -10.0, 0.0, 10.0], vec![0, 1, 2, 0, 2, 3]) // the engine's winding: front normal +y
     }
 
     #[test]

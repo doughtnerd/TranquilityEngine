@@ -146,9 +146,9 @@ function boxToWorld(m: Mat, center: V3, size: V3): number[] {
 }
 
 /**
- * Local triangles to world space: positions through `m`, rewound into the nav core's winding. Engine meshes are
- * wound left-handed (ADR 0164: `cross(b - a, c - a)` points into the surface); the core takes the walkable side
- * along it, so every triangle is rewound, except under a mirroring `m`, which rewinds it already.
+ * Local triangles to world space: positions through `m`, in the engine's winding, which the nav core takes as it is
+ * (`scene/winding.ts`, ADR 0450). Only a mirroring `m` (negative determinant) reverses the winding, so only its
+ * triangles are rewound back.
  */
 function toWorld(m: Mat, vertices: ArrayLike<number>, indices: ArrayLike<number>): { positions: Float32Array; indices: Uint32Array } {
   const count = Math.floor(vertices.length / 3);
@@ -156,7 +156,7 @@ function toWorld(m: Mat, vertices: ArrayLike<number>, indices: ArrayLike<number>
   for (let i = 0; i < count; i++) positions.set(transformPoint(m, vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]), i * 3);
   const tris = indices.length - (indices.length % 3);
   const out = new Uint32Array(tris);
-  const flip = det3(m) > 0;
+  const flip = det3(m) < 0;
   for (let i = 0; i < tris; i += 3) {
     out[i] = indices[i];
     out[i + 1] = flip ? indices[i + 2] : indices[i + 1];

@@ -138,7 +138,7 @@ describe("bake plan and inspector rules", () => {
     s.agentTypes = [small, twin, big, bird];
     return s;
   }
-  const floor = { positions: new Float32Array([-5, 0, -5, 5, 0, -5, 5, 0, 5, -5, 0, 5]), indices: new Uint32Array([0, 2, 1, 0, 3, 2]) };
+  const floor = { positions: new Float32Array([-5, 0, -5, 5, 0, -5, 5, 0, 5, -5, 0, 5]), indices: new Uint32Array([0, 1, 2, 0, 2, 3]) /* the engine's winding: front normal +y */ };
   const geometry = (skip: string[] = [], walkableFor?: string[]) => ({
     meshes: [{ ...floor, walkableFor }],
     chunk: { skipAgents: skip },
@@ -187,7 +187,8 @@ describe("bake plan and inspector rules", () => {
     const layout = await surfaceBinLayout(s);
     if ("error" in layout) throw new Error(layout.error);
     expect(layout.bins[0].name).toBe("Floor");
-    const tris = new Float32Array([0, 0, 0, 0, 0, 1, 1, 0, 0, /* wall facing +x */ 0, 0, 0, 0, 1, 0, 0, 0, 1]);
+    // A floor and a wall facing +x, in the engine's winding (ADR 0450).
+    const tris = new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1, /* wall facing +x */ 0, 0, 0, 0, 0, 1, 0, 1, 0]);
     const bins = await classifySurfaceBins(s, tris);
     expect(bins[0]).toBe(0);
     expect(layout.bins[bins[1]].normal[0]).toBeGreaterThan(0.9);
@@ -218,7 +219,7 @@ function walkSettings(): NavigationSettings {
 const project = (): ProjectSettingsInput => ({ navigation: walkSettings() });
 
 function floor(half: number): NavBakeMesh {
-  return { positions: new Float32Array([-half, 0, -half, half, 0, -half, half, 0, half, -half, 0, half]), indices: new Uint32Array([0, 2, 1, 0, 3, 2]) };
+  return { positions: new Float32Array([-half, 0, -half, half, 0, -half, half, 0, half, -half, 0, half]), indices: new Uint32Array([0, 1, 2, 0, 2, 3]) /* the engine's winding: front normal +y */ };
 }
 
 let bakeUrl = "";

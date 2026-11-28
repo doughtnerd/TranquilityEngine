@@ -34,10 +34,11 @@ pub struct Normal {
 }
 
 impl Normal {
-    /// `FFMeshBlob.Build`'s face normal: `cross(b - a, c - a)` normalised, zero if the cross product's length is
-    /// not above `1e-12`. Also returns that length (twice the area, the blob's `w`).
+    /// `FFMeshBlob.Build`'s face normal: the front normal in the engine's winding (`nav_math::winding::front_normal`,
+    /// ADR 0450) normalised, zero if its length is not above `1e-12`. Also returns that length (twice the area, the
+    /// blob's `w`).
     pub fn from_triangle(a: Float3, b: Float3, c: Float3) -> (Self, f32) {
-        let cross = (b - a).cross(c - a);
+        let cross = nav_math::winding::front_normal(a, b, c);
         let len = cross.length();
         let nrm = if len > 1e-12 { cross / len } else { Float3::default() };
         // `MeshToTrianglesJob`: `IsDegenerate = faceNormal.w <= 1e-12f`.
@@ -384,10 +385,10 @@ mod tests {
     #[test]
     fn floor_wall_and_ceiling_land_in_their_bins() {
         let (bins, meta) = setup();
-        // Winding so normals are +y, wall (+x facing) and -y.
-        let floor = tri([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
-        let ceiling = tri([0.0, 3.0, 0.0], [1.0, 3.0, 0.0], [0.0, 3.0, 1.0]);
-        let wall = tri([0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]); // normal: cross((0,1,0),(0,0,1)) = +x
+        // The engine's winding (front_normal = (c - a) x (b - a)), so normals are +y, wall (+x facing) and -y.
+        let floor = tri([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+        let ceiling = tri([0.0, 3.0, 0.0], [0.0, 3.0, 1.0], [1.0, 3.0, 0.0]);
+        let wall = tri([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]); // front normal: (0,1,0) x (0,0,1) = +x
         assert!((floor.normal.value.y - 1.0).abs() < 1e-6);
         assert!((ceiling.normal.value.y + 1.0).abs() < 1e-6);
         assert!((wall.normal.value.x - 1.0).abs() < 1e-6);
@@ -412,7 +413,7 @@ mod tests {
         let set = OrientationBinSet::create(&cfg, &[SurfaceRing::DEFAULT]).unwrap();
         let bins2 = set.bake_bins(Float3::splat(-10.0), Float3::splat(10.0));
         let meta2 = BinSetMetadata::new(&set, &cfg);
-        let ceiling = tri([0.0, 3.0, 0.0], [1.0, 3.0, 0.0], [0.0, 3.0, 1.0]);
+        let ceiling = tri([0.0, 3.0, 0.0], [0.0, 3.0, 1.0], [1.0, 3.0, 0.0]);
         let out = classify(&bins2, &meta2, &[degenerate, ceiling]);
         assert_eq!(out[0].walkable_for, 0);
         assert_eq!(out[1].walkable_for, 0); // -y normal fails nrm.y >= max_surface_cos

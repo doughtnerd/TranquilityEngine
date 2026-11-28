@@ -12,8 +12,8 @@
  * - **Model import** (`models.ts`) flips files into it, and **built-in meshes** (`builtinMeshes.ts`) are built in it.
  *   `MeshData.indices` is always in it.
  * - **The occlusion core** (`native/visibility`, `vis_raster::geom::front_normal`) takes engine triangles as they are.
- * - **Navigation** (`native/nav`, `src/engine/nav/geometry.ts`) still uses the opposite winding internally and rewinds
- *   at its boundary. It moves to this one when navigation's freeze is lifted (open item in ADR 0450).
+ * - **Navigation** (`native/nav`, `nav_math::winding::front_normal`) takes bake triangles in it: the walkable side faces
+ *   along the front normal. `src/engine/nav/geometry.ts` rewinds only under a mirroring transform, which reverses it.
  */
 
 /** The engine's winding, by its normal rule: a front face's right-hand normal points inward. */

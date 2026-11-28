@@ -227,7 +227,8 @@ impl TestBake {
     /// agent type).
     pub fn add_floor(&mut self, min: (f32, f32), max: (f32, f32), y: f32, walkable_for: &[Hash128]) {
         let positions = vec![v3(min.0, y, min.1), v3(max.0, y, min.1), v3(max.0, y, max.1), v3(min.0, y, max.1)];
-        let mesh = BakeMesh::nav_mesh(positions, vec![0, 2, 1, 0, 3, 2]).with_walkable_for(walkable_for.to_vec());
+        // The engine's winding (ADR 0450): front normal +y.
+        let mesh = BakeMesh::nav_mesh(positions, vec![0, 1, 2, 0, 2, 3]).with_walkable_for(walkable_for.to_vec());
         self.meshes.push(mesh);
     }
 
@@ -237,7 +238,7 @@ impl TestBake {
 
     /// A one-sided quad (a, b, c, d around its edge), wound so its walkable side faces along `normal`.
     pub fn add_quad(&mut self, a: Float3, b: Float3, c: Float3, d: Float3, normal: Float3, obstacle: bool) {
-        let facing = (b - a).cross(c - a).dot(normal) > 0.0;
+        let facing = nav_math::winding::front_normal(a, b, c).dot(normal) > 0.0;
         let indices = if facing { vec![0, 1, 2, 0, 2, 3] } else { vec![0, 2, 1, 0, 3, 2] };
         let positions = vec![a, b, c, d];
         self.meshes.push(if obstacle { BakeMesh::obstacle(positions, indices) } else { BakeMesh::nav_mesh(positions, indices) });

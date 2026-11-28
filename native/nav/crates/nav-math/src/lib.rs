@@ -8,6 +8,7 @@ pub mod exact;
 pub mod hash;
 pub mod math;
 pub mod vec;
+pub mod winding;
 
 pub use hash::{Hash128, Pod};
 pub use math::{Float3x3, Float4x4};

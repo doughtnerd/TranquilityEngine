@@ -1,3 +1,4 @@
+import { frontNormal } from "../scene/winding";
 import { beforeEach, describe, expect, it } from "vitest";
 import "../index";
 import { World } from "../core/World";
@@ -39,17 +40,16 @@ function bounds(g: NavGeometry, kind?: "navMesh" | "obstacle") {
   return { min, max };
 }
 
-/** Sum of each triangle's `cross(b - a, c - a)`: points along the surface's walkable side. */
+/** Sum of each triangle's front normal in the engine's winding (`frontNormal`, ADR 0450): points along the walkable side. */
 function normalSum(m: NavGeometry["meshes"][number]): number[] {
   const out = [0, 0, 0];
   const p = m.positions;
   for (let i = 0; i < m.indices.length; i += 3) {
-    const [a, b, c] = [m.indices[i] * 3, m.indices[i + 1] * 3, m.indices[i + 2] * 3];
-    const u = [p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]];
-    const v = [p[c] - p[a], p[c + 1] - p[a + 1], p[c + 2] - p[a + 2]];
-    out[0] += u[1] * v[2] - u[2] * v[1];
-    out[1] += u[2] * v[0] - u[0] * v[2];
-    out[2] += u[0] * v[1] - u[1] * v[0];
+    const at = (k: number) => [p[m.indices[i + k] * 3], p[m.indices[i + k] * 3 + 1], p[m.indices[i + k] * 3 + 2]];
+    const n = frontNormal(at(0), at(1), at(2));
+    out[0] += n[0];
+    out[1] += n[1];
+    out[2] += n[2];
   }
   return out;
 }
@@ -76,9 +76,9 @@ describe("collectNavGeometry", () => {
     expect(findNavChunks(scene).map((n) => n.id)).toEqual(["nav"]);
   });
 
-  // ADR 0164: engine meshes wind left-handed (cross(b - a, c - a) into the surface); the bake input winds the
-  // other way, so surfaces facing up stay walkable whatever the source.
-  /** Sum of `cross(b - a, c - a)` over the triangles whose vertices all sit at height `y`. */
+  // ADR 0450: the bake input keeps the engine's winding, rewound only under a mirroring transform, so surfaces facing up
+  // stay walkable whatever the source.
+  /** Sum of front normals over the triangles whose vertices all sit at height `y`. */
   const facesAt = (m: NavGeometry["meshes"][number], y: number): number[] => {
     const p = m.positions;
     const keep: number[] = [];

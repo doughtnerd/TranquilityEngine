@@ -38,8 +38,15 @@ are.
 - **TypeScript:** the occluder writer (`render/visibility/occlusion/occluders.ts`) passes triangles and neighbours
   through unchanged. `MeshData.indices` and the built-in meshes document the module, and a test checks that every
   built-in mesh's front normals point outward.
-- **Navigation:** it adopts the same rule when its freeze is lifted. Its core's winding changes, and
-  `src/engine/nav/geometry.ts` stops rewinding. Until then it keeps its own flip, documented in `winding.ts`.
+- **Navigation:** bake input triangles are in the engine's winding (the owner lifted navigation's freeze for this one
+  change). `nav_math::winding::front_normal` is its twin, used by the bake's classification (`Normal::from_triangle`)
+  and the bin classifier (`is_walkable_in`). `src/engine/nav/geometry.ts` rewinds only under a mirroring transform,
+  which reverses winding. Navmesh polygons the core builds keep their own internal conventions: they are its output,
+  not engine triangles.
+  - **Baked files:** the chunk border section stores bake triangles as given, so it changes. The samples' `.nav.bin`
+    files were rebaked: navmesh, flight-volume and landing-link sections are byte-identical, and only the input
+    signature and the chunk border differ. A bake made before this reads as stale in the editor (its input signature
+    no longer matches). Nothing had shipped.
 
 ## Alternatives considered
 
@@ -57,19 +64,20 @@ are.
 
 **Negative / costs**
 - The occlusion core's fixtures were rewritten, and its wasm rebuilt (no size change).
-- Navigation keeps its own flip until its freeze is lifted.
+- The samples' nav bakes were regenerated.
 
 ## Deprecates
 
-The corner swap and neighbour reordering in the occlusion core's TypeScript side, removed. Navigation's rewinding in
-`src/engine/nav/geometry.ts` goes when navigation adopts this.
+The corner swap and neighbour reordering in the occlusion core's TypeScript side, and navigation's rewinding of every
+triangle in `src/engine/nav/geometry.ts` (kept only under a mirroring transform). Both removed.
 
 ## Open questions
 
-- Navigation's adoption, after the upstream merge that lifts its freeze.
+- None.
 
 ## References
 
 - `src/engine/scene/winding.ts`, `src/engine/scene/winding.test.ts`.
 - `native/visibility/crates/vis-raster/src/geom.rs` (`front_normal`), `frame.rs`, `setup.rs`.
-- `src/engine/nav/geometry.ts:149` (navigation's current rewind).
+- `native/nav/crates/nav-math/src/winding.rs`, `nav-bake/src/classify.rs`, `nav-bake/src/bins.rs`;
+  `src/engine/nav/geometry.ts` (`toWorld`).

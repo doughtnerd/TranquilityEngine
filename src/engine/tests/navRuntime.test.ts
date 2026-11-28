@@ -30,7 +30,7 @@ function settings(): NavigationSettings {
 
 function floor(half: number): NavBakeMesh {
   const positions = new Float32Array([-half, 0, -half, half, 0, -half, half, 0, half, -half, 0, half]);
-  return { positions, indices: new Uint32Array([0, 2, 1, 0, 3, 2]) };
+  return { positions, indices: new Uint32Array([0, 1, 2, 0, 2, 3]) /* the engine's winding: front normal +y */ };
 }
 
 /** A closed axis-aligned box, faces wound outward. */

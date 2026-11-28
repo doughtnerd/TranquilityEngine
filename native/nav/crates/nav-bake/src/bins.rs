@@ -322,9 +322,9 @@ impl BinClassifier {
         }
     }
 
-    /// Same convention as Recast's calcTriNormal: `cross(v1 - v0, v2 - v0)`.
+    /// The front normal in the engine's winding (`nav_math::winding::front_normal`, ADR 0450), flipped with `flip_winding`.
     pub fn is_walkable_in(&self, bin: i32, a: Float3, b: Float3, c: Float3) -> bool {
-        let mut nrm = (b - a).cross(c - a);
+        let mut nrm = nav_math::winding::front_normal(a, b, c);
         let len = nrm.length();
         if len <= 1e-12 {
             return false;
@@ -499,8 +499,8 @@ mod tests {
         let cfg = OrientationConfig::DEFAULT;
         let s = set(&cfg, &[SurfaceRing::DEFAULT]);
         let c = BinClassifier::create(&s, &cfg, false);
-        let (a, b, cc) = (Float3::new(0.0, 0.0, 0.0), Float3::new(0.0, 0.0, 1.0), Float3::new(1.0, 0.0, 0.0));
-        // cross((0,0,1), (1,0,0)) = (0, 1, 0): a floor triangle.
+        let (a, b, cc) = (Float3::new(0.0, 0.0, 0.0), Float3::new(1.0, 0.0, 0.0), Float3::new(0.0, 0.0, 1.0));
+        // front_normal = (c - a) x (b - a) = (0,0,1) x (1,0,0) = (0, 1, 0): a floor triangle in the engine's winding.
         assert!(c.is_walkable_in(0, a, b, cc));
         assert!(!c.is_walkable_in(1, a, b, cc));
         // Flipped winding is the ceiling.

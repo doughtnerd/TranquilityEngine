@@ -74,8 +74,8 @@ pub enum MeshKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BakeMesh {
     pub positions: Vec<Float3>,
-    /// Triangles: three indices into `positions` each, wound so the walkable side faces along
-    /// `cross(b - a, c - a)`. A trailing partial triangle is dropped with a warning.
+    /// Triangles: three indices into `positions` each, in the engine's winding (ADR 0450): the walkable side faces along
+    /// `nav_math::winding::front_normal`, `(c - a) x (b - a)`. A trailing partial triangle is dropped with a warning.
     pub indices: Vec<u32>,
     pub kind: MeshKind,
     /// The area of a navmesh surface (`MeshArea`): an id from the setup's areas. `None` = plain walkable.
