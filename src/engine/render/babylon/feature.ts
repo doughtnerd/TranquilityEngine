@@ -24,7 +24,7 @@ import type { ProjectSettings } from "../../core/settings";
 import type { UICore } from "../../ui/UICore";
 import type { DrawnMaterial, PixelGrid, RenderDiagnostics } from "../RenderSurface";
 import type { RenderPolicy } from "../renderPolicy";
-import type { QuadBatch, QuadBatchHost } from "../quadBatches";
+import type { QuadBatch } from "../quadBatches";
 import type { DecalHost } from "../decals";
 import type { DynamicMeshHost } from "../dynamicMeshes";
 import { specNeeded, type RenderFeatureSpec } from "../renderFeatures";
@@ -35,6 +35,7 @@ import type { LightingContributions } from "./lighting";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import type { BabylonMaterials2D } from "./materials2D";
 import type { ProbeHit } from "./probes";
+import type { BabylonQuadBatches } from "./quadBatches";
 
 /** @internal What the renderer worked out before a feature's phase (ADR 0130). */
 export interface FeatureSyncContext {
@@ -230,8 +231,11 @@ export interface BabylonFeatureHost {
   setScreenLayer(draw: (() => Layer | null) | null): void;
   /** Set (or clear) the layer it draws over the camera preview inset (`BabylonFrame.previewUI`); while set, the inset's overlay counts as built. */
   setPreviewLayer(draw: (() => Layer | null) | null): void;
-  /** Sorted, unlit textured quad batches (ADR 0136): what the Tilemaps plugin draws its tiles with. */
-  readonly quads: QuadBatchHost;
+  /**
+   * Sorted, textured quad batches (ADR 0136): what the Tilemaps plugin draws its tiles with, and lone sprites their
+   * mesh (ADR 0450). Also where every layered 2D draw gets its place (`place`, ADR 0450: batched sprites, 2D particles).
+   */
+  readonly quads: BabylonQuadBatches;
   /** Decal volumes (ADR 0395): what the Decals plugin draws 3D decals with. */
   readonly decals: DecalHost;
   /** Depth-tested meshes a feature rewrites, camera-facing ribbons included (ADR 0396): what the Lines plugin draws 3D lines and trails with. */
