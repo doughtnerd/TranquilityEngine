@@ -7,6 +7,7 @@ import { Component } from "../../core/Component";
 import { Color, Vector3 } from "../../core/math";
 import { PlainObject, component, field } from "../../core/registry";
 import { World } from "../../core/World";
+import type { WaterWakeMode } from "./wakes";
 import { MAX_WAVES, WATER_PRESET, cleanWaves, createPackedWaves, packWaves, sampleWaves, type PackedWaves, type WaterWave } from "./gerstner";
 
 /** The water surface at a point, in world space. */
@@ -59,6 +60,12 @@ export class WaterSurface extends Component {
   @field(Number) opacity = 1;
   /** Strength of the Fresnel reflection of the environment (0–1). */
   @field(Number) reflectivity = 0.5;
+  /**
+   * How the surface draws the wakes of `WaterWake` nodes on it (ADR 0459): "trail" (foam and Kelvin
+   * ripples along each stern's path, shaded per pixel), "field" (a simulated wave height field around
+   * the camera that hulls press into; it also raises the surface) or "off".
+   */
+  @field(String, { choices: ["trail", "field", "off"] }) wakeMode: WaterWakeMode = "trail";
 
   private readonly packed: PackedWaves = createPackedWaves();
   /** What `packed` was made from: time, waveScale, wave count, then 4 numbers per wave. */

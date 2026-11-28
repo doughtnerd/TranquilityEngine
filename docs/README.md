@@ -441,6 +441,7 @@ How to use the engine. The user docs (guides, FAQ, news) are written in [wiki/](
 | [0456](decisions/0456-the-audio-runtime-has-one-decibel-law-and-one-meter-reader.md) | The audio runtime has one decibel law (−60 dB is silence) and one meter reader | Accepted |
 | [0457](decisions/0457-the-codec-owns-how-field-types-travel-and-one-catalogue-owns-the-net-messages.md) | The codec owns how field types travel, and one catalogue owns the net messages a handshake lists | Accepted |
 | [0458](decisions/0458-one-mapping-shape-module-names-each-composites-parts-and-their-control-paths.md) | One mapping-shape module names each composite's parts and their control paths | Accepted |
+| [0459](decisions/0459-water-surfaces-draw-wakes-in-their-shader-from-waterwake-components.md) | Water surfaces draw wakes in their own shader from WaterWake components on moving nodes; two modes (per-pixel trail, CPU height field) built for comparison | Proposed |
 | [0362](decisions/0362-the-ui-fidelity-pass-adds-playback-pause-clip-envelopes-reverse-second-input-curves-occlusion-curves-and-studio-format-fields.md) | The UI fidelity pass adds `pause()`/`resume()` on playback handles, the Amp envelope on clips, reverse clips, sequence marker colour and note, second-input ("And by") curves on voice curves and automation, occlusion curves, Studio fields in `audio.json`, and new loudness target defaults | Accepted |
 
 ## Working with decisions

@@ -5,6 +5,7 @@
 // Runtime code: never imports from `src/editor/` or Babylon (the feature's code loads on demand).
 import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
 import { WaterSurface } from "../../../engine/render/water/WaterSurface";
+import { WaterWake } from "../../../engine/render/water/WaterWake";
 import type { RuntimePlugin } from "../../runtimeContext";
 import { waterManifest } from "../manifest";
 
@@ -16,7 +17,7 @@ const WATER_SPEC: RenderFeatureSpec = { name: "water", phase: "surfaces", types:
 export const waterRuntimePlugin: RuntimePlugin = {
   manifest: waterManifest,
   activate(context) {
-    context.registerComponents([WaterSurface]);
+    context.registerComponents([WaterSurface, WaterWake]);
     context.registerRenderFeature({ spec: WATER_SPEC, load: () => import("./waterFeature").then((m) => m.createWaterFeature) });
   },
 };

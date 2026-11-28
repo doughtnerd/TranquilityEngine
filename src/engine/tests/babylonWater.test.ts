@@ -14,6 +14,10 @@ import { Assets, Engine, GameObject, Graphics, SceneManager } from "../index";
 import { WaterSurface } from "../render/water/WaterSurface";
 import { BabylonWater } from "../render/babylon/water";
 import { GERSTNER_SHADER, MAX_WAVES, gerstner } from "../render/water/gerstner";
+import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
+import { WaterWake } from "../render/water/WaterWake";
+import { WAKE_SHADER } from "../render/water/wakeShader";
+import { MAX_WAKES, TRAIL_TEXELS, WAKE_FIELD_RESOLUTION, WAKE_FIELD_SIZE } from "../render/water/wakes";
 import { waterTime } from "../render/water/WaterSurface";
 import { nullEngine, shaderText, type ShaderText } from "./pbrShaderSource";
 
@@ -217,6 +221,19 @@ describe("the water WGSL", () => {
     expect(all).not.toMatch(/^\s*uniform /m);
   });
 
+  it("draws wakes with WAKE_SHADER (ADR 0459): the slope after the ripples, the foam with the crest foam, the field's height before the world position", () => {
+    for (const code of [vertex.CUSTOM_VERTEX_DEFINITIONS, fragment.CUSTOM_FRAGMENT_DEFINITIONS]) {
+      expect(code).toContain(WAKE_SHADER.text("wgsl", { declarations: "omit" }));
+      expect(code).toContain("var mycoWakeTrail: texture_2d<f32>;");
+      expect(code).toContain("var mycoWakeField: texture_2d<f32>;");
+    }
+    const body = waterText.vertex.slice(0, waterText.vertex.indexOf("var worldPos: vec4f = finalWorld"));
+    expect(body.lastIndexOf("mycoWakeHeight(")).toBeGreaterThan(body.indexOf("positionUpdated = positionUpdated + mycoG[0]"));
+    const f = Object.values(fragment).join("\n");
+    expect(f.indexOf("mycoWakeAt(fragmentInputs.vPositionW.xz)")).toBeGreaterThan(f.indexOf("let ripples = mycoRipples("));
+    expect(f).toContain("mycoFoam = max(amounts.y, wake.z);");
+  });
+
   it("sums the waves with GERSTNER_SHADER itself", () => {
     expect(vertex.CUSTOM_VERTEX_DEFINITIONS).toContain(GERSTNER_SHADER.text("wgsl", { declarations: "omit" }));
     expect(waterText.vertex).toContain("mycoGerstner(px, pz, i32(uniforms.mycoWaterA.x + 0.5))");
@@ -255,6 +272,8 @@ describe("the water GLSL (WebGL2 fallback)", () => {
     }
     expect(all).not.toContain("uniforms.");
     expect(all).not.toMatch(/\bvec[234]f\(/);
+    expect(vertex.CUSTOM_VERTEX_DEFINITIONS).toContain("uniform sampler2D mycoWakeField;");
+    expect(all).toContain("mycoWakeAt(vPositionW.xz)");
   });
 });
 
@@ -294,15 +313,56 @@ describe("the water Babylon draws is the water physics samples (pirates: hulls u
   /** The surfaces' meshes in the test's Babylon scene, in the order they were made. */
   const waterMeshes = () => scene.meshes.filter((m) => m.name === "myco-water") as import("@babylonjs/core/Meshes/mesh.js").Mesh[];
 
-  /** The uniforms the material's wave plugin binds for a draw, by name. */
-  function bound(material: PBRMaterial): Record<string, V4> {
+  /** The uniforms the material's wave plugin binds for a draw, by name, and the textures (`textures`). */
+  function bound(material: PBRMaterial, textures: Record<string, BaseTexture> = {}): Record<string, V4> {
     const plugin = material.pluginManager?.getPlugin("MycoWater") as MaterialPluginBase | null | undefined;
     expect(plugin, "the water material has no wave plugin: it draws a flat plane").toBeTruthy();
     const out: Record<string, V4> = {};
-    const ubo = { updateFloat4: (name: string, x: number, y: number, z: number, w: number) => (out[name] = { x, y, z, w }) };
+    const ubo = {
+      updateFloat4: (name: string, x: number, y: number, z: number, w: number) => (out[name] = { x, y, z, w }),
+      setTexture: (name: string, t: BaseTexture) => (textures[name] = t),
+    };
     plugin!.bindForSubMesh(ubo as never, scene, babylon, null as never);
     return out;
   }
+
+  it("binds the World's wakes (ADR 0459): the trail texture in trail mode, the height field and its area in field mode, nothing off", () => {
+    const sea = GameObject.create("sea").addBehavior(WaterSurface);
+    const boat = GameObject.create("boat");
+    boat.addComponent(WaterWake, { fullSpeed: 6 });
+    const sail = (seconds: number) => {
+      for (let t = 0; t < seconds; t += 1 / 60) {
+        boat.transform!.position.z += 0.1;
+        engine.step(1 / 60);
+        water.sync(world(), [sea]);
+      }
+    };
+    sail(1);
+    const plugin = (waterMeshes()[0].material as PBRMaterial).pluginManager!.getPlugin("MycoWater") as MaterialPluginBase;
+    const samplers: string[] = [];
+    plugin.getSamplers(samplers);
+    expect(samplers).toEqual(["mycoWakeTrail", "mycoWakeField"]);
+    let tex: Record<string, BaseTexture> = {};
+    let u = bound(waterMeshes()[0].material as PBRMaterial, tex);
+    expect([u.mycoWake.x, u.mycoWake.y]).toEqual([1, 1]);
+    expect(tex.mycoWakeTrail.getSize()).toEqual({ width: TRAIL_TEXELS, height: MAX_WAKES });
+    expect(tex.mycoWakeField.getSize()).toEqual({ width: 1, height: 1 });
+
+    sea.wakeMode = "field";
+    sail(0.5);
+    tex = {};
+    u = bound(waterMeshes()[0].material as PBRMaterial, tex);
+    expect(u.mycoWake.x).toBe(2);
+    expect(tex.mycoWakeField.getSize()).toEqual({ width: WAKE_FIELD_RESOLUTION, height: WAKE_FIELD_RESOLUTION });
+    expect([u.mycoWakeArea.z, u.mycoWakeArea.w]).toEqual([WAKE_FIELD_SIZE, WAKE_FIELD_RESOLUTION]);
+    // The field is centred near the boat (no camera here: on the first wake).
+    expect(Math.abs(u.mycoWakeArea.y + WAKE_FIELD_SIZE / 2 - boat.transform!.position.z)).toBeLessThan(WAKE_FIELD_SIZE / 8);
+
+    sea.wakeMode = "off";
+    sail(0.1);
+    u = bound(waterMeshes()[0].material as PBRMaterial);
+    expect(u.mycoWake.x).toBe(0);
+  });
 
   it("adds the wave plugin on the WebGL2 (GLSL) material too, not only on WebGPU", () => {
     const w = GameObject.create("sea").addBehavior(WaterSurface);
