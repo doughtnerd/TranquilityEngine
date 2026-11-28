@@ -90,7 +90,7 @@ export const loadedScriptModule = (path: string): Promise<Record<string, unknown
 export const loadedPluginModule = (plugin: FoundPlugin, half: "runtime" | "editor"): Promise<Record<string, unknown> | undefined> => target.pluginModule(plugin, half);
 
 /** What the current project's scripts registered (the last `replaceScripts`). */
-let current: ScriptRegistrations = { components: [], data: [], systems: [], inputs: [] };
+let current: ScriptRegistrations = { components: [], data: [], systems: [], inputs: [], rpcs: [] };
 
 /** What the current project's scripts registered: what a reload during play swaps from (ADR 0125). */
 export const loadedRegistrations = (): ScriptRegistrations => current;
@@ -116,6 +116,7 @@ export async function replaceScripts(
     data: gone(current.data, result.registered.data),
     systems: gone(current.systems, result.registered.systems),
     inputs: gone(current.inputs, result.registered.inputs),
+    rpcs: gone(current.rpcs, result.registered.rpcs),
   });
   current = result.registered;
   return result;
