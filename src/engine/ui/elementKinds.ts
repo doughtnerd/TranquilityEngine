@@ -57,7 +57,7 @@ interface KindSpec<C extends UIComponentType = UIComponentType> {
   /** The part pseudo-elements that style its own look (ADR 0432; default: none). */
   readonly parts?: readonly UIPseudoElement[];
   /**
-   * Its content attribute that is HTML's default (ADR 0428, 0436): a field's or slider's `value` (`defaultValue`), a
+   * Its content attribute that is HTML's default (ADR 0428, 0448): a field's or slider's `value` (`defaultValue`), a
    * checkbox's or radio's `checked` (`defaultChecked`), an option's `selected` (`defaultSelected`). Its form's reset puts
    * it back; the current value follows it only while the control isn't dirty (the form-control model's rule).
    */
@@ -111,7 +111,7 @@ const KINDS: readonly KindSpec[] = [
     graphic: always,
   } as KindSpec<UIInputField> as KindSpec,
   // ADR 0428: form elements. A select isn't a leaf: its options are its children (laid out in its list, not in it).
-  // Content attributes are written when the attribute changes, in this order, as the element is made (ADR 0436): a
+  // Content attributes are written when the attribute changes, in this order, as the element is made (ADR 0448): a
   // select's `multiple` and a radio's `name` are on it before its options exist or its `checked` applies, as HTML's
   // attributes are before the parser inserts children. A default attribute goes through the form-control model.
   control("toggle", UIToggle, "Toggle", (c) => ({ focus: c.focused, disabled: !c.interactable, checked: c.checked, indeterminate: c.indeterminate }), { content: ["checked", "indeterminate"], parts: ["checkmark"], defaultAttribute: "checked" }),
@@ -200,7 +200,7 @@ export function hasFormDefaults(tag: UITag): boolean {
   return tagSpec(tag).defaultAttribute !== undefined;
 }
 
-/** A control's content attribute that is HTML's default (`value`, `checked` or `selected`, ADR 0436); null for other tags. */
+/** A control's content attribute that is HTML's default (`value`, `checked` or `selected`, ADR 0448); null for other tags. */
 export function uiDefaultAttribute(tag: UITag): FormField | null {
   return tagSpec(tag).defaultAttribute ?? null;
 }

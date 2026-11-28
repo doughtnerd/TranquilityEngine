@@ -8,7 +8,7 @@
  *
  * `engine.Audio` (lateUpdate): the listener (an enabled `AudioListener`, else the main camera) into the backend and
  * the frame's `ListenerFrame`, the occlusion pass's source bindings, then the main-thread audio frame (`audioFrame.ts`
- * `stepAudioFrame`, ADR 0434: `mixer.update`, the backend frame of ADR 0270, the playlist runtime), then the sources' sync.
+ * `stepAudioFrame`, ADR 0446: `mixer.update`, the backend frame of ADR 0270, the playlist runtime), then the sources' sync.
  * The order inside the frame is written there, once, for the system and the test rigs alike. Nothing in this file changes
  * for a feature: each fills its own file.
  */
@@ -39,7 +39,7 @@ const askedCore = new WeakSet<World>();
  */
 function reportView(world: World): void {
   if (!hasAudioBackend()) return;
-  const views = audioBackend().worldViews; // ADR 0434: a capability (0179); the core has it
+  const views = audioBackend().worldViews; // ADR 0446: a capability (0179); the core has it
   if (!views) return;
   const service = _worldServiceOf(world, AUDIO) as AudioWorldService | null;
   if (!service?.core.host) return;
@@ -62,7 +62,7 @@ const liveKeys = new Set<number>();
 /** ADR 0162 (K4): the listener frame main's passes share (one: only the World with the view runs the frame). */
 const frame = new ListenerFrame();
 
-/** ADR 0434: what the main-thread audio frame runs over; the backend and the playlist host are read each frame (reused, so nothing allocates). */
+/** ADR 0446: what the main-thread audio frame runs over; the backend and the playlist host are read each frame (reused, so nothing allocates). */
 let parts: AudioFrameParts | null = null;
 
 /**
@@ -122,7 +122,7 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
       parts ??= { mixer, playlists: null, backend, frame };
       parts.backend = backend;
       parts.playlists = playlistHost();
-      stepAudioFrame(parts, dt); // ADR 0434: mixer, backend frame (0270), playlists, in one module
+      stepAudioFrame(parts, dt); // ADR 0446: mixer, backend frame (0270), playlists, in one module
       listenerComponent?._noteVelocity(frame.velX, frame.velY, frame.velZ);
       for (const s of world._componentsOfType(AudioSource)) s._sync();
     },

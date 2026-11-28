@@ -1,10 +1,10 @@
-# 0440. Recordings are made of plugin lanes, one profiler serves the editor and the Studio, and plugins contribute their build steps
+# 0452. Recordings are made of plugin lanes, one profiler serves the editor and the Studio, and plugins contribute their build steps
 
 - **Status:** Proposed
 - **Date:** 2026-11-27
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0133, 0135, 0144, 0171, 0172, 0220, 0261, 0326, 0341, 0348, 0373, 0376, 0403, 0408, 0409, 0416, 0417, 0435, 0439
+- **Related:** 0133, 0135, 0144, 0171, 0172, 0220, 0261, 0326, 0341, 0348, 0373, 0376, 0403, 0408, 0409, 0416, 0417, 0447, 0451
 
 ## Context
 
@@ -47,7 +47,7 @@
 
 **Build options are hard-coded.** The export options (`audioCapture`, `audioTake`, `audioTakeFrames`, `debugLink`),
 `GameManifest`'s keys (`localisation`, `debug`, the audio ones), `buildLaunch` and the player's boot steps
-(`player/main.ts`) all name features. ADR 0435 deferred letting each feature own its slice, because that needs a new
+(`player/main.ts`) all name features. ADR 0447 deferred letting each feature own its slice, because that needs a new
 contribution kind with launch phases, which is a plugin-model change. There is no export, launch or profiler-lane
 contribution point.
 
@@ -126,11 +126,11 @@ steps**.
 
 **Build steps from plugins**
 
-This fills the slice 0435 deferred.
+This fills the slice 0447 deferred.
 
 - **Export step:** a plugin may ship an `export` entry (Node-safe; no page APIs). It declares its Export options (key,
   label, default, whether only debug builds have it) and returns its **manifest slice**, stored under `game.json`'s
-  `plugins.<name>`, plus any files to write. Localisation's string files (0439) and audio's media, effects and
+  `plugins.<name>`, plus any files to write. Localisation's string files (0451) and audio's media, effects and
   recording options become such steps.
 - **Launch step:** a plugin's runtime half registers `ctx.launch.step(phase, load)` with a phase:
   - `beforeEngine`: strings, audio media and effects;
@@ -171,7 +171,7 @@ This fills the slice 0435 deferred.
   contribution.
 - The editor and the Studio share one profiler. An improvement to the timeline or tables reaches both.
 - Build options stop being hard-coded: export, launch and debug steps belong to their features, including
-  localisation (0439).
+  localisation (0451).
 - Budgets per lane, and a lane table any reader can list.
 
 **Negative / costs**
@@ -197,7 +197,7 @@ This fills the slice 0435 deferred.
   and launch steps).
 - Amends, on acceptance: 0348 (takes are recordings with lanes), 0417 (take ownership becomes the engine's recording
   ownership), 0261 (the track kit moves to `src/profiler/`), 0326 (the table kit is built there), 0376 (the
-  `recording` topic), 0435 (the deferred slice is built), 0133/0275 (the `profiler` and `export` entries).
+  `recording` topic), 0447 (the deferred slice is built), 0133/0275 (the `profiler` and `export` entries).
 
 ## Open questions
 
@@ -221,4 +221,4 @@ This fills the slice 0435 deferred.
   `src/editor/sdk/plugins.ts` (`CONTRIBUTION_POINTS`).
 - `src/export/webBuild.ts`, `src/export/format.ts`, `src/player/buildLaunch.ts`, `src/player/main.ts`.
 - ADR 0348 (takes), 0373 and 0378 (animation take records), 0409 (`.sporesample`), 0416 and 0417 (who records),
-  0435 (the deferred per-feature slice), 0439 (localisation as a plugin).
+  0447 (the deferred per-feature slice), 0451 (localisation as a plugin).

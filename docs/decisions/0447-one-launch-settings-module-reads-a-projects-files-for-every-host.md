@@ -1,4 +1,4 @@
-# 0435. One launch settings module reads a project's files for every host, and the player decides its launch without a page
+# 0447. One launch settings module reads a project's files for every host, and the player decides its launch without a page
 
 - **Status:** Accepted
 - **Date:** 2026-11-27

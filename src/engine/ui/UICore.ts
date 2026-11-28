@@ -126,7 +126,7 @@ interface Entry {
   /** ADR 0428: a form element's parts at the last layout, and their key (`formParts.ts`). */
   parts?: UIPart[] | null;
   partsKey?: string;
-  /** ADR 0437: its last resolved paint, the same object while it draws the same. */
+  /** ADR 0449: its last resolved paint, the same object while it draws the same. */
   paint?: UIPaint | null;
   /** ADR 0428: what else a measured element's size depends on (a select's option labels, a text area's rows). */
   measureKey?: string;
@@ -546,7 +546,7 @@ export class UICore implements UICoreLike {
     }
     for (const c of [...this.entries.keys()]) if (!live.has(c) || byNode.get(c.owner.entity) !== c) this.release(c);
     for (const c of byNode.values()) this.ensure(c);
-    // ADR 0436: a select's fields a script wrote are settled (HTML's selectedness) before layout reads its label, so
+    // ADR 0448: a select's fields a script wrote are settled (HTML's selectedness) before layout reads its label, so
     // measuring it stays a pure read. The routing core only: a passive core never changes what it lays out.
     if (!this.passive) for (const c of byNode.values()) if (c instanceof UISelect) settleSelect(c);
 
@@ -691,7 +691,7 @@ export class UICore implements UICoreLike {
       node.setMeasureFunc((w, wm) => this.measure(entry, wm === yoga.MEASURE_MODE_UNDEFINED ? Infinity : w));
     }
     // ADR 0428: a select's options lay out in a list of their own; a control's state as built is what a form resets to
-    // (ADR 0436: unless its front end handed the form-control model one).
+    // (ADR 0448: unless its front end handed the form-control model one).
     if (kind === "select") {
       entry.popup = yoga.Node.create(this.config ?? undefined);
       entry.popup.setFlexDirection(yoga.FLEX_DIRECTION_COLUMN);
@@ -1342,7 +1342,7 @@ export class UICore implements UICoreLike {
           e.partsKey = key;
           e.parts = parts;
         }
-        // ADR 0437: its paint, its state colours resolved (the same object, nothing allocated, while unchanged, as parts are).
+        // ADR 0449: its paint, its state colours resolved (the same object, nothing allocated, while unchanged, as parts are).
         e.paint = paintOf(e.comp, e.paint);
         elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll, parts: e.parts ?? null, paint: e.paint ?? null, filter: p.filter, backdrop: p.backdrop ?? null, inline: e.kind === "text" ? (e.inline ?? null) : null, editing: this.editingOf(e) });
       }
@@ -1991,7 +1991,7 @@ export class UICore implements UICoreLike {
     else fireUIEvent(world, uiEventRecord("input", s));
   }
 
-  /** ADR 0428, 0436: a key's default action on a focused slider (Page Up/Down a page, Home/End its ends), as the form-control model's inputs. Returns whether it was one. */
+  /** ADR 0428, 0448: a key's default action on a focused slider (Page Up/Down a page, Home/End its ends), as the form-control model's inputs. Returns whether it was one. */
   private keySlider(world: World, s: UISlider, key: string): boolean {
     if (key === "pageup" || key === "pagedown") pageSlider(world, s, key === "pageup" ? 1 : -1);
     else if (key === "home" || key === "end") sliderToEnd(world, s, key === "home" ? "min" : "max");

@@ -1,4 +1,4 @@
-// The Studio asset library (ADR 0433) driven through its interface, as the screens drive it, over a project in memory:
+// The Studio asset library (ADR 0445) driven through its interface, as the screens drive it, over a project in memory:
 // moves and renames with and without the editor holding the project (ADR 0341: references rewritten, or left for the
 // editor in pending-moves.json), names checked and extensions kept, companions moving, copying and deleting with
 // their file, the open file following and closing, deletes into the trash and folder deletes moving the contents up,

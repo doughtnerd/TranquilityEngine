@@ -1,5 +1,5 @@
 /**
- * ADR 0434: one main-thread audio frame, in the order every caller runs (`stepAudioFrame`): the mixer's update (its heard
+ * ADR 0446: one main-thread audio frame, in the order every caller runs (`stepAudioFrame`): the mixer's update (its heard
  * clock, ramps, ducking and listeners), then the backend frame (ADR 0270, `runAudioFrame` below), then the playlist runtime's
  * frame (ADR 0343). The audio system (`audioSystem.ts`) calls it once per frame in the World with the view, after resolving
  * the listener into the frame; the loopback and recording rigs (`testing.ts`) call it for each main-thread frame, so a
@@ -31,7 +31,7 @@ export interface PlaylistFrame {
   update(dt: number): void;
 }
 
-/** ADR 0434: what one main-thread audio frame runs over. A caller keeps one and updates it, so a frame allocates nothing. */
+/** ADR 0446: what one main-thread audio frame runs over. A caller keeps one and updates it, so a frame allocates nothing. */
 export interface AudioFrameParts {
   /** The mixer that configured `backend` (the page mixer in a game; a rig's own in a test). Its settings drive the passes. */
   mixer: Mixer;
@@ -43,7 +43,7 @@ export interface AudioFrameParts {
 }
 
 /**
- * ADR 0434: one main-thread audio frame in the production order: `mixer.update`, the backend frame (`runAudioFrame`), the
+ * ADR 0446: one main-thread audio frame in the production order: `mixer.update`, the backend frame (`runAudioFrame`), the
  * playlist runtime's frame. Allocates nothing.
  */
 export function stepAudioFrame(parts: AudioFrameParts, dt: number): void {

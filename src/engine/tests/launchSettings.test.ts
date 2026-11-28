@@ -1,4 +1,4 @@
-// Launch settings (ADR 0435): the project settings every host that runs a project's files launches with, read from
+// Launch settings (ADR 0447): the project settings every host that runs a project's files launches with, read from
 // those files: project.json with audio.json's mix, the refusals, and audio.json's notices.
 import { describe, expect, it } from "vitest";
 import { resolveSettings } from "../core/settings";

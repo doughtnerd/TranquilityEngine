@@ -1,4 +1,4 @@
-// What the player launches a build with (ADR 0435), read from `game.json` and the build's files, without a page:
+// What the player launches a build with (ADR 0447), read from `game.json` and the build's files, without a page:
 // the manifest's format check, the files' JSON problems, the launch settings every host shares (`launchSettings`:
 // project.json with audio.json's mix, and the legacy audio refusal), and the decisions the build's Export options
 // leave to launch time: whether the debug link dials out or listens (ADR 0376, 0403), and whether the audio capture

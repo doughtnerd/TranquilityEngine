@@ -1,5 +1,5 @@
 /**
- * The styled tree (ADR 0438): everything that keeps a hosted UI tree's elements styled by the registered stylesheets.
+ * The styled tree (ADR 0450): everything that keeps a hosted UI tree's elements styled by the registered stylesheets.
  * The UI host (`host/UIHost.ts`, ADR 0423) keeps the DOM-like tree, its events and geometry, and tells the styled tree
  * what happened; the styled tree decides what restyles, resolves it through the cascade (`cascade.ts`) and writes it.
  *
@@ -9,7 +9,7 @@
  *   viewport) and every element's pseudo-state are checked there.
  * - **Out.** Field writes on the elements' components (transitions and keyframe animations through the UI animator, with
  *   this tree as the animator's owner), node references by element id (ADR 0340), part styles (`setUIPartStyles`), the
- *   paint states an element's rules name (`UIPanel._styledStates`, ADR 0437), and the generated `::before`/`::after`
+ *   paint states an element's rules name (`UIPanel._styledStates`, ADR 0449), and the generated `::before`/`::after`
  *   elements (ADR 0432), which the host makes and destroys when asked (`UIStyledTreeHost`).
  * - **Invalidation.** What the sheets use (pseudo-classes, `:lang()`, structural selectors, `@media`, viewport lengths,
  *   `:has()`, pseudo-elements) is a property of the sheet set (`UISheetSet`), which each tree picks up as it restyles, so
@@ -367,7 +367,7 @@ const NO_STATES: readonly UIPaintState[] = [];
 const PAINT_STATES: ReadonlySet<string> = new Set<UIPaintState>(["hover", "pressed", "focus"]);
 
 /**
- * ADR 0437: the paint states its rule for `field` states the look for (named by a selector of it that matches it now,
+ * ADR 0449: the paint states its rule for `field` states the look for (named by a selector of it that matches it now,
  * `statesNamed`); null when neither rule names any.
  */
 function styledStatesOf(target: StyleTarget, resolved: ReadonlyMap<string, ResolvedValue>): UIStyledStates | null {
@@ -402,7 +402,7 @@ function paintStatesOf(s: Selector): readonly UIPaintState[] {
  * (`button:hover`), an ancestor's or sibling's (`.row:hover button`), inside `:is()`, `:where()`, `:has()` and
  * `:nth-child(... of S)`. Under `:not()` a state is named as not holding (`button:not(:hover)` is the look while not
  * hovered), so it counts only under an even number of them. A rule that matches while its state holds states the look
- * for that state; the Unity-style colour would hide it (ADR 0437 follow-up).
+ * for that state; the Unity-style colour would hide it (ADR 0449 follow-up).
  */
 function statesNamed(s: Selector, positive: boolean, out: Set<UIPaintState>): void {
   for (const { selector: c } of s.parts) {
@@ -463,7 +463,7 @@ export interface UIStyledTreeHost<E extends UIStyledNode<E>> {
 }
 
 /**
- * The styled tree of one hosted UI tree (ADR 0438): see the module comment. `root` is the tree's canvas, made by the host
+ * The styled tree of one hosted UI tree (ADR 0450): see the module comment. `root` is the tree's canvas, made by the host
  * (node and component) before the styled tree; it takes no style of its own, but `:root` variables and inherited
  * properties start there.
  */
@@ -940,7 +940,7 @@ export class UIStyledTree<E extends UIStyledNode<E>> {
         animations?.map((spec): UIResolvedAnimation => ({ spec, tracks: () => keyframeTracks(sheets, spec.name, type, resolved, s.markup.file, warn, passed) })) ?? null,
       );
     }
-    // ADR 0437: the states of its own its rules give its fill and border colour: its resolved paint draws those from its
+    // ADR 0449: the states of its own its rules give its fill and border colour: its resolved paint draws those from its
     // style (`sync` restyles it as its state changes), not from the Unity-style state colours.
     if (el.component instanceof UIPanel) el.component._styledStates = this.sheets.usePseudo ? styledStatesOf(s.target, resolved) : null;
     const changed = !passesOnSame(s.resolved, resolved);

@@ -6,7 +6,7 @@ import { textRunOf } from "../ui/elementKinds";
 import { FormControlState, adoptControlState, chosenOptions, controlState, htmlStepRule, pageSlider, playerTyped, resetForm, selectLabel, selectedness, settleSelect, sliderToEnd, stepSlider, stepValue, writeControl, writeControlValue } from "../ui/formModel";
 import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
 
-// ADR 0436: the form-control model, driven through its interface: pure reads (a select's label and choice), HTML's
+// ADR 0448: the form-control model, driven through its interface: pure reads (a select's label and choice), HTML's
 // selectedness, defaults and dirty flags, a form's reset, scripts' writes and the player's semantic inputs.
 
 let engine: Engine;
@@ -166,7 +166,7 @@ describe("HTML's stepping (stepUp, stepDown and a number field's arrows)", () =>
   });
 });
 
-describe("default content attributes (the UI host's, ADR 0436)", () => {
+describe("default content attributes (the UI host's, ADR 0448)", () => {
   it("applies a select's `multiple` before its options, so each option's `selected` attribute stays chosen", () => {
     const doc = buildUI(`<Canvas><select id="s" multiple=""><option id="a" value="a" selected=""/><option id="b" value="b"/><option id="c" value="c" selected=""/></select></Canvas>`);
     expect(["a", "b", "c"].map((id) => byId(doc, id, UIOption).selected)).toEqual([true, false, true]);

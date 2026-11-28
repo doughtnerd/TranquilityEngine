@@ -1,4 +1,4 @@
-// ADR 0438: the styled tree, driven through its own interface (what the UI host calls), with a small host of plain
+// ADR 0450: the styled tree, driven through its own interface (what the UI host calls), with a small host of plain
 // elements: what restyles when, per sheet set; node references; and the generated `::before`/`::after` it asks its host
 // for. The host-level and Svelte-level behaviour (selectors, `:has()`, units, pseudo-elements, animation) stays tested
 // through views (`uiSelectors`, `uiHasAndUnits`, `uiPseudoElements`, `uiAnimation`…).
@@ -114,7 +114,7 @@ class Host implements UIStyledTreeHost<Element> {
 const RED = Color.from("#ff0000");
 const BLUE = Color.from("#0000ff");
 
-describe("the styled tree (ADR 0438)", () => {
+describe("the styled tree (ADR 0450)", () => {
   it("styles a new subtree on restyle, and an attribute change at the next sync or pending restyle, not before", () => {
     const host = new Host(`.a { background-color: #ff0000 } .b { background-color: #0000ff }`);
     const el = host.make("div", "Panel", { class: "a" });
@@ -130,7 +130,7 @@ describe("the styled tree (ADR 0438)", () => {
     expect(panel.backgroundColor).toEqual(RED);
   });
 
-  it("follows a pseudo-state change at sync, and records the paint states its own rules name (ADR 0437)", () => {
+  it("follows a pseudo-state change at sync, and records the paint states its own rules name (ADR 0449)", () => {
     const host = new Host(`button { background-color: #0000ff } button:disabled { background-color: #ff0000 } button:hover { border-color: #ff0000 }`);
     const el = host.make("button", "Button");
     host.styles.restyle(el);

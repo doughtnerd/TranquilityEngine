@@ -1,7 +1,7 @@
 // The Profiler screen's services over the real page (ADR 0348): its one store and recorder, made on first use over the
 // open project, the capture Worker and the Studio's audio runtime (`audioHost().audio.capture`, the public API, and the
 // recorder's live ring through the `LiveHost` seam the editor's Profiler panel uses), and the captures' file actions
-// (`captureLibrary`: the Studio asset library given what is special about captures, ADR 0433).
+// (`captureLibrary`: the Studio asset library given what is special about captures, ADR 0445).
 // The panels call these; the models are elsewhere.
 import { signal } from "@preact/signals";
 import { buildSession } from "../../runtime/buildSession";

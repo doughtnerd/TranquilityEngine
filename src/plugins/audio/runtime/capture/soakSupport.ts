@@ -126,7 +126,7 @@ export async function s3Rig(scene: S3Scene, seed = 1): Promise<S3Rig | null> {
       return audioSeconds;
     },
     async frame(afterMain) {
-      audio.mainFrame(FRAME_SECONDS); // ADR 0434: the frame a game runs
+      audio.mainFrame(FRAME_SECONDS); // ADR 0446: the frame a game runs
       for (let i = 0; i < capacity; i++) {
         if (deadline[i]! <= audioSeconds) {
           handles[i]?.stop(0.005);

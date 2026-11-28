@@ -1,6 +1,6 @@
 // The Takes and Captures trees' files (spec §2.16, §4.5.2; the prototype's file systems): which folders the trees show,
 // empty ones included, and each row's meta (duration, and the folders while searching). Their file actions are the
-// Studio asset library's (`library/studioLibrary.test.ts`, ADR 0433).
+// Studio asset library's (`library/studioLibrary.test.ts`, ADR 0445).
 import { describe, expect, it } from "vitest";
 import { captureTree, durationText, isCaptureFile, isTakePath, rowMeta, runMoveFolders, runTreeFolders, whyNotCaptureFile } from "./captureTree";
 

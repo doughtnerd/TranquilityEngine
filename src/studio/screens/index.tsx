@@ -20,7 +20,7 @@ export const SCREEN_PANELS: Readonly<Record<ScreenId, readonly StudioPanel[]>> =
   spatial: SPATIAL_PANELS,
   take: TAKE_PANELS,
   // One recording for both screens (ADR 0408): the Profiler gets what it needs of the Take screen here, so neither
-  // screen imports the other (ADR 0433).
+  // screen imports the other (ADR 0445).
   profiler: profilerPanels({ openPath: (path) => void takeScreen().openPath(path), Transport: ReplayTransport }),
   packages: PACKAGES_PANELS,
 };

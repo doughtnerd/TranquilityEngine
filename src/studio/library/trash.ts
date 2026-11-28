@@ -1,5 +1,5 @@
 // The project's trash (owner decision 2, 2026-11-23; spec §4.5.2 "Delete … Undo"), the Studio asset library's delete
-// (ADR 0433): a deleted file and the files that go with it (a take's notes, any import settings sidecar) move from the
+// (ADR 0445): a deleted file and the files that go with it (a take's notes, any import settings sidecar) move from the
 // project folder into `.myco/trash/<n>/<path>`, a hidden folder, so the project no longer lists them; Undo moves them
 // back. The project then reads the paths again (`rereadFiles`), so it drops them and, on Undo, serves them again, and
 // `Assets.onChanged` listeners (the audio runtime) hear both. Nothing that refers to the files is rewritten, so Undo

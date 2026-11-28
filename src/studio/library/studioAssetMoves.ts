@@ -1,5 +1,5 @@
 // Moving and renaming assets in the Studio (ADR 0341, "One app owns each file; both watch"); the Studio asset library
-// (`studioLibrary.ts`, ADR 0433) is its only caller, so every Studio move and rename comes through here. A move changes
+// (`studioLibrary.ts`, ADR 0445) is its only caller, so every Studio move and rename comes through here. A move changes
 // what scenes, prefabs and project.json name, files the editor owns, so who rewrites them depends on whether the
 // editor has the project open (its lock, `.myco/locks/editor.json`):
 //

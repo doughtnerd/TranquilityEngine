@@ -1138,7 +1138,7 @@ export interface LoopbackAudio {
    */
   tick(dt?: number): void;
   /**
-   * ADR 0434: one main-thread audio frame as the audio system runs it (`stepAudioFrame`: `mixer.update`, `tick`, then, on the
+   * ADR 0446: one main-thread audio frame as the audio system runs it (`stepAudioFrame`: `mixer.update`, `tick`, then, on the
    * page mixer, the playlist runtime), with no render; `dt` defaults to `dt`.
    */
   mainFrame(dt?: number): void;
@@ -1181,7 +1181,7 @@ export interface LoopbackAudio {
 function frameDriver(backend: AudioBackend, mixer: Mixer, playlists: PlaylistFrame | null) {
   const parts: AudioFrameParts = { mixer, playlists, backend, frame: new ListenerFrame() };
   return {
-    /** ADR 0434: the main-thread audio frame (`stepAudioFrame`: `mixer.update`, the backend frame, the playlists). */
+    /** ADR 0446: the main-thread audio frame (`stepAudioFrame`: `mixer.update`, the backend frame, the playlists). */
     frame(dt: number): void {
       parts.frame.set(null, 0, null, null, dt);
       stepAudioFrame(parts, dt);
@@ -1195,7 +1195,7 @@ function frameDriver(backend: AudioBackend, mixer: Mixer, playlists: PlaylistFra
 }
 
 /**
- * ADR 0434: drives `backend` one main-thread frame at a time as the audio system does (`stepAudioFrame`: `mixer.update`, the
+ * ADR 0446: drives `backend` one main-thread frame at a time as the audio system does (`stepAudioFrame`: `mixer.update`, the
  * backend frame of ADR 0270 with every stage and main's passes, then `playlists` when given), with a listener frame of its
  * own (no World and no listener, so the listener-bound passes are inert). No render. A test that builds its own host over
  * `createLoopbackHost` uses it; the rigs' `mainFrame` is the same step.
@@ -1381,7 +1381,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
   };
   const quantaPerFrame = options.quantaPerFrame ?? 4;
   const dtOf = () => options.dt ?? (quantaPerFrame * QUANTUM_FRAMES) / loop.sampleRate;
-  // ADR 0434: on the page's mixer the playlist runtime runs in the frame, as in a game; a rig on its own mixer has none.
+  // ADR 0446: on the page's mixer the playlist runtime runs in the frame, as in a game; a rig on its own mixer has none.
   const driver = frameDriver(backend, rigMixer, own ? null : { update: (dt) => playlistHost().update(dt) });
   let closed = false;
   /** Whether this rig's host is the page's and the World service was registered again to load it (`startWorld`). */

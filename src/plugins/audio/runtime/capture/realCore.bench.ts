@@ -185,7 +185,7 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
 
   const frameStep = async (measure: boolean): Promise<void> => {
     const t0 = performance.now();
-    audio.mainFrame(dt); // ADR 0434: the frame a game runs (its own mixer: no playlists)
+    audio.mainFrame(dt); // ADR 0446: the frame a game runs (its own mixer: no playlists)
     // Replace what ended (S3: the replacement starts in the same frame) and stop loopers at their deadline.
     for (let i = 0; i < capacity; i++) {
       if (deadline[i]! <= audioSeconds) {

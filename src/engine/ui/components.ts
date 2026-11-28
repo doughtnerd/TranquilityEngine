@@ -429,7 +429,7 @@ export class UIPanel extends UIElement {
   /** How far the shadow blurs, in UI pixels (CSS's blur radius). */
   @field(Number) boxShadowBlur = 0;
   /**
-   * @internal ADR 0437: the pseudo-classes of its own (`:hover`, `:pressed`, `:focus`) named by the style rules that give
+   * @internal ADR 0449: the pseudo-classes of its own (`:hover`, `:pressed`, `:focus`) named by the style rules that give
    * it its `backgroundColor` and `borderColor`, written by the UI host as it styles it; null: unstyled. In those states
    * its resolved paint (`paint.ts`) draws its style's colour, not the Unity-style state colour.
    */

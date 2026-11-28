@@ -1,4 +1,4 @@
-# 0433. The Studio has one asset library module for every file action
+# 0445. The Studio has one asset library module for every file action
 
 - **Status:** Accepted
 - **Date:** 2026-11-27

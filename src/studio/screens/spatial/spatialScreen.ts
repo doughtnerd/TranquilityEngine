@@ -2,7 +2,7 @@
 // the route: the file as `asset`), the selection, the tool, the camera, the elevation slab, the clipboard, and the
 // audition (the test scene player in the Studio's runtime World). Scene edits go to the open scene's asset document as
 // one labelled undo step each (`applyEdit`; drags coalesce into one step); scene files are made as asset kinds and
-// renamed, duplicated and deleted through the Studio asset library (ADR 0433); the project settings shown here are edited on `audio.json`
+// renamed, duplicated and deleted through the Studio asset library (ADR 0445); the project settings shown here are edited on `audio.json`
 // through the Mixer's document; "Edit attenuation…" edits the playlist's attenuation on its owning document. The panels
 // read these signals and call these actions; the rules are the pure models beside this file.
 import { computed, effect, signal } from "@preact/signals";
@@ -634,7 +634,7 @@ export function newFromTake(path: string, scene: AudioTestScene, t: number): voi
 }
 
 /**
- * The Scenes tree's file actions (ADR 0433): a typed name keeps `.audioscene.json`; the open scene follows a move and
+ * The Scenes tree's file actions (ADR 0445): a typed name keeps `.audioscene.json`; the open scene follows a move and
  * closes on a delete (its audition stopped), and Undo reopens it. A scene's pending edit is written before it goes to
  * the trash, so Undo brings back the scene as it was.
  */
@@ -663,7 +663,7 @@ export async function duplicateScene(path: string): Promise<void> {
 }
 
 /**
- * Delete test scenes at once, without asking, into the project's trash as one deletion (the library's delete, ADR 0433):
+ * Delete test scenes at once, without asking, into the project's trash as one deletion (the library's delete, ADR 0445):
  * the toast's Undo brings them back exactly (D27; the prototype's "Deleted <name> · Undo"), so a "can't be undone"
  * question would be untrue. Nothing refers to a test scene, so there are no references to clean. Deleting the open scene
  * opens the next one in the tree (the prototype's). Refused (read-only, play, gone, no project folder) with the reason

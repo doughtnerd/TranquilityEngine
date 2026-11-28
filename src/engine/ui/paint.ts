@@ -1,5 +1,5 @@
 /**
- * ADR 0437: an element's resolved paint, as ADR 0271's text run is its resolved text. The UI core works out one
+ * ADR 0449: an element's resolved paint, as ADR 0271's text run is its resolved text. The UI core works out one
  * `UIPaint` per box element each sync (its fill, border colour and widths, corner radii) from the element's fields and
  * its interaction state, and reports it on `UILaidOutElement.paint`; the drawing layer draws exactly that.
  *
@@ -20,7 +20,7 @@ import type { UIPaint, UIRGBA } from "./uiCoreTypes";
 /** A state the Unity-style colours paint. */
 export type UIPaintState = "hover" | "pressed" | "focus";
 
-/** The states that the rules giving an element its fill and its border colour state the look for (ADR 0437). */
+/** The states that the rules giving an element its fill and its border colour state the look for (ADR 0449). */
 export interface UIStyledStates {
   readonly background: readonly UIPaintState[];
   readonly border: readonly UIPaintState[];

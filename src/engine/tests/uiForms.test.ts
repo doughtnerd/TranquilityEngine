@@ -259,7 +259,7 @@ describe("fields: number, password and text areas (ADR 0428)", () => {
     p.dom.tap("arrowup");
     frame(p, 2);
     expect(n.value).toBe("2");
-    // ADR 0436: HTML's stepUp: past `max` it stops at the largest step-aligned value in range (2, not 3), so nothing changes.
+    // ADR 0448: HTML's stepUp: past `max` it stops at the largest step-aligned value in range (2, not 3), so nothing changes.
     p.dom.tap("arrowup");
     frame(p, 2);
     expect(n.value).toBe("2");

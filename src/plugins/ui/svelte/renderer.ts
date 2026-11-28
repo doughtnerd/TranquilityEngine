@@ -377,7 +377,7 @@ export class UIRenderElement extends UINodeBase {
   /** @internal An input's value set before its element was made (a binding, a script). */ _pendingValue: string | null = null;
   /** @internal ADR 0428: `checked`, `indeterminate` and `selected` set before its element was made. */ _pendingState: Partial<Record<"checked" | "indeterminate" | "selected", boolean>> = {};
   /**
-   * @internal ADR 0436: its form-control state (the engine's form-control model): HTML's defaults, what a form reset puts
+   * @internal ADR 0448: its form-control state (the engine's form-control model): HTML's defaults, what a form reset puts
    * back (a field's `defaultValue`, its template `value` or `defaultValue`; a checkbox's `defaultChecked`; an option's
    * `selected` attribute), and HTML's dirty flags. Kept here before its UI element is made, then handed to it.
    */ readonly _form = new FormControlState();
@@ -1170,7 +1170,7 @@ export class UIRenderElement extends UINodeBase {
       this._pendingState[name] = on;
       return;
     }
-    // ADR 0436: as the DOM's property (a radio checked unchecks its group, an option chosen unchooses the others).
+    // ADR 0448: as the DOM's property (a radio checked unchecks its group, an option chosen unchooses the others).
     if (name in c) writeControl(c, name, on);
   }
 }
@@ -1955,7 +1955,7 @@ function listen(node: UIRenderElement, type: string, fn: () => void, onFormReset
 const DEFAULT_KEYS: Readonly<Record<string, "defaultValue" | "defaultChecked" | "defaultSelected" | undefined>> = { defaultvalue: "defaultValue", defaultchecked: "defaultChecked", defaultselected: "defaultSelected" };
 
 /**
- * A control's form-control state, handed to its UI element as it's made (ADR 0436), so its form's reset and the player's
+ * A control's form-control state, handed to its UI element as it's made (ADR 0448), so its form's reset and the player's
  * changes use the defaults and dirty flags kept here: a field without a default value resets to "", a checkbox without
  * one unchecked, an option without `selected` unchosen (HTML's); a slider without one to its value as built.
  */
@@ -2289,7 +2289,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     if ((value === undefined || value === null) && key === "value" && el.localName === "option") value = "";
     if (value === undefined || value === null || value === false) return renderer.removeAttribute(el, key);
     // A field's `value` or a checkbox's `checked` in its template (before it's in a parent) is its default attribute, as
-    // HTML's is (the UI host hands it to the form-control model, ADR 0436). Written later (`value={x}`, Svelte's
+    // HTML's is (the UI host hands it to the form-control model, ADR 0448). Written later (`value={x}`, Svelte's
     // `set_value`/`set_checked`), it's the current value, as the DOM property is: not an attribute at all.
     const defaultAttribute = uiDefaultAttribute(el._uiTag);
     if (key === defaultAttribute && key !== "selected") {

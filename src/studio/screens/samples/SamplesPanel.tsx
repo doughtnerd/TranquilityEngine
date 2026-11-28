@@ -5,7 +5,7 @@
 // two-line rows with a filled 46×20 thumbnail, folder counts with a hover Delete, the split Add button (Import samples… /
 // New folder), Collapse all, and with no samples the prototype's centred card over the dock ("No samples yet", Import
 // samples…). Rename, move, new folder and both deletes are the Studio asset
-// library's (`sampleFiles.ts`, ADR 0433), so references (playlists, scenes) follow and the file on disk is what changes;
+// library's (`sampleFiles.ts`, ADR 0445), so references (playlists, scenes) follow and the file on disk is what changes;
 // deleting a sample moves its file to the project's trash, and a folder's contents move up, with Undo on the toast.
 import { openMixDocument } from "../mixer/mixerDocument";
 import { applyEdit } from "../../../editor/sdk/editResult";

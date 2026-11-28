@@ -1,6 +1,6 @@
 # 0270. The audio frame order is written once, and the test rigs run it
 
-- **Status:** Accepted, amended by 0434 (the frame step takes in `mixer.update` and the playlist runtime: `stepAudioFrame`)
+- **Status:** Accepted, amended by 0446 (the frame step takes in `mixer.update` and the playlist runtime: `stepAudioFrame`)
 - **Date:** 2026-11-20
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

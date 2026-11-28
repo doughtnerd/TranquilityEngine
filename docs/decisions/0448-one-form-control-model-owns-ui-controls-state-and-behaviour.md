@@ -1,4 +1,4 @@
-# 0436. One form-control model owns UI controls' state and behaviour, and reading a control never changes it
+# 0448. One form-control model owns UI controls' state and behaviour, and reading a control never changes it
 
 - **Status:** Accepted
 - **Date:** 2026-11-27

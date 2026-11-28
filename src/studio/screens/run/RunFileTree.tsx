@@ -5,7 +5,7 @@
 // trash on hover. Right-click menus: Rename (F2), Duplicate, Move to…, Move to top level, Delete (Del) on files; Rename,
 // New folder, Move to…, Move to top level and Delete folder (its contents move up) on folders. Drag a file or folder onto
 // a folder, or onto the "Top level" strip shown while dragging, to move it (touch has Move to… instead). A view over
-// props: the file actions are the Studio asset library's tree actions (`library/studioLibrary.ts`, ADR 0433).
+// props: the file actions are the Studio asset library's tree actions (`library/studioLibrary.ts`, ADR 0445).
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { FileTreeActions } from "../../library/studioLibrary";
 import { ContextMenu, SEPARATOR, tidyEntries, type MenuEntry } from "../../../editor/ui/ContextMenu";

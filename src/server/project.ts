@@ -39,7 +39,7 @@ export class ServerError extends Error {
 export interface ServerProject {
   /** The folder, absolute. */
   readonly root: string;
-  /** The launch settings (`launchSettings`, ADR 0435): `project.json`, parsed, with `audio` set to `audio.json`'s runtime view (ADR 0344). */
+  /** The launch settings (`launchSettings`, ADR 0447): `project.json`, parsed, with `audio` set to `audio.json`'s runtime view (ADR 0344). */
   readonly settings: ProjectSettingsInput;
   /**
    * Every project file by project-relative path, as its asset value (ADR 0254): parsed JSON, a
@@ -85,7 +85,7 @@ export async function readProject(dir: string): Promise<ServerProject> {
   const json = new Map([...texts].filter(([path]) => projectFileKind(path) === "json"));
   const ui = new Map([...texts].filter(([path]) => isUISourcePath(path) || path.endsWith(".css")));
 
-  // The launch settings (ADR 0435): project.json with audio.json's mix (ADR 0344); an old audio section is refused, not read.
+  // The launch settings (ADR 0447): project.json with audio.json's mix (ADR 0344); an old audio section is refused, not read.
   const launch = launchSettings(values);
   if (launch.refusal !== undefined) throw new ServerError(`${join(root, "project.json")}: ${launch.refusal}`);
   return {

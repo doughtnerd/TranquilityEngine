@@ -13,7 +13,7 @@
 //
 // A drag = 3..10 `setBus volume` events (`mixer.apply` + `backend.flushNow()`, the preview path) at 1..16.7 ms spacing,
 // from the volume the bus holds to a new one. Variation (seeded): the start phase inside a quantum (fractional ms), the
-// phase and cadence of the main-thread frame (8.3, 16.7, 33.3, 50 ms: the rig's `mainFrame`, ADR 0434), and, on half the
+// phase and cadence of the main-thread frame (8.3, 16.7, 33.3, 50 ms: the rig's `mainFrame`, ADR 0446), and, on half the
 // drags, an edit of a silent bus posted 0.2..3.8 ms before the first event so the first event lands inside the coalescing
 // window and waits for its end.
 import { vi } from "vitest";
@@ -151,7 +151,7 @@ export async function runFaderGate(options: GateOptions): Promise<DragResult[] |
         const tickDue = nextTick <= start && (!e || nextTick <= e.t);
         if (tickDue) {
           now = nextTick;
-          audio.mainFrame(cadence / 1000); // ADR 0434: mixer, backend frame, playlists
+          audio.mainFrame(cadence / 1000); // ADR 0446: mixer, backend frame, playlists
           collect(now);
           nextTick += cadence;
         } else if (e && e.t <= start) {

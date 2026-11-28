@@ -1,4 +1,4 @@
-// What the player launches a build with (ADR 0435), without a page: the manifest check, the files' JSON problems,
+// What the player launches a build with (ADR 0447), without a page: the manifest check, the files' JSON problems,
 // the launch settings' refusal and notices, and the launch-time decisions of the build's Export options (debug link,
 // audio capture and take triggers).
 import { describe, expect, it } from "vitest";

@@ -1,4 +1,4 @@
-// The Takes and Captures panels' tree, shared by the Run screens from `screens/run/` (ADR 0348, 0433; the prototype's
+// The Takes and Captures panels' tree, shared by the Run screens from `screens/run/` (ADR 0348, 0445; the prototype's
 // captures file system): the project's recordings (`*.sporesample`, ADR 0409: every one holds a profile, and a take's
 // also holds what the game asked of audio) by folder, wherever they are, or while searching the matches by path. Saved
 // and imported recordings go to `recordings/`. Pure.

@@ -1,4 +1,4 @@
-// The Samples panel's file actions (`sampleFiles`, ADR 0433) where they differ from the library's: deleting a sample
+// The Samples panel's file actions (`sampleFiles`, ADR 0445) where they differ from the library's: deleting a sample
 // (owner decision 2) writes its pending edit first, so Undo brings the sample, its sidecar and that edit back; the open
 // sample follows a rename and closes on a delete; and Save (owner decision 3) writes a pending edit at once. Driven as
 // the panel drives them, over an in-memory project, with the toast's Undo as the person presses it.

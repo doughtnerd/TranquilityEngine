@@ -1,5 +1,5 @@
 /**
- * The form-control model (ADR 0436, on 0428): what HTML's form elements are and do, on the UI core's components. It owns
+ * The form-control model (ADR 0448, on 0428): what HTML's form elements are and do, on the UI core's components. It owns
  * a control's state rules (value, checked, selected; defaults and HTML's dirty flags; a select's selectedness) and its
  * behaviour (activation, stepping, submit and reset), so the UI core's routing and navigation only translate keys and
  * presses into its inputs, and the Svelte renderer only maps `defaultValue` and `bind:` onto it. Renderer-neutral;

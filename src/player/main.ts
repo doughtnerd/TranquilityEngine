@@ -43,7 +43,7 @@ async function boot(): Promise<void> {
     readText: async (path) => (await fetchOk(`${PROJECT_DIR}/${path}`)).text(),
     url: (path) => urlOf(`${PROJECT_DIR}/${path}`),
   });
-  // What the build launches with (ADR 0435): the launch settings (project.json with audio.json's mix, ADR 0344; an old
+  // What the build launches with (ADR 0447): the launch settings (project.json with audio.json's mix, ADR 0344; an old
   // audio section is refused) and the launch-time decisions of its Export options.
   const launch = buildLaunch(manifest, files, {
     search: location.search,

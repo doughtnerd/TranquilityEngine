@@ -10,7 +10,7 @@
  *   kebab-case, ADR 0077), `id`, classes and an inline `style`, matched by the stylesheets every hosted
  *   tree in the process shares (`setUIHostStyles`: Svelte's scoped rules match only their component's
  *   elements through its hash class, and `:global` rules reach every view, as global CSS reaches a page).
- * - Styling is the styled tree's (`document/styledTree.ts`, ADR 0438): the host tells it what changed and it decides what
+ * - Styling is the styled tree's (`document/styledTree.ts`, ADR 0450): the host tells it what changed and it decides what
  *   restyles. A new subtree is styled when it's made (`restyle`); attribute, class and pseudo-class changes are
  *   restyled in the late sync of the frame they happen in, after the flush hooks (`onFlush`) ran, so a
  *   change a click handler queued in a microtask shows in the frame of the click.
@@ -55,7 +55,7 @@ let support: Support | null = null;
 let loading: Promise<Support> | null = null;
 
 /**
- * Load the styled tree and the cascade behind it (ADR 0423, 0438: without the CSS parser, since components' styles arrive
+ * Load the styled tree and the cascade behind it (ADR 0423, 0450: without the CSS parser, since components' styles arrive
  * parsed). Trees can be made once it resolves.
  */
 export function loadUIHostSupport(): Promise<void> {
@@ -88,7 +88,7 @@ export function matchesUISelector(selector: string, target: StyleTarget): boolea
 
 /**
  * Each registered stylesheet by its file, in registration order: rule data, parsed when its component compiled. Every
- * tree's styled tree reads it (ADR 0438), with cascade order across the files and what they use.
+ * tree's styled tree reads it (ADR 0450), with cascade order across the files and what they use.
  */
 const registeredSheets: { version: number; readonly files: Map<string, UIStylesheet> } & UISheetSource = { version: 0, files: new Map() };
 
@@ -189,7 +189,7 @@ export interface UIHostSource {
 export class UIHostElement {
   /** @internal */ _node!: GameObject;
   /** @internal */ _comp!: UIComponentType;
-  /** @internal Its style state (ADR 0438), the styled tree's: its selector target, resolved style and generated elements. */ _style!: UIElementStyle<UIHostElement>;
+  /** @internal Its style state (ADR 0450), the styled tree's: its selector target, resolved style and generated elements. */ _style!: UIElementStyle<UIHostElement>;
   /** @internal */ _attributes: ReadonlyMap<string, string> = new Map();
   /** @internal */ _parent: UIHostElement | null = null;
   /** @internal */ _children: UIHostElement[] = [];
@@ -236,7 +236,7 @@ export class UIHostElement {
   }
 
   /**
-   * What selectors match it (ADR 0438): its id, classes, attributes, pseudo-class `state` (hover, pressed, focus,
+   * What selectors match it (ADR 0450): its id, classes, attributes, pseudo-class `state` (hover, pressed, focus,
    * disabled, form states), parent and children, as the styled tree keeps them. The same object for its whole life, so
    * a resolved value inherited `from` a target names its element.
    */
@@ -648,7 +648,7 @@ function walkAll(el: UIHostElement, fn: (el: UIHostElement) => void): void {
 export class UIHostTree {
   /** The canvas every element is under. Its fields belong to the tree's owner (a `UIView` copies its own onto it). */
   readonly root: UIHostElement;
-  /** @internal ADR 0438: what keeps its elements styled (invalidation, the cascade, pseudo-elements). */
+  /** @internal ADR 0450: what keeps its elements styled (invalidation, the cascade, pseudo-elements). */
   readonly _styles: UIStyledTree<UIHostElement>;
   private readonly flushHooks = new Set<() => void>();
   private shapeChanged = false;
@@ -914,7 +914,7 @@ export class UIHostTree {
     }
   }
 
-  /** @internal After the flush: stylesheet, language, preferences, canvas size, pseudo-class, attribute and class restyles (ADR 0438). */
+  /** @internal After the flush: stylesheet, language, preferences, canvas size, pseudo-class, attribute and class restyles (ADR 0450). */
   _lateSync(): void {
     if (!this.isValid) return;
     this._styles.sync();
@@ -948,7 +948,7 @@ export class UIHostTree {
     const comp = el._comp as unknown as Record<string, unknown>;
     const defaultAttribute = uiDefaultAttribute(el.uiTag);
     // In the kind table's order, so a select's `multiple` and a radio's `name` are on it before its options are made or
-    // its `checked` applies (ADR 0436). Only attributes that changed are written.
+    // its `checked` applies (ADR 0448). Only attributes that changed are written.
     for (const name of uiContentAttributes(el.uiTag)) {
       const value = attributes.get(name);
       const before = el._content.get(name);

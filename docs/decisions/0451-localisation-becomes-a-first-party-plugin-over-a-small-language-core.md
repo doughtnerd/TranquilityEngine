@@ -1,10 +1,10 @@
-# 0439. Localisation becomes a first-party plugin over a small language core in the engine
+# 0451. Localisation becomes a first-party plugin over a small language core in the engine
 
 - **Status:** Proposed
 - **Date:** 2026-11-27
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0133, 0135, 0144, 0275, 0354, 0355, 0356, 0357, 0391, 0423, 0435, 0440
+- **Related:** 0133, 0135, 0144, 0275, 0354, 0355, 0356, 0357, 0391, 0423, 0447, 0452
 
 ## Context
 
@@ -38,7 +38,7 @@ Who depends on what (non-test imports):
 
 The owner wants most of this to be a plugin (2026-11-27): a project that ships in one language shouldn't carry string
 tables, ICU formatting and exchange tooling in its engine, and localisation should be enabled, disabled and extended
-like any other feature. 0435 also deferred per-feature export and launch steps partly because localisation was an
+like any other feature. 0447 also deferred per-feature export and launch steps partly because localisation was an
 engine module while capture and takes belonged to the audio plugin; making localisation a plugin removes that split.
 
 ## Decision
@@ -67,7 +67,7 @@ it, and how does that language behave", which the UI core, `Assets` and audio ne
 - **Editor half:** the Localisation panel, the `strings` asset kind (no longer a core asset kind), the Inspector's
   Localise and Extract to string table, the text fit check, gathering and the CSV/XLIFF/PO exchange.
 - **Export and launch:** writing `strings/<code>.json` and `game.json`'s `localisation` becomes the plugin's export
-  step, and `installBuildStrings` its player boot step, through the contributions ADR 0440 defines.
+  step, and `installBuildStrings` its player boot step, through the contributions ADR 0452 defines.
 
 **With the plugin disabled:** `t(key)`, `Locale.t` and `Locale.text` return what a missing key returns today, and
 warn once per session that localisation is off. `:lang()`, direction, fonts, localised asset folders and
@@ -89,7 +89,7 @@ warn once per session that localisation is off. `:lang()`, direction, fonts, loc
 ## Alternatives considered
 
 - **Keep localisation in the core.** No work, but every project carries string tables, ICU and exchange code, the
-  feature can't be disabled, and export steps stay split between core and plugins (0435).
+  feature can't be disabled, and export steps stay split between core and plugins (0447).
 - **Move all of it into the plugin, language state included.** The UI core's `:lang()`, direction and fonts,
   `Assets`' localised folders and `Audio.language` would then depend on a plugin, or each grow its own idea of the
   current language.
@@ -100,7 +100,7 @@ warn once per session that localisation is off. `:lang()`, direction, fonts, loc
 
 **Positive**
 - A project without localisation ships no string tables, message formatter or exchange code, and can turn it off.
-- Localisation's export and launch steps become a plugin's, like audio's, so ADR 0440's contributions cover every
+- Localisation's export and launch steps become a plugin's, like audio's, so ADR 0452's contributions cover every
   build option.
 - The core keeps one answer to the current language for the UI core, `Assets` and audio.
 - The editor shell loses about 2,500 lines of panel code to a plugin editor half.
@@ -117,7 +117,7 @@ warn once per session that localisation is off. `:lang()`, direction, fonts, loc
 - The `strings` core asset kind (it becomes the plugin's asset kind).
 - Engine ownership of `strings/`, `message/`, `exchange/`, `pseudo.ts`, `t.ts` and the string half of `runtime/`
   (moved to the plugin); `subtitles.ts` and `subtitleSettings.ts` (moved to `myco.subtitles`).
-- The exporter's and player's built-in localisation steps (replaced by the plugin's contributions, ADR 0440).
+- The exporter's and player's built-in localisation steps (replaced by the plugin's contributions, ADR 0452).
 
 ## Open questions
 
@@ -132,4 +132,4 @@ warn once per session that localisation is off. `:lang()`, direction, fonts, loc
 - `src/engine/localisation/`, `src/editor/ui/localisation/`, `src/plugins/subtitles/`,
   `src/plugins/audio/runtime/localisation/languageState.ts`, `src/export/strings.ts`, `src/player/main.ts`.
 - ADR 0356 (string tables and ICU), 0354 (localised audio folders and line tables), 0357 (subtitles), 0391
-  (fallback messages), 0435 (launch settings and the deferred per-feature slice), 0440 (plugin contributions).
+  (fallback messages), 0447 (launch settings and the deferred per-feature slice), 0452 (plugin contributions).

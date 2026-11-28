@@ -234,7 +234,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   get codecs(): AudioCodecs {
     return this;
   }
-  /** ADR 0434: which Worlds have the view (`setWorldAudible`). */
+  /** ADR 0446: which Worlds have the view (`setWorldAudible`). */
   get worldViews(): AudioWorldViews {
     return this;
   }

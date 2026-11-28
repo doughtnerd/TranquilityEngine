@@ -1,4 +1,4 @@
-// The Samples panel's file actions (ADR 0342 "Samples are assets", ADR 0433): the Studio asset library given what is
+// The Samples panel's file actions (ADR 0342 "Samples are assets", ADR 0445): the Studio asset library given what is
 // special about samples. A typed name keeps the file's extension (`.wav`, `.sample.json`); the open sample follows a
 // move and closes on a delete; a moved sample takes its source versions (per machine) and a moved folder its colour
 // (ADR 0362 item 4); deleting a sample writes its pending edit first (so Undo brings it back too), drops its decoded

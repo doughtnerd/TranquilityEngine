@@ -1,4 +1,4 @@
-# 0437. The UI core resolves each element's paint, as it resolves its text run
+# 0449. The UI core resolves each element's paint, as it resolves its text run
 
 - **Status:** Accepted
 - **Date:** 2026-11-27

@@ -1332,7 +1332,7 @@ export class BabylonUI {
   }
 
   /**
-   * A panel, button or input field's box. `scale` is its canvas's texture pixels per UI pixel. ADR 0437: its fill, border
+   * A panel, button or input field's box. `scale` is its canvas's texture pixels per UI pixel. ADR 0449: its fill, border
    * and corners are the core's resolved paint (state colours already resolved), drawn as given.
    */
   private syncPanel(e: ElementEntry, c: UIPanel, el: UILaidOutElement, scale: number): void {
@@ -1485,7 +1485,7 @@ export class BabylonUI {
   /** ADR 0429: a text's box background and inline runs, redrawn when the core's layout, runs or editing state change. */
   private syncInline(t: LocalisedTextBlock, el: UILaidOutElement): void {
     const c = el.comp as UIText;
-    // ADR 0437: its box as the core resolved it.
+    // ADR 0449: its box as the core resolved it.
     const paint = el.paint!;
     const bg = paint.background ? rgbaCss(paint.background) : null;
     if (put(t, "boxBackground", bg)) {

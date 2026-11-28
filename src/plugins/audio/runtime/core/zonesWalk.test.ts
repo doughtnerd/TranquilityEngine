@@ -63,7 +63,7 @@ async function rig(slots: number, maxActive: number, standby: number) {
   const warnings: string[] = [];
   const warn = console.warn;
   console.warn = (m: string) => void warnings.push(String(m));
-  // ADR 0221: the production assembly on the loopback, with its own mixer. ADR 0434: each step runs the main-thread frame
+  // ADR 0221: the production assembly on the loopback, with its own mixer. ADR 0446: each step runs the main-thread frame
   // (`stepAudioFrame`) with a listener frame of this test's own, which holds the zones' World.
   audio = await loopbackAudio({ mixer: "own", settings, preset: { maxZoneSlots: slots, zoneMaxSeconds: 1 }, decode: () => ({ channelData: [tone] }), backend: { zoneIr } });
   if (!audio) throw new Error("the loopback core did not load");

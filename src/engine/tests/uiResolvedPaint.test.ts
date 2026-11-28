@@ -1,4 +1,4 @@
-// ADR 0437: the UI core resolves each box element's paint (fill, border colour and widths, corner radii) from its fields
+// ADR 0449: the UI core resolves each box element's paint (fill, border colour and widths, corner radii) from its fields
 // and its interaction state, and reports it on `UILaidOutElement.paint`. The Unity-style state colours (`hoverColor`,
 // `pressedColor`, `focusColor`) are inputs; where an element's own style rules state a state's look (`:hover`,
 // `:pressed`, `:focus`), the style's restyled (and transitioned) value is what's reported. Tested through the reported
@@ -51,7 +51,7 @@ function paintOf(p: UIPointer, c: UIComponentType): UIPaint {
 
 const fillOf = (p: UIPointer, c: UIComponentType) => paintOf(p, c).background;
 
-describe("resolved paint: Unity-style state colours (ADR 0437, 0069, 0340)", () => {
+describe("resolved paint: Unity-style state colours (ADR 0449, 0069, 0340)", () => {
   it("fills a button with its hover and pressed colours, the plain colour once a press leaves it or it isn't interactable", async () => {
     const canvas = node("C", null, UICanvas);
     const grey = new Color(0.2, 0.2, 0.2, 1);
@@ -113,7 +113,7 @@ describe("resolved paint: Unity-style state colours (ADR 0437, 0069, 0340)", () 
   });
 });
 
-describe("resolved paint: the style's own state rules (ADR 0437)", () => {
+describe("resolved paint: the style's own state rules (ADR 0449)", () => {
   it("draws a stylesheet's :hover and :pressed backgrounds, not the Unity-style colours, and the plain one after", async () => {
     const ui = buildUI(`<Canvas><button id="b" width="100" height="40"/></Canvas>`, {
       css: `#b { background-color: #333333 } #b:hover { background-color: #00ff00 } #b:pressed { background-color: #0000ff }`,
@@ -220,7 +220,7 @@ describe("resolved paint: the style's own state rules (ADR 0437)", () => {
   });
 });
 
-describe("resolved paint: borders and corners (ADR 0437, 0422, 0432)", () => {
+describe("resolved paint: borders and corners (ADR 0449, 0422, 0432)", () => {
   it("resolves each corner's radius, -1 taking borderRadius, and each side's border width", async () => {
     const canvas = node("C", null, UICanvas);
     const panel = node("P", canvas.node, UIPanel, { width: "100", height: "40", borderRadius: 5, borderTopLeftRadius: 1, borderTopRightRadius: 2, borderBottomRightRadius: 3, borderWidth: 2, borderLeftWidth: 6, borderColor: new Color(0, 1, 0, 1) });

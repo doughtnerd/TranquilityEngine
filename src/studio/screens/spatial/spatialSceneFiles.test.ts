@@ -1,6 +1,6 @@
 // The Scenes panel's file actions, driven through the screen's own actions (`openScene`, `deleteScenes`, `editScene`)
 // over a folder project in memory: deleting test scenes happens at once, into the project's trash as one deletion (the
-// Studio asset library's delete, ADR 0433), and the toast's Undo brings them back exactly (D27, the prototype's
+// Studio asset library's delete, ADR 0445), and the toast's Undo brings them back exactly (D27, the prototype's
 // "Deleted <name> · Undo"), so no "can't be undone" question comes first (UI pass SC5).
 import { signal } from "@preact/signals";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

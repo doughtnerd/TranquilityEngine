@@ -3,7 +3,7 @@
 // notes as an asset document (the engine's undo tree; `<take>.notes.json`, a Studio-registered kind with no file
 // ending, as the samples sidecar is), what is special about takes for the Takes tree's file actions (`takeLibrary`:
 // the notes go with their take, the open take follows a move and closes on a delete; the Studio asset library does the
-// rest, ADR 0433)
+// rest, ADR 0445)
 // and "Profile this replay". The panels call these; the models are elsewhere.
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
 import { emptyTakeNotes, formatTakeNotes, parseTakeNotes, takeNotesPath } from "../../../engine/audio/take/notes";

@@ -1,4 +1,4 @@
-// Launch settings (ADR 0435): the project settings a host launches a game with (`launchGame`'s `project`, ADR 0236),
+// Launch settings (ADR 0447): the project settings a host launches a game with (`launchGame`'s `project`, ADR 0236),
 // read from the project's files once for every host that runs a project's files as they are: the player (a build's
 // files) and the dedicated server (a project folder). `project.json`'s values with `audio` set to `audio.json`'s runtime
 // view (ADR 0344), the refusals a host stops on (a `project.json` that isn't an object, or still has the old `audio`

@@ -98,7 +98,7 @@ describe("the pirates menu (a Svelte component)", () => {
     expect(ui.query("#title")!.as(UIText).color.toHex().toLowerCase()).toBe("#ffd973");
     const quick = ui.query("#quick-match")!.as(UIButton);
     expect(quick.height).toBe("60");
-    // Its `:hover` background is what the core paints it with under the pointer (ADR 0437).
+    // Its `:hover` background is what the core paints it with under the pointer (ADR 0449).
     pointer.hover(quick);
     engine.step(STEP);
     pointer.sync();

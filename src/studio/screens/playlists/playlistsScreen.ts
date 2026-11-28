@@ -2,7 +2,7 @@
 // mirrored in the route: the file as `asset`, the embedded entry's indices as `select`), the selected entry, the test
 // parameter values, the audition and its voice log. Edits go to the open file's asset document as one labelled undo
 // step each (`applyEdit`; drags coalesce); refusals go to the status bar. File actions (rename, duplicate, move, new
-// folder, delete a folder) are the Studio asset library's (`playlistFiles`, ADR 0433), so references follow; new, make
+// folder, delete a folder) are the Studio asset library's (`playlistFiles`, ADR 0445), so references follow; new, make
 // shared and deleting a playlist (its links and children) are the screen's own, through the engine's asset operations. The panels read the signals and
 // call these; the rules are the pure models beside this file.
 import { audioProject } from "../../shell/audioProject";

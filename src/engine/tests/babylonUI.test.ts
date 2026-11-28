@@ -202,7 +202,7 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
     expect(rootOf().isVisible).toBe(false);
   });
 
-  it("draws the paint the core resolved, state colours and all, as given (ADR 0437)", () => {
+  it("draws the paint the core resolved, state colours and all, as given (ADR 0449)", () => {
     // What the paint is for a hovered, pressed or focused element is the core's (uiResolvedPaint.test.ts); this draws it.
     const canvas = node("C", null, UICanvas);
     const button = node("B", canvas.node, UIButton, { backgroundColor: new Color(0.2, 0.2, 0.2, 1), hoverColor: new Color(0, 1, 0, 1) });
