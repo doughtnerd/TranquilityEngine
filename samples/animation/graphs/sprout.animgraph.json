@@ -1,0 +1,165 @@
+{
+  "format": "myco.animgraph-source@1",
+  "name": "Sprout",
+  "skeleton": "asset:models/sprout.gltf#Skeleton",
+  "output": "machine",
+  "parameters": [
+    {
+      "name": "speed",
+      "type": "float",
+      "default": 0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "idle",
+      "family": "sources",
+      "kind": "clipPlayer",
+      "params": {
+        "clip": "asset:clips/sprout-idle.anim.json"
+      }
+    },
+    {
+      "id": "moveIdle",
+      "family": "sources",
+      "kind": "clipPlayer",
+      "params": {
+        "clip": "asset:clips/sprout-idle.anim.json"
+      }
+    },
+    {
+      "id": "sway",
+      "family": "sources",
+      "kind": "clipPlayer",
+      "params": {
+        "clip": "asset:clips/sprout-sway.anim.json"
+      }
+    },
+    {
+      "id": "wiggle",
+      "family": "sources",
+      "kind": "clipPlayer",
+      "params": {
+        "clip": "asset:clips/sprout-wiggle.anim.json"
+      }
+    },
+    {
+      "id": "hop",
+      "family": "sources",
+      "kind": "clipPlayer",
+      "params": {
+        "clip": "asset:clips/sprout-hop.anim.json",
+        "loop": "once"
+      }
+    },
+    {
+      "id": "move",
+      "family": "sources",
+      "kind": "blendSpace1D",
+      "name": "Move by speed",
+      "inputs": [
+        "moveIdle",
+        "sway",
+        "wiggle"
+      ],
+      "params": {
+        "x": "speed",
+        "coords": [
+          0,
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "id": "machine",
+      "family": "logic",
+      "kind": "stateMachine",
+      "name": "Base",
+      "machine": {
+        "entry": "Idle",
+        "states": [
+          {
+            "name": "Idle",
+            "root": "idle",
+            "transitions": [
+              {
+                "to": "Hop",
+                "if": {
+                  "request": "Hop"
+                },
+                "duration": 0.1
+              },
+              {
+                "to": "Move",
+                "if": {
+                  "param": "speed",
+                  "op": ">",
+                  "value": 0.15
+                },
+                "duration": 0.35,
+                "shape": "smoothstep"
+              }
+            ]
+          },
+          {
+            "name": "Move",
+            "root": "move",
+            "transitions": [
+              {
+                "to": "Hop",
+                "if": {
+                  "request": "Hop"
+                },
+                "duration": 0.1
+              },
+              {
+                "to": "Idle",
+                "if": {
+                  "param": "speed",
+                  "op": "<=",
+                  "value": 0.15
+                },
+                "duration": 0.5,
+                "shape": "smoothstep"
+              }
+            ]
+          },
+          {
+            "name": "Hop",
+            "root": "hop",
+            "transitions": [
+              {
+                "to": "Move",
+                "if": {
+                  "all": [
+                    {
+                      "operand": "normalizedTime",
+                      "op": ">=",
+                      "value": 0.97
+                    },
+                    {
+                      "param": "speed",
+                      "op": ">",
+                      "value": 0.15
+                    }
+                  ]
+                },
+                "duration": 0.15
+              },
+              {
+                "to": "Idle",
+                "if": {
+                  "operand": "normalizedTime",
+                  "op": ">=",
+                  "value": 0.97
+                },
+                "duration": 0.15
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

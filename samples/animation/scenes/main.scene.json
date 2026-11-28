@@ -1,0 +1,748 @@
+{
+  "format": "myco.scene@5",
+  "settings": {
+    "physics": "3d"
+  },
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2.4,
+              -7.6
+            ],
+            "rotation": [
+              0.0785,
+              0,
+              0,
+              0.9969
+            ]
+          }
+        },
+        {
+          "type": "engine.Camera",
+          "data": {
+            "projection": "perspective",
+            "fieldOfView": 50,
+            "backgroundColor": "#1f232b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "sun",
+      "name": "Sun",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              8,
+              -6
+            ],
+            "rotation": [
+              0.3769,
+              0.1604,
+              -0.0665,
+              0.9098
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "directional",
+            "intensity": 1.2,
+            "castShadows": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "ambient",
+      "name": "Ambient",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "ambient",
+            "intensity": 0.45
+          }
+        }
+      ]
+    },
+    {
+      "id": "floor",
+      "name": "Floor",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              -0.1,
+              1
+            ],
+            "scale": [
+              16,
+              0.2,
+              7
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/floor.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "plinth-0",
+      "name": "Plinth 1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -4.5,
+              0.05,
+              0
+            ],
+            "scale": [
+              2.4,
+              0.1,
+              2.4
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/plinth.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "plinth-1",
+      "name": "Plinth 2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -1.5,
+              0.05,
+              0
+            ],
+            "scale": [
+              2.4,
+              0.1,
+              2.4
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/plinth.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "plinth-2",
+      "name": "Plinth 3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              1.5,
+              0.05,
+              0
+            ],
+            "scale": [
+              2.4,
+              0.1,
+              2.4
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/plinth.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "plinth-3",
+      "name": "Plinth 4",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              4.5,
+              0.05,
+              0
+            ],
+            "scale": [
+              2.4,
+              0.1,
+              2.4
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/plinth.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "sprout",
+      "name": "Sprout",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -4.5,
+              0.4,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Skeleton",
+          "data": {
+            "skeleton": "asset:models/sprout.gltf#Skeleton"
+          }
+        },
+        {
+          "type": "engine.Animator",
+          "data": {
+            "graph": "asset:graphs/sprout.animgraph.json"
+          }
+        },
+        {
+          "type": "demo.SproutController",
+          "data": {
+            "dust": {
+              "$node": "dust"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "sprout-body",
+      "name": "Body",
+      "parent": "sprout",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.SkinnedMeshRenderer",
+          "data": {
+            "mesh": "asset:models/sprout.gltf"
+          }
+        }
+      ]
+    },
+    {
+      "id": "dust",
+      "name": "Dust",
+      "parent": "sprout",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0.02,
+              0
+            ],
+            "scale": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/dust.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pot",
+      "name": "Pot",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -4.5,
+              0.25,
+              0
+            ],
+            "scale": [
+              0.7,
+              0.2,
+              0.7
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/pot.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "lantern",
+      "name": "Lantern",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -1.5,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Animator",
+          "data": {
+            "defaultClip": "asset:clips/lantern.anim.json"
+          }
+        },
+        {
+          "type": "demo.GemPulse",
+          "data": {
+            "gem": {
+              "$node": "gem"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "gem",
+      "name": "Gem",
+      "parent": "lantern",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.4,
+              0
+            ],
+            "scale": [
+              0.55,
+              0.55,
+              0.55
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/gem.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "glow",
+      "name": "Glow",
+      "parent": "lantern",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.2,
+              -0.9
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "point",
+            "intensity": 14,
+            "range": 5,
+            "color": [
+              0.2,
+              0.9,
+              1,
+              1
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "tweens",
+      "name": "Tweens",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              1.5,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "demo.TweenShowcase",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "cube-0",
+      "name": "Cube outBounce",
+      "parent": "tweens",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -0.84,
+              0.4,
+              0
+            ],
+            "scale": [
+              0.36,
+              0.36,
+              0.36
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/tween.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cube-1",
+      "name": "Cube inOutBack",
+      "parent": "tweens",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -0.2799999999999999,
+              0.4,
+              0
+            ],
+            "scale": [
+              0.36,
+              0.36,
+              0.36
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/tween.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cube-2",
+      "name": "Cube outElastic",
+      "parent": "tweens",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0.28000000000000014,
+              0.4,
+              0
+            ],
+            "scale": [
+              0.36,
+              0.36,
+              0.36
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/tween.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cube-3",
+      "name": "Cube inOutSine",
+      "parent": "tweens",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0.8400000000000002,
+              0.4,
+              0
+            ],
+            "scale": [
+              0.36,
+              0.36,
+              0.36
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/tween.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "orrery",
+      "name": "Orrery",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              4.5,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.TimelineDirector",
+          "data": {
+            "timeline": "asset:timelines/orrery.timeline.json",
+            "playOnStart": true,
+            "wrapMode": "loop"
+          }
+        }
+      ]
+    },
+    {
+      "id": "planet",
+      "name": "Planet",
+      "parent": "orrery",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.5,
+              0
+            ],
+            "scale": [
+              0.8,
+              0.8,
+              0.8
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere",
+            "material": "asset:materials/planet.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "moon-a",
+      "name": "Moon A",
+      "parent": "orrery",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              1.25,
+              1.5,
+              0
+            ],
+            "scale": [
+              0.25,
+              0.25,
+              0.25
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere",
+            "material": "asset:materials/moon.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "moon-b",
+      "name": "Moon B",
+      "parent": "orrery",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0.85,
+              1.5,
+              0
+            ],
+            "scale": [
+              0.18,
+              0.18,
+              0.18
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere",
+            "material": "asset:materials/moon.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "flash",
+      "name": "Flash",
+      "parent": "orrery",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.5,
+              -1.2
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "point",
+            "intensity": 20,
+            "range": 4,
+            "color": [
+              1,
+              0.85,
+              0.4,
+              1
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "hud",
+      "name": "HUD",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.UIView",
+          "data": {
+            "component": "asset:ui/Hud.svelte"
+          }
+        },
+        {
+          "type": "demo.LabHud",
+          "data": {
+            "sprout": {
+              "$node": "sprout"
+            },
+            "lantern": {
+              "$node": "lantern"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
