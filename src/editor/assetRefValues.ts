@@ -2,8 +2,9 @@
 // assetReferences.ts, which applies them to the project's files and the open scene.
 //
 // A reference string names a project path, optionally with an `asset:` prefix and a leading `./`
-// or `/`, optionally followed by `#slice` (ADR 0040): `asset:images/sheet.png#walk_0`.
-import { normalizeAssetPath } from "../engine/scene/Assets";
+// or `/`, optionally followed by `#slice` (ADR 0040): `asset:images/sheet.png#walk_0`. The rule is the
+// engine's (`engine/scene/assetPath.ts`, ADR 0459); this module splits and rewrites references on it.
+import { assetRefPrefix, normalizeAssetPath } from "../engine/scene/assetPath";
 import { REMOVE_FIELD, mapSceneFile } from "../engine/scene/sceneFileWalk";
 import { mapFieldNodeRefs } from "../engine/scene/nodeReferences";
 import type { NodeEntry, SceneFile } from "./document";
@@ -17,11 +18,9 @@ export interface AssetRef {
   readonly slice: string | null;
 }
 
-const PREFIX = /^(?:asset:)?(?:\.?\/)?/;
-
 /** Split a reference string: `asset:./images/a.png#walk` → `{ prefix: "asset:./", path: "images/a.png", slice: "walk" }`. */
 export function parseAssetRef(ref: string): AssetRef {
-  const prefix = PREFIX.exec(ref)![0];
+  const prefix = assetRefPrefix(ref);
   const rest = ref.slice(prefix.length);
   const hash = rest.indexOf("#");
   return hash < 0 ? { prefix, path: rest, slice: null } : { prefix, path: rest.slice(0, hash), slice: rest.slice(hash + 1) };

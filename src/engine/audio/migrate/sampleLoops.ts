@@ -24,12 +24,10 @@ import { isRecord, type JsonRecord } from "../lenientRead";
 import { defaultSampleEdits, derivedSampleToJson, parseSampleEdits, sampleEditsFromSidecar, sampleEditsToJson } from "../sample/format";
 import { SAMPLE_FORMAT, SAMPLE_SUFFIX, type DerivedSampleAsset, type SampleEdits, type SampleLoop } from "../sample/types";
 import type { SampleLoopRequest } from "./audioEvent1";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /** Seconds closer than this are the same loop point. */
 const EPS = 1e-6;
-
-/** A clip path as a project path (`asset:` and a leading `./` or `/` dropped). */
-export const projectAudioPath = (ref: string): string => ref.replace(/^asset:/, "").replace(/^\.?\//, "");
 
 const sidecarOf = (path: string): string => `${path}.meta.json`;
 const fmt = (s: number): string => `${Math.round(s * 1000) / 1000}`;
@@ -127,7 +125,7 @@ export class SampleLoopPlanner {
 
   /** The sample (or derived sample) a clip of `event` should name for `request`, or null when there is nothing to loop. */
   place(request: SampleLoopRequest, event: string): string | null {
-    const path = projectAudioPath(request.sample);
+    const path = normalizeAssetPath(request.sample);
     const st = this.state(path);
     const own = st.edits.loops.find((l) => l.end > l.start);
     const span = request.region ?? (own ? [own.start, own.end] as [number, number] : null) ?? request.whole;

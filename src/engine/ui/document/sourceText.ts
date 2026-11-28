@@ -2,6 +2,7 @@
 // resolution and the line and column of a problem. Pure, with no parser behind them, so the cascade
 // (`cascade.ts`) can use them without loading css-tree.
 import type { SourceProblem, SourceSpan } from "./types";
+import { withoutAssetScheme } from "../../scene/assetPath";
 
 /** The folder part of a project path (`ui/Hud.svelte` → `ui/`). */
 function folderOf(file: string): string {
@@ -11,7 +12,7 @@ function folderOf(file: string): string {
 
 /** Resolve `src` against the file that has it; `/` at the start means the project root. `..` and `.` resolve. */
 export function resolvePath(file: string, src: string): string {
-  const raw = src.replace(/^asset:/, "");
+  const raw = withoutAssetScheme(src);
   const joined = raw.startsWith("/") ? raw.slice(1) : folderOf(file) + raw;
   const out: string[] = [];
   for (const part of joined.split("/")) {

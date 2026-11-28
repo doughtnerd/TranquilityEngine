@@ -15,6 +15,7 @@ import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./
 import { i16ToF32 } from "./pcm";
 import { CLIP_INDEX_LIMIT, makeClipId } from "./clipIds";
 import { clipPackRef } from "./packMedia";
+import { normalizeAssetPath } from "../../../../engine/scene/assetPath";
 
 /** A clip's lifecycle (`copying -> ready` on the core's `resident` clip event, wire §4.3). */
 export type ClipState = "idle" | "fetching" | "decoding" | "copying" | "ready" | "failed" | "unloading";
@@ -201,7 +202,6 @@ const adpcmBytes = (frames: number, channels: number): number => Math.ceil(frame
 
 /** ADR 0162 §2.4 (B2): the import gain a FuMa clip's decode reported, by clip path (absent: 1). */
 const importGains = new Map<string, number>();
-const gainKey = (path: string): string => path.replace(/^asset:/, "").replace(/^\.?\//, "");
 
 /**
  * ADR 0162 §2.4 (B2): the factor the decoder scaled a FuMa clip down by to keep it int16 (√2 for orders 1-3), which
@@ -209,7 +209,7 @@ const gainKey = (path: string): string => path.replace(/^asset:/, "").replace(/^
  * @internal
  */
 export function ambisonicImportGain(path: string): number {
-  return importGains.get(gainKey(path)) ?? 1;
+  return importGains.get(normalizeAssetPath(path)) ?? 1;
 }
 
 /** ADR 0162 §2.4: an ambisonic clip longer than this many seconds streams unless its sidecar says `stream` (a 3rd-order minute is ≈ 92 MB). */
@@ -225,7 +225,7 @@ const longAmbisonic = new Set<string>();
  * @internal
  */
 export function ambisonicStreamsByDefault(path: string): boolean {
-  return longAmbisonic.has(gainKey(path));
+  return longAmbisonic.has(normalizeAssetPath(path));
 }
 
 /**
@@ -637,13 +637,13 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
             }
             // B5 (§2.4): a clip over 5 s that the sidecar doesn't ask to stream isn't decoded into memory: the backend restarts its voices as streams.
             if (!span && info.frames > 0 && info.rate > 0 && info.frames / info.rate > AMBISONIC_STREAM_OVER_SECONDS) {
-              longAmbisonic.add(gainKey(slot.path));
+              longAmbisonic.add(normalizeAssetPath(slot.path));
               fail(slot, "streamInstead", "longer than 5 s; streamed instead");
               return;
             }
             // B2: fold the FuMa headroom scale back into the clip's volume (ambisonicImportGain).
-            if (info.importGain !== undefined) importGains.set(gainKey(slot.path), info.importGain);
-            else importGains.delete(gainKey(slot.path));
+            if (info.importGain !== undefined) importGains.set(normalizeAssetPath(slot.path), info.importGain);
+            else importGains.delete(normalizeAssetPath(slot.path));
           } else if (ambisonic) warnOnce(`${slot.path}#ambisonic`, `audio: "${slot.path}" has an ambisonic import setting but ${info.channels} channel${info.channels === 1 ? "" : "s"}; ignored (ADR 0162)`);
           if (span || !early || stale() || !info.lengthKnown || info.frames <= 0) return;
           if (startClip(slot, info.frames, info.channels, info.rate)) streamedFrames = info.frames;

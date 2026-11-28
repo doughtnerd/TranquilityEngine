@@ -12,6 +12,7 @@ import type { SkeletonInfo } from "../../assetInfo";
 import type { AnimationWorldCore } from "../../core/AnimationWorldCore";
 import { readJsonAsset } from "./jsonAsset";
 import { resolveMaskWeights } from "./maskWeights";
+import { normalizeAssetPath } from "../../../../../engine/scene/assetPath";
 
 /** @internal The skeleton a mask is resolved for: its asset path, bones and the Skeleton component's profile. */
 export interface MaskRig {
@@ -29,8 +30,6 @@ function warnOnce(key: string, message: string): void {
 }
 
 const readJson = readJsonAsset;
-
-const stripRef = (ref: string): string => ref.replace(/^asset:/, "").replace(/^\.?\//, "");
 
 /** Role name → bone index for `rig` under `profilePath` (null: the built-in Humanoid); empty when nothing maps. */
 async function roleBones(rig: MaskRig, profilePath: string | null): Promise<Map<string, number>> {
@@ -74,7 +73,7 @@ export async function maskWeightsFor(path: string, rig: MaskRig): Promise<Float3
   for (const p of parsed.problems) warnOnce(`maskp:${path}:${p}`, `[myco] animation: ${p}`);
   const mask = parsed.value;
   const needsRoles = mask.entries.some((e) => e.role !== undefined);
-  const roles = needsRoles ? await roleBones(rig, mask.profile ? stripRef(mask.profile) : rig.profile ? stripRef(rig.profile) : null) : new Map<string, number>();
+  const roles = needsRoles ? await roleBones(rig, mask.profile ? normalizeAssetPath(mask.profile) : rig.profile ? normalizeAssetPath(rig.profile) : null) : new Map<string, number>();
   const { weights, missing } = resolveMaskWeights(mask.entries, rig.info, (role) => roles.get(role) ?? -1);
   if (missing.length) warnOnce(`maskm:${path}:${rig.path}`, `[myco] animation: the mask "${path}" names ${missing.join(", ")}, which the skeleton "${rig.path}" doesn't have; skipped.`);
   return weights;

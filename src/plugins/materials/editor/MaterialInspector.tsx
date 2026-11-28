@@ -5,7 +5,7 @@ import { MATERIAL_MAPS, colorHex, materialGraph, type MaterialAlphaMode, type Ma
 import { isShaderAssetPath, type ShaderAsset } from "../../../engine/scene/shaderAsset";
 import type { GraphProperty, GraphValue, ShaderGraph } from "../../../engine/scene/shaderGraph";
 import type { ShaderKeyword } from "../../../engine/scene/shaderKeywords";
-import { sameMaterial, withKeywordValue } from "./materialAssets";
+import { materialShaderFile, sameMaterial, withKeywordValue } from "./materialAssets";
 import { createMaterialForGraph } from "./shaderGraphAssets";
 import { PropertyValue, TEXTURE_SLOT } from "./ShaderPropertyValue";
 import { AssetDocumentFrame, AssetPicker, ColorField, editor, openAssetDocument, LargePreview, SliderField, EmptyState } from "../../../editor/sdk";
@@ -26,7 +26,7 @@ export function MaterialInspector(props: { path: string }) {
   const physical = settings.shader === "physical";
   const lit = settings.shader === "lit" || physical;
   const graphPath = materialGraph(settings);
-  const graphFile = graphPath?.replace(/^asset:/, "") ?? null;
+  const graphFile = materialShaderFile(settings);
   const shaders = project.files.filter(isShaderAssetPath);
   const isShaderAsset = !!graphFile && isShaderAssetPath(graphFile);
   const sourceKind = graphFile && project.files.includes(graphFile) ? editor.assets.kindOf(graphFile) : null;

@@ -50,6 +50,7 @@ import { ByteWriter, encodeStringTable, f32Bits, writeContainer } from "./binary
 import { familyId, NONE, nodeKindSchema, type AssetRefKind, type NodeKindSchema, type NodePacker, type NodeParamSchema, type NodeResolveContext } from "./graphNodes";
 import { pluginNodeModuleDescriptor } from "./graphNodes/plugin";
 import type { PluginModuleDescriptor } from "./pluginDescriptor";
+import { normalizeAssetPath } from "../scene/assetPath";
 
 /** @internal One problem: where in the source model, what, and how bad. */
 export interface CompileProblem {
@@ -145,9 +146,6 @@ const HUMANOID_ROLES: readonly string[] = (() => {
   ];
 })();
 
-/** An asset reference's string: its project path, `#sub-asset` kept. */
-const assetKey = (ref: string): string => ref.replace(/^asset:/, "").replace(/^\.?\//, "");
-
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const finiteF32 = (v: number): boolean => Number.isFinite(Math.fround(v));
 
@@ -212,7 +210,7 @@ class Compiler {
     return s ? this.intern(s) : NONE;
   }
   assetRef(ref: string, asset: AssetRefKind, path: string): number {
-    const key = assetKey(ref);
+    const key = normalizeAssetPath(ref);
     if (key === "") return NONE;
     const id = this.intern(key);
     const had = this.bindings.get(id);
@@ -227,7 +225,7 @@ class Compiler {
 
   run(): CompiledAnimGraph {
     const g = this.g;
-    const info = { name: this.optName(g.name), skeleton: g.skeleton ? this.intern(assetKey(g.skeleton)) : NONE };
+    const info = { name: this.optName(g.name), skeleton: g.skeleton ? this.intern(normalizeAssetPath(g.skeleton)) : NONE };
 
     // Parameters.
     const params = new ByteWriter();

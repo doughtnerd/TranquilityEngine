@@ -56,6 +56,7 @@ import { lazyComponent, type LazyComponent } from "./lazy";
 import { usePopover } from "./popover";
 import { editableNow, statusSentence, whyNotEdit } from "../editGate";
 import { EmptyState } from "./EmptyState";
+import { assetRefTarget } from "../assetRefValues";
 
 /**
  * What the Inspector shows (ADR 0242, `inspectorTarget`): a live World's node while playing, an
@@ -190,7 +191,7 @@ function SceneSettings(props: { scene: OpenScene }) {
   const project = currentProject.value;
   const candidates = useMemo(() => preloadCandidates(listedFiles(project?.files ?? [])).filter((f) => !list.includes(f)), [project, version, project?.files, list]);
   const add = () => {
-    const path = draft.trim().replace(/^asset:/, "");
+    const path = assetRefTarget(draft.trim());
     if (!path || !editableNow({ kind: "scene", scene })) return;
     if (list.includes(path)) status.value = { kind: "info", text: `${path} is already on the preload list.` };
     else if (!addToPreload(scene, path)) status.value = { kind: "error", text: `The preload list takes prefabs and materials (.prefab.json, .material.json), not ${path}.` };

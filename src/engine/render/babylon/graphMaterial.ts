@@ -49,6 +49,7 @@ import { pbrInjections, type PbrCode, type PbrPoint } from "./pbrInjection";
 import { DEFAULT_RIG, DEFAULT_SUN_TOWARD } from "./lighting";
 import { allKeywordDefines, keywordDefines, type KeywordValue } from "../../scene/shaderKeywords";
 import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, type CompiledUniform, type PhysicalInput } from "../shaderGraph/compile";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /** Values every graph material reads, owned by the renderer and updated each frame. */
 export interface GraphShared {
@@ -117,7 +118,7 @@ function uniformNumbers(u: CompiledUniform, overrides: Record<string, GraphValue
 function texturePath(u: CompiledUniform, overrides: Record<string, GraphValue>): string {
   const own = u.property ? overrides[u.property] : undefined;
   const v = typeof own === "string" ? own : u.value;
-  return typeof v === "string" ? v.replace(/^asset:/, "") : "";
+  return typeof v === "string" ? normalizeAssetPath(v) : "";
 }
 
 /**

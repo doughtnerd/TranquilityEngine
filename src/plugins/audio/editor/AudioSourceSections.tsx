@@ -3,7 +3,7 @@
 // ambisonic, the fields it ignores (spatial, the distance fields, rolloff, occlusion, Doppler level) greyed with a note.
 // The M3 number and checkbox fields (occlusion, Doppler level, reverb send, ambisonic yaw) are the card's rows.
 import { useLayoutEffect, useRef } from "preact/hooks";
-import { CurveField, editor, sectionField, useFieldDrag, type InspectorSectionProps } from "../../../editor/sdk";
+import { CurveField, editor, sectionField, useFieldDrag, type InspectorSectionProps, assetRefTarget } from "../../../editor/sdk";
 import { AMBISONIC_IGNORED_FIELDS, sendCurveOf } from "./audioInspectorModel";
 import "./audioInspectors.css";
 
@@ -14,7 +14,7 @@ const CURVE_Y: [number, number] = [0, 4];
 /** Whether the AudioSource's clip is an ambisonic clip (its import settings say so). Events and unset or unknown clips are not. */
 export function clipIsAmbisonic(clip: unknown): boolean {
   const project = editor.project.current;
-  const path = typeof clip === "string" ? clip.replace(/^asset:/, "") : "";
+  const path = typeof clip === "string" ? assetRefTarget(clip) : "";
   if (!project || path === "" || editor.assets.kindOf(path) !== "audio") return false;
   return editor.assets.importSettings(project, path).settings.ambisonic !== null;
 }

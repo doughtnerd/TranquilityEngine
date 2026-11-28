@@ -33,11 +33,10 @@ import {
   turnRefusal,
 } from "./brush";
 import { blockStamp, commitLayers, commitTileset, editedLayers, replaceTileIn, type ReplaceScope } from "./palette";
-import { prefabPath } from "./prefabBrush";
 import { blockIsEmpty, blockOfStamp, decodeStamp, encodeStamp, removePrefab, removeStamp, renameStamp, retargetBlock, uniqueStampName, withPrefab, withStamp, type StampBlock } from "./stampLibrary";
 import { copyTiles, cutTiles, deleteTiles, selectAllLayers, selectionOf, tileSelection, transformTiles } from "./tileSelection";
 import { TileThumb } from "./TileThumb";
-import { ContextMenu, editor, EmptyState, openAssetDocument, Panel, registerAssetDropTarget, type AssetDocument, type MenuEntry } from "../../../editor/sdk";
+import { ContextMenu, editor, EmptyState, openAssetDocument, Panel, registerAssetDropTarget, type AssetDocument, type MenuEntry, assetRefTarget } from "../../../editor/sdk";
 import "./tilePalette.css";
 
 const MIN_COLUMNS = 1, MAX_COLUMNS = 32;
@@ -559,7 +558,7 @@ function PrefabsSection(props: { doc: AssetDocument<TilesetData>; project: Proje
     });
   }, [doc]);
   const pick = (ref: string, add: boolean) => {
-    const path = prefabPath(ref);
+    const path = assetRefTarget(ref);
     if (!add) return choosePrefabs(chosen.size === 1 && chosen.has(path) ? [] : [path]);
     const now = new Set(chosen);
     if (now.has(path)) now.delete(path);
@@ -572,7 +571,7 @@ function PrefabsSection(props: { doc: AssetDocument<TilesetData>; project: Proje
       {prefabs.length === 0 && <p class="hint">Drop prefabs here from the Assets panel to paint them on the grid.</p>}
       <ul class="tile-stamps" aria-label="Prefabs">
         {prefabs.map((ref) => {
-          const path = prefabPath(ref);
+          const path = assetRefTarget(ref);
           const missing = !props.project.files.includes(path);
           return (
             <li key={ref}>

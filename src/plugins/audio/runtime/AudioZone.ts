@@ -34,6 +34,7 @@ import { audioZoneEdgeSpread, DEFAULT_ROLLOFF_ATTENUATION, UprightBox } from "./
 import { warnOnce } from "./core/handle";
 import { playlists } from "./playlists/playlistSystem";
 import type { PlaylistInstance } from "./playlists/instance";
+import { normalizeAssetPath } from "../../../engine/scene/assetPath";
 
 /** How a zone is heard (ADR 0347). */
 export const AUDIO_ZONE_HEARD = ["edge", "inside"] as const;
@@ -107,7 +108,7 @@ export class AudioZone extends Component {
 
   /** @internal The AudioZone system, each frame: start, place and level the zone's sound for the listener at `listener`. */
   _sync(listener: Vec3Like | null): void {
-    const path = this.sound.replace(/^asset:/, "");
+    const path = normalizeAssetPath(this.sound);
     if (path !== this.playing || (this.heard !== this.playingHeard && path !== "")) this.restart(path);
     if (!this.instance && !this.voice) return;
     const box = this._worldBox();

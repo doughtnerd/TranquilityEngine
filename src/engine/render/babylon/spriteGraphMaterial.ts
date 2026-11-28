@@ -13,13 +13,14 @@ import type { BabylonGraphMaterial } from "./graphMaterial";
 import { lightLayeredQuads } from "./layeredQuads";
 import type { LitQuadSetup } from "./lights2DMaterial";
 import type { SpriteGraph } from "./materialLibrary";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /** What builds the graph's material (the material library's `spriteGraphMaterial`). */
 export type SpriteGraphFactory = (name: string, graph: SpriteGraph, overrides: Record<string, GraphValue>) => BabylonGraphMaterial;
 
 /** The property values a draw of `image` gives a sprite graph: its texture and its secondary textures by name. */
 export function spriteGraphOverrides(image: string): Record<string, GraphValue> {
-  const path = image.replace(/^asset:/, "");
+  const path = normalizeAssetPath(image);
   const out: Record<string, GraphValue> = { "@sprite": path };
   if (path && Assets.has(path)) for (const [name, p] of Object.entries(Assets.importSettings(path).secondaryTextures)) out[`@secondary:${name}`] = p;
   return out;

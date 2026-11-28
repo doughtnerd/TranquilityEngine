@@ -7,12 +7,11 @@
  *
  * Pure; no plugin, no DOM.
  */
-
-const PREFIX = /^(?:asset:)?(?:\.?\/)?/;
+import { assetRefPrefix } from "../../scene/assetPath";
 
 /** `ref` with its path moved by `moves` (old project path → new), or null when it names no moved path. */
 export function movedReference(ref: string, moves: ReadonlyMap<string, string>): string | null {
-  const prefix = PREFIX.exec(ref)![0];
+  const prefix = assetRefPrefix(ref);
   const rest = ref.slice(prefix.length);
   const hash = rest.indexOf("#");
   const path = hash < 0 ? rest : rest.slice(0, hash);

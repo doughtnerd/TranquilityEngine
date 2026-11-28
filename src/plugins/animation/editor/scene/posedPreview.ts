@@ -18,6 +18,8 @@ import { readClipInfo } from "../../runtime/assetInfo";
 import { loadClipSource } from "../../runtime/features/clipSources";
 import { Animator } from "../../runtime/components/Animator";
 import { normalizedTimeAt, type PlayRange } from "./posedPreviewLogic";
+import { assetRefTarget } from "../../../../editor/sdk";
+import { clipRefKind } from "../../../../engine/animation/compile/keys";
 
 /** Versions kept in the served source (older ones are dropped; an Animator holding one keeps its loaded copy). */
 const KEPT = 8;
@@ -90,9 +92,9 @@ export function previewClipOfSource(files: PreviewClipFiles, source: AnimSource,
  * cut), which binds by bone name to the Animator's skeleton.
  */
 export async function prepareClip(files: PreviewClipFiles, entry: string): Promise<PreviewClip | null> {
-  const path = entry.replace(/^asset:/, "");
+  const path = assetRefTarget(entry);
   try {
-    if (path.toLowerCase().endsWith(".anim.bin")) {
+    if (clipRefKind(path) === "compiled") {
       if (!Assets.has(path)) return null;
       const bytes = await Assets.bytes(path);
       // The header's length and loop flag, as the Inspector's scrubber reads them (`clipTiming`).

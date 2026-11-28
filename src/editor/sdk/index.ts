@@ -69,6 +69,9 @@ export { clipboardForPaste, clipboardText, expectPaste, readClipboard, takePaste
 // The Assets panel's selected entries (read it, don't set it): what an asset browser drag carries (ADR 0022), for
 // plugin panels that take dropped assets (the Event editor).
 export { selectedAssets } from "../assetSelection";
+// Asset reference strings (ADR 0459): the project path a reference names (`assetRefTarget` keeps a `#slice` or
+// sub-asset, `assetRefPath` drops it) and the split form, all on the engine's one rule (`engine/scene/assetPath.ts`).
+export { assetRefPath, assetRefTarget, parseAssetRef, type AssetRef } from "../assetRefValues";
 // Drop targets for assets dragged from the Assets panel (ADR 0022): a plugin panel registers an element, the drag's
 // label shows its message over it and releasing calls it. `draggedAssets` is what a drag in progress carries.
 export { registerAssetDropTarget, draggedAssets, type AssetDropTargetSpec, type AssetDropPoint } from "../assetDropTargets";

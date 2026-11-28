@@ -19,6 +19,7 @@ import { EffectPlayer, EffectResources, type EffectHost, type PlayState } from "
 import type { BabylonMaterials2D } from "./materials2D";
 import type { ParticleLayer2D } from "./particleDraw";
 import type { WarmParts } from "./warmUp";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /** What the particle player needs from the render backend: an effect host, plus the World's matrices and rules. */
 export interface BabylonParticleHost extends EffectHost {
@@ -182,7 +183,7 @@ export class BabylonParticles {
   }
 
   private parse(c: ParticleSystem, raw: unknown): ParticleProgram | null {
-    const where = c.effect ? c.effect.replace(/^asset:/, "") : `${c.node.name}'s particle effect`;
+    const where = c.effect ? normalizeAssetPath(c.effect) : `${c.node.name}'s particle effect`;
     if (raw === undefined) {
       if (c.effect) this.resources.warnOnce(`missing|${c.effect}`, `particle effect "${where}" isn't in the project.`);
       return null;
@@ -215,7 +216,7 @@ export class BabylonParticles {
     let raw: unknown = effect;
     let where = "a particle effect";
     if (typeof effect === "string") {
-      where = effect.replace(/^asset:/, "");
+      where = normalizeAssetPath(effect);
       try {
         raw = Assets.has(effect) ? Assets.json(effect) : Assets.has(where) ? Assets.json(where) : undefined;
       } catch {

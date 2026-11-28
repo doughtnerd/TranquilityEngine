@@ -28,6 +28,7 @@
  */
 
 import type { Curve } from "../../../core/curve";
+import { normalizeAssetPath } from "../../../scene/assetPath";
 import { audioCurve } from "../../audioCurveLimit";
 import type { Automation, NodeBase } from "./eventFormat";
 import {
@@ -441,8 +442,6 @@ function parseRegions(raw: unknown, where: string, problems: string[]): MusicReg
 
 // --- tracks ---------------------------------------------------------------------------------------------------------
 
-const assetPath = (v: string): string => v.replace(/^asset:/, "");
-
 function parseAutomation(raw: unknown, where: string, problems: string[]): MusicAutomation[] {
   const out: MusicAutomation[] = [];
   list(raw, where, problems).forEach((a, i) => {
@@ -476,12 +475,12 @@ function parseTracks(raw: unknown, where: string, problems: string[]): MusicTrac
       problems.push(`${w}.name: ${t.name === undefined ? "missing" : "must be a non-empty string"}; using "${name}".`);
     }
     if (out.some((o) => o.name === name)) return void problems.push(`${w}: another track is already named "${name}"; dropped.`);
-    const clip = assetPath(str(t.clip, `${w}.clip`, "", problems));
+    const clip = normalizeAssetPath(str(t.clip, `${w}.clip`, "", problems));
     if (clip === "") problems.push(`${w}: clip is empty; it plays nothing.`);
     const alternatives: string[] = [];
     capped(t.alternatives, `${w}.alternatives`, MUSIC_LIMITS.alternatives, problems).forEach((a, j) => {
       if (typeof a !== "string" || a === "") return void problems.push(`${w}.alternatives[${j}]: must be a clip path; dropped.`);
-      alternatives.push(assetPath(a));
+      alternatives.push(normalizeAssetPath(a));
     });
     out.push({
       name, clip, alternatives,

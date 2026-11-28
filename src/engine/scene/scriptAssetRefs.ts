@@ -4,12 +4,13 @@
  */
 
 /** A string literal (quotes, or a backtick without substitutions) naming a prefab, material or particle effect file. */
+import { normalizeAssetPath } from "./assetPath";
 const LITERAL = /(["'`])((?:asset:)?[\w./ -]+\.(?:prefab|material|particles)\.json)\1/g;
 
 /** Asset paths (without `asset:`) the string literals of a script's source name: prefab, material and particle effect files only. */
 export function scriptAssetRefs(source: string): string[] {
   const out = new Set<string>();
-  for (const m of source.matchAll(LITERAL)) out.add(m[2]!.replace(/^asset:/, ""));
+  for (const m of source.matchAll(LITERAL)) out.add(normalizeAssetPath(m[2]!));
   return [...out];
 }
 

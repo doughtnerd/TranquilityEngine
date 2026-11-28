@@ -29,6 +29,7 @@ import { lights2DOf, type BabylonLights2D } from "./lights2D";
 import type { LitQuadSetup } from "./lights2DMaterial";
 import type { BabylonMaterialLibrary, SpriteGraph } from "./materialLibrary";
 import { spriteGraphKey, spriteGraphMaterial } from "./spriteGraphMaterial";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /** An sRGB tint and opacity, 0..1. */
 export interface Tint2D {
@@ -100,7 +101,6 @@ interface Resolved {
 }
 
 const WHITE: Tint2D = { r: 1, g: 1, b: 1, a: 1 };
-const path = (p: string): string => p.replace(/^asset:/, "");
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
 /** @internal The 2D materials of one Babylon scene (ADR 0418). */
@@ -155,8 +155,8 @@ export class BabylonMaterials2D {
     const blend = request.blend ?? "alpha";
     const graph = !request.mask && !request.instanced && request.material ? this.graphOf(request.material) : null;
     if (graph) return { key: `graph|${spriteGraphKey(graph, request.texture, litKey)}|${blend}`, shared: false, lit, litKey, graph };
-    const image = path(request.texture);
-    if (request.own || request.mask) return { key: `own|${image}|${request.mask ? path(request.mask.texture) : ""}|${litKey}|${blend}`, shared: false, lit, litKey, graph: null };
+    const image = normalizeAssetPath(request.texture);
+    if (request.own || request.mask) return { key: `own|${image}|${request.mask ? normalizeAssetPath(request.mask.texture) : ""}|${litKey}|${blend}`, shared: false, lit, litKey, graph: null };
     const t = request.tint ?? WHITE;
     return { key: `${request.instanced ? "batch" : "quad"}|${image}|${t.r},${t.g},${t.b},${clamp01(t.a)}|${litKey}|${blend}`, shared: true, lit, litKey, graph: null };
   }
@@ -192,7 +192,7 @@ export class BabylonMaterials2D {
     if (request.blend === "additive") m.alphaMode = Constants.ALPHA_ADD;
     if (!request.instanced) tint(m, request.tint);
     let gone = false;
-    const image = path(request.texture);
+    const image = normalizeAssetPath(request.texture);
     if (image) {
       const apply = (tex: Texture | null): void => {
         if (!tex || gone || m.albedoTexture === tex) return;
@@ -207,7 +207,7 @@ export class BabylonMaterials2D {
       const applyMask = (tex: Texture | null): void => {
         if (tex && !gone) plugin.mask.texture = tex;
       };
-      applyMask(this.deps.library.texture(path(request.mask.texture), "color", applyMask));
+      applyMask(this.deps.library.texture(normalizeAssetPath(request.mask.texture), "color", applyMask));
     }
     if (r.lit) lightLayeredQuads(m, r.lit);
     return {
@@ -241,10 +241,10 @@ export class BabylonMaterials2D {
     const rig = this.watch();
     const batch = rig?.batchOfLayer(sortingLayer) ?? -1;
     if (!rig || batch < 0) return { lit: null, litKey: "" };
-    const file = path(image);
+    const file = normalizeAssetPath(image);
     const settings = file && Assets.has(file) ? Assets.importSettings(file) : null;
-    const normalPath = path(settings?.secondaryTextures.normalMap ?? "");
-    const maskPath = path(settings?.secondaryTextures.maskMap ?? "");
+    const normalPath = normalizeAssetPath(settings?.secondaryTextures.normalMap ?? "");
+    const maskPath = normalizeAssetPath(settings?.secondaryTextures.maskMap ?? "");
     const normal = normalPath ? this.dataTexture(normalPath) : null;
     const mask = maskPath ? this.dataTexture(maskPath) : null;
     const greenDown = settings?.normalMapGreen === "down";

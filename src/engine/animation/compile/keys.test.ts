@@ -3,7 +3,7 @@
 // `anim-editor-wasm`'s layout.
 import { describe, expect, it } from "vitest";
 import {
-  clipContentKey, CLIP_COMPILER_VERSION, compiledClipPath, compiledSkeletonPath, compressionRecord, isClipSource, keyOfCacheFile, modelClipOf, modelSkeletonOf,
+  clipContentKey, CLIP_COMPILER_VERSION, clipRefKind, compiledClipPath, compiledSkeletonPath, compressionRecord, isClipSource, keyOfCacheFile, modelClipOf, modelSkeletonOf,
 } from "./keys";
 import { BUILTIN_COMPRESSION } from "./settings";
 
@@ -46,6 +46,15 @@ describe("references and build paths", () => {
     expect(modelClipOf("models/hero.glb#Anim/")).toBeNull();
     expect(modelSkeletonOf("asset:models/hero.glb#Skeleton")).toBe("models/hero.glb");
     expect(modelSkeletonOf("rigs/hero.skel")).toBeNull();
+  });
+
+  it("classify clip references in any letter case (ADR 0460)", () => {
+    expect(clipRefKind("asset:./clips/Walk.Anim.JSON")).toBe("source");
+    expect(clipRefKind("tl/Intro.TIMELINE.json")).toBe("timeline");
+    expect(clipRefKind("clips/walk.ANIM.BIN")).toBe("compiled");
+    expect(clipRefKind("models/hero.glb#Anim/Run")).toBe("model");
+    expect(clipRefKind("models/hero.glb#Skeleton")).toBeNull();
+    expect(clipRefKind("images/a.png")).toBeNull();
   });
 
   it("put compiled files beside their source", () => {

@@ -5,7 +5,7 @@
 // Every edit is a refused-or-next result of `poseDbLogic.ts` applied to the source's asset document: one labelled undo
 // step each, with Undo and Redo in the frame's head (ADR 0265).
 import { useState } from "preact/hooks";
-import { AssetDocumentFrame, AssetPicker, applyToDocument, editor, openAssetDocument, refuse, type AssetDocument, type EditorProject, type EditResult, EmptyState } from "../../../../editor/sdk";
+import { AssetDocumentFrame, AssetPicker, applyToDocument, editor, openAssetDocument, refuse, type AssetDocument, type EditorProject, type EditResult, EmptyState, assetRefTarget } from "../../../../editor/sdk";
 import { NORMALISATIONS, type PoseDatabaseSource, type PoseRange } from "../../../../engine/animation/poseDatabase";
 import { BakeCard } from "./BakeCard";
 import { RangeStrip } from "./RangeStrip";
@@ -62,7 +62,7 @@ function SourceCard({ db, doc, apply, inherited }: CardProps & { inherited: stri
       <h3>Database</h3>
       <div class="import-row" title="The skeleton the features are measured on. Empty: the skeleton of the first clip's model.">
         <span>Skeleton</span>
-        <AssetPicker value={db.skeleton ?? ""} kinds={["skeleton"]} label="Skeleton" none={inherited ? `(the clips': ${editor.assets.fileName(inherited.replace(/^asset:/, ""))})` : "(the clips')"} disabled={!!readOnly} onCommit={(v) => apply(setSkeleton(db, v || null), "Set the skeleton")} />
+        <AssetPicker value={db.skeleton ?? ""} kinds={["skeleton"]} label="Skeleton" none={inherited ? `(the clips': ${editor.assets.fileName(assetRefTarget(inherited))})` : "(the clips')"} disabled={!!readOnly} onCommit={(v) => apply(setSkeleton(db, v || null), "Set the skeleton")} />
       </div>
       <label class="import-row" title="Frames baked per second of clip">
         <span>Rate (Hz)</span>
@@ -95,7 +95,7 @@ function ClipsCard({ db, doc, apply, version }: CardProps & { version: string })
       ))}
       <div class="import-row">
         <span>Add clip</span>
-        <AssetPicker value="" kinds={["animclip"]} label="Add clip" none="Choose a clip…" disabled={readOnly} onCommit={(v) => v && apply(addClip(db, v), `Add ${editor.assets.fileName(v.replace(/^asset:/, ""))}`)} />
+        <AssetPicker value="" kinds={["animclip"]} label="Add clip" none="Choose a clip…" disabled={readOnly} onCommit={(v) => v && apply(addClip(db, v), `Add ${editor.assets.fileName(assetRefTarget(v))}`)} />
       </div>
       {stats.length > 0 && (
         <p class="posedb-tags" aria-label="Tags">
@@ -113,7 +113,7 @@ function ClipsCard({ db, doc, apply, version }: CardProps & { version: string })
 function ClipRow(props: { index: number; db: Db; apply: Apply; readOnly: boolean; order: readonly string[]; version: string }) {
   const { index: i, db, apply, readOnly } = props;
   const s = db.sources[i]!;
-  const name = editor.assets.fileName(s.clip.replace(/^asset:/, ""));
+  const name = editor.assets.fileName(assetRefTarget(s.clip));
   const duration = useClipDuration(s.clip, props.version);
   const [selected, setSelected] = useState<number | null>(null);
   const addAt = (from: number, to: number) => apply(addRange(db, i, { from, to, tags: [] }), `Add a range to ${name}`);

@@ -90,6 +90,7 @@ export function useDefaultStudio(scene: Scene, studio: BaseTexture): void {
 const tmpBack = new Vector3();
 import { createStudioTexture } from "./studioCube";
 import { cubemapReady, loadCubemap } from "./sky/cubemaps";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 interface LightEntry {
   light: BabylonLight;
@@ -596,7 +597,7 @@ export class BabylonLighting implements LightingContributions {
    */
   private syncEnvironment(world: World, far: number): void {
     const env = world._componentsOfType(Environment).find((e) => e.isActiveAndEnabled) ?? null;
-    let path = env?.map.replace(/^asset:/, "") ?? "";
+    let path = env ? normalizeAssetPath(env.map) : "";
     const procedural = environmentKind(path) === "sky";
     if (procedural) path = ""; // drawn and baked by the sky (ADR 0112); its bake is contributed (`skyEnvironment`)
     if (path !== (this.envMap?.path ?? "")) this.loadEnvironmentMap(path);

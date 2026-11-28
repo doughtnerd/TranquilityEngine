@@ -48,6 +48,7 @@ import { readDebugReport, reportMachine, reportNode, type DebugReport } from "..
 import { acquireGraph, releaseGraph, type GraphMeta, type LoadedGraph } from "./asset";
 import { readClipCues, sectionRange } from "./clipCues";
 import { decodeParameter, encodeParameter, PARAM_TYPE_IDS } from "./parameters";
+import { normalizeAssetPath } from "../../../../../engine/scene/assetPath";
 
 const NONE = 0xffffffff;
 
@@ -418,7 +419,7 @@ export function queueJump(animator: Animator, state: string, layer: AnimatorLaye
 
 /** @internal `Animator.link`. */
 export function queueLink(animator: Animator, node: string, path: string | null): void {
-  const p = path ? path.replace(/^asset:/, "") : null;
+  const p = path ? normalizeAssetPath(path) : null;
   queue(animator, { kind: "link", node, path: p }, "link()");
 }
 
@@ -440,7 +441,7 @@ export function queueSlotPlay(
 ): Promise<AnimationPlayResult> {
   const rt = animatorRuntime(animator);
   if (!rt || !clip) return Promise.resolve(STOPPED);
-  const path = clip.replace(/^asset:/, "");
+  const path = normalizeAssetPath(clip);
   let admission: SlotPlayAdmission = net ?? { tick: -1, offset: 0 };
   if (animator.graph && slotNetHooks.admit) admission = slotNetHooks.admit(animator, options.slot, path, net, options.speed);
   if (admission instanceof Promise) return admission; // a re-simulated tick asking again for a play it already made

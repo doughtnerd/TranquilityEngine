@@ -6,11 +6,12 @@ import type { World } from "../core/World";
 import { Assets } from "../scene/Assets";
 import { Environment } from "../render/components";
 import { defaultSky, isSkyPath, parseSky, type SkySettings } from "./skyFormat";
+import { normalizeAssetPath } from "../scene/assetPath";
 
 /** @internal The sky asset path of the World's first active Environment, or "" when it has no sky. */
 export function worldSkyPath(world: World): string {
   const env = world._componentsOfType(Environment).find((e) => e.isActiveAndEnabled);
-  const path = env?.map.replace(/^asset:/, "") ?? "";
+  const path = env ? normalizeAssetPath(env.map) : "";
   return isSkyPath(path) ? path : "";
 }
 

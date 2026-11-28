@@ -8,6 +8,7 @@
 import { Assets } from "../../scene/Assets";
 import { isSpriteShader, materialGraph, parseMaterial } from "../../scene/material";
 import { isShaderGraphPath, isSpriteGraphTarget, parseShaderGraph, type ShaderGraphTarget } from "../../scene/shaderGraph";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /** Whether a 2D draw with `material` ("" for the default) is lit by 2D lights. */
 export function spriteMaterialLit(material: string): boolean {
@@ -41,7 +42,7 @@ const shaders = new WeakMap<object, string>();
 
 /** A material's shader, or `graph:<target>` for one shaded by (or that is) a shader graph (`graph:?` when it can't be read). */
 function spriteShaderOf(material: string): string | null {
-  const path = material.replace(/^asset:/, "");
+  const path = normalizeAssetPath(material);
   try {
     if (!Assets.has(path)) return null;
     if (isShaderGraphPath(path)) return `graph:${graphTargetOf(path)}`;
@@ -51,7 +52,7 @@ function spriteShaderOf(material: string): string | null {
     if (shader === undefined) {
       const settings = parseMaterial(raw).settings;
       const graph = materialGraph(settings);
-      shaders.set(raw, (shader = graph && isShaderGraphPath(graph) ? `graph:${graphTargetOf(graph.replace(/^asset:/, ""))}` : settings.shader));
+      shaders.set(raw, (shader = graph && isShaderGraphPath(graph) ? `graph:${graphTargetOf(normalizeAssetPath(graph))}` : settings.shader));
     }
     return shader;
   } catch {

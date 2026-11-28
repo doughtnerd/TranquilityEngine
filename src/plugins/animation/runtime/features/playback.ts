@@ -17,6 +17,7 @@ import { flushGraphQueue, graphMeta, graphState, latestSlotPlay, layerWeightInde
 import { animatorRuntime, clipEntry } from "./instances";
 import { forgetHeldPlay, holdPlay, latestHeldPlay, wantsMusic } from "./music";
 import { flushQueue, layerState, queueLayerMask, queuePlay, queueStop, stoppedPlay } from "./playback/plays";
+import { normalizeAssetPath } from "../../../../engine/scene/assetPath";
 
 const warned = new Set<string>();
 
@@ -93,7 +94,7 @@ export function play(animator: Animator, clip: string, options: AnimatorPlayOpti
       forgetHeldPlay(animator);
       return queueSlotPlay(animator, clip, slot);
     }
-    const entry = clipEntry(rt, clip.replace(/^asset:/, "")); // loads while the play waits
+    const entry = clipEntry(rt, normalizeAssetPath(clip)); // loads while the play waits
     const start = slot.section === undefined ? { normalized: slot.normalizedTime } : { section: slot.section };
     return holdPlay(
       animator,
@@ -116,7 +117,7 @@ export function crossfade(animator: Animator, clip: string, duration: number, op
   if (mask && rt && !animator.graph && clip && layerIndex(animator, options.layer) === 0) {
     warnOnce("mask0", `[myco] ${animator.node.name}: Animator.crossfade: the base layer (0) takes no mask; crossfade on layer 1 to ${MAX_LAYERS - 1} to mask. The clip fades in over the whole body.`);
   }
-  const before = mask && rt ? (l: number) => (l > 0 ? queueLayerMask(rt, l, mask.replace(/^asset:/, "")) : undefined) : undefined;
+  const before = mask && rt ? (l: number) => (l > 0 ? queueLayerMask(rt, l, normalizeAssetPath(mask)) : undefined) : undefined;
   return startPlay(animator, clip, { layer: options.layer, fade: duration, speed: options.speed, loop: options.loop, normalizedTime: undefined, before }, options, "crossfade");
 }
 

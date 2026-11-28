@@ -17,6 +17,7 @@ import { GameObject, UI_FROM_VIEWS, _componentAllowedIn, _viewOnlyComponentId, t
 import { assetRefs } from "./resolvedScene";
 import { nodeRefId } from "./nodeReferences";
 import { foldNodes, type FoldAdapter, type FoldPath, type FoldScope, type NodeStep } from "./overrideFold";
+import { normalizeAssetPath } from "./assetPath";
 
 export const SCENE_FORMAT = "myco.scene";
 /**
@@ -477,7 +478,7 @@ function convertValue(t: ScalarFieldType, raw: unknown, current: unknown, ref: (
     return q;
   }
   if (t === Color) return raw === null ? null : Color.from(raw as string);
-  if (t === AssetRef) return typeof raw === "string" ? raw.replace(/^asset:/, "") : raw;
+  if (t === AssetRef) return typeof raw === "string" ? normalizeAssetPath(raw) : raw;
   // A plain JSON value replaces the field's whole value (a deep copy, ADR 0039); merging into the old one would keep
   // keys the new value dropped, so a reverted override or a removed key would linger.
   if (t === PlainObject) return structuredClone(raw);

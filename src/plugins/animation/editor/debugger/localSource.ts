@@ -7,9 +7,10 @@ import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { Animator } from "../../runtime/components/Animator";
 import type { AnimatorDebugFrame, DebugParamValue } from "../../runtime/features/debug/frame";
 import { AnimatorRecorder } from "../../runtime/features/debug/animatorRecorder";
-import { graphAnimators, graphPath, paramValue } from "../../runtime/features/debug/targets";
+import { graphAnimators, paramValue } from "../../runtime/features/debug/targets";
 import { graphDebugReport, graphInstanceOf, writtenParameters } from "../../runtime/features/graph/runtime";
 import type { AnimationDebugSource, DebugRecording, DebugTarget } from "./source";
+import { normalizeAssetPath } from "../../../../engine/scene/assetPath";
 
 /** @internal What the local source reads of the play session. */
 export interface LocalSession {
@@ -64,8 +65,8 @@ export function createLocalSource(session: LocalSession, options: { seconds?: nu
       for (const a of all()) {
         const gi = graphInstanceOf(a.animator);
         if (!gi) continue; // still loading
-        const path = graphPath(a.animator.graph);
-        if (graph !== undefined && path !== graphPath(graph)) continue;
+        const path = normalizeAssetPath(a.animator.graph);
+        if (graph !== undefined && path !== normalizeAssetPath(graph)) continue;
         out.push({ id: a.id, label: several ? `${a.animator.node.name} (${a.world.name})` : a.animator.node.name, graph: path, tables: gi.meta.compiled });
       }
       return out;

@@ -27,6 +27,7 @@ import { warpWindows } from "../warp/windows";
 import { readJsonAsset } from "./jsonAsset";
 import { acquireMask, type MaskRig } from "./masks";
 import { subAssetClip } from "../subAssetClips";
+import { normalizeAssetPath } from "../../../../../engine/scene/assetPath";
 
 /** @internal A state machine of a graph, as the host names it. */
 export interface MachineMeta {
@@ -109,8 +110,6 @@ function fnv(text: string): string {
   }
   return h.toString(16);
 }
-
-const stripRef = (ref: string): string => ref.replace(/^asset:/, "").replace(/^\.?\//, "");
 
 // ------------------------------------------------------------------------------------------------ meta
 
@@ -241,7 +240,7 @@ function metaOf(g: AnimGraph, compiled: CompiledAnimGraph): GraphMeta {
   const layerWeights = compiled.layers.map((name) => g.layers.find((l) => l.name === name)?.weight ?? 1);
   const linkedDefaults = compiled.linked.map((name) => {
     const n = g.nodes.find((x) => x.kind === "linked" && (x.linked?.name || x.id) === name);
-    return n?.linked?.graph ? stripRef(n.linked.graph) : "";
+    return n?.linked?.graph ? normalizeAssetPath(n.linked.graph) : "";
   });
   return {
     compiled, params, paramTypes, paramReplication, requests, machines, layerMachines, layerWeights, linkedDefaults,
@@ -323,7 +322,7 @@ async function bindAssets(ns: AnimationWorldCore, handle: number, meta: GraphMet
   }
   await Promise.all(
     meta.compiled.bindings.map(async (b) => {
-      const path = stripRef(b.ref);
+      const path = normalizeAssetPath(b.ref);
       let asset = 0;
       switch (b.asset) {
         case "plugin":

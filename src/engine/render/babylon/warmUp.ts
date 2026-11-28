@@ -32,6 +32,7 @@ import { meshOf } from "./materials";
 import type { MaterialInstancing } from "../../scene/material";
 import "@babylonjs/core/Meshes/instancedMesh.js"; // Mesh.createInstance
 import "@babylonjs/core/Meshes/thinInstanceMesh.js"; // Mesh.thinInstance*
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /** The most Babylon meshes a warm batch makes when pipelines compile as Babylon makes them: each new one stalls its frame. */
 const BATCH = 6;
@@ -504,7 +505,7 @@ export class VariantReport {
 function variantWarning(what: string, material: string, change: string, prefab?: string): string {
   const name = material.replace(/^material:/, "");
   const asset = prefab ?? (/^(?:asset:)?([^#]+\.material\.json)/.exec(name)?.[1] ?? null);
-  const fix = asset ? `Add ${asset.replace(/^asset:/, "")} to the scene's settings.preload list` : "Add its prefab to the scene's settings.preload list";
+  const fix = asset ? `Add ${normalizeAssetPath(asset)} to the scene's settings.preload list` : "Add its prefab to the scene's settings.preload list";
   return `[myco] ${what} drew a shader variant that wasn't warmed up (${name}: ${change}), so its frame waited for the shader to compile. ${fix}, or SceneManager.preload it, or report the rule the warm-up is missing (ADR 0080).`;
 }
 

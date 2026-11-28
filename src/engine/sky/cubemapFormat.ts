@@ -10,6 +10,7 @@
  * Faces follow the usual OpenGL naming: px/nx are +X/-X, py/ny up/down, pz/nz +Z/-Z (the World's
  * east/west, up/down and north/south; +Z is forward, ADR 0164). Paths are project asset paths (an `asset:` prefix is allowed).
  */
+import { normalizeAssetPath } from "../scene/assetPath";
 
 export const CUBEMAP_FORMAT = "myco.cubemap@1";
 
@@ -25,7 +26,7 @@ export function parseCubemap(raw: unknown, path = "cubemap"): CubemapFaces {
   const missing: string[] = [];
   for (const f of CUBE_FACES) {
     const v = r[f];
-    if (typeof v === "string" && v.trim()) faces[f] = v.trim().replace(/^asset:/, "");
+    if (typeof v === "string" && v.trim()) faces[f] = normalizeAssetPath(v.trim());
     else missing.push(f);
   }
   if (missing.length) throw new Error(`${path} has no image for ${missing.join(", ")}.`);

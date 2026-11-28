@@ -40,6 +40,7 @@ import { Graphics } from "../../Graphics";
 import type { BabylonFeature } from "../feature";
 import type { LightingContributions } from "../lighting";
 import { packSkyUniforms, SKY_QUALITY, type SkyFrame } from "./skyUniforms";
+import { normalizeAssetPath } from "../../../scene/assetPath";
 
 /** Samples per texel when prefiltering a bake: a sky is smooth, so far fewer than a photo's 4096. */
 const PREFILTER_QUALITY = 256;
@@ -94,7 +95,7 @@ class SkyDrawable {
 
   /** A loaded image texture for an asset path, or null while loading / when missing. */
   texture(path: string): Texture | null {
-    const p = path.replace(/^asset:/, "");
+    const p = normalizeAssetPath(path);
     if (!p) return null;
     let t = this.textures.get(p);
     if (t === undefined) {

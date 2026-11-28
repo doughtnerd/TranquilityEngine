@@ -32,6 +32,7 @@ import type { GameObject } from "../../../../../engine/scene/GameObject";
 import { SkinnedMeshRenderer } from "../../components/SkinnedMeshRenderer";
 import type { ClipData } from "./clipData";
 import type { ClipTrack, ClipTracks } from "./clipTracks";
+import { normalizeAssetPath } from "../../../../../engine/scene/assetPath";
 
 /** `anim-format`'s `TrackKind` ids of the kinds that have columns. */
 const FLOAT = 1, VEC2 = 2, VEC3 = 3, VEC4 = 4, COLOR = 5, QUAT = 6, DISCRETE = 7, MORPH = 8, ACTIVATION = 11, CURVE = 15;
@@ -224,7 +225,7 @@ export function transformFieldWrite(node: GameObject, field: string, kind: numbe
 }
 
 const mismatch = (kind: number, what: string) => `a ${KIND_NAMES[kind] ?? `kind ${kind}`} track can't drive ${what}`;
-const assetPath = (strings: ClipTracks, id: number): string => (id === NONE ? "" : (strings.string(id) ?? "").replace(/^asset:/, ""));
+const assetPath = (strings: ClipTracks, id: number): string => (id === NONE ? "" : normalizeAssetPath((strings.string(id) ?? "")));
 
 /** A declared field of a component class (no sub-path). */
 function fieldWrite(world: World, c: Component, info: FieldInfo, kind: number, width: number, subtype: number, strings: ClipTracks): Write | string {

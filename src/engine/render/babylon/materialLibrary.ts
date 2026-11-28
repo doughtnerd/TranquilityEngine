@@ -58,6 +58,7 @@ import { cloneMaterial, onOwnerDisposed } from "./materialClone";
 import { MycoProbeBlendPlugin } from "./probeBlend";
 import type { ProbeHit } from "./probes";
 import { WARM_PREFIX } from "./warmUp";
+import { normalizeAssetPath } from "../../scene/assetPath";
 
 /** An unshared material and how to free it. */
 export interface OwnedMaterial {
@@ -585,10 +586,10 @@ export class BabylonMaterialLibrary {
   private renderTextureGone(path: string, key: string, rt: Texture): void {
     if (this.textures.get(key) === rt) this.textures.delete(key);
     if (![...this.textures.values()].includes(rt)) this.borrowed.delete(rt);
-    const image = path.replace(/^asset:/, "");
+    const image = normalizeAssetPath(path);
     const names = (m: BabylonMaterial, graph: BabylonGraphMaterial | undefined) =>
       graph
-        ? Object.values(graph.properties).some((v) => typeof v === "string" && v.replace(/^asset:/, "") === image)
+        ? Object.values(graph.properties).some((v) => typeof v === "string" && normalizeAssetPath(v) === image)
         : m instanceof PBRMaterial && this.wantedTextures.get(m) === image;
     for (const e of this.assets.values()) if (e.uses.has(image) || (e.material && names(e.material, e.graph))) e.rebuild = true;
     for (const [r, e] of [...this.renderers]) if (e.material !== e.base && names(e.material, e.graph)) this.releaseOverrides(r);
@@ -650,10 +651,10 @@ export class BabylonMaterialLibrary {
     this.assets.set(path, entry);
     if (resolved.kind === "graph") {
       const load = (p: string, linear: boolean) => {
-        entry.uses.add(p.replace(/^asset:/, ""));
+        entry.uses.add(normalizeAssetPath(p));
         return this.loadGraphTexture(p, linear);
       };
-      const graph = createGraphMaterial(this.scene, `graph:${resolved.graph!.replace(/^asset:/, "")}`, resolved.compiled!, resolved.properties, this.shared, load);
+      const graph = createGraphMaterial(this.scene, `graph:${normalizeAssetPath(resolved.graph!)}`, resolved.compiled!, resolved.properties, this.shared, load);
       graph.setKeywords(resolved.keywords);
       this.graphs.set(graph.material, graph);
       entry.graph = graph;
@@ -676,7 +677,7 @@ export class BabylonMaterialLibrary {
     const m = pbr(`material:${path}`, this.scene);
     applyBuiltinSettings(m, settings);
     for (const slot of builtinTextureSlots(m, settings)) {
-      const image = slot.image.replace(/^asset:/, "");
+      const image = normalizeAssetPath(slot.image);
       if (!image) continue;
       entry.uses.add(image);
       this.loadTexture(image)

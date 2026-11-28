@@ -15,8 +15,10 @@
  *
  * Pure. Internal: not public API.
  */
+import { normalizeAssetPath } from "../../scene/assetPath";
 import { ANIM_SOURCE_SUFFIX } from "../animSource";
 import { referencePath } from "../shared";
+import { TIMELINE_SUFFIX } from "../timeline";
 import { contentHash, fnv1aHex } from "./hash";
 import type { ResolvedCompression } from "./settings";
 
@@ -36,12 +38,9 @@ const MODEL_FOLDER_SUFFIX = ".anim";
 const CLIP_SUB = "#Anim/";
 const SKELETON_SUB = "#Skeleton";
 
-/** @internal A clip reference without `asset:` or a leading `./` or `/` (the sub-asset kept). */
-export const clipPathOf = (ref: string): string => ref.replace(/^asset:/, "").replace(/^\.?\//, "");
-
 /** @internal A model clip reference's model and clip name (`models/hero.glb#Anim/Run` → both), or null. */
 export function modelClipOf(ref: string): { readonly model: string; readonly name: string } | null {
-  const p = clipPathOf(ref);
+  const p = normalizeAssetPath(ref);
   const at = p.indexOf(CLIP_SUB);
   if (at <= 0 || at + CLIP_SUB.length >= p.length) return null;
   return { model: p.slice(0, at), name: p.slice(at + CLIP_SUB.length) };
@@ -49,12 +48,29 @@ export function modelClipOf(ref: string): { readonly model: string; readonly nam
 
 /** @internal A model skeleton reference's model (`models/hero.glb#Skeleton` → `models/hero.glb`), or null. */
 export function modelSkeletonOf(ref: string): string | null {
-  const p = clipPathOf(ref);
+  const p = normalizeAssetPath(ref);
   return p.endsWith(SKELETON_SUB) && p.length > SKELETON_SUB.length ? p.slice(0, -SKELETON_SUB.length) : null;
 }
 
+/**
+ * @internal What a clip reference names (ADR 0460), by its ending in any letter case: an authored clip (`*.anim.json`,
+ * "source"), a timeline (`*.timeline.json`), a compiled clip (`*.anim.bin`), a model's clip (`model.glb#Anim/Run`,
+ * "model"), or null for anything else. The editor and the runtime ask this one question.
+ */
+export function clipRefKind(ref: string): "source" | "timeline" | "compiled" | "model" | null {
+  if (modelClipOf(ref)) return "model";
+  const p = normalizeAssetPath(ref).toLowerCase();
+  if (p.endsWith(ANIM_SOURCE_SUFFIX)) return "source";
+  if (p.endsWith(TIMELINE_SUFFIX)) return "timeline";
+  if (p.endsWith(COMPILED_CLIP_SUFFIX)) return "compiled";
+  return null;
+}
+
 /** @internal Whether a clip reference names a clip source the pipeline compiles: an authored clip or a model's clip. */
-export const isClipSource = (ref: string): boolean => clipPathOf(ref).toLowerCase().endsWith(ANIM_SOURCE_SUFFIX) || modelClipOf(ref) !== null;
+export const isClipSource = (ref: string): boolean => {
+  const kind = clipRefKind(ref);
+  return kind === "source" || kind === "model";
+};
 
 const encodeName = (name: string): string => encodeURIComponent(name).replace(/\./g, "%2E");
 
@@ -67,7 +83,7 @@ export function compiledClipPath(clipRef: string, skeletonRef: string | null): s
   if (model) return `${model.model}${MODEL_FOLDER_SUFFIX}/${encodeName(model.name)}${COMPILED_CLIP_SUFFIX}`;
   const path = referencePath(clipRef);
   const base = path.toLowerCase().endsWith(ANIM_SOURCE_SUFFIX) ? path.slice(0, -ANIM_SOURCE_SUFFIX.length) : path;
-  const tag = skeletonRef ? `.${fnv1aHex(clipPathOf(skeletonRef))}` : "";
+  const tag = skeletonRef ? `.${fnv1aHex(normalizeAssetPath(skeletonRef))}` : "";
   return `${base}${tag}${COMPILED_CLIP_SUFFIX}`;
 }
 
