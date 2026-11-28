@@ -1,0 +1,8 @@
+{
+  "name": "acme.stamp",
+  "version": "1.0.0",
+  "sdk": "^1.0.0",
+  "title": "Stamp",
+  "runtime": "runtime/index.ts",
+  "export": "export/index.ts"
+}
