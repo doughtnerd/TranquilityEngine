@@ -89,3 +89,7 @@ None.
 - `src/plugins/tilemaps/runtime/grids.ts`, `grids.test.ts`
 - `src/plugins/tilemaps/editor/brush.ts`, `selectionLogic.ts`, `stampLayout.ts`, `tileSelection.ts`, `paintTool.ts`,
   `TilePalettePanel.tsx`
+
+## As built (wave 2)
+
+The runtime's square-grid branches now ask `grid.cellUnits`: `src/plugins/tilemaps/runtime/tilemapRenderer.ts` (painter's order, chunk vertex layout, cell box), `mesh.ts` (chunk cell order and cell corner placement) and `tileShapeCache.ts` (whole-cell shapes, merge space, placement). No new `TileGrid` member was needed; behaviour is unchanged.

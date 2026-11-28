@@ -82,7 +82,7 @@ export function memoryQuadHost(options: MemoryQuadHostOptions = {}) {
           place = drawPlace(render(), sortingLayer, orderInLayer, sort ?? {}, (l) => void (unknownLayers.includes(l) || unknownLayers.push(l)));
         },
         setMaterial(m) { b.material = m; },
-        setTint(c, a) { b.tint = [c, a]; },
+        setTint(c, a) { b.tint = [typeof c === "string" ? c : `rgb(${c.r},${c.g},${c.b})`, a]; },
         setMask(m) { b.mask = m; },
         setBlend(m) { b.blend = m; },
         setVisible(v) { b.visible = v; },
