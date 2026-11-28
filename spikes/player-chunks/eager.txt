@@ -1,0 +1,26 @@
+entries: assets/player-DYUlSDKN.js 7.7/3.3, myco-ui-host.js 9.7/4.3, myco.js 7.2/3.2
+
+eager (all entries): 47 chunks, raw 2047.1 kB, gzip 644.7 kB, brotli 556.3 kB
+lazy-only: 264 chunks, raw 13185.1 kB, gzip 4381.2 kB
+
+localisation file	raw~	gzip~	chunk class	chunk
+Locale.ts	5177	2054	eager	Locale--tUr5jjL.js
+languages.ts	5873	1937	eager	format-CKGw24sJ.js
+lenient.ts	1876	619	eager	format-CKGw24sJ.js
+message/format.ts	2339	928	eager	Locale--tUr5jjL.js
+message/numberStyle.ts	1026	338	eager	format-CKGw24sJ.js
+message/parse.ts	4647	1532	eager	format-CKGw24sJ.js
+pseudo.ts	978	388	eager	Locale--tUr5jjL.js
+runtime/assets.ts	962	381	eager	Locale--tUr5jjL.js
+runtime/boot.ts	913	286	eager	myco-CbfCANzb.js
+runtime/buildFile.ts	1444	573	eager	Locale--tUr5jjL.js
+runtime/participants.ts	279	111	eager	Locale--tUr5jjL.js
+runtime/strings.ts	2141	849	eager	Locale--tUr5jjL.js
+strings/format.ts	2789	920	eager	format-CKGw24sJ.js
+strings/translation.ts	1396	554	eager	Locale--tUr5jjL.js
+subtitleSettings.ts	1726	577	eager	World-D_-wqdiZ.js
+subtitles.ts	2714	911	eager	take-B-MsHsH1.js
+t.ts	319	106	eager	preferences-CuWxttIH.js
+textHash.ts	1610	961	eager	textHash-AxtfEc3A.js
+variants.ts	639	214	eager	Assets-CkLpN6bV.js
+TOTAL	38848	14239
