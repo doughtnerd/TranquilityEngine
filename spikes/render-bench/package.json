@@ -1,0 +1,9 @@
+{
+  "name": "render-bench-spike",
+  "private": true,
+  "type": "module",
+  "description": "Measurement spike: forest + city benchmark scenes, LOD and occlusion oracles. Not part of the engine.",
+  "dependencies": {
+    "meshoptimizer": "^0.22.0"
+  }
+}

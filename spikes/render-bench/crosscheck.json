@@ -1,0 +1,451 @@
+{
+ "meta": {
+  "date": "2026-11-28T01:59:58.879Z",
+  "commit": "6a0740ca",
+  "profile": {
+   "runs": 1,
+   "frames": 40,
+   "warmup": 60,
+   "throttles": [
+    1
+   ],
+   "smoke": false,
+   "raster": false,
+   "rasterRuns": 5,
+   "rasterFrames": 10,
+   "rasterWarmup": 2
+  },
+  "browser": "158.0.8127.36",
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "tier": {
+   "name": "High",
+   "shadows": "high",
+   "cascades": 3,
+   "distance": 80,
+   "antialias": "msaa",
+   "renderScale": 1,
+   "postProcessing": true
+  },
+  "canvas": [
+   1280,
+   720
+  ],
+  "machine": {
+   "cpus": 4,
+   "load": [
+    1.72,
+    2.79,
+    2.42
+   ]
+  },
+  "pageInfo": {
+   "project": "forest-auto",
+   "scene": "forest",
+   "loadMs": 615.3999999994412,
+   "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+   "canvas": [
+    1280,
+    720
+   ],
+   "tier": {
+    "name": "High",
+    "shadows": "high",
+    "cascades": 3,
+    "distance": 80,
+    "antialias": "msaa",
+    "renderScale": 1,
+    "postProcessing": true
+   },
+   "renderers": 10000,
+   "refs": [
+    "models/tree1.obj",
+    "models/tree0.obj",
+    "models/tree2.obj",
+    "models/tree3.obj",
+    "models/rock2.obj",
+    "models/rock0.obj",
+    "models/rock1.obj"
+   ],
+   "objects": {
+    "trees": 4000,
+    "rocks": 6000
+   },
+   "babylonMeshes": 10017
+  },
+  "errors": []
+ },
+ "rows": [
+  {
+   "id": "forest-auto-static-baseline@1x/cpu",
+   "configId": "forest-auto-static-baseline",
+   "scene": "forest",
+   "instancing": "auto",
+   "oracle": "baseline",
+   "path": "static",
+   "measure": "cpu",
+   "cpuThrottle": 1,
+   "runs": 1,
+   "framesPerRun": 40,
+   "drawCalls": {
+    "total": 46,
+    "main": 13,
+    "shadow": 33,
+    "other": 0
+   },
+   "triangles": {
+    "total": 61369916,
+    "main": 44247164,
+    "shadow": 17122752,
+    "other": 0
+   },
+   "drawCallsMax": 46,
+   "trianglesMax": 61369916,
+   "shadowPasses": 1,
+   "babylonTris": 61369914,
+   "submitSpanMs": {
+    "main": 4.599999999627471,
+    "shadow": 12.900000000372529
+   },
+   "cpuMs": {
+    "p50": 70.90000000037253,
+    "p99": 108,
+    "max": 108,
+    "mean": 73.28750000004656
+   },
+   "renderCpuMs": {
+    "p50": 70.40000000037253,
+    "p99": 107.6000000005588,
+    "max": 107.6000000005588,
+    "mean": 72.7825000000419
+   },
+   "updateCpuMs": {
+    "p50": 0.20000000018626451,
+    "p99": 0.30000000074505806,
+    "max": 0.30000000074505806,
+    "mean": 0.22499999997671694
+   },
+   "frameMs": {
+    "p50": 69.20000000000073,
+    "p99": 103.89999999999964,
+    "max": 103.89999999999964,
+    "mean": 73.79750000000001
+   },
+   "oracleBookkeepingMs": {
+    "p50": 0,
+    "p99": 0.09999999962747097,
+    "max": 0.09999999962747097,
+    "mean": 0.01749999993480742
+   },
+   "perRun": {
+    "cpuMs": [
+     {
+      "p50": 70.90000000037253,
+      "p99": 108,
+      "max": 108,
+      "mean": 73.28750000004656
+     }
+    ],
+    "frameMs": [
+     {
+      "p50": 69.20000000000073,
+      "p99": 103.89999999999964,
+      "max": 103.89999999999964,
+      "mean": 73.79750000000001
+     }
+    ]
+   },
+   "oracleCounts": {
+    "hiddenByOcclusion": 0,
+    "culledByLod": 0,
+    "lodLevels": [
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "settleFrames": [
+    60
+   ]
+  },
+  {
+   "id": "forest-thin-static-baseline@1x/cpu",
+   "configId": "forest-thin-static-baseline",
+   "scene": "forest",
+   "instancing": "thin",
+   "oracle": "baseline",
+   "path": "static",
+   "measure": "cpu",
+   "cpuThrottle": 1,
+   "runs": 1,
+   "framesPerRun": 40,
+   "drawCalls": {
+    "total": 46,
+    "main": 13,
+    "shadow": 33,
+    "other": 0
+   },
+   "triangles": {
+    "total": 231469508,
+    "main": 57867380,
+    "shadow": 173602128,
+    "other": 0
+   },
+   "drawCallsMax": 46,
+   "trianglesMax": 231469508,
+   "shadowPasses": 1,
+   "babylonTris": 231469506,
+   "submitSpanMs": {
+    "main": 0.20000000018626451,
+    "shadow": 0.19999999925494194
+   },
+   "cpuMs": {
+    "p50": 29.40000000037253,
+    "p99": 39.90000000037253,
+    "max": 39.90000000037253,
+    "mean": 29.942500000004657
+   },
+   "renderCpuMs": {
+    "p50": 28.800000000745058,
+    "p99": 39.30000000074506,
+    "max": 39.30000000074506,
+    "mean": 29.462500000116414
+   },
+   "updateCpuMs": {
+    "p50": 0.20000000018626451,
+    "p99": 0.2999999998137355,
+    "max": 0.2999999998137355,
+    "mean": 0.22249999993946404
+   },
+   "frameMs": {
+    "p50": 34.19999999999982,
+    "p99": 35,
+    "max": 35,
+    "mean": 30.1625
+   },
+   "oracleBookkeepingMs": {
+    "p50": 0,
+    "p99": 0.20000000018626451,
+    "max": 0.20000000018626451,
+    "mean": 0.015000000013969839
+   },
+   "perRun": {
+    "cpuMs": [
+     {
+      "p50": 29.40000000037253,
+      "p99": 39.90000000037253,
+      "max": 39.90000000037253,
+      "mean": 29.942500000004657
+     }
+    ],
+    "frameMs": [
+     {
+      "p50": 34.19999999999982,
+      "p99": 35,
+      "max": 35,
+      "mean": 30.1625
+     }
+    ]
+   },
+   "oracleCounts": {
+    "hiddenByOcclusion": 0,
+    "culledByLod": 0,
+    "lodLevels": [
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "settleFrames": [
+    60
+   ]
+  },
+  {
+   "id": "city-auto-static-baseline@1x/cpu",
+   "configId": "city-auto-static-baseline",
+   "scene": "city",
+   "instancing": "auto",
+   "oracle": "baseline",
+   "path": "static",
+   "measure": "cpu",
+   "cpuThrottle": 1,
+   "runs": 1,
+   "framesPerRun": 40,
+   "drawCalls": {
+    "total": 68,
+    "main": 24,
+    "shadow": 44,
+    "other": 0
+   },
+   "triangles": {
+    "total": 10346188,
+    "main": 9666160,
+    "shadow": 680028,
+    "other": 0
+   },
+   "drawCallsMax": 68,
+   "trianglesMax": 10346188,
+   "shadowPasses": 1,
+   "babylonTris": 10346186,
+   "submitSpanMs": {
+    "main": 3.5,
+    "shadow": 4.5
+   },
+   "cpuMs": {
+    "p50": 39,
+    "p99": 59.700000000186265,
+    "max": 59.700000000186265,
+    "mean": 40.78499999998603
+   },
+   "renderCpuMs": {
+    "p50": 38.5,
+    "p99": 59,
+    "max": 59,
+    "mean": 40.227499999990684
+   },
+   "updateCpuMs": {
+    "p50": 0.20000000018626451,
+    "p99": 0.599999999627471,
+    "max": 0.599999999627471,
+    "mean": 0.2574999999720603
+   },
+   "frameMs": {
+    "p50": 35,
+    "p99": 68.79999999999927,
+    "max": 68.79999999999927,
+    "mean": 41.54749999999999
+   },
+   "oracleBookkeepingMs": {
+    "p50": 0,
+    "p99": 0.10000000055879354,
+    "max": 0.10000000055879354,
+    "mean": 0.017500000027939677
+   },
+   "perRun": {
+    "cpuMs": [
+     {
+      "p50": 39,
+      "p99": 59.700000000186265,
+      "max": 59.700000000186265,
+      "mean": 40.78499999998603
+     }
+    ],
+    "frameMs": [
+     {
+      "p50": 35,
+      "p99": 68.79999999999927,
+      "max": 68.79999999999927,
+      "mean": 41.54749999999999
+     }
+    ]
+   },
+   "oracleCounts": {
+    "hiddenByOcclusion": 0,
+    "culledByLod": 0,
+    "lodLevels": [
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "settleFrames": [
+    60
+   ]
+  },
+  {
+   "id": "city-thin-static-baseline@1x/cpu",
+   "configId": "city-thin-static-baseline",
+   "scene": "city",
+   "instancing": "thin",
+   "oracle": "baseline",
+   "path": "static",
+   "measure": "cpu",
+   "cpuThrottle": 1,
+   "runs": 1,
+   "framesPerRun": 40,
+   "drawCalls": {
+    "total": 90,
+    "main": 24,
+    "shadow": 66,
+    "other": 0
+   },
+   "triangles": {
+    "total": 52401604,
+    "main": 13100404,
+    "shadow": 39301200,
+    "other": 0
+   },
+   "drawCallsMax": 90,
+   "trianglesMax": 52401604,
+   "shadowPasses": 1,
+   "babylonTris": 52401602,
+   "submitSpanMs": {
+    "main": 0.2999999998137355,
+    "shadow": 0.20000000018626451
+   },
+   "cpuMs": {
+    "p50": 23.5,
+    "p99": 33.5,
+    "max": 33.5,
+    "mean": 21.88249999997206
+   },
+   "renderCpuMs": {
+    "p50": 22.700000000186265,
+    "p99": 33,
+    "max": 33,
+    "mean": 21.339999999990688
+   },
+   "updateCpuMs": {
+    "p50": 0.20000000018626451,
+    "p99": 1.6000000005587935,
+    "max": 1.6000000005587935,
+    "mean": 0.265000000060536
+   },
+   "frameMs": {
+    "p50": 17.400000000000546,
+    "p99": 35,
+    "max": 35,
+    "mean": 22.007500000000004
+   },
+   "oracleBookkeepingMs": {
+    "p50": 0,
+    "p99": 0.09999999962747097,
+    "max": 0.09999999962747097,
+    "mean": 0.007499999972060323
+   },
+   "perRun": {
+    "cpuMs": [
+     {
+      "p50": 23.5,
+      "p99": 33.5,
+      "max": 33.5,
+      "mean": 21.88249999997206
+     }
+    ],
+    "frameMs": [
+     {
+      "p50": 17.400000000000546,
+      "p99": 35,
+      "max": 35,
+      "mean": 22.007500000000004
+     }
+    ]
+   },
+   "oracleCounts": {
+    "hiddenByOcclusion": 0,
+    "culledByLod": 0,
+    "lodLevels": [
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "settleFrames": [
+    60
+   ]
+  }
+ ]
+}
