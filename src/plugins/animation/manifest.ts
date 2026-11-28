@@ -11,6 +11,11 @@ export const animationManifest: PluginManifest = {
   description: "Skeletal, property and sprite animation: Animators and their graphs, IK, retargeting, timelines and tweens.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
+  // Where the Add Component menu lists its Components.
+  componentCategories: {
+    Animation: ["engine.Animator", "engine.BoneAttachment", "engine.Skeleton", "engine.Skeleton2D", "engine.TimelineDirector"],
+    Rendering: ["engine.SkinnedMeshRenderer"],
+  },
   optionalDependencies: {
     "myco.physics": "1.0.0",
     "myco.audio": "1.0.0",

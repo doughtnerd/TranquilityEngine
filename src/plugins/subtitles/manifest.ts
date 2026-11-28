@@ -10,6 +10,10 @@ export const subtitlesManifest: PluginManifest = {
   description: "A drop-in subtitle and caption display with speaker names, sizes, a background box and player settings.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
+  // Where the Add Component menu lists its Components.
+  componentCategories: {
+    UI: ["engine.SubtitleDisplay"],
+  },
   dependencies: { "myco.audio": "1.0.0", "myco.ui": "1.0.0" },
   // Drawing only: the dedicated server has no screen to show subtitles on.
   server: false,

@@ -3,8 +3,8 @@
 // formats, auto-tiling, brushes, tile collision shapes, the chunk mesh builder and the tiles render
 // feature. The feature draws through the renderer core's quad batches (`QuadBatchHost`), so no tile code
 // is left in the backend: `BabylonQuadBatches` knows quads, not tiles. `Tilemap` offers its tile
-// collision as a core 2D shape source; it names no physics plugin. `myco` (`src/myco.ts`) exports this
-// module's public parts.
+// collision as a core 2D shape source; it names no physics plugin. `myco` exports its
+// public parts (`./public.ts`).
 // Runtime code: never imports from `src/editor/` or the plugin's `editor/` folder; never imports Babylon
 // (the feature's code loads on demand).
 import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
@@ -13,12 +13,7 @@ import { tilemapsManifest } from "../manifest";
 import { MapObject } from "./MapObject";
 import { Tilemap } from "./Tilemap";
 
-export { Tilemap, TilemapChanges, type TileChange } from "./Tilemap";
-export { MapObject } from "./MapObject";
-export { FLIP_DIAGONAL, FLIP_X, FLIP_Y, type TilemapLayerData } from "./format";
-export type { TerrainDef, TileAnimation, TileCollision, TileDef, TileFrameDef, TileOccluder, TilePattern, TilePolygon, TileShapes, TileStamp, TileStampLayer, TilesetData, TilesetPreviewGrid } from "./tileset";
-export type { TileGridShape } from "./Tilemap";
-export type { TileCollisionMode } from "./collision";
+export * from "./public";
 
 /** After sprites; `MESHES_SPEC` names it in its own `after`, so meshes sync after it (ADR 0135). */
 const TILEMAPS_SPEC: RenderFeatureSpec = { name: "tilemaps", phase: "content", types: [Tilemap], lazy: false, after: ["sprites"] };
