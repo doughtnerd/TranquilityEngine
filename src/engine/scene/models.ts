@@ -18,6 +18,8 @@ import settings (scale, up axis, normals; ADR 0040 sidecars) are baked into its 
  * editor's preview of the library draws (ADR 0061).
  */
 import type { ModelLods } from "./lod/types";
+import { cachedLods, lodHost, memoryLodCache, type LodHost } from "./lod/cache";
+import { lodSourceOf, meshWithLods } from "./lod/meshLods";
 // Types only: three.js loads with the first model file parsed (`parseModel`), so it stays out of the
 // start-up bundle of the editor and of games (ADR 0082); the built-in meshes need none of it.
 import type { BufferAttribute, BufferGeometry, Color as ThreeColor, LoadingManager, Material, Matrix4, Mesh, Object3D, Side, Texture } from "three";
@@ -845,7 +847,7 @@ async function materialLibraryRoot(text: string, loading: LoadingManager): Promi
   return root;
 }
 
-async function parseModel(path: string, url: string, settings: ImportSettings, useBaked = true): Promise<ModelData> {
+async function parseModel(path: string, url: string, settings: ImportSettings, useBaked = true, lods: LodHost | null = lodHost()): Promise<ModelData> {
   // A game build's baked copy (ADR 0090), when it was baked with these import settings.
   if (useBaked && Assets.has(path + BAKED_SUFFIX)) {
     try {
@@ -866,7 +868,7 @@ async function parseModel(path: string, url: string, settings: ImportSettings, u
     if (gltf.ignored.length) warnOnce(`${path}: not imported yet: ${gltf.ignored.join(", ")}.`);
     const data = bakeMeshes(gltf.root, settings, { flipV: true, gltf: gltf.animation, warn: (m) => warnOnce(`${path}: ${m}`) });
     if (!data.meshes.length) warnOnce(`${path} has no meshes.`);
-    return finishAnimation(path, data, settings);
+    return withLods(path, await finishAnimation(path, data, settings), settings, lods);
   }
   const loading = manager(path);
   let root: Object3D;
@@ -899,18 +901,57 @@ async function parseModel(path: string, url: string, settings: ImportSettings, u
   await loading.settled();
   const data = bakeMeshes(root, settings, { warn: (m) => warnOnce(`${path}: ${m}`) });
   if (!data.meshes.length) warnOnce(`${path} has no meshes.`);
-  return finishAnimation(path, data, settings);
+  return withLods(path, await finishAnimation(path, data, settings), settings, lods);
+}
+
+/**
+ * `data` with each mesh's LOD levels (ADR 0446 §1) when its sidecar asks for them (`lod`), generated through `host`
+ * (cached). Without a host (a game: levels come only from its baked file) the model loads without levels and says so
+ * once. A mesh whose generation fails keeps its own data, with a warning.
+ */
+async function withLods(path: string, data: ModelData, settings: ImportSettings, host: LodHost | null): Promise<ModelData> {
+  const lod = settings.lod;
+  if (!lod) return data;
+  if (!host) {
+    warnOnce(`${path} asks for LOD levels, which only the editor generates and game builds bake; it loads without them.`);
+    return data;
+  }
+  const meshes = await Promise.all(
+    data.meshes.map(async (mesh) => {
+      if (mesh.data.indices.length < 3) return mesh;
+      try {
+        return meshWithLods(mesh, await cachedLods(host, lodSourceOf(mesh), lod, settings.occluder), lod.pixelError);
+      } catch (err) {
+        warnOnce(`${path}: couldn't generate LOD levels for ${mesh.name} (${(err as Error)?.message ?? err}); it draws at full detail.`);
+        return mesh;
+      }
+    }),
+  );
+  return { ...data, meshes };
+}
+
+/** The bake's own LOD host when the editor installed none (the export CLI): generation inline, cached for the session. */
+let inlineLodHost: LodHost | null = null;
+async function bakeLodHost(): Promise<LodHost> {
+  const installed = lodHost();
+  if (installed) return installed;
+  if (!inlineLodHost) {
+    const { generateLods } = await import("./lod/generate");
+    inlineLodHost = { generate: generateLods, cache: memoryLodCache() };
+  }
+  return inlineLodHost;
 }
 
 /**
  * @internal A model file baked for a game build (ADR 0090): loaded from the file itself (never an
  * earlier baked copy) with its import settings, then encoded. `dropped` lists textures that
- * couldn't be kept (neither a project file nor stored in the model).
+ * couldn't be kept (neither a project file nor stored in the model). Its LOD levels (ADR 0446) are
+ * generated here when its sidecar asks for them, so the game only reads them.
  */
 export async function bakeModelFile(ref: string): Promise<{ bytes: Uint8Array; dropped: string[] }> {
   const path = splitSpriteRef(normalizeAssetPath(ref)).path;
   const settings = Assets.importSettings(path);
-  const data = await parseModel(path, Assets.url(path), settings, false);
+  const data = await parseModel(path, Assets.url(path), settings, false, settings.lod ? await bakeLodHost() : null);
   try {
     return encodeBakedModel(data, settings);
   } finally {

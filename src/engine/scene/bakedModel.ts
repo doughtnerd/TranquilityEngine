@@ -4,13 +4,13 @@
  * (`models/robot.fbx` → `models/robot.fbx.mycomesh`). Loading one needs no model loader, no parsing
  * and no three.js: typed arrays are views of the file's bytes. Internal: nothing here is public API.
  *
- * Layout (little-endian): the magic `MYCOMESH`, a u32 version (4), a u32 JSON length, the JSON
+ * Layout (little-endian): the magic `MYCOMESH`, a u32 version (5), a u32 JSON length, the JSON
  * (UTF-8, padded with spaces to 4 bytes), then the binary data every offset in the JSON points into
  * (each 4-byte aligned).
  *
  * ```jsonc
  * {
- *   "settings": { "scale": 1, "upAxis": "y", "normals": "import", "facing": "forward" },  // what it was baked with
+ *   "settings": { "scale": 1, "upAxis": "y", "normals": "import", "facing": "forward", "lod": {…} | null, "occluder": "auto" },  // what it was baked with
  *   "meshes": [{ "name": "Body", "path": ["Robot"], "positions": [offset, count], "normals": …,
  *                "uvs": …, "uvs2": …, "colors": …, "indices": [offset, count], "groups": […], "surfaces": [0, 1],
  *                "pose": { … }, "variantSurfaces": { "Red": [2, 1] } }],          // pose, variants: ADR 0118
@@ -22,6 +22,9 @@
  *   "animation": { "skeleton": { "bones": […], "inverseBinds": [offset, count], "roles", "profile" },
  *                  "takes": [{ "name", "duration", "tracks": [0371 tracks] }], "clips": [{ "name", "take", "source": myco.anim-source@1, "settings" }],
  *                  "boneMap": {…}, "boneMapSource": "guessed" }
+ *   // ADR 0446: per mesh with generated levels (LOD0 is its "indices", its vertices welded and reordered)
+ *   // "lods": [{ "indices": [offset, count], "groups": […], "error": 0.006, "triangles": 512 }], "occluder": { "indices", "error" },
+ *   // "bounds": [minX, minY, minZ, maxX, maxY, maxZ], "pixelError": 1
  * }
  * ```
  *
@@ -34,13 +37,15 @@ import type { ImportedBone, MeshSkin, MorphTargetData } from "../animation/impor
 import { animSourceToJson, parseAnimSource } from "../animation/animSource";
 import { parseTracks, trackToJson } from "../animation/tracks";
 import { LenientReader } from "../animation/shared";
+import { attachLods } from "./lod/meshLods";
+import type { Bounds6 } from "./lod/types";
 
 /** @internal The suffix of a baked model beside its model file. */
 export const BAKED_SUFFIX = ".mycomesh";
 const MAGIC = "MYCOMESH";
-const VERSION = 4; // 2: node poses, lights and cameras, layer textures, variants (ADR 0118); 3: mirrored left-handed, `facing` (ADR 0164); 4: skins, morphs, tangents, skeleton, takes and clips, the `animation` settings (ADR 0371)
+const VERSION = 5; // 2: node poses, lights and cameras, layer textures, variants (ADR 0118); 3: mirrored left-handed, `facing` (ADR 0164); 4: skins, morphs, tangents, skeleton, takes and clips, the `animation` settings (ADR 0371); 5: LOD levels, occluder stand-ins, bounds, the `lod` and `occluder` settings (ADR 0446)
 
-type BakeSettings = Pick<ImportSettings, "scale" | "upAxis" | "normals" | "facing"> & Partial<Pick<ImportSettings, "animation">>;
+type BakeSettings = Pick<ImportSettings, "scale" | "upAxis" | "normals" | "facing"> & Partial<Pick<ImportSettings, "animation" | "lod" | "occluder">>;
 type Range = [offset: number, count: number];
 type BakedTexture = { path: string; mimeType?: string | null; uvSet?: number } | { image: number; mimeType?: string | null; uvSet?: number };
 
@@ -63,6 +68,10 @@ interface BakedJson {
     skin?: { influences: 4 | 8; joints: Range; weights: Range; inverseBinds?: Range };
     morphTargets?: { name: string; positions?: Range; normals?: Range; tangents?: Range }[];
     tangents?: Range;
+    lods?: { indices: Range; groups: MeshData["groups"]; error: number; triangles: number }[];
+    occluder?: { indices: Range; error: number };
+    bounds?: Bounds6;
+    pixelError?: number;
   }[];
   surfaces: Record<string, unknown>[];
   images: { offset: number; length: number; mimeType: string | null }[];
@@ -79,6 +88,9 @@ interface BakedJson {
 
 /** The animation settings a baked model was made with, as compared on load. */
 const animationKey = (s: BakeSettings): string => JSON.stringify(modelAnimationToJson(s.animation) ?? null);
+
+/** The LOD settings a baked model was made with, as compared on load (the occluder setting matters only with levels). */
+const lodKey = (s: BakeSettings): string => JSON.stringify(s.lod ? [s.lod, s.occluder ?? "auto"] : null);
 
 const TEXTURE_KEYS = ["map", "emissiveMap", "normalMap", "metalRoughMap", "occlusionMap"] as const;
 
@@ -101,7 +113,14 @@ export function encodeBakedModel(data: ModelData, settings: BakeSettings): { byt
     }
     return offset;
   };
-  const array = (a: Float32Array | Uint32Array | Uint16Array | null | undefined): Range | undefined => (a ? [put(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)), a.length] : undefined);
+  // An array stored once however often it's referenced (an occluder stand-in is its coarsest level's indices).
+  const stored = new Map<ArrayBufferView, Range>();
+  const array = (a: Float32Array | Uint32Array | Uint16Array | null | undefined): Range | undefined => {
+    if (!a) return undefined;
+    let r = stored.get(a);
+    if (!r) stored.set(a, (r = [put(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)), a.length]));
+    return r;
+  };
   const dropped: string[] = [];
   const images: BakedJson["images"] = [];
   const imageIndex = new Map<Uint8Array | string, number>();
@@ -155,10 +174,18 @@ export function encodeBakedModel(data: ModelData, settings: BakeSettings): { byt
     ...(m.skin ? { skin: { influences: m.skin.influences, joints: array(Uint16Array.from(m.skin.joints))!, weights: array(Float32Array.from(m.skin.weights))!, ...(m.skin.inverseBinds ? { inverseBinds: array(m.skin.inverseBinds) } : {}) } } : {}),
     ...(m.morphTargets?.length ? { morphTargets: m.morphTargets.map((t) => ({ name: t.name, positions: array(t.positions), normals: array(t.normals), tangents: array(t.tangents) })) } : {}),
     ...(m.tangents ? { tangents: array(m.tangents) } : {}),
+    ...(m.lods
+      ? {
+          lods: m.lods.levels.slice(1).map((l) => ({ indices: array(l.mesh.data.indices)!, groups: l.mesh.data.groups.map((g) => ({ ...g })), error: l.error, triangles: l.triangles })),
+          ...(m.lods.occluder ? { occluder: { indices: array(m.lods.occluder.indices)!, error: m.lods.occluder.error } } : {}),
+          bounds: m.lods.bounds,
+          pixelError: m.lods.pixelError,
+        }
+      : {}),
   }));
   const a = data.animation;
   const json: BakedJson = {
-    settings: { scale: settings.scale, upAxis: settings.upAxis, normals: settings.normals, facing: settings.facing, ...(settings.animation ? { animation: settings.animation } : {}) },
+    settings: { scale: settings.scale, upAxis: settings.upAxis, normals: settings.normals, facing: settings.facing, ...(settings.animation ? { animation: settings.animation } : {}), lod: settings.lod ?? null, occluder: settings.occluder ?? "auto" },
     meshes,
     surfaces,
     images,
@@ -223,10 +250,11 @@ export function decodeBakedModel(bytes: ArrayBuffer, settings: BakeSettings, url
   if (version !== VERSION) throw new Error(`baked model version ${version}; this engine reads ${VERSION}`);
   const length = view.getUint32(12, true);
   const json = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 16, length))) as BakedJson;
-  if (json.settings.scale !== settings.scale || json.settings.upAxis !== settings.upAxis || json.settings.normals !== settings.normals || json.settings.facing !== settings.facing || animationKey(json.settings) !== animationKey(settings)) return null;
+  if (json.settings.scale !== settings.scale || json.settings.upAxis !== settings.upAxis || json.settings.normals !== settings.normals || json.settings.facing !== settings.facing || animationKey(json.settings) !== animationKey(settings) || lodKey(json.settings) !== lodKey(settings)) return null;
   const base = 16 + length;
   const f32 = (r: Range | undefined) => (r ? new Float32Array(bytes, base + r[0], r[1]) : null);
   const u16 = (r: Range) => new Uint16Array(bytes, base + r[0], r[1]);
+  const u32 = (r: Range) => new Uint32Array(bytes, base + r[0], r[1]);
   const images = json.images.map((i) => new Uint8Array(bytes, base + i.offset, i.length));
   const texture = (t: BakedTexture | null | undefined): TextureInfo | null => {
     if (!t) return null;
@@ -262,11 +290,11 @@ export function decodeBakedModel(bytes: ArrayBuffer, settings: BakeSettings, url
       uvs: f32(m.uvs),
       uvs2: f32(m.uvs2),
       colors: f32(m.colors),
-      indices: new Uint32Array(bytes, base + m.indices[0], m.indices[1]),
+      indices: u32(m.indices),
       groups: m.groups,
     };
     // No three.js geometry: everything reads `data`, so a baked game never loads three.js (ADR 0082, 0090).
-    return {
+    const mesh: ModelMesh = {
       name: m.name,
       path: m.path,
       materials: [],
@@ -279,6 +307,13 @@ export function decodeBakedModel(bytes: ArrayBuffer, settings: BakeSettings, url
       ...(m.morphTargets ? { morphTargets: m.morphTargets.map((t): MorphTargetData => ({ name: t.name, positions: f32(t.positions), normals: f32(t.normals), ...(t.tangents ? { tangents: f32(t.tangents) } : {}) })) } : {}),
       ...(m.tangents ? { tangents: f32(m.tangents) } : {}),
     };
+    if (!m.lods || !m.bounds) return mesh;
+    return attachLods(mesh, {
+      levels: m.lods.map((l) => ({ indices: u32(l.indices), groups: l.groups, error: l.error, triangles: l.triangles })),
+      occluder: m.occluder ? { indices: u32(m.occluder.indices), error: m.occluder.error } : null,
+      bounds: m.bounds,
+      pixelError: m.pixelError ?? 1,
+    });
   });
   let animation: ModelAnimation | undefined;
   if (json.animation) {
