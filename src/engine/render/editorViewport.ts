@@ -17,9 +17,10 @@ import type { GameObject } from "../scene/GameObject";
 import type { UICanvas, UIComponentType } from "../ui/components";
 import type { UICoreLike } from "../ui/uiCoreTypes";
 import type { Camera, ReflectionProbe } from "./components";
-import { SpriteRenderer } from "./components";
+import { LODGroup, SpriteRenderer } from "./components";
 import type { LocalPose } from "./gizmoMath";
 import type { ParticlePreviewSettings } from "./RenderSurface";
+import { visibilityService } from "./visibility/service";
 import { sameInset, type ParticlePreview, type PreviewInset, type RenderPolicyPort } from "./renderPolicy";
 
 /** @internal Editor gizmo settings (ADR 0022). */
@@ -130,10 +131,17 @@ export interface EditorViewport {
   /** The scene view's particle preview (ADR 0057); unset fields keep their value. */
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void;
   restartParticlePreview(): void;
+  /**
+   * Preview one LOD level of `node`'s `LODGroup` in this scene view only (ADR 0446 §7): `level` is its index, -1 shows
+   * it culled, null stops. Not saved, and game views and `currentLevel` don't see it.
+   */
+  setLodPreview(node: GameObject | null, level?: number): void;
 
   // --- Queries (canvas CSS pixels, origin top-left) ------------------------------------------
   /** The grid as drawn, or null. */
   grid(): EditorGrid | null;
+  /** The scene camera's screen-relative height of `node`'s `LODGroup` (what its transition heights are compared with), or null before the scene view has drawn. */
+  lodScreenHeight(node: GameObject): number | null;
   /** Nodes whose renderers or icons lie under a canvas point, topmost first. */
   pick(x: number, y: number): GameObject[];
   /** The ray under a canvas point through the view's camera. */
@@ -218,6 +226,8 @@ export class ViewportHandle implements EditorViewport {
   /** The camera preview the editor asked for, and what was last handed to the policy (ADR 0240). */
   private preview: { camera: Camera; frame: HTMLElement } | null = null;
   private previewShown: { camera: Camera; inset: PreviewInset } | null = null;
+  /** The node whose LOD level the scene view previews. */
+  private lodPreviewNode: GameObject | null = null;
 
   /**
    * `policy` is the surface's render policy port. An eager handle (an editor World) sets the scene
@@ -343,7 +353,23 @@ export class ViewportHandle implements EditorViewport {
     if (this.previewing) this.policy.setPolicy({ particlePreview: this.particlePolicy() });
   }
 
+  setLodPreview(node: GameObject | null, level = 0): void {
+    const was = this.lodPreviewNode;
+    const group = node?.getBehavior(LODGroup) ?? null;
+    // The selection path reads the service; the policy entry says the same to the renderer (ADR 0129).
+    if (was && was !== node) visibilityService(was.world)?.setLodPreview(null);
+    this.lodPreviewNode = group ? node : null;
+    if (group) visibilityService(group.owner.world)?.setLodPreview(group, level);
+    else if (node) visibilityService(node.world)?.setLodPreview(null);
+    this.policy.setPolicy({ lodPreview: group && node ? { node, level } : null });
+  }
+
   // --- Queries -----------------------------------------------------------------------------------
+
+  lodScreenHeight(node: GameObject): number | null {
+    const group = node.isValid ? node.getBehavior(LODGroup) : null;
+    return group ? (visibilityService(node.world)?.sceneViewHeight(group) ?? null) : null;
+  }
 
   grid(): EditorGrid | null {
     const g = this.live()?.grid();

@@ -9,8 +9,9 @@ export default meta;
 
 const TRIANGLES = [12840, 6420, 3210, 1605];
 
-function Demo(props: { levels: number[]; automatic: number[]; forceLevel?: number; editable?: boolean; readOnly?: string | null }) {
+function Demo(props: { levels: number[]; automatic: number[]; forceLevel?: number; editable?: boolean; readOnly?: string | null; preview?: number; cameraHeight?: number }) {
   const [levels, setLevels] = useState(props.levels);
+  const [preview, setPreview] = useState<number | null>(props.preview ?? null);
   const heights = levels.length ? levels : props.automatic;
   return (
     <div style={{ width: "360px" }}>
@@ -21,6 +22,9 @@ function Demo(props: { levels: number[]; automatic: number[]; forceLevel?: numbe
         forceLevel={props.forceLevel ?? -1}
         readOnly={props.readOnly ?? null}
         editable={props.editable ?? true}
+        previewLevel={preview}
+        onPreview={setPreview}
+        cameraHeight={props.cameraHeight ?? null}
         onCommit={setLevels}
         onReset={() => setLevels([])}
       />
@@ -33,3 +37,4 @@ export const Explicit: StoryObj = { render: () => <Demo levels={[0.5, 0.25, 0.1,
 export const Forced: StoryObj = { render: () => <Demo levels={[0.4, 0.2, 0.05]} automatic={[]} forceLevel={1} /> };
 export const NoLevels: StoryObj = { render: () => <Demo levels={[]} automatic={[0]} editable={false} /> };
 export const ReadOnly: StoryObj = { render: () => <Demo levels={[0.4, 0.2, 0.05]} automatic={[]} readOnly="Stop the game to edit the scene" /> };
+export const PreviewAndCamera: StoryObj = { render: () => <Demo levels={[0.5, 0.25, 0.1, 0]} automatic={[]} preview={1} cameraHeight={0.3} /> };

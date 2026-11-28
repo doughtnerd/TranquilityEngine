@@ -160,11 +160,30 @@ function pick(h: number, heights: Float32Array, start: number, n: number, scale:
 }
 
 /**
+ * The editor's "preview a level" (ADR 0446 §7): group `group` draws `level` (-1: culled) in a scene view, as
+ * `forceLevel` would, without changing the group. The caller gives it only for the scene view's own selection.
+ */
+export interface LevelPreview {
+  readonly group: number;
+  readonly level: number;
+}
+
+/**
+ * The screen-relative height h of a sphere of `size` at `distance` in `view` (the quantity the transition heights are
+ * compared with), scaled by the tier's `lodBias`. Orthographic views ignore the distance.
+ */
+export function screenHeightOf(view: VisibilityView, size: number, distance: number, bias: number): number {
+  return view.projection === "perspective"
+    ? (size * bias) / (2 * Math.tan(view.fovY / 2) * Math.max(distance, 1e-9))
+    : (size * bias) / (2 * Math.max(view.orthoHalfHeight, 1e-9));
+}
+
+/**
  * Choose every group's level for `view` (ADR 0446 §3) into `out`, by group index. Hysteresis and crossfades are kept in
  * `state` when the view is persistent; other views (probe faces, thumbnails) choose from h alone, snap, and leave `state`
  * untouched. `time` is the engine's clock in seconds: fades advance by the time since the view was last selected.
  */
-export function selectLevels(view: VisibilityView, groups: SelectionGroups, tier: SelectionTier, state: SelectionState, out: SelectionOut, time = 0): void {
+export function selectLevels(view: VisibilityView, groups: SelectionGroups, tier: SelectionTier, state: SelectionState, out: SelectionOut, time = 0, preview: LevelPreview | null = null): void {
   const { count, sphere, size, heights, heightStart, heightCount, forceLevel, fadeDuration } = groups;
   const planes = view.planes;
   const [px, py, pz] = view.position;
@@ -211,8 +230,9 @@ export function selectLevels(view: VisibilityView, groups: SelectionGroups, tier
       prev[g] = index >= n ? LOD_CULLED : index;
     } else index = pick(h, heights, start, n, 1);
     let level: number;
-    const forced = forceLevel[g];
-    if (forced >= 0) level = Math.min(forced, LOD_CULLED - 1);
+    const forced = preview && preview.group === g ? preview.level : forceLevel[g];
+    if (preview && preview.group === g && forced < 0) level = LOD_CULLED;
+    else if (forced >= 0) level = Math.min(forced, LOD_CULLED - 1);
     else if (index >= n) level = LOD_CULLED;
     else level = Math.max(index, Math.min(firstLevel, n - 1));
     out.levels[g] = level;

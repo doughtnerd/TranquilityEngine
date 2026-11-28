@@ -30,6 +30,11 @@ export interface RenderPolicy {
   particlePreview: ParticlePreview | null;
   /** 2D draws are lit by 2D lights (ADR 0399); false draws them unlit (the scene view's 2D Lighting toggle). */
   lighting2D: boolean;
+  /**
+   * The editor's "preview a level" (ADR 0446 §7): the scene view draws `node`'s `LODGroup` at `level` (-1: culled),
+   * whatever the camera's distance. Game views never see it. Null: every group chooses by distance.
+   */
+  lodPreview: { node: GameObject; level: number } | null;
 }
 
 /**
@@ -85,7 +90,7 @@ export function sameInset(a: PreviewInset | null, b: PreviewInset | null): boole
 }
 
 /** @internal A game's policy: everything off. */
-export const GAME_POLICY: Readonly<RenderPolicy> = Object.freeze({ sceneView: false, drawPolicy: "batched", cameraPreview: null, particlePreview: null, lighting2D: true });
+export const GAME_POLICY: Readonly<RenderPolicy> = Object.freeze({ sceneView: false, drawPolicy: "batched", cameraPreview: null, particlePreview: null, lighting2D: true, lodPreview: null });
 
 /**
  * @internal What a render surface gives its editor viewport handle (ADR 0129): live from the start,

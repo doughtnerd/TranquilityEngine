@@ -2,7 +2,7 @@
 // between them. Presentational: the section (`LodGroupSection.tsx`) gives it the heights and writes what it commits.
 import { useRef, useState } from "preact/hooks";
 import "./lodBar.css";
-import { dragDivider, fractionToHeight, layoutBar, percentLabel, segmentColor, segmentLabel } from "./lodBarLogic";
+import { dragDivider, fractionToHeight, layoutBar, markerFraction, percentLabel, segmentColor, segmentLabel, togglePreview } from "./lodBarLogic";
 
 export interface LodBarProps {
   /** The heights the group draws by: its `levels`, or the automatic ones. */
@@ -17,6 +17,12 @@ export interface LodBarProps {
   readOnly: string | null;
   /** Whether there is more than one level to divide (a model without generated levels has one). */
   editable: boolean;
+  /** The level the scene view previews (-1: culled), or null. */
+  previewLevel: number | null;
+  /** Called with the level to preview after a segment click, or null to stop. */
+  onPreview(level: number | null): void;
+  /** The scene camera's screen height for the group, or null when the scene view hasn't drawn it. */
+  cameraHeight: number | null;
   /** Called once per drag (or key press) with the new heights. */
   onCommit(heights: number[]): void;
   /** Set `levels` to [] again. */
@@ -34,6 +40,7 @@ export function LodBar(props: LodBarProps) {
   const locked = !editable || !!readOnly;
   const why = !editable ? "Only one level: the model has no generated LODs (turn on Generate LODs in its import settings)" : readOnly;
 
+  const marker = markerFraction(props.cameraHeight);
   const heightAt = (e: PointerEvent): number => {
     const rect = bar.current!.getBoundingClientRect();
     return fractionToHeight(rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0);
@@ -82,9 +89,18 @@ export function LodBar(props: LodBarProps) {
           return (
             <div
               key={s.level}
-              class={`lod-bar-segment${s.level === forceLevel ? " forced" : ""}`}
+              class={`lod-bar-segment${s.level === forceLevel ? " forced" : ""}${s.level === props.previewLevel ? " previewed" : ""}`}
+              role="button"
+              tabIndex={0}
+              aria-pressed={s.level === props.previewLevel}
+              onClick={() => props.onPreview(togglePreview(props.previewLevel, s.level))}
+              onKeyDown={(e: KeyboardEvent) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                props.onPreview(togglePreview(props.previewLevel, s.level));
+              }}
               style={{ left: `${s.left * 100}%`, width: `${s.width * 100}%`, background: segmentColor(s.level) }}
-              title={[label.name, label.height, label.triangles].filter(Boolean).join(", ")}
+              title={[label.name, label.height, label.triangles].filter(Boolean).join(", ") + " (click to preview in the scene view)"}
               aria-label={[label.name, label.height, label.triangles].filter(Boolean).join(", ")}
             >
               <span class="lod-bar-name">{label.name}</span>
@@ -93,6 +109,9 @@ export function LodBar(props: LodBarProps) {
             </div>
           );
         })}
+        {marker !== null && (
+          <div class="lod-bar-camera" style={{ left: `${marker * 100}%` }} role="img" aria-label={`Scene camera: ${percentLabel(props.cameraHeight!)}`} title={`Scene camera: ${percentLabel(props.cameraHeight!)} of the view's height`} />
+        )}
         {layout.dividers.map((d) => (
           <div
             key={d.index}

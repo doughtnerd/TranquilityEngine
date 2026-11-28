@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { automaticHeights } from "../../../engine/render/visibility/select";
 import { cssVar } from "../../theme";
-import { dragDivider, fractionToHeight, heightToFraction, heightsToEdit, layoutBar, levelTriangles, MIN_GAP, percentLabel, segmentColor, segmentLabel } from "./lodBarLogic";
+import { dragDivider, fractionToHeight, heightToFraction, heightsToEdit, layoutBar, levelTriangles, MIN_GAP, markerFraction, percentLabel, segmentColor, segmentLabel, togglePreview } from "./lodBarLogic";
 
 describe("layoutBar", () => {
   it("gives a segment per level and a culled one, widths from the heights", () => {
@@ -142,5 +142,24 @@ describe("colours", () => {
     for (const key of ["lod0", "lod1", "lod2", "lod3", "lod4", "lod5", "lod6", "lod7", "lodCulled"]) {
       expect(css, key).toContain(`${cssVar(key)}: #`);
     }
+  });
+});
+
+describe("scene view preview and camera marker", () => {
+  it("clicking a segment previews it, clicking it again clears, clicking another switches (the culled segment is -1)", () => {
+    expect(togglePreview(null, 1)).toBe(1);
+    expect(togglePreview(1, 1)).toBeNull();
+    expect(togglePreview(1, 2)).toBe(2);
+    expect(togglePreview(null, -1)).toBe(-1);
+    expect(togglePreview(0, 0)).toBeNull();
+  });
+
+  it("places the marker at the camera's height on the same axis as the segments", () => {
+    expect(markerFraction(null)).toBeNull();
+    expect(markerFraction(Number.NaN)).toBeNull();
+    expect(markerFraction(1)).toBe(0);
+    expect(markerFraction(0)).toBe(1);
+    expect(markerFraction(0.25)).toBeCloseTo(0.75, 10);
+    expect(markerFraction(3)).toBe(0); // above the view: pinned to the left edge
   });
 });

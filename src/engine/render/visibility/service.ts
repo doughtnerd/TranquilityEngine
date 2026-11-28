@@ -27,7 +27,7 @@ import { Graphics } from "../Graphics";
 import { Camera, LODGroup } from "../components";
 import { RendererBounds, computeGroupBounds, newGroupBounds, type GroupBounds } from "./bounds";
 import { lodMemberTypes } from "./lodMember";
-import { SelectionState, automaticHeights, selectLevels, type MeshLevelErrors, type SelectionGroups, type SelectionOut } from "./select";
+import { SelectionState, automaticHeights, screenHeightOf, selectLevels, type MeshLevelErrors, type SelectionGroups, type SelectionOut } from "./select";
 import { LOD_CULLED, type LodMember, type LodVisibility, type ViewKey, type VisibilityResult, type VisibilityStats, type VisibilityView } from "./types";
 import { cameraView } from "./views";
 
@@ -106,6 +106,8 @@ export class VisibilityService {
   private generation = 0;
   private mainEntry: ViewEntry | null = null;
   private readonly removeHook: () => void;
+  /** The editor's level preview (ADR 0446 §7): applied to scene views only. */
+  private lodPreview: { group: LODGroup; level: number } | null = null;
 
   constructor(private readonly world: World) {
     this.removeHook = world._afterPropagation(() => this.update());
@@ -190,6 +192,31 @@ export class VisibilityService {
     if (!e || !main || e.index >= main.groupOut.levels.length) return "drawn";
     if (main.groupOut.hidden[e.index]) return "offScreen";
     return main.groupOut.levels[e.index] === LOD_CULLED ? "lodCulled" : "drawn";
+  }
+
+  /**
+   * Preview `level` (-1: culled) of `group` in the editor's scene view (ADR 0446 §7), or null to stop. Only views of
+   * kind `"sceneView"` honour it: game views, the simulation's main view and `currentLevel` are unchanged.
+   */
+  setLodPreview(group: LODGroup | null, level = 0): void {
+    this.lodPreview = group ? { group, level } : null;
+  }
+
+  /**
+   * The screen-relative height of a group in the scene view as last selected (what the LOD bar's camera marker
+   * shows), or null when no scene view has been selected or the group isn't known to the stage.
+   */
+  sceneViewHeight(group: LODGroup): number | null {
+    const e = this.groups.get(group);
+    if (!e) return null;
+    for (const v of this.views.values()) {
+      if (v.result.view.kind !== "sceneView") continue;
+      const s = e.index * 4, sphere = this.input.sphere;
+      const view = v.result.view;
+      const d = Math.hypot(sphere[s] - view.position[0], sphere[s + 1] - view.position[1], sphere[s + 2] - view.position[2]);
+      return screenHeightOf(view, this.input.size[e.index], d, Graphics.tier.lodBias);
+    }
+    return null;
   }
 
   /** The statistics of a view's last selection (`LODGroup`s only), or null when it hasn't been selected. */
@@ -392,6 +419,11 @@ export class VisibilityService {
 
   // --- selecting -------------------------------------------------------------------------------------------------
 
+  private previewOf(p: { group: LODGroup; level: number }): { group: number; level: number } | null {
+    const e = this.groups.get(p.group);
+    return e ? { group: e.index, level: p.level } : null;
+  }
+
   private run(view: VisibilityView): ViewEntry {
     const groups = this.groupCount, slots = this.slotCount;
     let v = this.views.get(view.key);
@@ -409,7 +441,8 @@ export class VisibilityService {
     v.generation = this.generation;
     const tier: Readonly<QualityTier> = Graphics.tier;
     const out = v.groupOut;
-    selectLevels(view, this.input as SelectionGroups, tier, this.state, out, this.now);
+    const preview = view.kind === "sceneView" && this.lodPreview ? this.previewOf(this.lodPreview) : null;
+    selectLevels(view, this.input as SelectionGroups, tier, this.state, out, this.now, preview);
     const r = v.result;
     const levels = r.levels as Uint8Array, casters = r.casterLevels as Uint8Array, hidden = r.hidden as Uint8Array, fade = r.fade as Float32Array;
     const fadeLevels = v.fadeLevels, fadeFrom = out.fadeFrom!;

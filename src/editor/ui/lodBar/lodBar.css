@@ -6,6 +6,12 @@
 .lod-bar { position: relative; height: calc(44px * var(--ui-scale)); background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 3px; overflow: hidden; touch-action: none; }
 .lod-bar-segment { position: absolute; top: 0; bottom: 0; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; justify-content: center; padding: 0 var(--sp-2); color: var(--bg); line-height: 1.25; white-space: nowrap; border-right: 1px solid var(--bg-sunken); }
 .lod-bar-segment.forced { box-shadow: inset 0 0 0 2px var(--text-strong); }
+.lod-bar-segment { cursor: pointer; }
+.lod-bar-segment:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.lod-bar-segment.previewed { box-shadow: inset 0 0 0 2px var(--accent); }
+.lod-bar-segment.forced.previewed { box-shadow: inset 0 0 0 2px var(--text-strong), inset 0 0 0 4px var(--accent); }
+.lod-bar-camera { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; z-index: 2; }
+.lod-bar-camera::before { content: ""; position: absolute; left: -3px; top: 0; border: 4px solid transparent; border-top-color: var(--accent); }
 .lod-bar-name { font-weight: 600; font-size: var(--fs-md); }
 .lod-bar-height, .lod-bar-tris { font-size: var(--fs-xs); opacity: 0.9; overflow: hidden; text-overflow: ellipsis; }
 .lod-bar-divider { position: absolute; top: 0; bottom: 0; width: 9px; margin-left: -4px; cursor: ew-resize; z-index: 1; }

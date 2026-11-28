@@ -279,6 +279,27 @@ describe("cameraView", () => {
     camera.targetTexture = "asset:rt.rendertexture.json";
     expect([cameraView(camera, 64, 64).kind, cameraView(camera, 64, 64).occlusion]).toEqual(["texture", false]);
   });
+
+  it("previews a level in scene views only, and reports the scene view's screen height", async () => {
+    const { engine, service, group, renderer } = await setup();
+    place(group, 0, 0, 2); // h = 0.25: level 1
+    engine.step(1 / 60);
+    const frame = { position: [0, 0, 0] as [number, number, number], right: [1, 0, 0] as [number, number, number], up: [0, 1, 0] as [number, number, number], forward: [0, 0, 1] as [number, number, number], projection: "perspective" as const, fovY: Math.PI / 2, orthoHalfHeight: 0, near: 0.1, far: 100, widthPx: 100, heightPx: 100, occlusion: false };
+    const scene = makeView({ ...frame, key: "orbit/sceneView", kind: "sceneView", persistent: true });
+    const game = makeView({ ...frame, key: "cam/camera", kind: "camera", persistent: true });
+    const slot = service.slotOf(renderer);
+    expect(service.sceneViewHeight(group)).toBeNull();
+    service.setLodPreview(group, 2);
+    expect(service.select(scene).levels[slot]).toBe(2);
+    expect(service.select(game).levels[slot]).toBe(1);
+    engine.step(1 / 60);
+    expect(group.currentLevel).toBe(1); // the simulation's view is untouched
+    expect(service.sceneViewHeight(group)).toBeCloseTo(0.25, 5);
+    service.setLodPreview(group, -1);
+    expect(service.select(scene).levels[slot]).toBe(LOD_CULLED);
+    service.setLodPreview(null);
+    expect(service.select(scene).levels[slot]).toBe(1);
+  });
 });
 
 /** A member type a plugin would register: one mesh with three generated levels, or none. */

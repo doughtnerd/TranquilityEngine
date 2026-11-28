@@ -2,6 +2,7 @@
 // as one undo step (ADR 0026, through the field edits every Inspector field uses); the first drag of an automatic group
 // writes the automatic heights out, and "Reset to automatic" writes `[]` again.
 import { useEffect, useState } from "preact/hooks";
+import { viewport } from "../../../engine/editor";
 import { LODGroup } from "../../../engine/render/components";
 import { automaticHeights, type MeshLevelErrors } from "../../../engine/render/visibility/select";
 import { lodMemberTypes } from "../../../engine/render/visibility/lodMember";
@@ -49,6 +50,25 @@ export function LodGroupSection({ scene, paths, info }: InspectorSectionProps) {
     return () => clearInterval(timer);
   }, [node]);
 
+  // The level the scene view previews: set through the viewport handle, cleared when the section goes (deselect).
+  const [previewLevel, setPreviewLevel] = useState<number | null>(null);
+  const [cameraHeight, setCameraHeight] = useState<number | null>(null);
+  const world = scene.sync.world;
+  useEffect(() => setPreviewLevel(null), [node]);
+  useEffect(() => {
+    if (!node || previewLevel === null) return;
+    viewport(world).setLodPreview(node, previewLevel);
+    return () => viewport(world).setLodPreview(null);
+  }, [node, world, previewLevel]);
+  // The scene camera's screen height for the group, for the bar's marker.
+  useEffect(() => {
+    if (!node) return;
+    const look = () => setCameraHeight(node.isValid ? viewport(world).lodScreenHeight(node) : null);
+    look();
+    const timer = setInterval(look, 250);
+    return () => clearInterval(timer);
+  }, [node, world]);
+
   const levelsField = info.fields.find((f) => f.name === "levels");
   const levels = (sectionField(info, "levels") as number[] | undefined) ?? [];
   const forceLevel = Number(sectionField(info, "forceLevel") ?? -1);
@@ -66,6 +86,9 @@ export function LodGroupSection({ scene, paths, info }: InspectorSectionProps) {
       automatic={levels.length === 0}
       triangles={triangles}
       forceLevel={Number.isFinite(forceLevel) ? forceLevel : -1}
+      previewLevel={previewLevel}
+      onPreview={setPreviewLevel}
+      cameraHeight={cameraHeight}
       readOnly={readOnly}
       editable={heightsToEdit(levels, automatic) !== null}
       onCommit={write}

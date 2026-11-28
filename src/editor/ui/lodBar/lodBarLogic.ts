@@ -117,5 +117,11 @@ export function segmentLabel(segment: BarSegment, heights: readonly number[], tr
   };
 }
 
+/** The level to preview after clicking `clicked` while `current` is previewed (null: none): clicking the previewed segment again clears it. */
+export const togglePreview = (current: number | null, clicked: number): number | null => (current === clicked ? null : clicked);
+
+/** The scene camera marker's position as a fraction of the bar, or null when there's no height or it isn't a number. */
+export const markerFraction = (h: number | null): number | null => (h === null || !Number.isFinite(h) ? null : heightToFraction(h));
+
 /** The colour token of a level's segment (`--lod0`…`--lod7`; the culled segment's is `--lod-culled`). */
 export const segmentColor = (level: number): string => (level < 0 ? "var(--lod-culled)" : `var(--lod${Math.min(level, MAX_LEVELS - 1)})`);

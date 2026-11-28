@@ -2,6 +2,7 @@
 // live before the editor tools load; the adapter gets only the editor-tool state.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject } from "../index";
+import { LODGroup } from "../render/components";
 import { ViewportHandle } from "../render/editorViewport";
 import { FakeRenderPolicyPort, FakeViewportAdapter } from "../render/fakeViewport";
 import { GAME_POLICY, previewInset, type ClientRect } from "../render/renderPolicy";
@@ -34,6 +35,19 @@ describe("viewport handle render policy (ADR 0129)", () => {
     expect(port.policy).toMatchObject({ sceneView: true, drawPolicy: "perObject" });
     expect(port.policy.particlePreview).not.toBeNull();
     expect(adapter.calls).toEqual([]);
+  });
+
+  it("setLodPreview sets the policy's lodPreview for a node with an LODGroup and clears it again", () => {
+    const { port, handle } = setup(true);
+    const node = GameObject.create("rock");
+    node.addComponent(LODGroup);
+    handle.setLodPreview(node, 2);
+    expect(port.policy.lodPreview).toEqual({ node, level: 2 });
+    handle.setLodPreview(null);
+    expect(port.policy.lodPreview).toBeNull();
+    handle.setLodPreview(GameObject.create("plain"), 1); // no LODGroup: nothing to preview
+    expect(port.policy.lodPreview).toBeNull();
+    expect(handle.lodScreenHeight(node)).toBeNull(); // the scene view hasn't drawn
   });
 
   it("a non-eager handle sets nothing at construction and perObject once, on first use", () => {

@@ -1,7 +1,7 @@
 // LOD selection (ADR 0446 §2–3): screen-relative heights, bias, first level, forced levels, hysteresis, culling,
 // automatic heights, shadow casters and the frustum test, through `selectLevels` and `automaticHeights`.
 import { describe, expect, it } from "vitest";
-import { AUTOMATIC_CULL_HEIGHT, SelectionState, automaticHeights, fadeIn, fadeOut, outgoingOf, selectLevels, type SelectionGroups, type SelectionOut, type SelectionTier } from "./select";
+import { AUTOMATIC_CULL_HEIGHT, screenHeightOf, SelectionState, automaticHeights, fadeIn, fadeOut, outgoingOf, selectLevels, type SelectionGroups, type SelectionOut, type SelectionTier } from "./select";
 import { LOD_CULLED, type VisibilityView } from "./types";
 import { makeView } from "./views";
 
@@ -385,5 +385,31 @@ describe("automaticHeights", () => {
     expect(h[1]).toBeCloseTo(0.05, 6);
     expect(h[2]).toBeCloseTo(0.001, 6);
     expect(h[3]).toBeCloseTo(0.001, 6); // the last value never above the one before
+  });
+});
+
+describe("level preview (the editor's scene view, ADR 0446 §7)", () => {
+  const two = groups([{ at: [0, 0, 2], heights: [0.5, 0.2, 0.05] }, { at: [0, 0, 2], heights: [0.5, 0.2, 0.05], force: 2 }]); // h = 0.25: level 1
+
+  it("draws the previewed group at the previewed level and leaves the others alone", () => {
+    const o = out();
+    selectLevels(view({ persistent: false }), two, TIER, new SelectionState(), o, 0, { group: 0, level: 2 });
+    expect([o.levels[0], o.levels[1]]).toEqual([2, 2]);
+    selectLevels(view({ persistent: false }), two, TIER, new SelectionState(), o, 0, { group: 1, level: 0 });
+    expect([o.levels[0], o.levels[1]]).toEqual([1, 0]); // overrides forceLevel too
+  });
+
+  it("level -1 previews the culled state, and no preview changes nothing", () => {
+    const o = out();
+    selectLevels(view({ persistent: false }), two, TIER, new SelectionState(), o, 0, { group: 0, level: -1 });
+    expect(o.levels[0]).toBe(LOD_CULLED);
+    selectLevels(view({ persistent: false }), two, TIER, new SelectionState(), o, 0, null);
+    expect(o.levels[0]).toBe(1);
+  });
+
+  it("screenHeightOf is the height selection compares: size × bias / (2 tan(fov/2) d), distance-free in orthographic", () => {
+    expect(screenHeightOf(view(), 1, 2, 1)).toBeCloseTo(0.25, 6);
+    expect(screenHeightOf(view(), 1, 2, 2)).toBeCloseTo(0.5, 6);
+    expect(screenHeightOf(view({ projection: "orthographic", orthoHalfHeight: 5 }), 1, 99, 1)).toBeCloseTo(0.1, 6);
   });
 });
