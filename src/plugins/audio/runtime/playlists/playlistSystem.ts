@@ -7,14 +7,12 @@
  * A trigger runs the gate (cooldown, chance, max instances with steals; `engine/audio/playlist/gate.ts`), then resolves
  * the tree (`nodes.ts`). Refused triggers are counted with their reason and the latest are kept for `Audio.debug()`.
  */
-import { World } from "../../../../engine/core/World";
 import { mixer } from "../../../../engine/audio/mixer";
 import { gateTrigger, STEAL_FADE_SECONDS, type GateCandidate } from "../../../../engine/audio/playlist/gate";
 import { newPickState, type PickState } from "../../../../engine/audio/playlist/picks";
 import { isLabelled, type ParameterDef } from "../../../../engine/audio/parameters";
-import { Camera } from "../../../../engine/render/components";
 import type { Vec3Like } from "../../../../engine/core/math";
-import { AudioListener, listenerPose } from "../AudioListener";
+import { listenerPoseIn } from "../AudioListener";
 import { audioEventRefusal, isAudioEventPath } from "../../../../engine/audio/retiredAudioEvent";
 import { isPlaylistPath } from "../../../../engine/audio/playlist/format";
 import { isGeneratorPath } from "../../../../engine/audio/generators/format";
@@ -123,7 +121,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     let listener: Vec3Like | null | undefined;
     for (const i of this.live) {
       if (i.path !== path || i.world !== world || !i.playing) continue;
-      if (asset.playback.whenFull === "stealFarthest" && listener === undefined) listener = listenerPosition();
+      if (asset.playback.whenFull === "stealFarthest" && listener === undefined) listener = listenerPosition(world);
       same.push({ ref: i, startedAt: i.startedAt, loudness: i.loudness, distance: distanceTo(i.position, listener ?? null) });
     }
     const g = gateTrigger(asset.playback, this.lastAccepted.get(key) ?? null, now, () => host.random(world), same);
@@ -369,14 +367,10 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
   }
 }
 
-/** The listener's position in the active World (an enabled `AudioListener`, else the main camera), or null. */
-function listenerPosition(): Vec3Like | null {
-  const world = World.active;
-  if (!world) return null;
-  for (const l of world._componentsOfType(AudioListener)) if (l.isActiveAndEnabled) return listenerPose(l.node)?.position ?? null;
-  let best: Camera | null = null;
-  for (const c of world._componentsOfType(Camera)) if (c.isActiveAndEnabled && (!best || c.depth < best.depth)) best = c;
-  return best ? listenerPose(best.node)?.position ?? null : null;
+/** The listener's position in the World of key `world` (ADR 0462), or null. */
+function listenerPosition(world: number): Vec3Like | null {
+  const w = playlistHost().worldOf(world);
+  return w ? listenerPoseIn(w)?.position ?? null : null;
 }
 
 /** Distance from `p` to the listener; 0 for a flat instance or with no listener. */

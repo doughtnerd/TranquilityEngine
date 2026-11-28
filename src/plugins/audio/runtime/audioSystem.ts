@@ -16,9 +16,7 @@ import { mixer } from "../../../engine/audio/mixer";
 import type { BuiltinSystem } from "../../../engine/core/systems";
 import type { World } from "../../../engine/core/World";
 import { _startWorldService, _worldServiceIds, _worldServiceOf } from "../../../engine/core/worldServices";
-import { Camera } from "../../../engine/render/components";
-import type { GameObject } from "../../../engine/scene/GameObject";
-import { AudioListener, listenerPose } from "./AudioListener";
+import { activeListener, listenerNode, listenerPose } from "./AudioListener";
 import { isSpatialPassHost, ListenerFrame } from "./core/spatial";
 import type { OcclusionPass } from "./core/occlusion";
 import { runAudioFrame } from "./audioFrame";
@@ -102,20 +100,9 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
         askedCore.add(world);
         _startWorldService(world, AUDIO).catch((err: unknown) => console.error(`[myco] World service "${AUDIO}" couldn't load:`, err));
       }
-      let listener: GameObject | null = null;
-      let listenerComponent: AudioListener | null = null;
-      for (const l of world._componentsOfType(AudioListener)) {
-        if (l.isActiveAndEnabled) {
-          listener = l.node;
-          listenerComponent = l;
-          break;
-        }
-      }
-      if (!listener) {
-        let best: Camera | null = null;
-        for (const c of world._componentsOfType(Camera)) if (c.isActiveAndEnabled && (!best || c.depth < best.depth)) best = c;
-        listener = best?.node ?? null;
-      }
+      // ADR 0462: the one listener rule (an enabled AudioListener with a transform, else the main camera).
+      const listenerComponent = activeListener(world);
+      const listener = listenerComponent?.node ?? listenerNode(world);
       const pose = listener ? listenerPose(listener) : null;
       if (pose) audioBackend().setListener({ position: pose.position, forward: pose.forward, up: pose.up });
       // ADR 0162 (K4): the frame's listener for the passes (R14: this World has the view).

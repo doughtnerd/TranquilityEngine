@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readWavMetadata, walkWavChunks, writeWavMetadata, type WavBext } from "./wavChunks";
+import { firstForwardLoop, readWavMetadata, walkWavChunks, wavSampleRate, writeWavMetadata, type WavBext } from "./wavChunks";
 
 // --- synthetic WAV bytes, from the documented layouts --------------------------------------------------------------
 
@@ -214,5 +214,29 @@ describe("writeWavMetadata", () => {
     expect(readWavMetadata(out).cues[0].label).toBe("odd");
     const ogg = enc("OggS not a wav");
     expect(writeWavMetadata(ogg, { tempo: null })).toEqual(ogg);
+  });
+});
+
+describe("ADR 0463: the sample rate and the loop a clip plays", () => {
+  it("wavSampleRate reads a whole fmt chunk of at least 14 bytes, as readWavMetadata does", () => {
+    const rate = (f: Uint8Array) => wavSampleRate(walkWavChunks(f)!);
+    expect(rate(wav([fmt(22050), data(4)]))).toBe(22050);
+    // A 10-byte fmt (format, channels, rate, then cut short) states no usable rate.
+    const short = wav([chunk("fmt ", [...u16(1), ...u16(1), ...u32(44100), ...u16(0)]), data(4)]);
+    expect(rate(short)).toBeNull();
+    expect(readWavMetadata(short).sampleRate).toBeNull();
+    // A fmt chunk that runs past the end of the file is not read.
+    const cut = wav([fmt(44100)]);
+    expect(rate(cut.subarray(0, cut.length - 4))).toBeNull();
+    expect(rate(wav([fmt(0), data(4)]))).toBeNull();
+  });
+
+  it("firstForwardLoop picks the first type-0 loop in record order; the metadata keeps every loop", () => {
+    const f = wav([fmt(), data(1000), smpl(60, 0, [{ type: 1, start: 100, end: 199 }, { type: 0, start: 300, end: 400 }])]);
+    const loops = readWavMetadata(f).loops;
+    expect(loops.map((l) => [l.type, l.start, l.end])).toEqual([[1, 100, 200], [0, 300, 401]]);
+    expect(firstForwardLoop(loops)).toMatchObject({ type: 0, start: 300, end: 401 });
+    expect(firstForwardLoop(loops.filter((l) => l.type !== 0))).toBeNull();
+    expect(firstForwardLoop([])).toBeNull();
   });
 });

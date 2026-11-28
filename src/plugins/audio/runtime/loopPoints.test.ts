@@ -100,6 +100,15 @@ describe("loopPoints", () => {
     expect(fileSampleRate(oggFirstPage([1, ...ascii("vorbis"), ...le32(0), 2, ...le32(44100)]))).toBe(44100);
   });
 
+  it("ADR 0463: a WAV's rate follows the metadata rule: a fmt chunk under 14 bytes, or one cut off by the file's end, gives none", () => {
+    const riff = (chunks: number[]): Uint8Array => new Uint8Array([...ascii("RIFF"), ...le32(4 + chunks.length), ...ascii("WAVE"), ...chunks]);
+    // 10 bytes: format, channels, rate, two more bytes. The old reader took any fmt of 8 bytes or more.
+    expect(fileSampleRate(riff([...chunk("fmt ", [1, 0, 1, 0, ...le32(44100), 0, 0]), ...chunk("data", [0, 0])]))).toBeNull();
+    // A fmt chunk declaring 16 bytes with only 12 there: the old reader read the rate past the overrun.
+    expect(fileSampleRate(riff([...ascii("fmt "), ...le32(16), 1, 0, 1, 0, ...le32(44100), 0, 0, 0, 0]))).toBeNull();
+    expect(fileSampleRate(wav(44100))).toBe(44100);
+  });
+
   it("loadFileLoopPoints fetches once per path and resolves waiters, also on a fetch failure", async () => {
     const bytes = wav(8000, [0, 7999]);
     const fetchMock = vi.fn(async (url: string) => (url === "good" ? { ok: true, arrayBuffer: async () => bytes.buffer } : { ok: false, status: 404 }));

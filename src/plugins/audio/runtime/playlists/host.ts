@@ -15,6 +15,7 @@
  * The playlist runtime (`playlistSystem.ts`) is hosted here (`host`) and hears what changes this state.
  */
 import type { Curve } from "../../../../engine/core/curve";
+import { World } from "../../../../engine/core/World";
 import { mixer } from "../../../../engine/audio/mixer";
 import { isLabelled, parameterDefault, parameterRange, type ParameterDef } from "../../../../engine/audio/parameters";
 import { audioBackend, onMixOpSent, type AudioBackend } from "../backend";
@@ -101,7 +102,7 @@ export class PlaylistHost {
   /** Per-World generators, by World key. */
   private readonly worlds = new Map<number, WorldRandom>();
   /** The World object last seen for a key, so a reused key (or a collected World) drops its state. */
-  private readonly worldRefs = new Map<number, WeakRef<object>>();
+  private readonly worldRefs = new Map<number, WeakRef<World>>();
   private globals = new Map<string, GlobalParam>();
   private globalsOf: unknown = null;
   private busOf: unknown = null;
@@ -199,7 +200,7 @@ export class PlaylistHost {
   // --- Worlds -----------------------------------------------------------------------------------------------------
 
   /** The World `key` is (still) this `world`: a different object under the same key means the key was reused, so the old state goes. Cheap; per frame. */
-  noteWorld(key: number, world: object): void {
+  noteWorld(key: number, world: World): void {
     const ref = this.worldRefs.get(key);
     if (ref?.deref() === world) return;
     if (ref) {
@@ -207,6 +208,16 @@ export class PlaylistHost {
       for (const h of this.hosted) h.forgetWorld(key);
     }
     this.worldRefs.set(key, new WeakRef(world));
+  }
+
+  /**
+   * @internal ADR 0462: the World an instance of World key `key` plays in: the World noted under `key`, or null when it has
+   * gone. Key 0 (no core share: the Babylon backend or a test backend, where keys don't tell Worlds apart) and a key not
+   * noted yet (a play before that World's first audio frame) give the active World.
+   */
+  worldOf(key: number): World | null {
+    const ref = key === 0 ? undefined : this.worldRefs.get(key);
+    return ref ? ref.deref() ?? null : World.active;
   }
 
   /** Forget a World's generator and pick state (the World went away). */

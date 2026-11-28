@@ -28,12 +28,10 @@ import type { Entry, LoopBehaviour, PlaylistAsset, PlaylistBody, SampleEntry, St
 import { defaultAttenuation, stretchAttenuation } from "../../../../engine/audio/attenuation/format";
 import { dbToGain, semitonesToRatio } from "../../../../engine/audio/decibels";
 import type { Attenuation as CurveAttenuation } from "../../../../engine/audio/attenuation/types";
-import { World } from "../../../../engine/core/World";
 import { GameBehavior, type Component } from "../../../../engine/core/Component";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { MusicEventHandle } from "../../../../engine/audio/musicTypes";
-import { Camera } from "../../../../engine/render/components";
-import { AudioListener, listenerPose } from "../AudioListener";
+import { listenerPoseIn } from "../AudioListener";
 import { CURVE_DRIVEN_ATTENUATION, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
 import { mediaPlay } from "../media/packages";
@@ -851,7 +849,7 @@ export class PlaylistInstance implements NodeHost {
   private listenerDistance(): number {
     const p = this.pos;
     if (!p) return 0;
-    const l = listenerPosition();
+    const l = listenerPosition(this.world);
     return l ? Math.hypot(p.x - l.x, p.y - l.y, p.z - l.z) : 0;
   }
 
@@ -1331,14 +1329,10 @@ interface CurveVoice {
   appliedBed: boolean;
 }
 
-/** The listener's position in the active World (an enabled `AudioListener`, else the main camera), or null. */
-function listenerPosition(): Vec3Like | null {
-  const world = World.active;
-  if (!world) return null;
-  for (const l of world._componentsOfType(AudioListener)) if (l.isActiveAndEnabled) return listenerPose(l.node)?.position ?? null;
-  let best: Camera | null = null;
-  for (const c of world._componentsOfType(Camera)) if (c.isActiveAndEnabled && (!best || c.depth < best.depth)) best = c;
-  return best ? listenerPose(best.node)?.position ?? null : null;
+/** The listener's position in the World of key `world` (ADR 0462), or null. */
+function listenerPosition(world: number): Vec3Like | null {
+  const w = playlistHost().worldOf(world);
+  return w ? listenerPoseIn(w)?.position ?? null : null;
 }
 
 const NO_MUSIC_HOOKS = Object.freeze({ beat: false, bar: false });

@@ -22,10 +22,9 @@ import { Vector3, type Vec3Like } from "../../../engine/core/math";
 import { AssetRef, component, field } from "../../../engine/core/registry";
 import type { BuiltinSystem } from "../../../engine/core/systems";
 import type { World } from "../../../engine/core/World";
-import { Camera } from "../../../engine/render/components";
 import { isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { dbToGain } from "../../../engine/audio/decibels";
-import { AudioListener, listenerPose } from "./AudioListener";
+import { listenerPose, listenerPoseIn } from "./AudioListener";
 import { worldKeyOf, worldPlays } from "./AudioSource";
 import type { AudioVoice } from "./backend";
 import { clipRequest, clipVolume } from "./clipResolver";
@@ -77,7 +76,7 @@ export class AudioZone extends Component {
     const s = t?.worldScale ?? { x: 1, y: 1, z: 1 };
     let nodeYaw = 0;
     if (t) {
-      const f = listenerPose(this.node).forward;
+      const f = listenerPose(this.node)!.forward; // `t` is set, so the pose is
       nodeYaw = (Math.atan2(f.x, f.z) * 180) / Math.PI;
     }
     const r = (nodeYaw * Math.PI) / 180;
@@ -210,12 +209,9 @@ export class AudioZone extends Component {
   }
 }
 
-/** The listener's position in `world` (an enabled `AudioListener`, else the main camera), or null. */
+/** The listener's position in `world` (ADR 0462), or null. */
 function listenerIn(world: World): Vec3Like | null {
-  for (const l of world._componentsOfType(AudioListener)) if (l.isActiveAndEnabled) return listenerPose(l.node).position;
-  let best: Camera | null = null;
-  for (const c of world._componentsOfType(Camera)) if (c.isActiveAndEnabled && (!best || c.depth < best.depth)) best = c;
-  return best ? listenerPose(best.node).position : null;
+  return listenerPoseIn(world)?.position ?? null;
 }
 
 /** @internal ADR 0347: places and levels every enabled zone in the World that plays, before the audio frame. */

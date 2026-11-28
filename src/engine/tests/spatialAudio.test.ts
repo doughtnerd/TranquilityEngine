@@ -109,6 +109,16 @@ describe("spatial audio (ADR 0074)", () => {
     expect(backend.listener!.position).toEqual({ x: 2, y: 0, z: 0 });
   });
 
+  it("ADR 0462: passes over an enabled AudioListener on a node with no transform and hears from the camera", () => {
+    giveView();
+    const cam = GameObject.create("cam");
+    cam.transform!.position.set(0, 0, 10);
+    cam.addBehavior(Camera);
+    GameObject.create("placeless", { transform: false }).addBehavior(AudioListener);
+    expect(() => engine.step(1 / 60)).not.toThrow();
+    expect(backend.listener!.position).toEqual({ x: 0, y: 0, z: 10 });
+  });
+
   it("plays one-shots flat, with a volume number, or spatially at a position", () => {
     giveView();
     Audio.playOneShot("boom.wav", 0.4);
