@@ -7,9 +7,9 @@
  * calls `prepareViews` each frame with every view's visibility result, and each view draws exactly the drawables
  * chosen for it: per renderer mesh, the drawable of the level its result gives (none when hidden or LOD-culled),
  * acquired on first use. A level's derived `ModelMesh` is its batch key, so batches split per level; thin batches
- * draw through per-pass sources (`meshBatches.ts`). Shadow casters follow the main view's `casterLevels`. Drawables
- * of levels above 0 are kept while any view drew them in the last `POOL_SECONDS`, and batches they leave empty a few
- * seconds more, so a moving camera doesn't make and dispose Babylon meshes. Without the visibility stage (or before
+ * draw through per-pass sources (`meshBatches.ts`). Shadow casters follow the main view's `casterLevels`. A drawable
+ * is kept while a view drew it (or, off-screen, would draw it) in the last `POOL_FRAMES` frames, and batches left
+ * empty a few seconds more, so a moving camera doesn't make and dispose Babylon meshes on every switch. Without the visibility stage (or before
  * its first frame, or in a thumbnail, which only syncs) every renderer draws LOD0 as it always did.
  *
  * **Crossfades (ADR 0446 §4).** While a view's result fades a renderer (its `fade` value isn't 0), the view draws both
@@ -26,7 +26,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
 import type { MaterialInstancing } from "../../scene/material";
-import { drawnVariant, materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
+import { beginMeshLookups, drawnVariant, endMeshLookups, materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import { MeshRenderer } from "../components";
 import type { DrawnMaterial } from "../RenderSurface";
 import { visibilityService } from "../visibility/service";
@@ -55,7 +55,13 @@ export interface BabylonMeshHost {
 }
 
 /** Seconds a level's drawable is kept after the last view drew it (ADR 0446 §3). */
-export const POOL_SECONDS = 1;
+/**
+ * Frames a drawable no view drew is kept before it's given back. Counted in frames, not seconds: a disabled Babylon
+ * instance still costs every frame (the scene walks all its meshes), and a fast camera leaves many behind each frame.
+ */
+export const POOL_FRAMES = 20;
+/** Frames between sweeps for pooled drawables to give back. */
+const EXPIRE_EVERY = 5;
 
 /** One drawable of a renderer mesh at one level. */
 interface LevelDrawable {
@@ -127,6 +133,8 @@ export class BabylonMeshes implements BabylonFeature {
   /** The feature's clock in seconds: the World's real time, or a 60th of a second per sync where it stands still. */
   private now = 0;
   private lastRealtime = -1;
+  /** The sync `expire` last swept at. */
+  private expiredAt = -Infinity;
   /** Syncs so far, and the sync count when `prepareViews` last ran (levels per view while it ran since the last sync). */
   private syncs = 0;
   private preparedAt = -1;
@@ -160,7 +168,12 @@ export class BabylonMeshes implements BabylonFeature {
     this.batches.setPassMode(this.perView);
     if (!this.perView) this.stats = null;
     this.host.materials.beginSync();
-    for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
+    beginMeshLookups();
+    try {
+      for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
+    } finally {
+      endMeshLookups();
+    }
     this.host.materials.endSync();
     this.expire();
     this.batches.flush();
@@ -192,9 +205,12 @@ export class BabylonMeshes implements BabylonFeature {
     // Each view's outgoing levels during fades (ADR 0446 §4).
     const fadeFrom = views.map((v) => (v.result ? service.fadeLevels(v.result) : null));
     for (const [r, e] of this.meshRenderers) {
-      e.shown = [];
+      e.shown.length = 0;
       const n = e.sources?.length ?? 0;
-      if (!n || !r.isActiveAndEnabled) continue;
+      if (!n || !r.isActiveAndEnabled) {
+        this.sweep(r, e, frame);
+        continue;
+      }
       const slot = service.slotOf(r);
       this.reserveFades(e, slot >= 0 && service.crossfades(r));
       for (let k = 0; k < views.length; k++) {
@@ -202,7 +218,16 @@ export class BabylonMeshes implements BabylonFeature {
         const pass = views[k].visibility.key;
         let level = 0, from = LOD_CULLED, f = 0;
         if (result && slot >= 0 && slot < result.levels.length) {
-          if (result.hidden[slot]) continue;
+          if (result.hidden[slot]) {
+            // Off this view: its drawable at its level, if it has one, stays enabled (unlisted) and pooled, as without
+            // levels per view, so turning the camera doesn't toggle and remake Babylon instances.
+            const kept = result.levels[slot];
+            if (kept !== LOD_CULLED) for (let i = 0; i < n; i++) {
+              const ld = e.levels[i]?.[meshLevel(e.sources![i], kept)];
+              if (ld) touch(ld);
+            }
+            continue;
+          }
           level = result.levels[slot];
           f = result.fade[slot];
           const outgoing = fadeFrom[k];
@@ -210,16 +235,19 @@ export class BabylonMeshes implements BabylonFeature {
           else f = 0;
         }
         if (f === 0 && level === LOD_CULLED) continue;
+        const list = lists[k];
         for (let i = 0; i < n; i++) {
           const src = e.sources![i];
-          const show = (d: Drawable) => {
-            this.batches.add(d, pass, lists[k]);
-            if (k === 0) e.shown.push(d);
-          };
           if (f === 0) {
-            show(use(r, e, i, level));
+            const d = use(r, e, i, level);
+            this.batches.add(d, pass, list);
+            if (k === 0) e.shown.push(d);
             continue;
           }
+          const show = (d: Drawable) => {
+            this.batches.add(d, pass, list);
+            if (k === 0) e.shown.push(d);
+          };
           // Fading: each level this mesh draws for the incoming and the outgoing group level (-1: none).
           const into = level === LOD_CULLED ? -1 : meshLevel(src, level);
           const out = from === LOD_CULLED ? -1 : meshLevel(src, from);
@@ -246,14 +274,7 @@ export class BabylonMeshes implements BabylonFeature {
       let casterLevel = r.castShadows ? 0 : LOD_CULLED;
       if (casters && slot >= 0 && slot < casters.casterLevels.length) casterLevel = casters.casterLevels[slot];
       if (casterLevel !== LOD_CULLED) for (let i = 0; i < n; i++) this.batches.add(use(r, e, i, casterLevel), CASTERS_PASS, casterMeshes);
-    }
-    // Every drawable a pass drew stays enabled (a cull task drops disabled meshes); the rest of the pool is disabled,
-    // so nothing that draws the scene's meshes as a whole draws them.
-    for (const [r, e] of this.meshRenderers) {
-      const active = r.isActiveAndEnabled;
-      for (const part of e.levels) for (const ld of part) ld?.d.setEnabled(active && ld.frame === frame);
-      for (const perView of e.fades.values()) for (const part of perView) for (const ld of part ?? []) ld?.d.setEnabled(active && ld.frame === frame);
-      e.meshes = e.shown.flatMap((d) => (d.mesh ? [d.mesh] : []));
+      this.sweep(r, e, frame);
     }
     this.batches.endPasses();
     views.forEach((v, k) => this.batches.passMeshes(v.visibility.key, lists[k]));
@@ -261,6 +282,21 @@ export class BabylonMeshes implements BabylonFeature {
     const first = views[0]?.visibility.key;
     this.stats = first !== undefined ? service.stats(first) : null;
     return this.drawing;
+  }
+
+  /**
+   * After a renderer's passes: every drawable a pass drew (or kept) this frame stays enabled (a cull task drops disabled
+   * meshes); the rest of its pool is disabled, so nothing that draws the scene's meshes as a whole draws them.
+   */
+  private sweep(r: MeshRenderer, e: MeshEntry, frame: number): void {
+    const active = r.isActiveAndEnabled;
+    for (const part of e.levels) for (let l = 0; l < part.length; l++) {
+      const ld = part[l];
+      if (ld) ld.d.setEnabled(active && ld.frame === frame);
+    }
+    if (e.fades.size) for (const perView of e.fades.values()) for (const part of perView) for (const ld of part ?? []) ld?.d.setEnabled(active && ld.frame === frame);
+    e.meshes.length = 0;
+    for (const d of e.shown) if (d.mesh) e.meshes.push(d.mesh);
   }
 
   release(c: Component): void {
@@ -342,13 +378,21 @@ export class BabylonMeshes implements BabylonFeature {
     this.batches.setTime(this.now);
   }
 
-  /** Give back the drawables of levels above 0 no view drew for `POOL_SECONDS`; their batches are kept a little longer. */
+  /**
+   * Give back the drawables no view drew for `POOL_FRAMES` frames; their batches are kept a little longer. A disabled Babylon
+   * instance still costs every frame (the scene walks all its meshes), so the pool stays short.
+   * Swept a few times a second, not every frame: a level is given back up to `EXPIRE_EVERY` seconds late.
+   */
   private expire(): void {
+    if (this.syncs - this.expiredAt < EXPIRE_EVERY) return;
+    this.expiredAt = this.syncs;
     for (const e of this.meshRenderers.values()) {
       for (const part of e.levels) {
-        for (let level = 1; level < part.length; level++) {
+        // Level 0 too: with levels per view a renderer drawn at a coarser level (or not at all) gives its LOD0 back.
+        // Without levels per view every sync draws (and so keeps) it.
+        for (let level = 0; level < part.length; level++) {
           const ld = part[level];
-          if (!ld || this.now - ld.used <= POOL_SECONDS) continue;
+          if (!ld || !this.expired(ld)) continue;
           this.batches.release(ld.d, true);
           part[level] = undefined;
         }
@@ -360,7 +404,7 @@ export class BabylonMeshes implements BabylonFeature {
           for (let level = 0; level < (part?.length ?? 0); level++) {
             const ld = part![level];
             if (!ld) continue;
-            if (this.now - ld.used <= POOL_SECONDS) {
+            if (!this.expired(ld)) {
               any = true;
               continue;
             }
@@ -371,6 +415,11 @@ export class BabylonMeshes implements BabylonFeature {
         if (!any) e.fades.delete(view);
       }
     }
+  }
+
+  /** Whether a pooled drawable has gone undrawn for `POOL_FRAMES` frames. */
+  private expired(ld: LevelDrawable): boolean {
+    return this.syncs - ld.frame > POOL_FRAMES;
   }
 
   /** Reserve a renderer's fade batches while its group crossfades (and its levels can fade), and give them back after. */
@@ -523,6 +572,7 @@ export class BabylonMeshes implements BabylonFeature {
       // LOD0 for every view, as without levels; any other level's drawable waits, disabled, to be given back.
       const ld0 = this.levelDrawable(r, entry!, i, 0);
       ld0.used = this.now;
+      ld0.frame = this.syncs;
       ld0.d.setEnabled(visible);
       for (let level = 1; level < part.length; level++) part[level]?.d.setEnabled(false);
     });

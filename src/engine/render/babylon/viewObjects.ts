@@ -21,7 +21,12 @@ export class ViewObjectLists {
   build(sceneMeshes: readonly AbstractMesh[], drawings: readonly ViewDrawing[], count: number, exclude: (view: number) => ((mesh: AbstractMesh) => boolean) | null = () => null): readonly (readonly AbstractMesh[])[] {
     const base = this.base;
     base.length = 0;
-    for (const m of sceneMeshes) if (!drawings.some((d) => d.owns(m))) base.push(m);
+    const nd = drawings.length;
+    outer: for (let k = 0; k < sceneMeshes.length; k++) {
+      const m = sceneMeshes[k];
+      for (let j = 0; j < nd; j++) if (drawings[j].owns(m)) continue outer;
+      base.push(m);
+    }
     const lists = this.lists;
     lists.length = count;
     for (let i = 0; i < count; i++) {

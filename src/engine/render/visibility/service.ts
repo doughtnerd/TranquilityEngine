@@ -22,7 +22,7 @@ import type { Component } from "../../core/Component";
 import type { QualityTier } from "../../core/graphics";
 import type { World } from "../../core/World";
 import { _registerWorldService, _worldServiceOf } from "../../core/worldServices";
-import type { ModelMesh } from "../../scene/models";
+import { beginMeshLookups, endMeshLookups, type ModelMesh } from "../../scene/models";
 import { Graphics } from "../Graphics";
 import { Camera, LODGroup } from "../components";
 import { RendererBounds, computeGroupBounds, newGroupBounds, type GroupBounds } from "./bounds";
@@ -241,6 +241,15 @@ export class VisibilityService {
   // --- gathering -------------------------------------------------------------------------------------------------
 
   private gather(): void {
+    beginMeshLookups();
+    try {
+      this.gatherMembers();
+    } finally {
+      endMeshLookups();
+    }
+  }
+
+  private gatherMembers(): void {
     const frame = ++this.generation;
     this.tick();
     const world = this.world;

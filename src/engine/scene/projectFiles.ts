@@ -38,12 +38,20 @@ export function extensionOf(path: string): string {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
 
+/** `projectFileKind`'s answers by path: asset reads ask it for the same few paths every frame. */
+const kinds = new Map<string, ProjectFileKind>();
+
 /** How the file at `path` loads: parsed JSON, its text, or a URL. */
 export function projectFileKind(path: string): ProjectFileKind {
-  if (/\.svelte\.ts$/i.test(path)) return "text"; // a rune module (ADR 0423), wherever it is: the linker compiles it from its text
-  const ext = extensionOf(path);
-
-  return ext === "json" ? "json" : TEXT_EXTENSIONS.has(ext) ? "text" : "url";
+  let kind = kinds.get(path);
+  if (kind === undefined) {
+    const ext = extensionOf(path);
+    // A rune module (ADR 0423), wherever it is: the linker compiles it from its text.
+    kind = /\.svelte\.ts$/i.test(path) ? "text" : ext === "json" ? "json" : TEXT_EXTENSIONS.has(ext) ? "text" : "url";
+    if (kinds.size >= 4096) kinds.clear();
+    kinds.set(path, kind);
+  }
+  return kind;
 }
 
 /** True if a folder named `name` is left out of a project: a hidden folder, dependencies or build output. */

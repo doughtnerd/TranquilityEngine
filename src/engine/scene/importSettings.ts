@@ -253,14 +253,23 @@ export const isSidecarPath = (path: string): boolean => path.toLowerCase().endsW
 /** The asset a sidecar belongs to: `images/a.png.meta.json` → `images/a.png`. */
 export const sidecarAsset = (path: string): string => path.slice(0, -SIDECAR_SUFFIX.length);
 
+/** `splitSpriteRef`'s answers by reference: renderers resolve the same few references every frame. */
+const splitRefs = new Map<string, { readonly path: string; readonly slice: string | null }>();
+
 /**
  * Split a sprite reference into the image path and slice name: `asset:images/a.png#walk_0` →
  * `{ path: "images/a.png", slice: "walk_0" }`; without `#`, `slice` is null.
  */
-export function splitSpriteRef(ref: string): { path: string; slice: string | null } {
-  const p = ref.replace(/^asset:/, "").replace(/^\.?\//, "");
-  const i = p.indexOf("#");
-  return i < 0 ? { path: p, slice: null } : { path: p.slice(0, i), slice: p.slice(i + 1) };
+export function splitSpriteRef(ref: string): { readonly path: string; readonly slice: string | null } {
+  let parts = splitRefs.get(ref);
+  if (!parts) {
+    const p = ref.replace(/^asset:/, "").replace(/^\.?\//, "");
+    const i = p.indexOf("#");
+    parts = Object.freeze(i < 0 ? { path: p, slice: null } : { path: p.slice(0, i), slice: p.slice(i + 1) });
+    if (splitRefs.size >= 4096) splitRefs.clear();
+    splitRefs.set(ref, parts);
+  }
+  return parts;
 }
 
 /** Why `name` can't name a slice (given the other names), or null if it can. */

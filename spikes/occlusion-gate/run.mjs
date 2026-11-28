@@ -4,7 +4,7 @@
 //   node spikes/occlusion-gate/run.mjs                 # FULL: 12 configs x 3 runs (static 100 frames, fly 150) + pre-passes
 //   node spikes/occlusion-gate/run.mjs --profile smoke # 1 run x 30 frames per config (checks it all works)
 //   options: --runs N --frames N (static) --fly-frames N --warmup N --throttles 1,4 --scenes forest,city
-//            --only <substring of config id> --resume --no-build --results <file in this folder> --port N
+//            --only <substring of config id, or the whole id then $> --resume --no-build --results <file in this folder> --port N
 //
 // EXPECTED DURATION on an IDLE 4-core machine: about 45-60 minutes for the full profile [est. from smoke runs on a shared
 // machine: see README "How long it takes"]: model load with LOD generation (inline meshoptimizer + Hausdorff sampling, not
@@ -168,7 +168,8 @@ let results = { meta: null, rows: [] };
 if (RESUME && existsSync(RESULTS)) results = JSON.parse(readFileSync(RESULTS, "utf8"));
 const have = new Set(results.rows.map((r) => r.id));
 const jobs = [];
-for (const c of configs.filter((x) => x.id.includes(ONLY))) for (const throttle of THROTTLES) jobs.push({ c, throttle, runs: RUNS, frames: c.mode === "fly" ? FLY_FRAMES : FRAMES, warmup: WARMUP });
+const picked = (id) => (String(ONLY).endsWith("$") ? id === String(ONLY).slice(0, -1) : id.includes(ONLY));
+for (const c of configs.filter((x) => picked(x.id))) for (const throttle of THROTTLES) jobs.push({ c, throttle, runs: RUNS, frames: c.mode === "fly" ? FLY_FRAMES : FRAMES, warmup: WARMUP });
 let framesDone = 0, secondsDone = 0;
 
 const revision = () => { try { return execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim(); } catch { return "?"; } };

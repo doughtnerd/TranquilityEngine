@@ -30,9 +30,18 @@ const sources: AssetSource[] = [];
 /** Files the engine provides (the input glyphs, ADR 0337): looked up after the game's sources, and kept by `clearSources`. */
 const builtinSources: AssetSource[] = [];
 
+/** Normalised paths by the reference they came from: renderers resolve the same few references every frame. */
+const normalised = new Map<string, string>();
+
 /** Strip the `asset:` prefix and leading `./` or `/`. */
 export function normalizeAssetPath(path: string): string {
-  return path.replace(/^asset:/, "").replace(/^\.?\//, "");
+  let p = normalised.get(path);
+  if (p === undefined) {
+    p = path.replace(/^asset:/, "").replace(/^\.?\//, "");
+    if (normalised.size >= 4096) normalised.clear();
+    normalised.set(path, p);
+  }
+  return p;
 }
 
 const defaults: ImportSettings = Object.freeze({ ...defaultImportSettings(), pivot: Object.freeze([0.5, 0.5]) as [number, number], sprites: Object.freeze([]) as unknown as [], platforms: Object.freeze({}) });
@@ -45,9 +54,11 @@ let platformOverride: ImportPlatform | null = null;
  * Under Tauri: "android" on Tauri mobile's Android webview (its user agent names Android, ADR 0351 §1), else "desktop";
  * in a browser: "web".
  */
+let detected: ImportPlatform | null = null;
 const detectPlatform = (): ImportPlatform => {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return "web";
-  return typeof navigator !== "undefined" && /\bAndroid\b/i.test(navigator.userAgent ?? "") ? "android" : "desktop";
+  if (detected) return detected;
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return "web"; // not kept: a test may stub the window later
+  return (detected = typeof navigator !== "undefined" && /\bAndroid\b/i.test(navigator.userAgent ?? "") ? "android" : "desktop");
 };
 
 /**

@@ -566,6 +566,34 @@ export function loadModel(ref: string): Promise<ModelData> {
  * has no such mesh (warned once).
  */
 export function meshesIfLoaded(ref: string): readonly ModelMesh[] | null {
+  if (lookupDepth > 0) {
+    // In a lookup pass (`beginMeshLookups`): each reference resolves once for the whole pass.
+    let found = lookups.get(ref);
+    if (found === undefined) lookups.set(ref, (found = resolveMeshes(ref)));
+    return found;
+  }
+  return resolveMeshes(ref);
+}
+
+/** Open `beginMeshLookups` calls, and what each reference resolved to since the outermost one. */
+let lookupDepth = 0;
+const lookups = new Map<string, readonly ModelMesh[] | null>();
+
+/**
+ * @internal Start a pass over many renderers (a renderer's sync, the visibility stage's gather): until the matching
+ * `endMeshLookups`, `meshesIfLoaded` resolves each reference once and answers the same for the rest of the pass,
+ * instead of reading the asset sources again for each of thousands of renderers. Passes nest.
+ */
+export function beginMeshLookups(): void {
+  lookupDepth++;
+}
+
+/** @internal End a pass `beginMeshLookups` started; the outermost forgets what it resolved. */
+export function endMeshLookups(): void {
+  if (lookupDepth > 0 && --lookupDepth === 0) lookups.clear();
+}
+
+function resolveMeshes(ref: string): readonly ModelMesh[] | null {
   if (!ref) return [];
   if (ref.startsWith(BUILTIN_PREFIX)) return builtinMeshes(ref);
   const { path, slice } = splitSpriteRef(normalizeAssetPath(ref));
