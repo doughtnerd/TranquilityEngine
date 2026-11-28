@@ -130,6 +130,43 @@ describe("the visibility service", () => {
     expect(service.main!.levels[service.slotOf(deep)]).toBe(0); // ungrouped: LOD0
   });
 
+  it("follows membership changes between frames: a renderer reparented to another group, a group turned back on, a node made inactive", async () => {
+    const { engine, service, group, renderer } = await setup();
+    place(group, 0, 0, 2); // level 1
+    const other = GameObject.create("other").addComponent(LODGroup);
+    other.forceLevel = 2;
+    engine.step(1 / 60);
+    expect(service.main!.levels[service.slotOf(renderer)]).toBe(1);
+    renderer.node.setParent(other.node);
+    engine.step(1 / 60);
+    expect(service.main!.levels[service.slotOf(renderer)]).toBe(2);
+    other.enabled = false;
+    engine.step(1 / 60);
+    expect(service.main!.levels[service.slotOf(renderer)]).toBe(0); // ungrouped
+    other.enabled = true;
+    engine.step(1 / 60);
+    expect(service.main!.levels[service.slotOf(renderer)]).toBe(2);
+    other.node.setActive(false);
+    engine.step(1 / 60);
+    expect(service.slotOf(renderer)).toBe(-1);
+  });
+
+  it("brings bounds up to date when only a transform changes, its own or an ancestor's", async () => {
+    const { engine, service, group } = await setup();
+    const parent = GameObject.create("parent");
+    group.node.setParent(parent);
+    place(group, 0, 0, 2);
+    engine.step(1 / 60);
+    expect(group.currentLevel).toBe(1);
+    parent.transform!.position.set(0, 0, 28); // the group's world position moves with it: h ≈ 0.017
+    engine.step(1 / 60);
+    expect(group.currentLevel).toBe(-1);
+    parent.transform!.position.set(0, 0, 0);
+    engine.step(1 / 60);
+    expect(group.currentLevel).toBe(1);
+    void service;
+  });
+
   it("derives automatic heights from members' measured errors (a plugin's member type), and LOD0 without levels", async () => {
     const { engine, group, renderer } = await setup();
     renderer.enabled = false;

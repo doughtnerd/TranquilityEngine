@@ -189,6 +189,12 @@ export class World {
   /** @internal */ tWorld = new Float32Array(0);
   private worldDirty = new Uint8Array(0);
   /** @internal Incremented whenever a node's world transform may have changed. */ tVersion = new Uint32Array(0);
+  /**
+   * @internal Incremented whenever which components are live and active, or where nodes sit, may have changed: a
+   * component added, removed, replaced, enabled or disabled (its node too), a node reparented or destroyed. Services that
+   * index components by node (the visibility stage) rebuild only when it moves.
+   */
+  structureVersion = 0;
   private transformFacades: (Transform | undefined)[] = [];
   private readonly scratch = new Float32Array(16);
 
@@ -348,6 +354,7 @@ export class World {
   _setParent(e: number, parent: number, keepWorldTransform: boolean): boolean {
     for (let p = parent; p !== NONE; p = this.parentOf[p]) if (p === e) return false;
     if (this.parentOf[e] === parent) return true;
+    this.structureVersion++;
     if (keepWorldTransform && this.hasTransform[e]) {
       // Not `this.scratch`: computing the new parent's world matrix below uses it.
       const world = new Float32Array(16);
@@ -413,6 +420,7 @@ export class World {
     const c = new type();
     c._node = this.handle(e);
     c._seq = ++this.seq;
+    this.structureVersion++;
     this.componentsOf[e].push(c);
     for (let t: Function | null = type; t && t !== Component && t !== Object; t = Object.getPrototypeOf(t)) {
       let list = this.byType.get(t);
@@ -544,6 +552,7 @@ export class World {
       if (deferred >= 0) this.deferred[deferred] = next;
     }
     this.orderDirty = true;
+    this.structureVersion++;
     // Then each replacement starts where its old instance was: onEnable, and start() if it hadn't run.
     for (const next of replaced.values()) {
       next._onAttach();
@@ -608,6 +617,7 @@ export class World {
     const active = nodeActive && c._enabled;
     if (active === c._active) return;
     c._active = active;
+    this.structureVersion++;
     const editing = this.inEditMode(e);
     if (active) {
       if (!editing || c._activatesInEditMode) c._onActivate();
@@ -1092,6 +1102,7 @@ export class World {
 
   private reallyRemoveComponent(c: Component): void {
     if (c._destroyed) return;
+    this.structureVersion++;
     if (c._active) {
       c._active = false;
       if (!this.inEditMode(c._node.entity) || c._activatesInEditMode) c._onDeactivate();
@@ -1114,6 +1125,7 @@ export class World {
   }
 
   private reallyDestroyNode(e: number): void {
+    this.structureVersion++;
     // Until none are left: an onDisable/onDestroy may add a child or a component to the node going away.
     while (this.firstChild[e] !== NONE || this.componentsOf[e].length) {
       for (const child of this.childEntities(e)) this.reallyDestroyNode(child);

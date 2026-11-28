@@ -44,6 +44,11 @@ interface MemberEntry {
   readonly bounds: RendererBounds;
   group: GroupEntry | null;
   seen: number;
+  /** The node whose world matrix it draws at (its own, else the node it acts for), or -1 for none. */
+  entity: number;
+  /** That node's `tVersion` and the meshes its bounds were last brought up to date for (-1, undefined: never). */
+  tv: number;
+  meshes: readonly ModelMesh[] | null | undefined;
 }
 
 interface GroupEntry {
@@ -53,8 +58,11 @@ interface GroupEntry {
   members: MemberEntry[];
   previous: MemberEntry[];
   readonly bounds: GroupBounds;
-  /** The group node's world matrix the bounds were computed for. */
+  /** The group node's world matrix the bounds were computed for, and that node's `tVersion` then (-1: never). */
   matrix: Float32Array | null;
+  tv: number;
+  /** Its members changed at the last membership rebuild, and `fillInput` hasn't taken it in yet. */
+  membersChanged: boolean;
   /** Whether its heights were last derived automatically (they are again when its members' meshes change). */
   automatic: boolean;
   seen: number;
@@ -85,6 +93,11 @@ export class VisibilityService {
   private readonly freeGroups: number[] = [];
   private groupCount = 0;
   private readonly entries: (GroupEntry | null)[] = [];
+  /** The live members and groups, as flat lists (rebuilt with membership). */
+  private memberList: MemberEntry[] = [];
+  private groupList: GroupEntry[] = [];
+  /** The World's `structureVersion` membership was last rebuilt at (-1: never). */
+  private structureSeen = -1;
   private readonly state = new SelectionState();
   private input: { count: number; sphere: Float32Array; size: Float32Array; heights: Float32Array; heightStart: Uint32Array; heightCount: Uint8Array; forceLevel: Int16Array; fadeDuration: Float32Array } = {
     count: 0,
@@ -240,18 +253,28 @@ export class VisibilityService {
 
   // --- gathering -------------------------------------------------------------------------------------------------
 
+  /**
+   * Once a frame: membership again only when the World's structure changed (a component added, removed, enabled or
+   * disabled, a node reparented or destroyed), then bounds for what moved or whose meshes changed, then the selection
+   * input.
+   */
   private gather(): void {
+    const frame = ++this.generation;
+    this.tick();
     beginMeshLookups();
     try {
-      this.gatherMembers();
+      if (this.world.structureVersion !== this.structureSeen) {
+        this.structureSeen = this.world.structureVersion;
+        this.rebuildMembership(frame);
+      }
+      this.fillInput();
     } finally {
       endMeshLookups();
     }
   }
 
-  private gatherMembers(): void {
-    const frame = ++this.generation;
-    this.tick();
+  /** Find every enabled member and its group, dropping the ones gone. */
+  private rebuildMembership(frame: number): void {
     const world = this.world;
     // Owner entity → its LODGroup, or null for a disabled one (which stops the search).
     const owners = new Map<number, LODGroup | null>();
@@ -270,9 +293,15 @@ export class VisibilityService {
         let m = this.members.get(c);
         if (!m) {
           const slot = this.freeSlots.pop() ?? this.slotCount++;
-          this.members.set(c, (m = { member: c, slot, bounds: new RendererBounds(), group: null, seen: 0 }));
+          this.members.set(c, (m = { member: c, slot, bounds: new RendererBounds(), group: null, seen: 0, entity: -1, tv: -1, meshes: undefined }));
         }
         m.seen = frame;
+        const at = c.gameObject.transform ? c.gameObject : c.owner;
+        const entity = at.transform ? at.entity : -1;
+        if (entity !== m.entity) {
+          m.entity = entity;
+          m.tv = -1;
+        }
         let owner: LODGroup | null = null;
         for (let e = c.gameObject.entity; e !== -1; e = world.parentOf[e]) {
           if (owners.has(e)) {
@@ -297,7 +326,9 @@ export class VisibilityService {
       this.freeGroups.push(g.index);
       this.state.forget(g.index);
     }
-    this.fillInput();
+    this.memberList = [...this.members.values()];
+    this.groupList = [...this.groups.values()];
+    for (const g of this.groupList) if (g.members.length !== g.previous.length || g.members.some((m, i) => m !== g.previous[i])) g.membersChanged = true;
   }
 
   /** Advance the fade clock: by the World's real time, or a 60th of a second where it doesn't advance. */
@@ -320,7 +351,7 @@ export class VisibilityService {
     if (!g) {
       const index = this.freeGroups.pop() ?? this.groupCount++;
       this.state.forget(index);
-      g = { owner: key instanceof LODGroup ? key : null, index, members: [], previous: [], bounds: newGroupBounds(), matrix: null, automatic: false, seen: 0 };
+      g = { owner: key instanceof LODGroup ? key : null, index, members: [], previous: [], bounds: newGroupBounds(), matrix: null, tv: -1, membersChanged: true, automatic: false, seen: 0 };
       this.groups.set(key, g);
       this.entries[index] = g;
     }
@@ -368,23 +399,34 @@ export class VisibilityService {
         input.fadeDuration[index] = 0;
         continue;
       }
-      const membership = g.members.length !== g.previous.length || g.members.some((m, i) => m !== g.previous[i]);
+      const membership = g.membersChanged;
+      g.membersChanged = false;
       let dirty = membership, meshesChanged = membership;
+      const versions = world.tVersion;
       for (const m of g.members) {
-        const [src, offset] = matrixOf(world, m.member);
+        // Only what moved (its node's transform version) or whose meshes changed (a load, another mesh).
+        const meshes = m.member.lodMeshes();
+        const tv = m.entity >= 0 ? versions[m.entity] : 0;
+        if (tv === m.tv && meshes === m.meshes) continue;
+        m.tv = tv;
+        m.meshes = meshes;
         const version = m.bounds.localVersion;
-        if (m.bounds.update(m.member.lodMeshes(), src === null ? IDENTITY : src, offset)) dirty = true;
+        if (m.bounds.update(meshes, m.entity >= 0 ? world.worldMatrix(m.entity) : IDENTITY, m.entity >= 0 ? m.entity * 16 : 0)) dirty = true;
         if (m.bounds.localVersion !== version) meshesChanged = true;
       }
       const owner = g.owner;
       if (owner) {
         const node = owner.owner;
         const e = node.entity;
-        const gm = node.transform ? world.worldMatrix(e) : IDENTITY;
-        const go = node.transform ? e * 16 : 0;
-        if (!g.matrix || !sameMatrix(g.matrix, gm, go)) {
-          (g.matrix ??= new Float32Array(16)).set(gm.subarray(go, go + 16));
-          dirty = true;
+        const tv = node.transform ? versions[e] : 0;
+        if (!g.matrix || tv !== g.tv) {
+          const gm = node.transform ? world.worldMatrix(e) : IDENTITY;
+          const go = node.transform ? e * 16 : 0;
+          g.tv = tv;
+          if (!g.matrix || !sameMatrix(g.matrix, gm, go)) {
+            (g.matrix ??= new Float32Array(16)).set(gm.subarray(go, go + 16));
+            dirty = true;
+          }
         }
         if (dirty) computeGroupBounds(g.members.map((m) => m.bounds), g.matrix, 0, g.bounds);
         input.sphere.set(g.bounds.sphere, index * 4);
@@ -460,7 +502,7 @@ export class VisibilityService {
     hidden.fill(1);
     fade.fill(0);
     fadeLevels.fill(LOD_CULLED);
-    for (const m of this.members.values()) {
+    for (const m of this.memberList) {
       const g = m.group!.index;
       levels[m.slot] = out.levels[g];
       hidden[m.slot] = out.hidden[g];
@@ -470,7 +512,7 @@ export class VisibilityService {
     }
     let count = 0, lodCulled = 0, fading = 0;
     const perLevel: number[] = [];
-    for (const g of this.groups.values()) {
+    for (const g of this.groupList) {
       if (!g.owner) continue;
       count++;
       const level = out.levels[g.index];
@@ -489,14 +531,6 @@ function mainCamera(world: World): Camera | null {
   let best: Camera | null = null;
   for (const c of world._componentsOfType(Camera)) if (c.isActiveAndEnabled && (!best || c.depth < best.depth)) best = c;
   return best;
-}
-
-/** The world matrix a member draws at: its node's, else (no transform) the node it acts for, else none. */
-function matrixOf(world: World, member: Member): [Float32Array | null, number] {
-  let node = member.gameObject;
-  if (!node.transform) node = member.owner;
-  if (!node.transform) return [null, 0];
-  return [world.worldMatrix(node.entity), node.entity * 16];
 }
 
 function sameMatrix(a: Float32Array, b: ArrayLike<number>, o: number): boolean {
