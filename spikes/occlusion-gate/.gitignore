@@ -1,3 +1,6 @@
 generated/
 .build/
 node_modules
+# Profiler output and ad-hoc comparison runs (profile.mjs, run.mjs --results)
+*.cpuprofile
+cmp*.json
