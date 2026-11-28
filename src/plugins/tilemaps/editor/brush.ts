@@ -3,10 +3,11 @@
 // Strokes paint the Editor World's Tilemap at once (so painting shows while the pointer moves) and
 // commit to the scene document as one write of `layers` when they end. On every grid shape (ADR 0437) the brush works
 // in cell space: rectangles are cell-space rectangles (diamonds on an isometric map), flood fill follows the cells
-// sharing a side, and stamps keep their layout. On hexagonal maps a quarter turn isn't a symmetry, so the brush only
-// flips tiles' images there: Rotate is off and a multi-cell stamp's layout is neither mirrored nor turned.
-// On staggered and hexagonal maps a stamp picked or copied from the map keeps its shape wherever it's placed (ADR 0444):
-// it remembers its frame and its cells move by the grid's lattice (`stampLattice.ts`); the footprint is those cells.
+// sharing a side (`TileGrid.sides`), and stamps keep their layout. Where a quarter turn isn't a symmetry of the grid
+// (`TileGrid.quarterTurn`: hexagonal maps) the brush only flips tiles' images: Rotate is off and a multi-cell stamp's
+// layout is neither mirrored nor turned. On staggered and hexagonal maps a stamp picked or copied from the map keeps its
+// shape wherever it's placed (ADR 0444): it remembers its frame and the grid places its cells (`TileGrid.placeCell`,
+// ADR 0448); the footprint is those cells. The brush asks the grid; it never branches on the grid's shape.
 // The brush skips locked layers (ADR 0441). A stamp of several named layers (a selection copied across layers, a saved
 // stamp, ADR 0442) pastes with the pencil into the map's layers of the same names. The brush remembers the tileset its
 // tile ids are of, so a stamp copied from one Tilemap paints another with another tileset by tile uuid.
@@ -19,8 +20,8 @@ import { rotateClockwise } from "../runtime/tileFlips";
 import { pickWeighted, type Tileset } from "../runtime/tileset";
 import { cellRandom, newSeed, RANDOM_BRUSH_STREAM } from "../runtime/cellHash";
 import { blockTargets, layerLocked } from "./selectionLogic";
-import { orientedStamp } from "./stampLayout";
-import { blockCellAt, frameAt, orientedFrame, placeCell, type StampFrame } from "./stampLattice";
+import { orientedFrame, orientedStamp } from "./stampLayout";
+import type { BlockFrame } from "../runtime/grids";
 import { blockOfStamp, retargetBlock, stampOfBlock, type StampBlock } from "./stampLibrary";
 import { editor, persisted, type OpenScene } from "../../../editor/sdk";
 
@@ -63,7 +64,7 @@ export const brushLayers = signal<StampBlock | null>(null);
  * ADR 0444: where the brush's stamp was laid out on a staggered or hexagonal map (picked or copied there, or saved so),
  * so it keeps its shape wherever it's painted. Null: its cells land cell for cell (a palette block).
  */
-export const brushFrame = signal<StampFrame | null>(null);
+export const brushFrame = signal<BlockFrame | null>(null);
 /** ADR 0442: the tileset the brush's tile ids are of (null: the painted map's). Another map's tileset gets the tiles by uuid. */
 export const brushSource = signal<Tileset | null>(null);
 /**
@@ -140,12 +141,18 @@ export function choosePrefabs(paths: readonly string[]): void {
   if (t !== "pencil" && t !== "rect" && t !== "erase") pickBrushTool("pencil");
 }
 
-/** Whether the brush can turn on `map`'s grid: not on hexagonal maps (ADR 0437). */
+/** Whether the brush can turn on `map`'s grid: where a quarter turn is a symmetry of it (not on hexagonal maps, ADR 0437). */
 export function canRotateOn(map: Tilemap | null): boolean {
-  return map?.gridShape !== "hexagonal";
+  return turnRefusal(map) === null;
 }
 
-/** Flip or turn the brush. Turning does nothing when `map` is hexagonal (ADR 0437). */
+/** Why what is painted or selected can't turn a quarter turn on `map`'s grid, for a tooltip or message; null when it can. */
+export function turnRefusal(map: Tilemap | null): string | null {
+  const grid = map?._grid();
+  return !grid || grid.quarterTurn ? null : `A quarter turn isn't a symmetry of a ${grid.shape} grid`;
+}
+
+/** Flip or turn the brush. Turning does nothing where the grid can't turn (`canRotateOn`, ADR 0437). */
 export function flipBrush(axis: "x" | "y" | "rotate", map: Tilemap | null = null): void {
   if (axis === "rotate" && !canRotateOn(map)) return;
   const f = brushFlags.peek();
@@ -154,7 +161,8 @@ export function flipBrush(axis: "x" | "y" | "rotate", map: Tilemap | null = null
 
 /**
  * A rectangle of cells, `x0..x1 × y0..y1` with the ends exclusive: what a stroke covers or the brush would paint. A
- * stamp that keeps its shape on a staggered or hexagonal map (ADR 0444) also lists its `cells`, which the rectangle bounds.
+ * stamp with a frame (ADR 0444) also lists its `cells` (where the grid places them, keeping its shape on staggered and
+ * hexagonal maps), which the rectangle bounds.
  */
 export interface Footprint {
   x0: number;
@@ -242,7 +250,7 @@ export function footprintAt(tool: BrushTool, cell: Cell, map: Tilemap | null = n
 }
 
 /** The block `tool` paints at a cell with the brush as it is now: the pencil's stamp as laid out (with its frame), else one cell. */
-function footprintShape(tool: BrushTool, map: Tilemap | null): { width: number; height: number; frame: StampFrame | null } {
+function footprintShape(tool: BrushTool, map: Tilemap | null): { width: number; height: number; frame: BlockFrame | null } {
   if (tool !== "pencil" || brushTerrain.peek() || brushRandom.peek() || brushPrefabs.peek().length > 0) return { width: 1, height: 1, frame: null };
   const stamp = brushStamp.peek(), flags = brushFlags.peek(), layout = canRotateOn(map);
   const { width, height } = orientedStamp(stamp, flags, layout);
@@ -251,17 +259,17 @@ function footprintShape(tool: BrushTool, map: Tilemap | null): { width: number; 
 
 /**
  * A block of `shape` at a cell, on the grid of such blocks from `origin` (where a pencil stroke's stamps land). A block
- * with a frame on a staggered or hexagonal `map` lists the cells it lands on (ADR 0444).
+ * with a frame (ADR 0444) lists the cells `map`'s grid places it on.
  */
-function footprintOf(shape: { width: number; height: number; frame: StampFrame | null }, [x, y]: Cell, origin: Cell, map: Tilemap | null): Footprint {
+function footprintOf(shape: { width: number; height: number; frame: BlockFrame | null }, [x, y]: Cell, origin: Cell, map: Tilemap | null): Footprint {
   const [sx, sy] = stampCorner(x, y, origin, shape.width, shape.height);
   const grid = map?._grid();
-  if (!grid || !shape.frame || (grid.shape !== "staggered" && grid.shape !== "hexagonal")) return { x0: sx, y0: sy, x1: sx + shape.width, y1: sy + shape.height };
+  if (!grid || !shape.frame) return { x0: sx, y0: sy, x1: sx + shape.width, y1: sy + shape.height };
   const cells: Cell[] = [];
   const box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
   for (let r = 0; r < shape.height; r++) {
     for (let c = 0; c < shape.width; c++) {
-      const [px, py] = placeCell(grid, shape.frame, [sx, sy], c, r);
+      const [px, py] = grid.placeCell(shape.frame, [sx, sy], c, r);
       cells.push([px, py]);
       box.x0 = Math.min(box.x0, px);
       box.y0 = Math.min(box.y0, py);
@@ -303,17 +311,6 @@ function fillBounds(map: Tilemap, x: number, y: number): { minX: number; minY: n
 }
 
 /**
- * The cells sharing a side with a cell, for flood fill on a non-square grid (ADR 0437): every neighbour of a hexagon,
- * the N E S W neighbours of a diamond. Undefined on square grids (the fill's own 4 neighbours).
- */
-function sideNeighbours(map: Tilemap): ((x: number, y: number) => readonly (readonly [number, number])[]) | undefined {
-  const grid = map._grid();
-  if (grid.shape === "square") return undefined;
-  if (grid.neighbourCount === 6) return (x, y) => grid.neighbours(x, y);
-  return (x, y) => grid.neighbours(x, y).filter((_, i) => i % 2 === 0);
-}
-
-/**
  * Paints `map` with the brush as it is now for a stroke of `tool`: the active layer, or with the pencil and a stamp of
  * several layers the unlocked layers it names. Null when there's no layer to paint (none, or locked).
  */
@@ -338,7 +335,7 @@ function brushPainter(map: Tilemap, tool: BrushTool): { paint(tool: BrushTool, c
   /** The value painted at a cell: the stamp tiled from `origin`, or one of its tiles by weight, drawn from the cell and the map's seed. */
   const valueAt = (x: number, y: number, origin: Cell): number => {
     if (random) return pickWeighted(choices, () => cellRandom(seed, x, y, RANDOM_BRUSH_STREAM))?.value ?? 0;
-    const { c, r } = blockCellAt(grid, frame, stampCorner(x, y, origin, stamp.width, stamp.height), x, y, stamp.width, stamp.height);
+    const { c, r } = grid.blockCellAt(frame, stampCorner(x, y, origin, stamp.width, stamp.height), x, y, stamp.width, stamp.height);
     return stamp.values[r * stamp.width + c] ?? 0;
   };
   /**
@@ -367,7 +364,7 @@ function brushPainter(map: Tilemap, tool: BrushTool): { paint(tool: BrushTool, c
             for (let c = 0; c < t.stamp.width; c++) {
               const v = t.stamp.values[r * t.stamp.width + c];
               if (!v) continue;
-              const [px, py] = placeCell(grid, frame, [sx, sy], c, r);
+              const [px, py] = grid.placeCell(frame, [sx, sy], c, r);
               map.setCell(px, py, v, t.layer);
             }
           }
@@ -383,7 +380,7 @@ function brushPainter(map: Tilemap, tool: BrushTool): { paint(tool: BrushTool, c
   return {
     paint,
     fill([x, y]) {
-      paint("fill", floodCells(x, y, (cx, cy) => map.getCell(cx, cy, layer), fillBounds(map, x, y), 20_000, sideNeighbours(map)), [x, y]);
+      paint("fill", floodCells(x, y, (cx, cy) => map.getCell(cx, cy, layer), fillBounds(map, x, y), 20_000, (cx, cy) => grid.sides(cx, cy)), [x, y]);
     },
   };
 }
@@ -398,7 +395,7 @@ function pickFromMap(map: Tilemap, a: Cell, b: Cell): void {
   if (values.every((v) => v === 0)) return;
   brushStamp.value = { width: w, height: h, values };
   brushLayers.value = null;
-  brushFrame.value = frameAt(map._grid(), x0, y0) ?? null;
+  brushFrame.value = map._grid().frameAt(x0, y0);
   brushSource.value = map.tilesetAsset;
   brushTerrain.value = null;
   brushPrefabs.value = [];
