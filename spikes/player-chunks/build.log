@@ -1,0 +1,366 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/projectCode/uiModules" without a file extension (vite.shared.ts:8:49). Add the file extension
+  - import "./src/projectCode/uiBundle" without a file extension (vite.shared.ts:246:54). Add the file extension
+  - import "../editor/moduleImports" without a file extension (src/projectCode/uiBundle.ts:13:57). Add the file extension
+  - import "../editor/packages" without a file extension (src/projectCode/uiBundle.ts:14:33). Add the file extension
+  - import "../editor/packageResolver" without a file extension (src/projectCode/uiBundle.ts:15:67). Add the file extension
+  - import "../export/format" without a file extension (src/projectCode/uiBundle.ts:16:35). Add the file extension
+  - import "./builtinUI" without a file extension (src/projectCode/uiBundle.ts:18:39). Add the file extension
+  - import "./uiModules" without a file extension (src/projectCode/uiBundle.ts:19:130). Add the file extension
+  - import "../engine/audio/effects/types" without a file extension (src/export/format.ts:14:39). Add the file extension
+  - import "../engine/audio/encoding/types" without a file extension (src/export/format.ts:15:31). Add the file extension
+  - import "../engine/audio/packaging/format" without a file extension (src/export/format.ts:16:32). Add the file extension
+  - import "../engine/scene/importSettings" without a file extension (src/export/format.ts:17:37). Add the file extension
+  - import "../plugins/thirdParty" without a file extension (src/export/format.ts:18:34). Add the file extension
+  - import "../engine/debugLink/config" without a file extension (src/export/format.ts:19:36). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+vite v8.3.5 building client environment for production...
+transforming...
+✓ 1983 modules transformed.
+rendering chunks...
+computing gzip size...
+spikes/player-chunks/out/player/assets/favicon-32-_nZ9OwUa.png                                 3.15 kB
+spikes/player-chunks/out/player/player.html                                                    5.35 kB │ gzip:     1.71 kB
+spikes/player-chunks/out/player/files.json                                                    13.85 kB │ gzip:     4.30 kB
+spikes/player-chunks/out/player/assets/processor-efAWILmN.js                                  29.45 kB
+spikes/player-chunks/out/player/assets/magls-o3-BA1nWWh1.bin                                  32.80 kB
+spikes/player-chunks/out/player/assets/decoder.worker-Bw0Eibaq.js                             36.87 kB
+spikes/player-chunks/out/player/assets/myco_tween_bg-B_L7Ngj3.wasm                            45.25 kB │ gzip:    20.06 kB
+spikes/player-chunks/out/player/assets/Inter-latin-wght-Dx4kXJAl.woff2                        48.25 kB
+spikes/player-chunks/out/player/assets/myco_audio_offline-BHP3Nh3u.wasm                      214.50 kB │ gzip:    83.21 kB
+spikes/player-chunks/out/player/assets/myco_hrir-CA08L6Ih.bin                                245.77 kB
+spikes/player-chunks/out/player/assets/myco_layout_bg-DlIfGMI5.wasm                          354.50 kB │ gzip:   120.94 kB
+spikes/player-chunks/out/player/assets/myco_audio-CNw3RiGz.wasm                              616.38 kB │ gzip:   237.34 kB
+spikes/player-chunks/out/player/assets/myco_input_bg-DQ9g3Mnk.wasm                           663.79 kB │ gzip:    70.72 kB
+spikes/player-chunks/out/player/assets/myco_anim_bg-a4H2Bsq2.wasm                            867.96 kB │ gzip:   352.49 kB
+spikes/player-chunks/out/player/assets/myco_audio_decode-qL4NuD6N.wasm                     1,024.41 kB │ gzip:   400.45 kB
+spikes/player-chunks/out/player/assets/myco_audio_decode_aac-N8oHFVx0.wasm                 1,348.63 kB │ gzip:   507.79 kB
+spikes/player-chunks/out/player/assets/myco_nav_bg-DJvX6DhM.wasm                           1,880.04 kB │ gzip:   683.93 kB
+spikes/player-chunks/out/player/assets/mesh-wUE6T7Ex.js                                        0.05 kB │ gzip:     0.07 kB
+spikes/player-chunks/out/player/assets/random-BYM2g6Rm.js                                      0.07 kB │ gzip:     0.08 kB
+spikes/player-chunks/out/player/assets/processor-BnzkyS2t.js                                   0.08 kB │ gzip:     0.09 kB
+spikes/player-chunks/out/player/assets/shaderLanguage-CsgORKnQ.js                              0.08 kB │ gzip:     0.09 kB
+spikes/player-chunks/out/player/assets/uiWarm-B4_sp8K7.js                                      0.09 kB │ gzip:     0.11 kB
+spikes/player-chunks/out/player/assets/baseTexture-Dn2hL0Gd.js                                 0.10 kB │ gzip:     0.10 kB
+spikes/player-chunks/out/player/assets/abstractAudioBus-Bxa6oxgj.js                            0.11 kB │ gzip:     0.13 kB
+spikes/player-chunks/out/player/assets/spriteClaims-DnLe_VMZ.js                                0.13 kB │ gzip:     0.12 kB
+spikes/player-chunks/out/player/assets/rolldown-runtime-DK3Fl9T5.js                            0.15 kB │ gzip:     0.15 kB
+spikes/player-chunks/out/player/assets/manifest-Z7rIoZem.js                                    0.17 kB │ gzip:     0.14 kB
+spikes/player-chunks/out/player/assets/types-Sl-NVeqM.js                                       0.18 kB │ gzip:     0.14 kB
+spikes/player-chunks/out/player/assets/manifest-SHybGQwa.js                                    0.18 kB │ gzip:     0.16 kB
+spikes/player-chunks/out/player/assets/engineLifecycle-DizP8ZMi.js                             0.19 kB │ gzip:     0.17 kB
+spikes/player-chunks/out/player/assets/kernelBlurVaryingDeclaration-Cj8YNhTF.js                0.21 kB │ gzip:     0.18 kB
+spikes/player-chunks/out/player/assets/kernelBlurVaryingDeclaration-B95SGz0D.js                0.22 kB │ gzip:     0.18 kB
+spikes/player-chunks/out/player/assets/pointCloudVertex-BFUHI6gG.js                            0.25 kB │ gzip:     0.21 kB
+spikes/player-chunks/out/player/assets/meshUboDeclaration-DarS-p8n.js                          0.28 kB │ gzip:     0.23 kB
+spikes/player-chunks/out/player/assets/mycoMaterialPlugin-TM0wWWOU.js                          0.29 kB │ gzip:     0.23 kB
+spikes/player-chunks/out/player/assets/changeDetection-DkMhNedI.js                             0.29 kB │ gzip:     0.21 kB
+spikes/player-chunks/out/player/assets/uniqueName-Dq8PF2ph.js                                  0.29 kB │ gzip:     0.21 kB
+spikes/player-chunks/out/player/assets/pass.fragment-Cdj-Nne1.js                               0.32 kB │ gzip:     0.25 kB
+spikes/player-chunks/out/player/assets/sceneVertexDeclaration-ctAjvHN1.js                      0.33 kB │ gzip:     0.22 kB
+spikes/player-chunks/out/player/assets/dist-js-8m6AwIwK.js                                     0.33 kB │ gzip:     0.21 kB
+spikes/player-chunks/out/player/assets/meshUboDeclaration-DRGCbai4.js                          0.34 kB │ gzip:     0.26 kB
+spikes/player-chunks/out/player/assets/oitBackBlend.fragment-it0Xmm1O.js                       0.35 kB │ gzip:     0.25 kB
+spikes/player-chunks/out/player/assets/Transport-DFoFv_aw.js                                   0.35 kB │ gzip:     0.24 kB
+spikes/player-chunks/out/player/assets/lightProxy.fragment-CKrHiKSo.js                         0.36 kB │ gzip:     0.25 kB
+spikes/player-chunks/out/player/assets/sceneUboDeclaration-CqTM1qeI.js                         0.36 kB │ gzip:     0.26 kB
+spikes/player-chunks/out/player/assets/shadowMapFragmentSoftTransparentShadow-cDEB4pmb.js      0.37 kB │ gzip:     0.27 kB
+spikes/player-chunks/out/player/assets/clearQuad.fragment-BnGsSs2S.js                          0.38 kB │ gzip:     0.26 kB
+spikes/player-chunks/out/player/assets/oitFinalSimpleBlend.fragment-DcPCUbwX.js                0.38 kB │ gzip:     0.26 kB
+spikes/player-chunks/out/player/assets/fresnelFunction-BbAx8wzW.js                             0.40 kB │ gzip:     0.28 kB
+spikes/player-chunks/out/player/assets/shadowMapFragmentSoftTransparentShadow-DoVyTR-X.js      0.40 kB │ gzip:     0.29 kB
+spikes/player-chunks/out/player/assets/oitBackBlend.fragment-mK1Nmo4q.js                       0.42 kB │ gzip:     0.28 kB
+spikes/player-chunks/out/player/assets/sceneUboDeclaration-CLIuPI1I.js                         0.44 kB │ gzip:     0.28 kB
+spikes/player-chunks/out/player/assets/simd-CqLfu7XL.js                                        0.44 kB │ gzip:     0.31 kB
+spikes/player-chunks/out/player/assets/logDepthDeclaration-BwcpktXN.js                         0.45 kB │ gzip:     0.29 kB
+spikes/player-chunks/out/player/assets/oitFinalSimpleBlend.fragment-CRD0rQrD.js                0.45 kB │ gzip:     0.29 kB
+spikes/player-chunks/out/player/assets/logDepthDeclaration-BNcpnp5m.js                         0.46 kB │ gzip:     0.29 kB
+spikes/player-chunks/out/player/assets/procedural.vertex-Csn2nCTR.js                           0.47 kB │ gzip:     0.30 kB
+spikes/player-chunks/out/player/assets/decalFragment-UT5tIa6b.js                               0.48 kB │ gzip:     0.28 kB
+spikes/player-chunks/out/player/assets/bloomMerge.fragment-C4lm8UJD.js                         0.49 kB │ gzip:     0.31 kB
+spikes/player-chunks/out/player/assets/iblCdfx.fragment-C0ptPca1.js                            0.50 kB │ gzip:     0.35 kB
+spikes/player-chunks/out/player/assets/hdrFiltering.vertex-CuKoRurb.js                         0.51 kB │ gzip:     0.32 kB
+spikes/player-chunks/out/player/assets/rgbdEncode.fragment-Bb_y5H1y.js                         0.51 kB │ gzip:     0.34 kB
+spikes/player-chunks/out/player/assets/rgbdDecode.fragment-BlwDFaxs.js                         0.52 kB │ gzip:     0.35 kB
+spikes/player-chunks/out/player/assets/postprocess.vertex-D9inZU01.js                          0.53 kB │ gzip:     0.35 kB
+spikes/player-chunks/out/player/assets/hdrIrradianceFiltering.vertex-DsAi7ldd.js               0.53 kB │ gzip:     0.33 kB
+spikes/player-chunks/out/player/assets/packingFunctions-CLMbk3_y.js                            0.53 kB │ gzip:     0.29 kB
+spikes/player-chunks/out/player/assets/depthBoxBlur.fragment-Ch2u-1wR.js                       0.53 kB │ gzip:     0.35 kB
+spikes/player-chunks/out/player/assets/hdrTextureLoader-C9P7IafZ.js                            0.54 kB │ gzip:     0.39 kB
+spikes/player-chunks/out/player/assets/sortOrder-DFpFjGwS.js                                   0.56 kB │ gzip:     0.33 kB
+spikes/player-chunks/out/player/assets/packingFunctions-CviHdhGX.js                            0.56 kB │ gzip:     0.31 kB
+spikes/player-chunks/out/player/assets/iblCdfx.fragment-Dg2CNpwi.js                            0.56 kB │ gzip:     0.38 kB
+spikes/player-chunks/out/player/assets/ssaoCombine.fragment-B4bM5vlF.js                        0.57 kB │ gzip:     0.33 kB
+spikes/player-chunks/out/player/assets/layer.vertex-hoB-zN03.js                                0.58 kB │ gzip:     0.35 kB
+spikes/player-chunks/out/player/assets/clearQuad.vertex-Dq7Uwm76.js                            0.61 kB │ gzip:     0.38 kB
+spikes/player-chunks/out/player/assets/procedural.vertex-BhxL0wHu.js                           0.61 kB │ gzip:     0.34 kB
+spikes/player-chunks/out/player/assets/envTextureLoader-IYNiViRt.js                            0.63 kB │ gzip:     0.40 kB
+spikes/player-chunks/out/player/assets/keyframeLayout-BOBBUvxk.js                              0.65 kB │ gzip:     0.43 kB
+spikes/player-chunks/out/player/assets/postprocess.vertex-DpxF1u5A.js                          0.65 kB │ gzip:     0.40 kB
+spikes/player-chunks/out/player/assets/rgbdEncode.fragment-D-mJ5Imq.js                         0.65 kB │ gzip:     0.38 kB
+spikes/player-chunks/out/player/assets/hdrFiltering.vertex-D9F2_N-X.js                         0.66 kB │ gzip:     0.37 kB
+spikes/player-chunks/out/player/assets/rgbdDecode.fragment-BTLb3FxS.js                         0.66 kB │ gzip:     0.39 kB
+spikes/player-chunks/out/player/assets/lightProxy.fragment-B1qYTFmF.js                         0.67 kB │ gzip:     0.37 kB
+spikes/player-chunks/out/player/assets/extractHighlights.fragment-FiN96eyZ.js                  0.68 kB │ gzip:     0.40 kB
+spikes/player-chunks/out/player/assets/hdrIrradianceFiltering.vertex-CK7o2UlA.js               0.68 kB │ gzip:     0.37 kB
+spikes/player-chunks/out/player/assets/depthBoxBlur.fragment-TJ5RUsrl.js                       0.71 kB │ gzip:     0.42 kB
+spikes/player-chunks/out/player/assets/layer.vertex-vJj-q2Pu.js                                0.72 kB │ gzip:     0.41 kB
+spikes/player-chunks/out/player/assets/records-DjXBns_N.js                                     0.74 kB │ gzip:     0.40 kB
+spikes/player-chunks/out/player/assets/bloomMerge.fragment-CXgQbe8b.js                         0.74 kB │ gzip:     0.38 kB
+spikes/player-chunks/out/player/assets/vertexColorMixing-87FfBARn.js                           0.75 kB │ gzip:     0.38 kB
+spikes/player-chunks/out/player/assets/clusteredLightingFunctions-DmYk3m8R.js                  0.76 kB │ gzip:     0.35 kB
+spikes/player-chunks/out/player/assets/path-Ctgy2Zh1.js                                        0.77 kB │ gzip:     0.40 kB
+spikes/player-chunks/out/player/assets/buffer-BJUupkHM.js                                      0.79 kB │ gzip:     0.36 kB
+spikes/player-chunks/out/player/assets/clusteredLightingFunctions-DmRlatbg.js                  0.79 kB │ gzip:     0.35 kB
+spikes/player-chunks/out/player/assets/hdrFiltering.fragment-DNinLexG.js                       0.80 kB │ gzip:     0.42 kB
+spikes/player-chunks/out/player/assets/ssaoCombine.fragment-BcYSHBg2.js                        0.81 kB │ gzip:     0.40 kB
+spikes/player-chunks/out/player/assets/resolve-kaNojfGl.js                                     0.81 kB │ gzip:     0.48 kB
+spikes/player-chunks/out/player/assets/circleOfConfusion.fragment-CgZQ6zDI.js                  0.81 kB │ gzip:     0.46 kB
+spikes/player-chunks/out/player/assets/copyTextureToTexture.fragment-DZ32ZwBr.js               0.82 kB │ gzip:     0.45 kB
+spikes/player-chunks/out/player/assets/layer.fragment-amLiWhpA.js                              0.82 kB │ gzip:     0.46 kB
+spikes/player-chunks/out/player/assets/takeOwnership-BwFOHW8r.js                               0.85 kB │ gzip:     0.52 kB
+spikes/player-chunks/out/player/assets/kernelBlur.vertex-CVgbEPzx.js                           0.89 kB │ gzip:     0.47 kB
+spikes/player-chunks/out/player/assets/extractHighlights.fragment-BNpFvzVq.js                  0.89 kB │ gzip:     0.47 kB
+spikes/player-chunks/out/player/assets/tauriDiscovery-BMitKxnR.js                              0.90 kB │ gzip:     0.49 kB
+spikes/player-chunks/out/player/assets/webAudioMainBus-BvQibi2C.js                             0.91 kB │ gzip:     0.41 kB
+spikes/player-chunks/out/player/assets/mesh.vertexData.functions-CD4JOR2q.js                   0.93 kB │ gzip:     0.48 kB
+spikes/player-chunks/out/player/assets/color.fragment-Cmlwi0Hl.js                              0.93 kB │ gzip:     0.44 kB
+spikes/player-chunks/out/player/assets/hdrIrradianceFiltering.fragment-3XGIktez.js             0.93 kB │ gzip:     0.47 kB
+spikes/player-chunks/out/player/assets/instancesDeclaration-C0K5KedO.js                        0.93 kB │ gzip:     0.34 kB
+spikes/player-chunks/out/player/assets/layer.fragment-C1CZKFll.js                              0.97 kB │ gzip:     0.51 kB
+spikes/player-chunks/out/player/assets/hdrFiltering.fragment-BGA7iap2.js                       0.98 kB │ gzip:     0.48 kB
+spikes/player-chunks/out/player/assets/iblScaledLuminance.fragment-CDEbSMPc.js                 0.99 kB │ gzip:     0.52 kB
+spikes/player-chunks/out/player/assets/circleOfConfusion.fragment-D_d3Edgq.js                  0.99 kB │ gzip:     0.52 kB
+spikes/player-chunks/out/player/assets/fxaa.vertex-DIAh9-22.js                                 1.00 kB │ gzip:     0.39 kB
+spikes/player-chunks/out/player/assets/vertexColorMixing-CKuIJxEJ.js                           1.00 kB │ gzip:     0.44 kB
+spikes/player-chunks/out/player/assets/iblDominantDirection.fragment-B5tLdDZe.js               1.02 kB │ gzip:     0.55 kB
+spikes/player-chunks/out/player/assets/color.fragment-COu3cg2_.js                              1.04 kB │ gzip:     0.47 kB
+spikes/player-chunks/out/player/assets/debugOverlay-Bv1AHvQZ.js                                1.04 kB │ gzip:     0.63 kB
+spikes/player-chunks/out/player/assets/instancesDeclaration-5r3Lm3hY.js                        1.04 kB │ gzip:     0.36 kB
+spikes/player-chunks/out/player/assets/wireRecords-CLtpIQ2j.js                                 1.05 kB │ gzip:     0.44 kB
+spikes/player-chunks/out/player/assets/kernelBlur.vertex-OHsYoe_9.js                           1.05 kB │ gzip:     0.51 kB
+spikes/player-chunks/out/player/assets/copyTextureToTexture.fragment-B_fbor8C.js               1.08 kB │ gzip:     0.53 kB
+spikes/player-chunks/out/player/assets/fogFragment-BLwiUB8Q.js                                 1.08 kB │ gzip:     0.49 kB
+spikes/player-chunks/out/player/assets/engine.dynamicTexture.pure-CGQZvk7l.js                  1.09 kB │ gzip:     0.60 kB
+spikes/player-chunks/out/player/assets/iblScaledLuminance.fragment-CmxqUOmR.js                 1.14 kB │ gzip:     0.55 kB
+spikes/player-chunks/out/player/assets/planeBuilder.pure-CBF8rOXB.js                           1.14 kB │ gzip:     0.57 kB
+spikes/player-chunks/out/player/assets/engineGate-D-6abszQ.js                                  1.15 kB │ gzip:     0.70 kB
+spikes/player-chunks/out/player/assets/iblDominantDirection.fragment-CgiD8pA8.js               1.15 kB │ gzip:     0.58 kB
+spikes/player-chunks/out/player/assets/hdrIrradianceFiltering.fragment-fZp1j-vu.js             1.16 kB │ gzip:     0.54 kB
+spikes/player-chunks/out/player/assets/clipPlaneFragment-Kc0B33EC.js                           1.17 kB │ gzip:     0.36 kB
+spikes/player-chunks/out/player/assets/depth.fragment-LFCFzMqk.js                              1.18 kB │ gzip:     0.55 kB
+spikes/player-chunks/out/player/assets/indexedDbRecords-BcOZS085.js                            1.20 kB │ gzip:     0.60 kB
+spikes/player-chunks/out/player/assets/probe-C1ZajtR8.js                                       1.20 kB │ gzip:     0.69 kB
+spikes/player-chunks/out/player/assets/fogFragment-DrTxDOpL.js                                 1.21 kB │ gzip:     0.54 kB
+spikes/player-chunks/out/player/assets/dist-js-B4DZ4_3P.js                                     1.24 kB │ gzip:     0.48 kB
+spikes/player-chunks/out/player/assets/iblCdfy.fragment-DlznY9bv.js                            1.26 kB │ gzip:     0.64 kB
+spikes/player-chunks/out/player/assets/defaultUboDeclaration-BP-lDeBj.js                       1.26 kB │ gzip:     0.55 kB
+spikes/player-chunks/out/player/assets/iblCdfy.fragment-CBZhjPQi.js                            1.27 kB │ gzip:     0.65 kB
+spikes/player-chunks/out/player/assets/ddsTextureLoader-Bj68STkH.js                            1.27 kB │ gzip:     0.62 kB
+spikes/player-chunks/out/player/assets/clipPlaneFragment-Bb79Xs68.js                           1.27 kB │ gzip:     0.37 kB
+spikes/player-chunks/out/player/assets/depth.fragment-DJAarZLn.js                              1.40 kB │ gzip:     0.60 kB
+spikes/player-chunks/out/player/assets/fxaa.vertex-Cfdb4jlN.js                                 1.44 kB │ gzip:     0.45 kB
+spikes/player-chunks/out/player/assets/abstractSoundSource-DIVfBvyO.js                         1.48 kB │ gzip:     0.48 kB
+spikes/player-chunks/out/player/assets/color.vertex-BhvyurSx.js                                1.48 kB │ gzip:     0.64 kB
+spikes/player-chunks/out/player/assets/unlock-BZ6mk76m.js                                      1.49 kB │ gzip:     0.55 kB
+spikes/player-chunks/out/player/assets/color.vertex-OYn0Td6D.js                                1.51 kB │ gzip:     0.65 kB
+spikes/player-chunks/out/player/assets/preload-helper-CRzLMJPS.js                              1.53 kB │ gzip:     0.80 kB
+spikes/player-chunks/out/player/assets/chromaticAberration.fragment-D-I2MGRe.js                1.53 kB │ gzip:     0.59 kB
+spikes/player-chunks/out/player/assets/textHash-AxtfEc3A.js                                    1.61 kB │ gzip:     0.96 kB
+spikes/player-chunks/out/player/assets/defaultUboDeclaration-B3ZfQyPV.js                       1.62 kB │ gzip:     0.53 kB
+spikes/player-chunks/out/player/assets/topic-DQBxT-Rq.js                                       1.64 kB │ gzip:     0.85 kB
+spikes/player-chunks/out/player/assets/depthOfFieldMerge.fragment-CRqwmehS.js                  1.69 kB │ gzip:     0.56 kB
+spikes/player-chunks/out/player/assets/feature-B-11POG-.js                                     1.80 kB │ gzip:     0.91 kB
+spikes/player-chunks/out/player/assets/chromaticAberration.fragment-C7gun3QT.js                1.89 kB │ gzip:     0.67 kB
+spikes/player-chunks/out/player/assets/lightProxy.vertex-Cm7O2KWz.js                           2.09 kB │ gzip:     0.88 kB
+spikes/player-chunks/out/player/assets/lightProxy.vertex-B1Pkk5qS.js                           2.09 kB │ gzip:     0.87 kB
+spikes/player-chunks/out/player/assets/polygon-BvY1p9T5.js                                     2.15 kB │ gzip:     0.96 kB
+spikes/player-chunks/out/player/assets/webAudioBus-52rDjsrb.js                                 2.27 kB │ gzip:     0.74 kB
+spikes/player-chunks/out/player/assets/depth.vertex-CqloPDlE.js                                2.28 kB │ gzip:     0.89 kB
+spikes/player-chunks/out/player/assets/kernelBlur.fragment-C3bp67Mq.js                         2.30 kB │ gzip:     0.77 kB
+spikes/player-chunks/out/player/assets/depthOfFieldMerge.fragment-CUh9ReWN.js                  2.30 kB │ gzip:     0.57 kB
+spikes/player-chunks/out/player/assets/webAudioSoundSource-C3XPZq8r.js                         2.31 kB │ gzip:     0.81 kB
+spikes/player-chunks/out/player/assets/depth.vertex-CsiTmAdm.js                                2.35 kB │ gzip:     0.87 kB
+spikes/player-chunks/out/player/assets/minmaxRedux.fragment-VyLyKO4z.js                        2.36 kB │ gzip:     0.69 kB
+spikes/player-chunks/out/player/assets/iesTextureLoader-BXtIqLOz.js                            2.46 kB │ gzip:     1.07 kB
+spikes/player-chunks/out/player/assets/iblIcdf.fragment-CLwH2tXC.js                            2.56 kB │ gzip:     0.99 kB
+spikes/player-chunks/out/player/assets/iblCdfDebug.fragment-rHHDrcIf.js                        2.68 kB │ gzip:     0.96 kB
+spikes/player-chunks/out/player/assets/TauriFileSystem-DHWHHlz1.js                             2.71 kB │ gzip:     0.86 kB
+spikes/player-chunks/out/player/assets/minmaxRedux.fragment-BK_iMQQf.js                        2.83 kB │ gzip:     0.81 kB
+spikes/player-chunks/out/player/assets/kernelBlur.fragment-c25LhtxI.js                         2.84 kB │ gzip:     0.85 kB
+spikes/player-chunks/out/player/assets/harmonicsFunctions-DasMcYTU.js                          2.87 kB │ gzip:     1.03 kB
+spikes/player-chunks/out/player/assets/curve-D1c1PWHC.js                                       2.92 kB │ gzip:     1.34 kB
+spikes/player-chunks/out/player/assets/iblIcdf.fragment-cA1MdoyA.js                            2.95 kB │ gzip:     1.05 kB
+spikes/player-chunks/out/player/assets/core-4FvhsVxL.js                                        2.96 kB │ gzip:     1.19 kB
+spikes/player-chunks/out/player/assets/iblCdfDebug.fragment-BRfB0Vic.js                        3.05 kB │ gzip:     1.00 kB
+spikes/player-chunks/out/player/assets/abstractSoundInstance-Cbx96b3X.js                       3.07 kB │ gzip:     0.89 kB
+spikes/player-chunks/out/player/assets/config-CW7mFTLf.js                                      3.25 kB │ gzip:     1.34 kB
+spikes/player-chunks/out/player/assets/shadowMap.fragment-BMN2kGOu.js                          3.30 kB │ gzip:     1.16 kB
+spikes/player-chunks/out/player/assets/pbrInjection-pUDrMvOB.js                                3.35 kB │ gzip:     1.10 kB
+spikes/player-chunks/out/player/assets/tgaTextureLoader-B_ydLuir.js                            3.41 kB │ gzip:     1.35 kB
+spikes/player-chunks/out/player/assets/tween-CZu1NoS0.js                                       3.47 kB │ gzip:     1.05 kB
+spikes/player-chunks/out/player/assets/myco_input-BmHPzcBN.js                                  3.53 kB │ gzip:     1.50 kB
+spikes/player-chunks/out/player/assets/trigger-C8oOJbBN.js                                     3.59 kB │ gzip:     1.83 kB
+spikes/player-chunks/out/player/assets/cubemapToSphericalPolynomial-K3XzKpZC.js                3.66 kB │ gzip:     1.61 kB
+spikes/player-chunks/out/player/assets/takeRecord-DAJwpqD0.js                                  3.67 kB │ gzip:     1.63 kB
+spikes/player-chunks/out/player/assets/harmonicsFunctions-DSVlvMdS.js                          3.76 kB │ gzip:     1.05 kB
+spikes/player-chunks/out/player/assets/dumpTools.pure-DSQcdYMZ.js                              3.79 kB │ gzip:     1.79 kB
+spikes/player-chunks/out/player/assets/shadowMap.fragment-A18xv-aY.js                          3.86 kB │ gzip:     1.25 kB
+spikes/player-chunks/out/player/assets/volumeRenderer-c0VDvSOh.js                              3.89 kB │ gzip:     1.80 kB
+spikes/player-chunks/out/player/assets/myco_layout-ONiNm05U.js                                 3.94 kB │ gzip:     1.54 kB
+spikes/player-chunks/out/player/assets/tween-BykWkN_T.js                                       4.05 kB │ gzip:     0.84 kB
+spikes/player-chunks/out/player/assets/generatorRender-CohyQp3N.js                             4.07 kB │ gzip:     1.89 kB
+spikes/player-chunks/out/player/assets/formParts-D7Y2oDGH.js                                   4.14 kB │ gzip:     1.77 kB
+spikes/player-chunks/out/player/assets/standalone-B77SI9QM.js                                  4.18 kB │ gzip:     1.57 kB
+spikes/player-chunks/out/player/assets/morphTargetsVertex-DJvESn3R.js                          4.38 kB │ gzip:     0.99 kB
+spikes/player-chunks/out/player/assets/tauriRecords-BJbpttpQ.js                                4.48 kB │ gzip:     1.78 kB
+spikes/player-chunks/out/player/assets/MTLLoader-Cxyc9Jyi.js                                   4.50 kB │ gzip:     1.78 kB
+spikes/player-chunks/out/player/assets/shadowMap.vertex-CgbNW5Re.js                            4.72 kB │ gzip:     1.59 kB
+spikes/player-chunks/out/player/assets/AnimationWorldCore-CHsI2z1p.js                          4.73 kB │ gzip:     1.79 kB
+spikes/player-chunks/out/player/assets/instancesVertex-Bl8xyJuZ.js                             4.73 kB │ gzip:     1.09 kB
+spikes/player-chunks/out/player/assets/fxAutomation-gznNXfO-.js                                4.79 kB │ gzip:     1.95 kB
+spikes/player-chunks/out/player/assets/shadowMap.vertex-BnzSp6xH.js                            4.79 kB │ gzip:     1.54 kB
+spikes/player-chunks/out/player/assets/clipPlaneVertex-CR5Nv8gY.js                             5.12 kB │ gzip:     1.06 kB
+spikes/player-chunks/out/player/assets/save-ByLX2nz0.js                                        5.12 kB │ gzip:     2.39 kB
+spikes/player-chunks/out/player/assets/Storage-CjZVsLEL.js                                     5.14 kB │ gzip:     2.08 kB
+spikes/player-chunks/out/player/assets/myco_tween-BgkmE2eh.js                                  5.20 kB │ gzip:     1.77 kB
+spikes/player-chunks/out/player/assets/ssao2.fragment-DHqd0x_K.js                              5.36 kB │ gzip:     1.70 kB
+spikes/player-chunks/out/player/assets/fxaa.fragment-B6d9ifLh.js                               5.55 kB │ gzip:     1.66 kB
+spikes/player-chunks/out/player/assets/sphericalPolynomial.pure-BXiuPUlu.js                    5.73 kB │ gzip:     1.35 kB
+spikes/player-chunks/out/player/assets/host-CbM8QW8X.js                                        5.86 kB │ gzip:     2.40 kB
+spikes/player-chunks/out/player/assets/paintValues-BDvRMOc_.js                                 5.88 kB │ gzip:     2.55 kB
+spikes/player-chunks/out/player/assets/decalRenderer-CXAB6sZc.js                               6.15 kB │ gzip:     2.66 kB
+spikes/player-chunks/out/player/assets/spritesFeature-vuWaSfPe.js                              6.25 kB │ gzip:     2.74 kB
+spikes/player-chunks/out/player/assets/morphTargetsVertex-BKoFKe3O.js                          6.40 kB │ gzip:     1.16 kB
+spikes/player-chunks/out/player/assets/fxaa.fragment-COCX6piK.js                               6.43 kB │ gzip:     1.72 kB
+spikes/player-chunks/out/player/assets/helperFunctions-CO-B20q1.js                             6.49 kB │ gzip:     2.19 kB
+spikes/player-chunks/out/player/assets/meshesFeature-DWtu2xb_.js                               6.63 kB │ gzip:     2.63 kB
+spikes/player-chunks/out/player/assets/mixOpCodec-DVm5iDdo.js                                  6.69 kB │ gzip:     2.46 kB
+spikes/player-chunks/out/player/assets/helperFunctions-jZxVq7cU.js                             6.81 kB │ gzip:     2.31 kB
+spikes/player-chunks/out/player/assets/ssao2.fragment-CQ2O0YV8.js                              6.86 kB │ gzip:     1.87 kB
+spikes/player-chunks/out/player/assets/dist-js-CcuBBjJx.js                                     6.88 kB │ gzip:     1.77 kB
+spikes/player-chunks/out/player/assets/dds.pure-BxojZQku.js                                    6.89 kB │ gzip:     2.52 kB
+spikes/player-chunks/out/player/assets/mediaQuery-KNApVkPw.js                                  7.09 kB │ gzip:     3.00 kB
+spikes/player-chunks/out/player/assets/linesRenderer-Br7qbjOt.js                               7.33 kB │ gzip:     3.24 kB
+spikes/player-chunks/out/player/myco.js                                                        7.41 kB │ gzip:     3.28 kB
+spikes/player-chunks/out/player/assets/webgl2-Tbrx3xTS.js                                      7.65 kB │ gzip:     2.98 kB
+spikes/player-chunks/out/player/assets/logDepthVertex-DftJ7wGj.js                              7.84 kB │ gzip:     1.98 kB
+spikes/player-chunks/out/player/assets/default.vertex-Ch9feXyj.js                              7.90 kB │ gzip:     2.21 kB
+spikes/player-chunks/out/player/assets/basisTextureLoader-FIRxEy0S.js                          8.17 kB │ gzip:     3.19 kB
+spikes/player-chunks/out/player/assets/webAudioStreamingSound-1Gen-6xC.js                      8.33 kB │ gzip:     2.40 kB
+spikes/player-chunks/out/player/assets/webAudioBaseSubGraph-CXxrUTZY.js                        8.47 kB │ gzip:     2.10 kB
+spikes/player-chunks/out/player/assets/hdrFilteringFunctions-CJfPxPZA.js                       8.63 kB │ gzip:     2.56 kB
+spikes/player-chunks/out/player/assets/hdrFilteringFunctions-Yh94i8J5.js                       8.69 kB │ gzip:     2.51 kB
+spikes/player-chunks/out/player/assets/clipPlaneVertex-Dv0IzgN1.js                             8.82 kB │ gzip:     1.81 kB
+spikes/player-chunks/out/player/assets/events-exb25_iv.js                                      8.86 kB │ gzip:     3.42 kB
+spikes/player-chunks/out/player/assets/OBJLoader-DwcWgoiX.js                                   8.88 kB │ gzip:     2.92 kB
+spikes/player-chunks/out/player/assets/tilemapRenderer-Dhw8gCjg.js                             9.15 kB │ gzip:     4.09 kB
+spikes/player-chunks/out/player/assets/WaterSurface-C8tr3DPk.js                                9.15 kB │ gzip:     3.74 kB
+spikes/player-chunks/out/player/assets/webAudioStaticSound-BJqUlA-p.js                         9.37 kB │ gzip:     2.55 kB
+spikes/player-chunks/out/player/assets/default.vertex-Dy8gPbYO.js                              9.39 kB │ gzip:     2.41 kB
+spikes/player-chunks/out/player/assets/environmentTextureTools.pure-CD_4MTkZ.js                9.47 kB │ gzip:     3.79 kB
+spikes/player-chunks/out/player/assets/topic-DNoJX2b1.js                                       9.47 kB │ gzip:     3.84 kB
+spikes/player-chunks/out/player/assets/waterFeature-B0Atw8SE.js                                9.50 kB │ gzip:     3.74 kB
+spikes/player-chunks/out/player/assets/renderFeature-Bd4EDEsf.js                               9.57 kB │ gzip:     4.15 kB
+spikes/player-chunks/out/player/assets/takeRecorder-2EJZJNd1.js                                9.65 kB │ gzip:     3.75 kB
+spikes/player-chunks/out/player/assets/recorder-C-lD5XE2.js                                    9.85 kB │ gzip:     3.59 kB
+spikes/player-chunks/out/player/assets/audioEffects-B2L7oRL3.js                                9.86 kB │ gzip:     3.97 kB
+spikes/player-chunks/out/player/myco-ui-host.js                                                9.93 kB │ gzip:     4.46 kB
+spikes/player-chunks/out/player/assets/player-DYUlSDKN.js                                      9.98 kB │ gzip:     4.30 kB
+spikes/player-chunks/out/player/assets/catalogue-D1QCXfs7.js                                  10.06 kB │ gzip:     3.56 kB
+spikes/player-chunks/out/player/assets/renderFeature-COgOs68D.js                              10.14 kB │ gzip:     3.91 kB
+spikes/player-chunks/out/player/assets/targets-ByAm9wKj.js                                    11.20 kB │ gzip:     4.29 kB
+spikes/player-chunks/out/player/assets/instancedMesh-CbVSKwiO.js                              11.61 kB │ gzip:     3.06 kB
+spikes/player-chunks/out/player/assets/constants-_wyaM_ID.js                                  11.77 kB │ gzip:     3.19 kB
+spikes/player-chunks/out/player/assets/pbrBRDFFunctions-UECVUoZK.js                           11.93 kB │ gzip:     4.14 kB
+spikes/player-chunks/out/player/assets/myco_anim-CiFNYkr0.js                                  11.95 kB │ gzip:     3.27 kB
+spikes/player-chunks/out/player/assets/engine-CuB09VY4.js                                     12.36 kB │ gzip:     4.21 kB
+spikes/player-chunks/out/player/assets/pbrBRDFFunctions-CvJpkBAK.js                           12.76 kB │ gzip:     4.32 kB
+spikes/player-chunks/out/player/assets/gltf-nx9n1VV_.js                                       13.65 kB │ gzip:     5.32 kB
+spikes/player-chunks/out/player/assets/thinInstanceMesh-Bhudfn6-.js                           14.09 kB │ gzip:     3.03 kB
+spikes/player-chunks/out/player/assets/spatialWebAudio-BSjRl6yH.js                            14.10 kB │ gzip:     3.20 kB
+spikes/player-chunks/out/player/assets/pbr.vertex-CYUU5VR5.js                                 14.35 kB │ gzip:     3.04 kB
+spikes/player-chunks/out/player/assets/Locale--tUr5jjL.js                                     14.71 kB │ gzip:     5.88 kB
+spikes/player-chunks/out/player/assets/tauriListener-CFBP77kX.js                              15.58 kB │ gzip:     5.55 kB
+spikes/player-chunks/out/player/assets/baseTexture.pure-CyGvTsCH.js                           15.84 kB │ gzip:     4.06 kB
+spikes/player-chunks/out/player/assets/myco_nav-B1x2MCNI.js                                   16.15 kB │ gzip:     3.71 kB
+spikes/player-chunks/out/player/assets/ktxTextureLoader-BMLukQDc.js                           16.38 kB │ gzip:     4.80 kB
+spikes/player-chunks/out/player/assets/effectGlue-CNi6DDEE.js                                 16.82 kB │ gzip:     6.43 kB
+spikes/player-chunks/out/player/assets/pbr.vertex-DzjNISNl.js                                 16.86 kB │ gzip:     3.55 kB
+spikes/player-chunks/out/player/assets/handle-DdXpBd4s.js                                     17.86 kB │ gzip:     5.62 kB
+spikes/player-chunks/out/player/assets/context-DmqaFDKg.js                                    18.06 kB │ gzip:     6.43 kB
+spikes/player-chunks/out/player/assets/loader-B0-pvFrM.js                                     19.19 kB │ gzip:     6.47 kB
+spikes/player-chunks/out/player/assets/rooms-CghGcBia.js                                      19.27 kB │ gzip:     6.55 kB
+spikes/player-chunks/out/player/assets/shaderSource-GOdNssXo.js                               19.31 kB │ gzip:     7.48 kB
+spikes/player-chunks/out/player/assets/host-CFa8DNng.js                                       20.69 kB │ gzip:     7.83 kB
+spikes/player-chunks/out/player/assets/format-Bnos1ERU.js                                     20.86 kB │ gzip:     7.42 kB
+spikes/player-chunks/out/player/assets/skinRuns-CgQROP6G.js                                   20.92 kB │ gzip:     6.77 kB
+spikes/player-chunks/out/player/assets/skyFeature-LTiFYuK6.js                                 22.25 kB │ gzip:     8.37 kB
+spikes/player-chunks/out/player/assets/NavigationWorld-D8RM0cjj.js                            22.83 kB │ gzip:     7.46 kB
+spikes/player-chunks/out/player/assets/webAudioEngine-BRhefaVy.js                             22.86 kB │ gzip:     6.74 kB
+spikes/player-chunks/out/player/assets/logDepthVertex-BtQCT47y.js                             22.91 kB │ gzip:     3.78 kB
+spikes/player-chunks/out/player/assets/heightFog-B2rcML7q.js                                  23.17 kB │ gzip:     6.17 kB
+spikes/player-chunks/out/player/assets/worldServices-BIF1cF5G.js                              23.41 kB │ gzip:     8.63 kB
+spikes/player-chunks/out/player/assets/default.fragment-CIuMdsgV.js                           25.32 kB │ gzip:     5.96 kB
+spikes/player-chunks/out/player/assets/default.fragment-B8e6hUuh.js                           26.03 kB │ gzip:     5.81 kB
+spikes/player-chunks/out/player/assets/meshopt_decoder.module-DXTYc6wn.js                     26.48 kB │ gzip:     7.26 kB
+spikes/player-chunks/out/player/assets/effectRenderer-CHIn3mWm.js                             31.70 kB │ gzip:     8.75 kB
+spikes/player-chunks/out/player/assets/settings-Cvui0MlA.js                                   35.67 kB │ gzip:    11.48 kB
+spikes/player-chunks/out/player/assets/Assets-CkLpN6bV.js                                     37.02 kB │ gzip:    12.52 kB
+spikes/player-chunks/out/player/assets/bones-BMFqhkcN.js                                      37.19 kB │ gzip:    13.75 kB
+spikes/player-chunks/out/player/assets/core-VnnOZgJr.js                                       37.68 kB │ gzip:    12.29 kB
+spikes/player-chunks/out/player/assets/wire.generated-C81mvRAt.js                             41.14 kB │ gzip:     9.23 kB
+spikes/player-chunks/out/player/assets/format-CKGw24sJ.js                                     42.60 kB │ gzip:    14.17 kB
+spikes/player-chunks/out/player/assets/tools.pure-DQDQI2_E.js                                 42.67 kB │ gzip:    14.23 kB
+spikes/player-chunks/out/player/assets/backend-CWKVAh3g.js                                    45.44 kB │ gzip:    14.84 kB
+spikes/player-chunks/out/player/assets/GLTFLoader-Cb5OHE5p.js                                 47.18 kB │ gzip:    13.81 kB
+spikes/player-chunks/out/player/assets/preferences-CuWxttIH.js                                50.17 kB │ gzip:    16.87 kB
+spikes/player-chunks/out/player/assets/FBXLoader-DizR6j_0.js                                  50.57 kB │ gzip:    16.75 kB
+spikes/player-chunks/out/player/assets/components-BSQ0Gfhl.js                                 57.77 kB │ gzip:    14.36 kB
+spikes/player-chunks/out/player/assets/uiFeature-zeeQoweU.js                                  57.79 kB │ gzip:    20.41 kB
+spikes/player-chunks/out/player/assets/ShapeCollider2D-CofBTaZd.js                            58.59 kB │ gzip:     8.93 kB
+spikes/player-chunks/out/player/assets/standardMaterial-s0efXNxO.js                           65.60 kB │ gzip:    15.69 kB
+spikes/player-chunks/out/player/assets/styledTree-BztU1nsR.js                                 68.00 kB │ gzip:    22.57 kB
+spikes/player-chunks/out/player/assets/webRequest-D_Adra14.js                                 74.23 kB │ gzip:    19.14 kB
+spikes/player-chunks/out/player/assets/oitFragment-DNR5Hr1u.js                                85.01 kB │ gzip:    17.14 kB
+spikes/player-chunks/out/player/assets/oitFragment-CXN4mOXD.js                                88.35 kB │ gzip:    17.08 kB
+spikes/player-chunks/out/player/assets/mixOps-CYB_Im4p.js                                     93.51 kB │ gzip:    28.62 kB
+spikes/player-chunks/out/player/assets/ampEnvelope-7PiffcAA.js                               102.77 kB │ gzip:    35.58 kB
+spikes/player-chunks/out/player/assets/editorViewport-BqMhiupp.js                            123.68 kB │ gzip:    33.34 kB
+spikes/player-chunks/out/player/assets/pbr.fragment-kip4WmWr.js                              128.97 kB │ gzip:    24.02 kB
+spikes/player-chunks/out/player/assets/pbr.fragment-Dki9-BHF.js                              132.60 kB │ gzip:    24.16 kB
+spikes/player-chunks/out/player/assets/World-D_-wqdiZ.js                                     150.96 kB │ gzip:    51.07 kB
+spikes/player-chunks/out/player/assets/filters-Bqo9RYuO.js                                   159.96 kB │ gzip:    42.85 kB
+spikes/player-chunks/out/player/assets/ui-CkwfRTYA.js                                        179.66 kB │ gzip:    48.45 kB
+spikes/player-chunks/out/player/assets/sceneComponent-KsmusEgr.js                            196.23 kB │ gzip:    48.36 kB
+spikes/player-chunks/out/player/assets/vertexPullingHelper.functions-17-mLdTr.js             199.69 kB │ gzip:    44.43 kB
+spikes/player-chunks/out/player/assets/particlesFeature-DMdvG2Us.js                          203.41 kB │ gzip:    63.02 kB
+spikes/player-chunks/out/player/assets/assembly-CyTzsA1X.js                                  218.58 kB │ gzip:    71.05 kB
+spikes/player-chunks/out/player/assets/BabylonRenderer-W-APeTB8.js                           221.08 kB │ gzip:    65.50 kB
+spikes/player-chunks/out/player/assets/materials-BuzAQfBH.js                                 225.82 kB │ gzip:    65.50 kB
+spikes/player-chunks/out/player/assets/engine.multiRender.pure-BZwfFKJo.js                   230.74 kB │ gzip:    57.43 kB
+spikes/player-chunks/out/player/assets/take-B-MsHsH1.js                                      234.52 kB │ gzip:    79.75 kB
+spikes/player-chunks/out/player/assets/math.vector-D0vrxq8G.js                               306.84 kB │ gzip:    73.86 kB
+spikes/player-chunks/out/player/assets/draco_decoder-C0k0cNaZ.js                             446.44 kB │ gzip:   105.21 kB
+spikes/player-chunks/out/player/assets/layeredQuads-fPOzH5ty.js                              465.50 kB │ gzip:   118.73 kB
+spikes/player-chunks/out/player/assets/three.module-CeVBJVoU.js                              742.80 kB │ gzip:   187.70 kB
+spikes/player-chunks/out/player/assets/myco-CbfCANzb.js                                      779.64 kB │ gzip:   247.69 kB
+spikes/player-chunks/out/player/assets/rapier2d-BpXAomLD.js                                3,417.32 kB │ gzip: 1,305.92 kB
+spikes/player-chunks/out/player/assets/rapier3d-C8rhwoUU.js                                4,342.95 kB │ gzip: 1,672.96 kB
+
+[33m[INEFFECTIVE_DYNAMIC_IMPORT] [0msrc/plugins/audio/runtime/index.ts is dynamically imported by src/plugins/animation/runtime/features/events/audio.ts, src/plugins/animation/runtime/features/music.ts but also statically imported by src/myco.ts, src/plugins/runtime.ts, src/plugins/subtitles/runtime/SubtitleDisplay.ts, dynamic import will not move module into another chunk.
+
+[33m[INEFFECTIVE_DYNAMIC_IMPORT] [0msrc/plugins/physics/runtime/index.ts is dynamically imported by src/plugins/animation/runtime/features/ik/physics.ts, src/plugins/camera-shake/runtime/physics.ts but also statically imported by src/myco.ts, src/plugins/physics-rapier/runtime/index.ts, src/plugins/ragdoll/runtime/bodies.ts, src/plugins/runtime.ts, dynamic import will not move module into another chunk.
+
+✓ built in 57.11s
+[33m[PLUGIN_TIMINGS] [0mJavaScript callbacks ran for 56.5s of this 57.1s build (99%).
+The slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):
+  - plugin spike:chunk-report generateBundle (79%, 45.3s, 1 call)
+  - plugin myco:tsc-transpile transform (18%, 10.2s, 1983 calls)
+  - plugin vite:worker-import-meta-url transform (12%, 6.9s, 1 call)
+  - plugin vite:build-html transform (10%, 5.8s, 1 call)
+These rows add up to more than the total. Callbacks can overlap, so the same time counts for more than one row.
+1 callback is listed without a time. Its calls overlapped, so the time inside one call includes work from other calls. To find its cost, profile the build with `node --cpu-prof`:
+  - plugin vite:asset-import-meta-url transform (10 calls)
+See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.
+

@@ -1,0 +1,7 @@
+inline N= 0  files=1  raw=36  gzip=53  brotli=40  entry-raw=36
+inline N= 1  files=1  raw=81  gzip=89  brotli=78  entry-raw=81
+lazy   N= 1  files=2  raw=1882  gzip=1016  brotli=875  entry-raw=1808
+inline N= 5  files=1  raw=231  gzip=118  brotli=106  entry-raw=231
+lazy   N= 5  files=6  raw=2420  gzip=1436  brotli=1223  entry-raw=2048
+inline N=20  files=1  raw=811  gzip=192  brotli=141  entry-raw=811
+lazy   N=20  files=21  raw=4465  gzip=2992  brotli=2466  entry-raw=2958

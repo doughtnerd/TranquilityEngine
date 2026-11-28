@@ -1,0 +1,119 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/projectCode/uiModules" without a file extension (vite.shared.ts:8:49). Add the file extension
+  - import "./src/projectCode/uiBundle" without a file extension (vite.shared.ts:246:54). Add the file extension
+  - import "../editor/moduleImports" without a file extension (src/projectCode/uiBundle.ts:13:57). Add the file extension
+  - import "../editor/packages" without a file extension (src/projectCode/uiBundle.ts:14:33). Add the file extension
+  - import "../editor/packageResolver" without a file extension (src/projectCode/uiBundle.ts:15:67). Add the file extension
+  - import "../export/format" without a file extension (src/projectCode/uiBundle.ts:16:35). Add the file extension
+  - import "./builtinUI" without a file extension (src/projectCode/uiBundle.ts:18:39). Add the file extension
+  - import "./uiModules" without a file extension (src/projectCode/uiBundle.ts:19:130). Add the file extension
+  - import "../engine/audio/effects/types" without a file extension (src/export/format.ts:14:39). Add the file extension
+  - import "../engine/audio/encoding/types" without a file extension (src/export/format.ts:15:31). Add the file extension
+  - import "../engine/audio/packaging/format" without a file extension (src/export/format.ts:16:32). Add the file extension
+  - import "../engine/scene/importSettings" without a file extension (src/export/format.ts:17:37). Add the file extension
+  - import "../plugins/thirdParty" without a file extension (src/export/format.ts:18:34). Add the file extension
+  - import "../engine/debugLink/config" without a file extension (src/export/format.ts:19:36). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+inline N= 0  files=1  raw=36  gzip=53  brotli=40  entry-raw=36
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/projectCode/uiModules" without a file extension (vite.shared.ts:8:49). Add the file extension
+  - import "./src/projectCode/uiBundle" without a file extension (vite.shared.ts:246:54). Add the file extension
+  - import "../editor/moduleImports" without a file extension (src/projectCode/uiBundle.ts:13:57). Add the file extension
+  - import "../editor/packages" without a file extension (src/projectCode/uiBundle.ts:14:33). Add the file extension
+  - import "../editor/packageResolver" without a file extension (src/projectCode/uiBundle.ts:15:67). Add the file extension
+  - import "../export/format" without a file extension (src/projectCode/uiBundle.ts:16:35). Add the file extension
+  - import "./builtinUI" without a file extension (src/projectCode/uiBundle.ts:18:39). Add the file extension
+  - import "./uiModules" without a file extension (src/projectCode/uiBundle.ts:19:130). Add the file extension
+  - import "../engine/audio/effects/types" without a file extension (src/export/format.ts:14:39). Add the file extension
+  - import "../engine/audio/encoding/types" without a file extension (src/export/format.ts:15:31). Add the file extension
+  - import "../engine/audio/packaging/format" without a file extension (src/export/format.ts:16:32). Add the file extension
+  - import "../engine/scene/importSettings" without a file extension (src/export/format.ts:17:37). Add the file extension
+  - import "../plugins/thirdParty" without a file extension (src/export/format.ts:18:34). Add the file extension
+  - import "../engine/debugLink/config" without a file extension (src/export/format.ts:19:36). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+inline N= 1  files=1  raw=81  gzip=89  brotli=78  entry-raw=81
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/projectCode/uiModules" without a file extension (vite.shared.ts:8:49). Add the file extension
+  - import "./src/projectCode/uiBundle" without a file extension (vite.shared.ts:246:54). Add the file extension
+  - import "../editor/moduleImports" without a file extension (src/projectCode/uiBundle.ts:13:57). Add the file extension
+  - import "../editor/packages" without a file extension (src/projectCode/uiBundle.ts:14:33). Add the file extension
+  - import "../editor/packageResolver" without a file extension (src/projectCode/uiBundle.ts:15:67). Add the file extension
+  - import "../export/format" without a file extension (src/projectCode/uiBundle.ts:16:35). Add the file extension
+  - import "./builtinUI" without a file extension (src/projectCode/uiBundle.ts:18:39). Add the file extension
+  - import "./uiModules" without a file extension (src/projectCode/uiBundle.ts:19:130). Add the file extension
+  - import "../engine/audio/effects/types" without a file extension (src/export/format.ts:14:39). Add the file extension
+  - import "../engine/audio/encoding/types" without a file extension (src/export/format.ts:15:31). Add the file extension
+  - import "../engine/audio/packaging/format" without a file extension (src/export/format.ts:16:32). Add the file extension
+  - import "../engine/scene/importSettings" without a file extension (src/export/format.ts:17:37). Add the file extension
+  - import "../plugins/thirdParty" without a file extension (src/export/format.ts:18:34). Add the file extension
+  - import "../engine/debugLink/config" without a file extension (src/export/format.ts:19:36). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+lazy   N= 1  files=2  raw=1882  gzip=1016  brotli=875  entry-raw=1808
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/projectCode/uiModules" without a file extension (vite.shared.ts:8:49). Add the file extension
+  - import "./src/projectCode/uiBundle" without a file extension (vite.shared.ts:246:54). Add the file extension
+  - import "../editor/moduleImports" without a file extension (src/projectCode/uiBundle.ts:13:57). Add the file extension
+  - import "../editor/packages" without a file extension (src/projectCode/uiBundle.ts:14:33). Add the file extension
+  - import "../editor/packageResolver" without a file extension (src/projectCode/uiBundle.ts:15:67). Add the file extension
+  - import "../export/format" without a file extension (src/projectCode/uiBundle.ts:16:35). Add the file extension
+  - import "./builtinUI" without a file extension (src/projectCode/uiBundle.ts:18:39). Add the file extension
+  - import "./uiModules" without a file extension (src/projectCode/uiBundle.ts:19:130). Add the file extension
+  - import "../engine/audio/effects/types" without a file extension (src/export/format.ts:14:39). Add the file extension
+  - import "../engine/audio/encoding/types" without a file extension (src/export/format.ts:15:31). Add the file extension
+  - import "../engine/audio/packaging/format" without a file extension (src/export/format.ts:16:32). Add the file extension
+  - import "../engine/scene/importSettings" without a file extension (src/export/format.ts:17:37). Add the file extension
+  - import "../plugins/thirdParty" without a file extension (src/export/format.ts:18:34). Add the file extension
+  - import "../engine/debugLink/config" without a file extension (src/export/format.ts:19:36). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+inline N= 5  files=1  raw=231  gzip=118  brotli=106  entry-raw=231
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/projectCode/uiModules" without a file extension (vite.shared.ts:8:49). Add the file extension
+  - import "./src/projectCode/uiBundle" without a file extension (vite.shared.ts:246:54). Add the file extension
+  - import "../editor/moduleImports" without a file extension (src/projectCode/uiBundle.ts:13:57). Add the file extension
+  - import "../editor/packages" without a file extension (src/projectCode/uiBundle.ts:14:33). Add the file extension
+  - import "../editor/packageResolver" without a file extension (src/projectCode/uiBundle.ts:15:67). Add the file extension
+  - import "../export/format" without a file extension (src/projectCode/uiBundle.ts:16:35). Add the file extension
+  - import "./builtinUI" without a file extension (src/projectCode/uiBundle.ts:18:39). Add the file extension
+  - import "./uiModules" without a file extension (src/projectCode/uiBundle.ts:19:130). Add the file extension
+  - import "../engine/audio/effects/types" without a file extension (src/export/format.ts:14:39). Add the file extension
+  - import "../engine/audio/encoding/types" without a file extension (src/export/format.ts:15:31). Add the file extension
+  - import "../engine/audio/packaging/format" without a file extension (src/export/format.ts:16:32). Add the file extension
+  - import "../engine/scene/importSettings" without a file extension (src/export/format.ts:17:37). Add the file extension
+  - import "../plugins/thirdParty" without a file extension (src/export/format.ts:18:34). Add the file extension
+  - import "../engine/debugLink/config" without a file extension (src/export/format.ts:19:36). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+lazy   N= 5  files=6  raw=2420  gzip=1436  brotli=1223  entry-raw=2048
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/projectCode/uiModules" without a file extension (vite.shared.ts:8:49). Add the file extension
+  - import "./src/projectCode/uiBundle" without a file extension (vite.shared.ts:246:54). Add the file extension
+  - import "../editor/moduleImports" without a file extension (src/projectCode/uiBundle.ts:13:57). Add the file extension
+  - import "../editor/packages" without a file extension (src/projectCode/uiBundle.ts:14:33). Add the file extension
+  - import "../editor/packageResolver" without a file extension (src/projectCode/uiBundle.ts:15:67). Add the file extension
+  - import "../export/format" without a file extension (src/projectCode/uiBundle.ts:16:35). Add the file extension
+  - import "./builtinUI" without a file extension (src/projectCode/uiBundle.ts:18:39). Add the file extension
+  - import "./uiModules" without a file extension (src/projectCode/uiBundle.ts:19:130). Add the file extension
+  - import "../engine/audio/effects/types" without a file extension (src/export/format.ts:14:39). Add the file extension
+  - import "../engine/audio/encoding/types" without a file extension (src/export/format.ts:15:31). Add the file extension
+  - import "../engine/audio/packaging/format" without a file extension (src/export/format.ts:16:32). Add the file extension
+  - import "../engine/scene/importSettings" without a file extension (src/export/format.ts:17:37). Add the file extension
+  - import "../plugins/thirdParty" without a file extension (src/export/format.ts:18:34). Add the file extension
+  - import "../engine/debugLink/config" without a file extension (src/export/format.ts:19:36). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+inline N=20  files=1  raw=811  gzip=192  brotli=141  entry-raw=811
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/projectCode/uiModules" without a file extension (vite.shared.ts:8:49). Add the file extension
+  - import "./src/projectCode/uiBundle" without a file extension (vite.shared.ts:246:54). Add the file extension
+  - import "../editor/moduleImports" without a file extension (src/projectCode/uiBundle.ts:13:57). Add the file extension
+  - import "../editor/packages" without a file extension (src/projectCode/uiBundle.ts:14:33). Add the file extension
+  - import "../editor/packageResolver" without a file extension (src/projectCode/uiBundle.ts:15:67). Add the file extension
+  - import "../export/format" without a file extension (src/projectCode/uiBundle.ts:16:35). Add the file extension
+  - import "./builtinUI" without a file extension (src/projectCode/uiBundle.ts:18:39). Add the file extension
+  - import "./uiModules" without a file extension (src/projectCode/uiBundle.ts:19:130). Add the file extension
+  - import "../engine/audio/effects/types" without a file extension (src/export/format.ts:14:39). Add the file extension
+  - import "../engine/audio/encoding/types" without a file extension (src/export/format.ts:15:31). Add the file extension
+  - import "../engine/audio/packaging/format" without a file extension (src/export/format.ts:16:32). Add the file extension
+  - import "../engine/scene/importSettings" without a file extension (src/export/format.ts:17:37). Add the file extension
+  - import "../plugins/thirdParty" without a file extension (src/export/format.ts:18:34). Add the file extension
+  - import "../engine/debugLink/config" without a file extension (src/export/format.ts:19:36). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+lazy   N=20  files=21  raw=4465  gzip=2992  brotli=2466  entry-raw=2958
