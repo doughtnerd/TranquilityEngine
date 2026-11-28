@@ -18,3 +18,22 @@ Coordinator's log of merges, checks and findings. Newest last.
   286 passed, 3 failed. `audio-mix-smoke.spec.ts:129` passed on re-run (flaky under load). **Pre-existing on master
   6a0740ca, not caused by this work:** `dragdrop.spec.ts:69` and `hierarchy.spec.ts:54` (drops onto nodes inside prefab
   instances) fail identically on an untouched master checkout.
+- **Wave 3/4 merged:** T3 Rust visibility crate (faa168d7; runtime wasm 18.7 KB gzip, editor 21.4 KB; reduced safety
+  scenes at 256x128: 0 false occlusions of 16+ px, 64.6 % of culls kept), T7 placement adds groups + LOD e2e + bench LOD
+  variants (67ed3026), T8 crossfade (a52582e8), T9 skinned levels and rig LOD (7dbb35d8). Merge fixes: `build:visibility`
+  script; the occlusion contract carries per-triangle errors and edge neighbours (silhouette-only shrink) and camera
+  data; `lodGroup` in `AnimatorLodMetric`.
+- **Found by the first LOD e2e run (fixed, 659b303a):**
+  - **Every crossfade effect failed to compile** on WebGL2: the plugin used `#include<bayerDitherFunctions>`, which Babylon
+    doesn't expand in plugin-injected code. Warm-up then waited on the effect until the frame graph timed out, so any scene
+    with LOD levels drew nothing. The Bayer rank is now inlined, and the unit test asserts no include in injected code.
+    NullEngine unit tests can't catch shader compile errors; only the browser run did.
+  - **The LOD bar crashed after undoing a placement** ("This GameObject has been destroyed."): its member poll walked a
+    destroyed node. It skips dead nodes now; the placement test passed 5/5 after failing 1 in 3–4 runs before. The
+    visibility service also skips components of dead nodes (defensive; no headless repro).
+  - Spec fixes (test-only): nodes are found through the scene tree (scenes are nodes, ADR 0016); a smooth model's level 1
+    can be chosen at most distances (tiny measured error), so tests compare near against far; the Stats overlay is hidden
+    from captures; the shadow check compares captures rather than counting "dark" pixels (the soft shadow is ~25 % darker).
+- **LOD e2e (`tests/e2e/lod.spec.ts`): 6 passed** — import panel levels, placement adds the group and the LOD bar, models
+  without levels get none, far camera draws a coarser level and fewer triangles and a too-small group is culled, forceLevel
+  pins, a culled group keeps casting its shadow, scenes without groups unchanged.
