@@ -11,6 +11,8 @@
 // `svelte/compiler` loads on demand (`loadSvelteParser`): the editor only needs it once a project has Svelte UI,
 // and compiling that UI loads the same module anyway.
 
+import { DASHED, uniqueName } from "../../engine/core/uniqueName";
+
 type Parse = typeof import("svelte/compiler").parse;
 
 let parser: Parse | null = null;
@@ -663,12 +665,6 @@ export function insertAfterElement(text: string, at: number, markup: string): { 
   return { text: splice(text, el.end, el.end, `${sep}${markup}`), start: el.end + sep.length };
 }
 
-/** A fresh id like `name-2` that isn't in `taken`. */
-function freshId(base: string, taken: ReadonlySet<string>): string {
-  const stem = base.replace(/-\d+$/, "");
-  for (let n = 2; ; n++) if (!taken.has(`${stem}-${n}`)) return `${stem}-${n}`;
-}
-
 /** Copy the element starting at `at` right after itself, with fresh literal ids. Returns the new text and where the copy starts. */
 export function duplicateElement(text: string, at: number): { text: string; start: number } {
   const { source, el } = element(text, at);
@@ -680,7 +676,7 @@ export function duplicateElement(text: string, at: number): { text: string; star
   for (const e of inside) {
     const id = e.attributes.find((a) => a.name === "id")?.value;
     if (id?.kind !== "literal" || !id.text) continue;
-    const next = freshId(id.text, taken);
+    const next = uniqueName(id.text, taken, DASHED); // the copied id is in `taken`, so always renumbered
     taken.add(next);
     copy = splice(copy, id.start - el.start, id.end - el.start, id.quoted ? next : `"${next}"`);
   }

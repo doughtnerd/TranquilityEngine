@@ -9,7 +9,6 @@ import {
   DEFAULT_CONTEXT_PATH,
   contextEntries,
   contextUsers,
-  freeName,
   freeSetId,
   mapInDefault,
   mappedIn,
@@ -65,9 +64,8 @@ describe("the list's entries", () => {
     expect(setInfos(unloaded).filter((s) => s.id === "game.Code")).toHaveLength(1);
   });
 
-  it("finds free names and ids", () => {
+  it("finds free set ids", () => {
     expect(freeSetId(["game.New"])).toBe("game.New2");
-    expect(freeName("vehicle", ["vehicle", "vehicle 2"])).toBe("vehicle 3");
   });
 });
 

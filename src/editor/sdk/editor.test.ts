@@ -2,6 +2,7 @@
 // `editor.messages` and `editor.scene` read and change the shell's state, and their getters track.
 import { computed } from "@preact/signals";
 import { afterEach, describe, expect, it } from "vitest";
+import { JOINED } from "../../engine/core/uniqueName";
 import { status } from "../state";
 import { closeTestProject, openTestProject, sampleProject, useCoreAssetKinds } from "../testing";
 import { editor } from "./index";
@@ -59,6 +60,9 @@ describe("editor.project", () => {
     const { project } = await openTestProject({ "a/b.json": "{}" });
     expect(editor.project.freePath(project, "a", "b.json")).toBe("a/b 2.json");
     expect(editor.project.freePath(project, "a", "b.json", true)).toBe("a/b copy.json");
+    // Taken in any letter case (ADR 0465): `a/B.json` would overwrite `a/b.json` on Windows and macOS.
+    expect(editor.project.freePath(project, "a", "B.json")).toBe("a/B 2.json");
+    expect(editor.project.freeFilePath(project, "a", "B", ".json", JOINED)).toBe("a/B2.json");
     expect(editor.project.joinPath("C:\\Games\\x", "a/b.json")).toBe("C:\\Games\\x\\a\\b.json");
   });
 });

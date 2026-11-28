@@ -1,8 +1,9 @@
-// Free file names in a project (ADR 0147): split out of assetOps.ts, which re-exports them, so the
+// Free file names in a project (ADR 0147, 0465): split out of assetOps.ts, which re-exports them, so the
 // editor SDK reaches them without loading the Assets panel's file operations (and their imports of
 // the session, which loads the plugins).
 import type { EditorProject } from "./projects";
 import { assetKinds } from "./sdk/contributions";
+import { SPACED, uniqueName, type Numbering } from "../engine/core/uniqueName";
 
 const join = (folder: string, name: string) => (folder ? `${folder}/${name}` : name);
 
@@ -34,15 +35,32 @@ export function numberedName(name: string, n: number): string {
 export const taken = (project: EditorProject, path: string) => project.files.includes(path) || project.scripts.has(path) || project.folders.includes(path);
 
 /**
+ * True if a file or folder is at `path` in any letter case (ADR 0465): where a new file may go, as
+ * Windows and macOS see it (`Enemy.png` there means `enemy.png` can't be written beside it).
+ */
+function takenInAnyCase(project: EditorProject, path: string): boolean {
+  const lower = path.toLowerCase();
+  const same = (p: string) => p.toLowerCase() === lower;
+  return taken(project, path) || project.files.some(same) || project.folders.some(same) || [...project.scripts.keys()].some(same);
+}
+
+/** "<base> copy", "<base> copy 2"…: Duplicate's numbering. */
+const COPIED: Numbering = { format: (stem, n) => (n === 1 ? `${stem} copy` : `${stem} copy ${n}`), first: 1 };
+
+/**
+ * A free path in `folder` for a file `<stem><ext>`: that, else `stem` numbered by `numbering`
+ * (default "<stem> 2", "<stem> 3"…) before `ext`. A path is taken when a file or folder is there in
+ * any letter case (ADR 0465).
+ */
+export function freeFilePath(project: EditorProject, folder: string, stem: string, ext: string, numbering: Numbering = SPACED): string {
+  return join(folder, uniqueName(stem, (s) => takenInAnyCase(project, join(folder, `${s}${ext}`)), numbering) + ext);
+}
+
+/**
  * A free path in `folder` for `name`: the name itself, else "<base> 2", "<base> 3"… With `copy`,
- * a taken name becomes "<base> copy", "<base> copy 2"…
+ * a taken name becomes "<base> copy", "<base> copy 2"… Taken in any letter case, as {@link freeFilePath}.
  */
 export function freePath(project: EditorProject, folder: string, name: string, copy = false): string {
-  if (!taken(project, join(folder, name))) return join(folder, name);
   const [base, ext] = splitExtension(name);
-  const stem = copy ? `${base} copy` : base;
-  for (let n = 1; ; n++) {
-    const path = join(folder, `${stem}${n > 1 ? ` ${n}` : ""}${ext}`);
-    if (!taken(project, path)) return path;
-  }
+  return freeFilePath(project, folder, base, ext, copy ? COPIED : SPACED);
 }

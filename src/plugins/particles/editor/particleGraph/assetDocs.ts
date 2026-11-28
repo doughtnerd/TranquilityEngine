@@ -261,9 +261,7 @@ export function docToAsset(doc: ParticleGraph): Record<string, unknown> {
   const uniqueNames = (list: GraphNode[], fallback: string): string[] => {
     const seen = new Set<string>();
     return list.map((n) => {
-      const base = portNameOf(n, fallback).replace(/\./g, "") || fallback;
-      let name = base;
-      for (let k = 2; seen.has(name); k++) name = `${base} ${k}`;
+      const name = uniqueName(portNameOf(n, fallback).replace(/\./g, "") || fallback, seen);
       seen.add(name);
       return name;
     });

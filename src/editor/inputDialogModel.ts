@@ -9,6 +9,7 @@ import type { InputContextSpec, MappingSpec } from "../engine/input/contextTypes
 import type { InputActionSetInfo } from "../engine/editor";
 import type { NodeEntry } from "../engine/scene/SceneLoader";
 import { convertMapping, mapMappingRefs, mappingControls, refersTo, renameMappingAction, resolveActionRef, type ActionRef } from "./inputContextModel";
+import { JOINED, uniqueName } from "../engine/core/uniqueName";
 
 export { DEFAULT_CONTEXT_PATH };
 
@@ -204,14 +205,7 @@ export function contextUsers(context: ContextEntry, files: readonly { path: stri
   return out.sort((a, b) => b.priority - a.priority || a.node.localeCompare(b.node));
 }
 
-/** `base`, or `base 2`, `base 3`…: a name none of `taken` has. */
-export function freeName(base: string, taken: readonly string[]): string {
-  if (!taken.includes(base)) return base;
-  for (let n = 2; ; n++) if (!taken.includes(`${base} ${n}`)) return `${base} ${n}`;
-}
-
 /** `game.New`, `game.New2`…: an id no set has. */
 export function freeSetId(taken: readonly string[], base = "game.New"): string {
-  if (!taken.includes(base)) return base;
-  for (let n = 2; ; n++) if (!taken.includes(`${base}${n}`)) return `${base}${n}`;
+  return uniqueName(base, taken, JOINED);
 }

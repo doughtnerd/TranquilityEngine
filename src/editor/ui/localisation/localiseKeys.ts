@@ -14,6 +14,7 @@ import { emptyStringTable, isStringKey, parseStringTable, STRINGS_LIMITS, string
 import { translationOf, type ExchangeProject } from "../../../engine/localisation/exchange/model";
 import { accept, refuse, type EditResult } from "../../sdk/editResult";
 import { tableOfKey } from "./stringsModel";
+import { UNDERSCORED, uniqueName } from "../../../engine/core/uniqueName";
 
 /** One key the picker offers. */
 export interface KeyMatch {
@@ -71,8 +72,7 @@ function sourceName(sourcePath: string): string {
 export function suggestKey(project: ExchangeProject, sourcePath: string, elementId: string | null, tag: string, field: string): string {
   const f = slug(field);
   const base = `${sourceName(sourcePath) || "ui"}.${elementId ? slug(elementId) || f : `${f}_${tag.toLowerCase()}`}${elementId && field !== "text" ? `_${f}` : ""}`.slice(0, STRINGS_LIMITS.keyLength - 4);
-  if (!tableOfKey(project, base)) return base;
-  for (let n = 2; ; n++) if (!tableOfKey(project, `${base}_${n}`)) return `${base}_${n}`;
+  return uniqueName(base, (key) => !!tableOfKey(project, key), UNDERSCORED);
 }
 
 /** The table a new key goes in by default: the component's own (`ui/Menu.svelte` → a table named `menu`), else the first. */

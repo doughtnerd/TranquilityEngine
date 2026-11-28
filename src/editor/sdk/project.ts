@@ -7,7 +7,8 @@ import type { ImportSettings } from "../../engine/scene/importSettings";
 import { readImportSettings, writeImportSettings } from "../assetImport";
 import { showAsset } from "../inspectorTarget";
 import { assetKind, type AssetKind } from "../assetKindLookup";
-import { freePath } from "../freePath";
+import { freeFilePath, freePath } from "../freePath";
+import type { Numbering } from "../../engine/core/uniqueName";
 import { openScript } from "../code/codeBuffers";
 import { listedFiles } from "../assetBrowser";
 import { fileName, folderOf, isSceneFile } from "../projectPath";
@@ -77,6 +78,11 @@ export interface ProjectSurface {
   createFile(options: CreateFileOptions): Promise<string | null>;
   /** A free project path in `folder` for `name`: the name, else "<base> 2"…; with `copy`, "<base> copy"… */
   freePath(project: EditorProject, folder: string, name: string, copy?: boolean): string;
+  /**
+   * A free project path in `folder` for a file `<stem><ext>`: that, else `stem` numbered by `numbering` (default
+   * "<stem> 2"…) before `ext`. Taken means a file or folder is there in any letter case (ADR 0465).
+   */
+  freeFilePath(project: EditorProject, folder: string, stem: string, ext: string, numbering?: Numbering): string;
   /** A project path on disk: `root` joined with the project-relative `path`, in the root's separator style. */
   joinPath(root: string, path: string): string;
 }
@@ -138,6 +144,7 @@ export const project: ProjectSurface = {
   refuseReadOnly,
   createFile: createProjectFile,
   freePath,
+  freeFilePath,
   joinPath,
 };
 

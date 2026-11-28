@@ -3,6 +3,10 @@
 // "mounted" under a path like `/MyGame`, and every FileSystem call on a path inside it walks the
 // handles. Safari and Firefox don't have `showDirectoryPicker`, so they keep read-only samples.
 import type { DirEntry, FileSystem } from "../engine/platform/FileSystem";
+import { BRACKETED, uniqueName, type Numbering } from "../engine/core/uniqueName";
+
+/** `/game`, `/game (2)`…: a second folder of the same name. */
+const MOUNTS: Numbering = { format: BRACKETED.format, first: 2 };
 
 // The handle types this needs, structurally (the DOM lib's are incomplete: no async iteration,
 // no permissions), so tests can pass in-memory fakes.
@@ -57,9 +61,7 @@ export class FsaFileSystem implements FileSystem {
   /** Make `handle` reachable as a path (reusing the path if it's already mounted) and return that path. */
   async mount(handle: FsaDirectoryHandle): Promise<string> {
     for (const [path, h] of this.mounts) if (h === handle || (await h.isSameEntry?.(handle))) return path;
-    const base = `/${handle.name.replace(/[\\/]/g, "_") || "folder"}`;
-    let path = base;
-    for (let n = 2; this.mounts.has(path); n++) path = `${base} (${n})`;
+    const path = uniqueName(`/${handle.name.replace(/[\\/]/g, "_") || "folder"}`, (p) => this.mounts.has(p), MOUNTS);
     this.mounts.set(path, handle);
     return path;
   }

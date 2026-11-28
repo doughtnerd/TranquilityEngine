@@ -6,7 +6,7 @@ import { animationSettingsOf } from "../../../../engine/animation/compile/settin
 import { encodeSkeleton } from "../../../../engine/animation/import/skeletonBinary";
 import { Assets } from "../../../../engine/scene/Assets";
 import { loadModel } from "../../../../engine/scene/models";
-import type { EditorProject } from "../../../../editor/sdk";
+import { editor, type EditorProject } from "../../../../editor/sdk";
 import { loadClipSource } from "../../runtime/features/clipSources";
 import { loadAnimationCompiler } from "../compile/compiler";
 import { prepareClipJob } from "../compile/jobs";
@@ -36,7 +36,7 @@ export function projectRetargetEnv(project: EditorProject): RetargetEnv {
       return { raw: job.raw, record: job.record, rootAxes: data ? rootMotionAxes(data.source.rootMotion) : 0 };
     },
     compiler: loadAnimationCompiler,
-    exists: (path) => project.files.includes(path),
+    freeFilePath: (folder, stem, ext) => editor.project.freeFilePath(project, folder, stem, ext),
     writeBytes: (path, bytes) => project.writeBinary(path, bytes),
   };
 }

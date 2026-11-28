@@ -22,12 +22,6 @@ const roleNamed = (p: SkeletonProfile, name: string): ProfileRole | undefined =>
 const mapRole = (p: SkeletonProfile, name: string, f: (r: ProfileRole) => ProfileRole): SkeletonProfile => ({ ...p, roles: p.roles.map((r) => (r.name === name ? f(r) : r)) });
 const missingRole = (name: string) => refuse(`there is no role "${name}".`);
 
-/** A name to use for a new role or chain: `base`, or `base 2`, `base 3`… not in `taken`. */
-export function freshName(base: string, taken: readonly string[]): string {
-  if (!taken.includes(base)) return base;
-  for (let n = 2; ; n++) if (!taken.includes(`${base} ${n}`)) return `${base} ${n}`;
-}
-
 // --- the profile ---------------------------------------------------------------------------------------------------------
 
 export function renameProfile(p: SkeletonProfile, name: string): EditResult<SkeletonProfile> {
