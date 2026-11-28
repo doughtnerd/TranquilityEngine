@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>LOD simplify bench</title>
+<script type="module">
+  import { runSpeed } from './bench.mjs';
+  import { loadAll } from './lib/models.mjs';
+  const q = new URLSearchParams(location.search);
+  const read = async (key) => {
+    const r = await fetch('/' + key);
+    if (!r.ok) throw new Error(key + ' ' + r.status);
+    return new Uint8Array(await r.arrayBuffer());
+  };
+  window.__run = async () => {
+    const only = q.get('only') ? q.get('only').split(',') : undefined;
+    const models = await loadAll(read, { only });
+    return { env: navigator.userAgent, runs: +(q.get('runs') || 7), rows: await runSpeed(models, { runs: +(q.get('runs') || 7) }) };
+  };
+  window.__ready = true;
+</script>
