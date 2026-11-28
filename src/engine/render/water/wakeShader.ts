@@ -164,7 +164,7 @@ FN(KV4, mycoFieldAt, KV2 p) {
 FN(KV4, mycoFieldWake, KV2 p) {
   VAR(KV4, v) = mycoFieldAt(p);
   VAR(KF, grain) = mycoWakeGrain(p, UNI(mycoWake).z);
-  VAR(KF, foam) = clamp(v.w * 1.2, 0.0, 1.0) * smoothstep(0.35, 0.8, grain + 0.35 * v.w);
+  VAR(KF, foam) = smoothstep(0.12, 0.6, v.w) * smoothstep(0.35, 0.8, grain + 0.35 * v.w);
   // The field's slopes, a little steeper than the simulated water's, so its ripples read from a ship-game camera.
   return KV4(v.y * 1.6, v.z * 1.6, foam, v.x);
 }

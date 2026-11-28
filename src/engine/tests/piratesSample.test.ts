@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, Input, Lobby, Replicated, SceneInstance } from "../index";
 import { WaterWake } from "../../plugins/water/runtime";
+import { ParticleSystem } from "../../plugins/particles/runtime";
 import { UIButton, UIPanel, UIText } from "../ui/components";
 import { UIView } from "../../plugins/ui/runtime/UIView";
 import type { UIHostElement } from "../ui/host/UIHost";
@@ -242,6 +243,12 @@ describe("the King of Pirates sample", () => {
       expect(wake.strength).toBe(s.data.sunk > 0 ? 0 : wake.strength);
     }
     expect(wakes.some((w) => w.strength === 1)).toBe(true);
+    // Each also throws bow spray, port and starboard, as hard as it is fast (none on the server; none while sunk or unseen).
+    const sprays = (world: World) => world._componentsOfType(ParticleSystem).filter((p) => p.node.name.startsWith("Bow Spray"));
+    expect(sprays(server)).toEqual([]);
+    expect(sprays(client)).toHaveLength(12);
+    expect(sprays(client).some((p) => p.emissionScale > 0)).toBe(true);
+    for (const s of seen) if (s.data.sunk > 0) for (const p of s.rep.node.children.flatMap((c) => c.getComponents(ParticleSystem))) expect(p.emissionScale).toBe(0);
     // The player's ship sails under their room slot's colours; the HUD names the bots.
     expect(mine[0].data.team).toBe(Lobby.me!.slot);
     // The HUD is a Svelte component (ui/Hud.svelte): its leaderboard rows are an {#each} of the captains.

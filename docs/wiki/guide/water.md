@@ -88,9 +88,9 @@ Put a `WaterWake` on a moving node, such as a boat, and the water draws its wake
 
 The surface's `wakeMode` picks how wakes are drawn (ADR 0451 compares the two; one will stay):
 - `"trail"`: foam, Kelvin ripples and a bow wave worked out per pixel along the path each stern took (up to 16 wakes, the nearest to the camera). Cheap on the CPU.
-- `"field"`: a simulated wave height field, 96 m across, around the point the camera looks at. Hulls press into it, and the waves spread, cross and fade on their own. It also raises and lowers the surface. It costs about 1 ms of CPU a frame.
+- `"field"`: a simulated wave height field, 96 m across, around the point the camera looks at. Hulls press into it, and heap a ridge along each side of the bow (at the bow's flare) that rises and travels out as a V. The waves spread, cross and fade on their own. It also raises and lowers the surface. It costs about 1 ms of CPU a frame.
 
-Wakes are only for the eye. `Water.sample` and buoyancy don't see them, and servers keep none.
+Spray (water thrown off the surface) is not part of the water: use a particle effect at the bow, as the pirates sample does. Wakes are only for the eye. `Water.sample` and buoyancy don't see them, and servers keep none.
 
 ## Storms
 

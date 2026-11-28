@@ -72,6 +72,27 @@ describe("the wake height field (ADR 0451)", () => {
     expect(angle(fast)).toBeGreaterThan(Math.asin(WAKE_FIELD_WAVE_SPEED / 10) * 0.5);
   });
 
+  it("heaps a ridge along each side of the bow that rises and moves out as the hull passes: a bow wave's V", () => {
+    const { field, x } = sail(9, 3);
+    const stem = x + 2;
+    /** Where across the water (|z|) is highest at `d` metres behind the stem, and how high, outside the hull. */
+    const crest = (d: number) => {
+      let best = { z: 0, h: -Infinity };
+      for (let z = 1.1; z < 8; z += 0.1) {
+        const h = field.heightAt(stem - d, z);
+        if (h > best.h) best = { z, h };
+      }
+      return best;
+    };
+    const near = crest(1.5), far = crest(6);
+    expect(near.h).toBeGreaterThan(0.1); // raised, beside the bow
+    expect(field.heightAt(stem - 1.5, 0)).toBeLessThan(0); // the hull's trough between the two ridges
+    expect(far.z).toBeGreaterThan(near.z + 0.5); // further back, it has moved out
+    expect(Math.abs(field.heightAt(stem - 1.5, near.z) - field.heightAt(stem - 1.5, -near.z))).toBeLessThan(1e-4); // both sides
+    // Ahead of the stem the water is still.
+    expect(Math.abs(field.heightAt(stem + 1.5, 1))).toBeLessThan(0.01);
+  });
+
   it("moving the field with the camera keeps the water it still covers", () => {
     const { field, x } = sail(8, 2);
     const before = field.heightAt(x - 6, 1.5);

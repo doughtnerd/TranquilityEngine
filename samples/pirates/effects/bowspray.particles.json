@@ -1,0 +1,206 @@
+{
+  "format": "myco.particles@2",
+  "properties": [],
+  "systems": [
+    {
+      "id": "s1",
+      "name": "Spray",
+      "position": [
+        0,
+        0
+      ],
+      "settings": {
+        "space": "world",
+        "capacity": 400
+      },
+      "spawn": {
+        "settings": {
+          "duration": 1,
+          "looping": true,
+          "startDelay": 0,
+          "prewarm": false
+        },
+        "blocks": [
+          {
+            "id": "b1",
+            "type": "spawn.rate",
+            "inputs": {
+              "rate": 110
+            }
+          }
+        ]
+      },
+      "initialize": {
+        "blocks": [
+          {
+            "id": "b2",
+            "type": "init.lifetime",
+            "inputs": {
+              "lifetime": {
+                "random": [
+                  0.45,
+                  0.85
+                ]
+              }
+            }
+          },
+          {
+            "id": "b3",
+            "type": "init.velocity",
+            "inputs": {
+              "speed": {
+                "random": [
+                  3,
+                  5.5
+                ]
+              }
+            }
+          },
+          {
+            "id": "b4",
+            "type": "init.size",
+            "inputs": {
+              "size": {
+                "random": [
+                  0.25,
+                  0.5
+                ]
+              }
+            }
+          },
+          {
+            "id": "b5",
+            "type": "init.rotation",
+            "inputs": {
+              "rotation": {
+                "random": [
+                  0,
+                  360
+                ]
+              }
+            }
+          },
+          {
+            "id": "b6",
+            "type": "init.color",
+            "inputs": {
+              "color": {
+                "random": [
+                  "#f4f9fbe6",
+                  "#d9e9eecc"
+                ]
+              }
+            }
+          },
+          {
+            "id": "b7",
+            "type": "init.positionCone",
+            "inputs": {
+              "radius": 0.25,
+              "angle": 22,
+              "arc": 360,
+              "thickness": 1,
+              "mode": "random",
+              "spread": 0,
+              "offset": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        ]
+      },
+      "update": {
+        "blocks": [
+          {
+            "id": "b8",
+            "type": "update.gravity",
+            "inputs": {
+              "strength": 1.2
+            }
+          },
+          {
+            "id": "b9",
+            "type": "update.sizeOverLife",
+            "inputs": {
+              "size": {
+                "curve": [
+                  [
+                    0,
+                    0.5
+                  ],
+                  [
+                    0.4,
+                    1
+                  ],
+                  [
+                    1,
+                    1.7
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "id": "b10",
+            "type": "update.colorOverLife",
+            "inputs": {
+              "color": {
+                "gradient": {
+                  "colors": [
+                    [
+                      0,
+                      "#ffffff"
+                    ],
+                    [
+                      1,
+                      "#ffffff"
+                    ]
+                  ],
+                  "alphas": [
+                    [
+                      0,
+                      0
+                    ],
+                    [
+                      0.1,
+                      0.9
+                    ],
+                    [
+                      0.6,
+                      0.5
+                    ],
+                    [
+                      1,
+                      0
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "output": {
+        "type": "billboard",
+        "settings": {
+          "material": "",
+          "texture": "asset:textures/smoke.png",
+          "blending": "alpha",
+          "renderOrder": 0,
+          "mesh": "builtin:cube",
+          "speedScale": 0,
+          "lengthScale": 1,
+          "trailLength": 20
+        },
+        "blocks": []
+      }
+    }
+  ]
+}

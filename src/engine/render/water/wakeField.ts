@@ -48,10 +48,22 @@ const PULSE_HZ = 1.6;
 const DEPTH = 0.6;
 /** How strongly a step pulls the water under a hull toward its pressed shape (0..1). */
 const PRESS = 0.6;
+/**
+ * The bow wave: water a hull at full strength heaps up (m) in a ridge along each side of its bow, set
+ * back from the stem at the bow's own flare (the angle from the stem to the beam's widest point, kept
+ * within `BOW_FLARE`), with arms as long as `BOW_ARM` metres plus `BOW_ARM_SPEED` × the strength. As
+ * the hull moves on, each heap is let go and the wave equation carries it up and out: the V of a bow wave.
+ */
+const BOW_RISE = 0.35;
+const BOW_PRESS = 0.5;
+const BOW_WIDTH = 0.35;
+const BOW_ARM = 1;
+const BOW_ARM_SPEED = 2.5;
+const BOW_FLARE: [number, number] = [(15 * Math.PI) / 180, (40 * Math.PI) / 180];
 /** Foam: seconds to fade to 1/e; how much it spreads to neighbours per step; vertical speed (m/s) above which the water whitens. */
 const FOAM_LIFE = 1.3;
 const FOAM_SPREAD = 0.06;
-const FOAM_CHURN = 0.35;
+const FOAM_CHURN = 1.1;
 /** Cells along each edge where waves are absorbed, so they don't reflect back off the border. */
 const SPONGE = 12;
 
@@ -169,7 +181,7 @@ export class WakeField {
         next[k] = v;
         // Foam where the water moves fast (crests breaking at the bow and the sides).
         const churn = Math.abs(v - hk) / dt - FOAM_CHURN;
-        if (churn > 0) foam[k] = foam[k]! + churn * 0.6 * dt;
+        if (churn > 0) foam[k] = foam[k]! + churn * 0.25 * dt;
       }
     }
     // next becomes the current water, the current the previous.
@@ -191,7 +203,7 @@ export class WakeField {
     this.scratch = foam;
   }
 
-  /** Pull the water under a hull toward its pressed shape, and lay foam there. */
+  /** Pull the water under a hull toward its pressed shape, heap it up along the bow, and lay foam there. */
   private press(s: WakeFieldSource): void {
     if (!(s.strength > 0)) return;
     const n = this.resolution, cell = this.cell, h = this.h, foam = this.foam;
@@ -199,7 +211,12 @@ export class WakeField {
     const mid = (s.bow + s.stern) / 2;
     const beam = Math.max(0.1, s.beam);
     const cx = s.x + s.hx * mid, cz = s.z + s.hz * mid;
-    const reach = half + beam;
+    // The bow's flare: from the stem back to the widest point of the hull, a little outside it.
+    const flare = Math.min(BOW_FLARE[1], Math.max(BOW_FLARE[0], Math.atan2(beam * 1.15, half)));
+    const flareTan = Math.tan(flare);
+    const arm = BOW_ARM + BOW_ARM_SPEED * s.strength;
+    const rise = BOW_RISE * s.strength;
+    const reach = half + beam + arm;
     const depth = DEPTH * s.strength * (1 + PULSE * Math.sin(this.clock * PULSE_HZ * Math.PI * 2));
     const i0 = Math.max(0, Math.floor((cx - reach - this.originX) / cell));
     const i1 = Math.min(n - 1, Math.ceil((cx + reach - this.originX) / cell));
@@ -209,16 +226,32 @@ export class WakeField {
       const z = this.originZ + (j + 0.5) * cell - cz;
       for (let i = i0; i <= i1; i++) {
         const x = this.originX + (i + 0.5) * cell - cx;
-        const along = (x * s.hx + z * s.hz) / half;
-        const across = (x * -s.hz + z * s.hx) / beam;
+        const alongM = x * s.hx + z * s.hz;
+        const acrossM = x * -s.hz + z * s.hx;
+        const along = alongM / half;
+        const across = acrossM / beam;
         const r2 = along * along + across * across;
-        if (r2 >= 1) continue;
-        const w = (1 - r2) * (1 - r2);
         const k = j * n + i;
-        h[k] = h[k]! + (-depth * w - h[k]!) * PRESS;
-        // Foam churned under the aft half of the hull.
-        const aft = Math.min(1, Math.max(0, 0.6 - along));
-        foam[k] = Math.max(foam[k]!, s.foam * s.strength * Math.min(1, 2 * w) * aft);
+        if (r2 < 1) {
+          const w = (1 - r2) * (1 - r2);
+          h[k] = h[k]! + (-depth * w - h[k]!) * PRESS;
+          // Foam churned under the aft half of the hull.
+          const aft = Math.min(1, Math.max(0, 0.6 - along));
+          foam[k] = Math.max(foam[k]!, s.foam * s.strength * Math.min(1, 2 * w) * aft);
+          continue;
+        }
+        // The bow ridge, outside the hull: how far back from the stem, and how far out past the arm's line.
+        const back = half - alongM;
+        if (back < -0.3 || back > arm) continue;
+        const out = Math.abs(acrossM) - (Math.max(back, 0) * flareTan + 0.1);
+        const crest = Math.exp(-(((out - 0.15) / BOW_WIDTH) ** 2));
+        if (crest < 0.02) continue;
+        const along01 = back / arm;
+        const taper = smooth(-0.3, 0.25, back) * (1 - smooth(0.55, 1, along01));
+        const target = rise * crest * taper;
+        if (target > h[k]!) h[k] = h[k]! + (target - h[k]!) * BOW_PRESS;
+        // White water along the crest by the stem only: further back the ridge is a wave, not breaking water.
+        foam[k] = Math.max(foam[k]!, 0.7 * s.foam * s.strength * crest * taper * (1 - smooth(0.15, 0.45, along01)));
       }
     }
   }
@@ -246,4 +279,10 @@ export class WakeField {
     const bottom = a[k + n]! + (a[k + n + 1]! - a[k + n]!) * tx;
     return top + (bottom - top) * tz;
   }
+}
+
+/** Hermite step from 0 at `a` to 1 at `b`. */
+function smooth(a: number, b: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
 }
