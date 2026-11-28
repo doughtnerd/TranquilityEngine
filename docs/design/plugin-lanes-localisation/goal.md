@@ -71,14 +71,23 @@ Debug builds pair with tools over the debug link on every endpoint (ADR 0403).
    or recordings, no deprecation periods (`Audio.take` can be replaced outright), no third-party plugin API
    stability promises. Samples are re-exported.
 2. **What it's for, in order:** (1) cleaner engine architecture: feature knowledge out of the exporter, player and
-   core, one way to do each thing; (2) better profiling and debugging: any plugin's data in recordings and live
-   sessions, one profiler in the editor and the Studio; (3) modular, smaller games: features such as localisation
-   can be turned off and then ship nothing. A third-party plugin ecosystem was not picked as a goal: the contribution
-   points should work for third-party plugins but needn't be designed around them.
+   core, one way to do each thing, with the engine itself as the main beneficiary of a well-leveraged plugin
+   architecture; (2) better profiling and debugging: any plugin's data in recordings and live sessions, one profiler
+   in the editor and the Studio; (3) modular, smaller games: features such as localisation can be turned off and then
+   ship nothing. **Third-party plugins** (corrected 2026-11-28): a bonus, not a driver. The architecture should be
+   available to them, but first-party use decides its shape.
 3. **Low end:** an Android phone, for recording overhead and the player's size, measured over the debug link.
+   **Phase 1 targets desktop** (corrected 2026-11-28): the phone is measured in a later phase.
 4. **Order:** plugin contributions first (export, launch and debug steps), then localisation and debug lanes on top.
 
-## Still open
+## Recording cost (owner, 2026-11-28)
 
-- A recording overhead budget per frame on the low end. Proposed default for the spikes: lanes off cost nothing
-  measurable; recording every first-party lane costs under 0.5 ms a frame on the phone (p99). To confirm in step 8.
+- **No per-frame budget.** A user can exclude lanes or data points from a recording to fit a device.
+- **Later:** once the engine is stable, take a baseline of what first-party lanes cost, and warn plugin authors and
+  their users in the profiler when a lane exceeds it.
+
+## Spikes for step 2
+
+1. Plugin export entries: can a plugin's export step (first- and third-party) run wherever exporting runs?
+2. What the player ships: per-feature chunk sizes, and the cost of one lazy import per launch step.
+3. Recording cost per lane on the phone: skipped for phase 1 (desktop first).
