@@ -1,0 +1,1455 @@
+{
+ "info": {
+  "webgl2": true,
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+ },
+ "results": {
+  "1a-instances-setEnabled": {
+   "variant": "setEnabled",
+   "bands": {
+    "A": [
+     1024,
+     1024,
+     0
+    ],
+    "B": [
+     0,
+     1024,
+     1024
+    ]
+   },
+   "drawA": {
+    "calls": 1,
+    "instances": 2
+   },
+   "drawB": {
+    "calls": 1,
+    "instances": 2
+   },
+   "culled": [
+    3,
+    3
+   ],
+   "log": [
+    "clear",
+    "shadows-done",
+    "cull-done(A) visible=3",
+    "before(A)",
+    "after(A)",
+    "cull-done(B) visible=3",
+    "before(B)",
+    "after(B)"
+   ],
+   "bandsFrame2": {
+    "A": [
+     1024,
+     1024,
+     0
+    ],
+    "B": [
+     0,
+     1024,
+     1024
+    ]
+   }
+  },
+  "1a-instances-isVisible": {
+   "variant": "isVisible",
+   "bands": {
+    "A": [
+     1024,
+     1024,
+     0
+    ],
+    "B": [
+     0,
+     1024,
+     1024
+    ]
+   },
+   "drawA": {
+    "calls": 1,
+    "instances": 2
+   },
+   "drawB": {
+    "calls": 1,
+    "instances": 2
+   },
+   "culled": [
+    3,
+    3
+   ],
+   "log": [
+    "clear",
+    "shadows-done",
+    "cull-done(A) visible=3",
+    "before(A)",
+    "after(A)",
+    "cull-done(B) visible=3",
+    "before(B)",
+    "after(B)"
+   ],
+   "bandsFrame2": {
+    "A": [
+     1024,
+     1024,
+     0
+    ],
+    "B": [
+     0,
+     1024,
+     1024
+    ]
+   }
+  },
+  "1a-negative-enable-in-hook": {
+   "bands": {
+    "A": [
+     1024,
+     1024,
+     0
+    ],
+    "B": [
+     1024,
+     1024,
+     0
+    ]
+   },
+   "culled": [
+    2,
+    2
+   ]
+  },
+  "1a-alt-perViewObjectList": {
+   "bands": {
+    "A": [
+     1024,
+     1024,
+     0
+    ],
+    "B": [
+     0,
+     1024,
+     1024
+    ]
+   },
+   "drawA": {
+    "calls": 1,
+    "instances": 2
+   },
+   "drawB": {
+    "calls": 1,
+    "instances": 2
+   },
+   "culled": [
+    2,
+    2
+   ]
+  },
+  "1b-thin-updated": {
+   "mode": "updated",
+   "bands": {
+    "A": [
+     1024,
+     1024,
+     0
+    ],
+    "B": [
+     0,
+     1024,
+     1024
+    ]
+   },
+   "drawA": {
+    "calls": 1,
+    "instances": 2
+   },
+   "drawB": {
+    "calls": 1,
+    "instances": 2
+   },
+   "culled": [
+    1,
+    1
+   ]
+  },
+  "1b-thin-setBuffer": {
+   "mode": "setBuffer",
+   "bands": {
+    "A": [
+     1024,
+     1024,
+     0
+    ],
+    "B": [
+     0,
+     1024,
+     1024
+    ]
+   },
+   "drawA": {
+    "calls": 1,
+    "instances": 2
+   },
+   "drawB": {
+    "calls": 1,
+    "instances": 2
+   },
+   "culled": [
+    1,
+    1
+   ]
+  },
+  "1c-shadow-instances": {
+   "opts": {
+    "kind": "instances"
+   },
+   "frames": [
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 1,
+       "instances": 3
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     },
+     "log": [
+      "clear",
+      "shadow-map-before(0)",
+      "shadow-map-after(0)",
+      "shadows-done",
+      "cull-done(A) visible=4",
+      "before(A)",
+      "after(A)",
+      "cull-done(B) visible=4",
+      "before(B)",
+      "after(B)"
+     ]
+    }
+   ]
+  },
+  "1c-shadow-instances-hideBeforeFrame": {
+   "opts": {
+    "kind": "instances",
+    "hideBeforeFrame": true
+   },
+   "frames": [
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       704,
+       704,
+       0
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       704,
+       704,
+       0
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 1,
+       "instances": 2
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     },
+     "log": [
+      "clear",
+      "shadow-map-before(0)",
+      "shadow-map-after(0)",
+      "shadows-done",
+      "cull-done(A) visible=3",
+      "before(A)",
+      "after(A)",
+      "cull-done(B) visible=4",
+      "before(B)",
+      "after(B)"
+     ]
+    }
+   ]
+  },
+  "1c-shadow-thin-restore": {
+   "opts": {
+    "kind": "thin",
+    "frames": 3
+   },
+   "frames": [
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 1,
+       "instances": 3
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     },
+     "log": [
+      "clear",
+      "shadow-map-before(0)",
+      "shadow-map-after(0)",
+      "shadows-done",
+      "cull-done(A) visible=2",
+      "before(A)",
+      "after(A)",
+      "cull-done(B) visible=2",
+      "before(B)",
+      "after(B)"
+     ]
+    },
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 1,
+       "instances": 3
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     }
+    },
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 1,
+       "instances": 3
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     }
+    }
+   ]
+  },
+  "1c-shadow-thin-noRestore-noHook": {
+   "opts": {
+    "kind": "thin",
+    "restore": false,
+    "frames": 3
+   },
+   "frames": [
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 1,
+       "instances": 3
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     },
+     "log": [
+      "clear",
+      "shadow-map-before(0)",
+      "shadow-map-after(0)",
+      "shadows-done",
+      "cull-done(A) visible=2",
+      "before(A)",
+      "after(A)",
+      "cull-done(B) visible=2",
+      "before(B)",
+      "after(B)"
+     ]
+    },
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       0,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       0,
+       704,
+       704
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 1,
+       "instances": 2
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     }
+    },
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       0,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       0,
+       704,
+       704
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 1,
+       "instances": 2
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     }
+    }
+   ]
+  },
+  "1c-shadow-thin-noRestore-shadowHook": {
+   "opts": {
+    "kind": "thin",
+    "restore": false,
+    "shadowHook": true,
+    "frames": 3
+   },
+   "frames": [
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 1,
+       "instances": 3
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     },
+     "log": [
+      "clear",
+      "shadow-map-before(0)",
+      "shadow-map-after(0)",
+      "shadows-done",
+      "cull-done(A) visible=2",
+      "before(A)",
+      "after(A)",
+      "cull-done(B) visible=2",
+      "before(B)",
+      "after(B)"
+     ]
+    },
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 1,
+       "instances": 3
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     }
+    },
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 1,
+       "instances": 3
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     }
+    }
+   ]
+  },
+  "1c-shadow-instances-csm": {
+   "opts": {
+    "kind": "instances",
+    "cascaded": true
+   },
+   "frames": [
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       0,
+       0,
+       0
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 2,
+       "instances": 6
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     },
+     "log": [
+      "clear",
+      "shadow-map-before(0)",
+      "shadow-map-after(0)",
+      "shadow-map-before(1)",
+      "shadow-map-after(0)",
+      "shadows-done",
+      "cull-done(A) visible=4",
+      "before(A)",
+      "after(A)",
+      "cull-done(B) visible=4",
+      "before(B)",
+      "after(B)"
+     ]
+    }
+   ]
+  },
+  "1c-shadow-instances-csm-perCamera": {
+   "opts": {
+    "kind": "instances",
+    "cascaded": true,
+    "csmPerCamera": true
+   },
+   "frames": [
+    {
+     "A": {
+      "boxes": [
+       484,
+       484,
+       0
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "B": {
+      "boxes": [
+       0,
+       484,
+       484
+      ],
+      "shadows": [
+       704,
+       704,
+       704
+      ]
+     },
+     "draws": {
+      "shadow": {
+       "calls": 4,
+       "instances": 12
+      },
+      "A": {
+       "calls": 2,
+       "instances": 3
+      },
+      "B": {
+       "calls": 2,
+       "instances": 3
+      }
+     },
+     "log": [
+      "clear",
+      "shadow-map-before(0)",
+      "shadow-map-after(0)",
+      "shadow-map-before(1)",
+      "shadow-map-after(0)",
+      "shadow-map-before(0)",
+      "shadow-map-after(0)",
+      "shadow-map-before(1)",
+      "shadow-map-after(0)",
+      "shadows-done",
+      "cull-done(A) visible=4",
+      "before(A)",
+      "after(A)",
+      "cull-done(B) visible=4",
+      "before(B)",
+      "after(B)"
+     ]
+    }
+   ]
+  },
+  "2-complement-instances": {
+   "kind": "instances",
+   "offsetPlugin": false,
+   "silhouettePx": 16384,
+   "silhouetteX": [
+    64,
+    191
+   ],
+   "rows": [
+    {
+     "t": 0,
+     "expectKeepA": 16384,
+     "nA": 16384,
+     "nB": 0,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.0625,
+     "expectKeepA": 15360,
+     "nA": 15360,
+     "nB": 1024,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.1,
+     "expectKeepA": 14336,
+     "nA": 14336,
+     "nB": 2048,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.3,
+     "expectKeepA": 11264,
+     "nA": 11264,
+     "nB": 5120,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.5,
+     "expectKeepA": 8192,
+     "nA": 8192,
+     "nB": 8192,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.75,
+     "expectKeepA": 4096,
+     "nA": 4096,
+     "nB": 12288,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.9375,
+     "expectKeepA": 1024,
+     "nA": 1024,
+     "nB": 15360,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 1,
+     "expectKeepA": 0,
+     "nA": 0,
+     "nB": 16384,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    }
+   ],
+   "allExact": true,
+   "holesWhenBothDrawn": 0,
+   "effectsDiffer": true,
+   "definesPlain": false,
+   "definesFade": true
+  },
+  "2-complement-instances-withOffsetPlugin": {
+   "kind": "instances",
+   "offsetPlugin": true,
+   "silhouettePx": 16384,
+   "silhouetteX": [
+    96,
+    223
+   ],
+   "rows": [
+    {
+     "t": 0,
+     "expectKeepA": 16384,
+     "nA": 16384,
+     "nB": 0,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.0625,
+     "expectKeepA": 15360,
+     "nA": 15360,
+     "nB": 1024,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.1,
+     "expectKeepA": 14336,
+     "nA": 14336,
+     "nB": 2048,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.3,
+     "expectKeepA": 11264,
+     "nA": 11264,
+     "nB": 5120,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.5,
+     "expectKeepA": 8192,
+     "nA": 8192,
+     "nB": 8192,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.75,
+     "expectKeepA": 4096,
+     "nA": 4096,
+     "nB": 12288,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.9375,
+     "expectKeepA": 1024,
+     "nA": 1024,
+     "nB": 15360,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 1,
+     "expectKeepA": 0,
+     "nA": 0,
+     "nB": 16384,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    }
+   ],
+   "allExact": true,
+   "holesWhenBothDrawn": 0,
+   "effectsDiffer": true,
+   "definesPlain": false,
+   "definesFade": true
+  },
+  "2-complement-thin": {
+   "kind": "thin",
+   "offsetPlugin": false,
+   "silhouettePx": 16384,
+   "silhouetteX": [
+    64,
+    191
+   ],
+   "rows": [
+    {
+     "t": 0,
+     "expectKeepA": 16384,
+     "nA": 16384,
+     "nB": 0,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.0625,
+     "expectKeepA": 15360,
+     "nA": 15360,
+     "nB": 1024,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.1,
+     "expectKeepA": 14336,
+     "nA": 14336,
+     "nB": 2048,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.3,
+     "expectKeepA": 11264,
+     "nA": 11264,
+     "nB": 5120,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.5,
+     "expectKeepA": 8192,
+     "nA": 8192,
+     "nB": 8192,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.75,
+     "expectKeepA": 4096,
+     "nA": 4096,
+     "nB": 12288,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.9375,
+     "expectKeepA": 1024,
+     "nA": 1024,
+     "nB": 15360,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 1,
+     "expectKeepA": 0,
+     "nA": 0,
+     "nB": 16384,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    }
+   ],
+   "allExact": true,
+   "holesWhenBothDrawn": 0,
+   "effectsDiffer": true,
+   "definesPlain": false,
+   "definesFade": true
+  },
+  "2-complement-thin-withOffsetPlugin": {
+   "kind": "thin",
+   "offsetPlugin": true,
+   "silhouettePx": 16384,
+   "silhouetteX": [
+    96,
+    223
+   ],
+   "rows": [
+    {
+     "t": 0,
+     "expectKeepA": 16384,
+     "nA": 16384,
+     "nB": 0,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.0625,
+     "expectKeepA": 15360,
+     "nA": 15360,
+     "nB": 1024,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.1,
+     "expectKeepA": 14336,
+     "nA": 14336,
+     "nB": 2048,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.3,
+     "expectKeepA": 11264,
+     "nA": 11264,
+     "nB": 5120,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.5,
+     "expectKeepA": 8192,
+     "nA": 8192,
+     "nB": 8192,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.75,
+     "expectKeepA": 4096,
+     "nA": 4096,
+     "nB": 12288,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 0.9375,
+     "expectKeepA": 1024,
+     "nA": 1024,
+     "nB": 15360,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    },
+    {
+     "t": 1,
+     "expectKeepA": 0,
+     "nA": 0,
+     "nB": 16384,
+     "double": 0,
+     "holes": 0,
+     "outside": 0
+    }
+   ],
+   "allExact": true,
+   "holesWhenBothDrawn": 0,
+   "effectsDiffer": true,
+   "definesPlain": false,
+   "definesFade": true
+  },
+  "2-perInstance-instances": {
+   "kind": "instances",
+   "leftPx": 4096,
+   "rightPx": 2048,
+   "expectLeft": 4096,
+   "expectRight": 2048,
+   "draws": {
+    "calls": 1,
+    "instances": 2
+   }
+  },
+  "2-perInstance-thin": {
+   "kind": "thin",
+   "leftPx": 4096,
+   "rightPx": 2048,
+   "expectLeft": 4096,
+   "expectRight": 2048,
+   "draws": {
+    "calls": 1,
+    "instances": 2
+   }
+  },
+  "2-effectCounts": {
+   "A: steady instances only (plugins on the material, no fade batch)": {
+    "effects": 2,
+    "shaders": [
+     "postprocess+rgbdDecode",
+     "pbr+pbr+INST"
+    ]
+   },
+   "B: + a fade InstancedMesh batch": {
+    "effects": 3,
+    "shaders": [
+     "postprocess+rgbdDecode",
+     "pbr+pbr+INST",
+     "pbr+pbr+FADE+INST"
+    ]
+   },
+   "C: + a fade thin-instance batch too": {
+    "effects": 4,
+    "shaders": [
+     "postprocess+rgbdDecode",
+     "pbr+pbr+INST",
+     "pbr+pbr+FADE+INST",
+     "pbr+pbr+FADE+THIN"
+    ]
+   },
+   "D: steady thin batch only": {
+    "effects": 2,
+    "shaders": [
+     "postprocess+rgbdDecode",
+     "pbr+pbr+THIN"
+    ]
+   },
+   "E: steady instances + steady thin + fade instances + fade thin": {
+    "effects": 5,
+    "shaders": [
+     "postprocess+rgbdDecode",
+     "pbr+pbr+INST",
+     "pbr+pbr+THIN",
+     "pbr+pbr+FADE+INST",
+     "pbr+pbr+FADE+THIN"
+    ]
+   }
+  },
+  "3-shadows": {
+   "rows": [
+    {
+     "variant": "plain mesh (no define), default shadow shader",
+     "shadowPx": 2688,
+     "effects": 9,
+     "ready": "graphReadyAtBuild=true"
+    },
+    {
+     "variant": "fade batch, noWrapper, outgoing t=0.5",
+     "shadowPx": 2688,
+     "fractionOfPlain": 1,
+     "expectIfHonoured": 0.5,
+     "effects": 9,
+     "ready": "graphReadyAtBuild=true"
+    },
+    {
+     "variant": "fade batch, wrapperBase, outgoing t=0.25",
+     "shadowPx": 2016,
+     "fractionOfPlain": 0.75,
+     "expectIfHonoured": 0.75,
+     "effects": 8,
+     "ready": "graphReadyAtBuild=false"
+    },
+    {
+     "variant": "fade batch, wrapperBase, outgoing t=0.5",
+     "shadowPx": 1344,
+     "fractionOfPlain": 0.5,
+     "expectIfHonoured": 0.5,
+     "effects": 8,
+     "ready": "graphReadyAtBuild=false"
+    },
+    {
+     "variant": "fade batch, wrapperBase, outgoing t=0.75",
+     "shadowPx": 672,
+     "fractionOfPlain": 0.25,
+     "expectIfHonoured": 0.25,
+     "effects": 8,
+     "ready": "graphReadyAtBuild=false"
+    },
+    {
+     "variant": "fade batch, wrapperStandalone, outgoing t=0.25",
+     "shadowPx": 2016,
+     "fractionOfPlain": 0.75,
+     "expectIfHonoured": 0.75,
+     "effects": 10,
+     "ready": "graphReadyAtBuild=true"
+    },
+    {
+     "variant": "fade batch, wrapperStandalone, outgoing t=0.5",
+     "shadowPx": 1344,
+     "fractionOfPlain": 0.5,
+     "expectIfHonoured": 0.5,
+     "effects": 10,
+     "ready": "graphReadyAtBuild=true"
+    },
+    {
+     "variant": "fade batch, wrapperStandalone, outgoing t=0.75",
+     "shadowPx": 672,
+     "fractionOfPlain": 0.25,
+     "expectIfHonoured": 0.25,
+     "effects": 10,
+     "ready": "graphReadyAtBuild=true"
+    },
+    {
+     "variant": "two coincident levels A(+0.3) and B(-0.3), noWrapper: shadow union",
+     "shadowPx": 2688,
+     "fractionOfPlain": 1,
+     "effects": 9
+    },
+    {
+     "variant": "two coincident levels A(+0.3) and B(-0.3), wrapperStandalone: shadow union",
+     "shadowPx": 2688,
+     "fractionOfPlain": 1,
+     "effects": 12
+    },
+    {
+     "variant": "wrapperBase, t=0.5, caster never drawn by a camera (layer mask)",
+     "ready": "graphReadyAtBuild=false",
+     "shadowPx": 1344,
+     "fractionOfPlain": 0.5,
+     "effects": 8
+    },
+    {
+     "variant": "wrapperStandalone, t=0.5, caster never drawn by a camera (layer mask)",
+     "ready": "graphReadyAtBuild=true",
+     "shadowPx": 1344,
+     "fractionOfPlain": 0.5,
+     "effects": 10
+    }
+   ],
+   "pcf": {
+    "plainPCF": {
+     "meanInsidePlainShadow": 0,
+     "litWall": 234,
+     "density": 1
+    },
+    "fadeStandalonePCF_t05": {
+     "meanInsidePlainShadow": 171,
+     "litWall": 234,
+     "density": 0.269
+    }
+   }
+  },
+  "4-fragment": {
+   "canvas": 256,
+   "layers": 16,
+   "fragmentsPerFrame": 1048576,
+   "unlitPBR": {
+    "plain": {
+     "medianMs": 11.6,
+     "minMs": 10.4,
+     "vsPlain": 1
+    },
+    "fade, f=0 (nothing discarded)": {
+     "medianMs": 14.9,
+     "minMs": 13.1,
+     "vsPlain": 1.28
+    },
+    "fade, f=0.5 (half discarded)": {
+     "medianMs": 14.3,
+     "minMs": 12.7,
+     "vsPlain": 1.23
+    }
+   },
+   "litPBR_1dirLight": {
+    "plain": {
+     "medianMs": 39.1,
+     "minMs": 31.2,
+     "vsPlain": 1
+    },
+    "fade, f=0 (nothing discarded)": {
+     "medianMs": 44,
+     "minMs": 36.2,
+     "vsPlain": 1.13
+    },
+    "fade, f=0.5 (half discarded)": {
+     "medianMs": 44.6,
+     "minMs": 36,
+     "vsPlain": 1.14
+    }
+   }
+  },
+  "4-upload": {
+   "n=1000": {
+    "fillJsMs": 0.001,
+    "thinInstanceBufferUpdatedMs": 0.049,
+    "thinInstanceSetBufferMs": 0.688,
+    "frameNoRewriteMs": 12.41,
+    "frameWith1RewriteMs": 10.82,
+    "frameWith2RewritesMs": 11.24,
+    "bytes": 64000
+   },
+   "n=10000": {
+    "fillJsMs": 0.014,
+    "thinInstanceBufferUpdatedMs": 0.173,
+    "thinInstanceSetBufferMs": 2.042,
+    "frameNoRewriteMs": 107.97,
+    "frameWith1RewriteMs": 116.93,
+    "frameWith2RewritesMs": 112.04,
+    "bytes": 640000
+   }
+  }
+ }
+}
