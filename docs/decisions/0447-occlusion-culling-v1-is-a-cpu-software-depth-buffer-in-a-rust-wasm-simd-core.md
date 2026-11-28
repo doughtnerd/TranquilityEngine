@@ -206,11 +206,11 @@ Five reviewers all approved with changes. Every point and its resolution is in `
 - **Skinned meshes** are occludees only. Transparent materials never occlude. `occlusion` is scriptable per frame.
 - **Packaging** follows the animation core's conventions.
 
-## Owner decisions still open (2026-11-28)
+## Owner decisions (2026-11-28)
 
-The owner accepted the direction. These choices are still open, and stand as provisional:
-1. **LOD generation default:** opt-in per model, with one click (provisional, as recommended), until the owner chooses. The alternative is a project-wide default for new models of at least 2,000 triangles, which would also touch the frozen navigation sample unless its `project.json` opts out.
-2. **Real-hardware measurements** (a desktop GPU, and the owner's Pixel 8 emulator) need the owner's machines. Runners will be provided, and the records' GPU and Android figures stay estimates until then.
+The owner accepted the direction, then answered:
+1. **LOD generation default: decided (owner, 2026-11-28): opt-in per model**, with one click in the import panel. No project-wide default; samples, the frozen navigation one included, are unchanged.
+2. **Real-hardware measurements: the owner runs them later** on a desktop GPU and the Pixel 8 emulator, with the runners provided (`tests/e2e/render-bench.spec.ts`, and the exported bench scene). The records' GPU and Android figures stay estimates until then.
 3. **How safe occlusion must be: decided (owner, 2026-11-28): tolerant.** Rare false occlusions smaller than 16 pixels at 1080p are accepted; none at or above 16 pixels. The rules and gate this sets are in §3, "Conservativeness rules (decided)".
 
 ## Alternatives considered

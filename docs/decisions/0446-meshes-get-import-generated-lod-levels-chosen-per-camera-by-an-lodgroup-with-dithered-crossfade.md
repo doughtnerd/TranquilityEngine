@@ -253,11 +253,11 @@ Five reviewers (architect, senior engineer, junior engineer, user persona, premi
 
 **Estimate (provisional):** about 27 person-weeks for 0446 and 0447 together (range 22–32), from the senior engineer's task table plus a third in reserve. It is calibrated against estimates, not actuals.
 
-## Owner decisions still open (2026-11-28)
+## Owner decisions (2026-11-28)
 
-The owner accepted the direction. Two choices weren't answered and stand as provisional:
-1. **LOD generation default:** opt-in per model, with one click (provisional, as recommended), until the owner chooses. The alternative is a project-wide default for new models of at least 2,000 triangles, which would also touch the frozen navigation sample unless its `project.json` opts out.
-2. **Real-hardware measurements** (a desktop GPU, and the owner's Pixel 8 emulator) need the owner's machines. Runners will be provided, and the records' GPU and Android figures stay estimates until then.
+The owner accepted the direction, then answered:
+1. **LOD generation default: decided (owner, 2026-11-28): opt-in per model**, with one click in the import panel. No project-wide default; samples, the frozen navigation one included, are unchanged.
+2. **Real-hardware measurements: the owner runs them later** on a desktop GPU and the Pixel 8 emulator, with the runners provided (`tests/e2e/render-bench.spec.ts`, and the exported bench scene). The records' GPU and Android figures stay estimates until then.
 
 ## Alternatives considered
 
