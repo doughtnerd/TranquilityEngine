@@ -14,13 +14,15 @@ export type Instancing = "auto" | "thin";
 /**
  * One benchmark variant of a scene.
  *
- * TODO(lod): a later task adds `lod: boolean` here: an `LODGroup` on each tree and rock (and building and prop), and model
- * sidecars (`models/<name>.obj.meta.json`) with `lod` levels, with the simplified OBJs (`<name>_lod1..3.obj`, ratios 0.5 / 0.25 / 0.1,
- * made by meshoptimizer as `spikes/render-bench/generate.mjs` does) written next to the full ones. The spike left them out.
+ * `lod` (ADR 0446): each model gets a sidecar (`models/<name>.obj.meta.json`) with `lod` (the import panel's defaults; `permissive`
+ * for buildings, whose boxes and window slabs have hard edges) and each tree, rock, building and prop an automatic `engine.LODGroup`
+ * beside its `MeshRenderer`. The editor generates the levels when the model loads, so no simplified OBJs are written.
  * TODO(occlusion): and `occlusion: boolean`: the occluder setup the occlusion task defines (buildings and the ground as occluders).
  */
 export interface Variant {
   readonly instancing: Instancing;
+  /** Models have generated levels and every object an automatic `LODGroup`. */
+  readonly lod: boolean;
 }
 
 export type SceneName = "forest" | "city";
@@ -52,14 +54,11 @@ function quat(yaw: number, pitch = 0): number[] {
 
 const transform = (pos: Vec3, yaw: number, scale: Vec3): Comp => ({ type: "engine.Transform", data: { position: pos.map(r3), rotation: quat(yaw), scale: scale.map(r3) } });
 
-/**
- * The MeshRenderer of a model with a material per slot.
- * TODO(lod): an `engine.LODGroup` component goes beside it for the `lod` variants (see `Variant`).
- */
-const renderer = (model: string, slots: readonly string[]): Comp => ({
-  type: "engine.MeshRenderer",
-  data: { mesh: `asset:models/${model}.obj`, materials: slots.map((s) => `asset:materials/${s}.material.json`) },
-});
+/** The MeshRenderer of a model with a material per slot, and for the `lod` variants an automatic `LODGroup` (empty `levels`: heights from the measured error) beside it. */
+const renderer = (model: string, slots: readonly string[], lod: boolean): Comp[] => [
+  { type: "engine.MeshRenderer", data: { mesh: `asset:models/${model}.obj`, materials: slots.map((s) => `asset:materials/${s}.material.json`) } },
+  ...(lod ? [{ type: "engine.LODGroup", data: {} }] : []),
+];
 
 interface Pose { pos: Vec3; yaw: number; pitch: number }
 
@@ -97,7 +96,7 @@ interface Built {
 const FOREST_OBJECTS = { trees: 4000, rocks: 6000 };
 const CITY_OBJECTS = { buildings: 576, props: 5000 };
 
-function forest(): Built {
+function forest(lod: boolean): Built {
   const meshes = forestMeshes();
   const r = rng(1234);
   const nodes: Node[] = [];
@@ -115,7 +114,7 @@ function forest(): Built {
       const x = -200 + (gx + 0.15 + 0.7 * r()) * cell, z = -200 + (gz + 0.15 + 0.7 * r()) * cell;
       const s = scaleRange[0] + (scaleRange[1] - scaleRange[0]) * r();
       const kind = kinds[Math.floor(r() * kinds.length)]!;
-      nodes.push({ id: `${prefix}${n}`, name: `${prefix}${n}`, components: [transform([x, 0, z], r() * Math.PI * 2, [s, s * (0.9 + 0.2 * r()), s]), renderer(kind, slots)] });
+      nodes.push({ id: `${prefix}${n}`, name: `${prefix}${n}`, components: [transform([x, 0, z], r() * Math.PI * 2, [s, s * (0.9 + 0.2 * r()), s]), ...renderer(kind, slots, lod)] });
     }
   };
   place(FOREST_OBJECTS.trees, 400 / Math.sqrt(FOREST_OBJECTS.trees), ["tree0", "tree1", "tree2", "tree3"], ["trunk", "leaf"], "tree", [0.8, 1.3]);
@@ -123,7 +122,7 @@ function forest(): Built {
   return { name: "Forest bench", meshes, nodes, camera: { pos: [0, 1.7, -195], yaw: 0, pitch: 0 }, groundScale: 40, groundMaterial: "ground" };
 }
 
-function city(): Built {
+function city(lod: boolean): Built {
   const meshes = cityMeshes();
   const r = rng(4321);
   const nodes: Node[] = [];
@@ -135,7 +134,7 @@ function city(): Built {
     for (const [ox, oz] of [[-15, -15], [15, -15], [-15, 15], [15, 15]] as const) {
       const kind = buildings[Math.floor(r() * buildings.length)]!;
       const sy = 0.8 + 0.7 * r();
-      nodes.push({ id: `bld${nb}`, name: `Building${nb}`, components: [transform([cx + ox, 0, cz + oz], Math.floor(r() * 4) * (Math.PI / 2), [1, sy, 1]), renderer(kind, ["wall", "window"])] });
+      nodes.push({ id: `bld${nb}`, name: `Building${nb}`, components: [transform([cx + ox, 0, cz + oz], Math.floor(r() * 4) * (Math.PI / 2), [1, sy, 1]), ...renderer(kind, ["wall", "window"], lod)] });
       nb++;
     }
   }
@@ -153,10 +152,19 @@ function city(): Built {
     const x = onX ? along : street + lat, z = onX ? street + lat : along;
     const yaw = (onX ? 0 : Math.PI / 2) + (lat > 0 ? 0 : Math.PI) + (isCar ? 0 : r() * 0.2);
     const s = 0.9 + 0.2 * r();
-    nodes.push({ id: `prop${n}`, name: `Prop${n}`, components: [transform([x, 0, z], yaw, [s, s, s]), renderer(kind, slotsOf[kind]!)] });
+    nodes.push({ id: `prop${n}`, name: `Prop${n}`, components: [transform([x, 0, z], yaw, [s, s, s]), ...renderer(kind, slotsOf[kind]!, lod)] });
   }
   return { name: "City bench", meshes, nodes, camera: { pos: [0, 1.7, -470], yaw: 0, pitch: 0 }, groundScale: 100, groundMaterial: "asphalt" };
 }
+
+/** The sidecar `lod` the import panel's "Generate LODs" writes (ADR 0446 §1's defaults: three levels at 0.5 / 0.25 / 0.125). */
+const LOD_DEFAULTS = {
+  levels: [{ ratio: 0.5, error: 0.01 }, { ratio: 0.25, error: 0.02 }, { ratio: 0.125, error: 0.04 }],
+  attributes: true,
+  permissive: false,
+  lockBorders: false,
+  pixelError: 1,
+};
 
 /** The Kd of a material's colour (`#rrggbb`) as an MTL line's numbers. */
 const kd = (color: string) => (color.match(/\w\w/g) ?? []).slice(0, 3).map((h) => (parseInt(h, 16) / 255).toFixed(3)).join(" ");
@@ -181,23 +189,32 @@ function projectFiles(b: Built, variant: Variant): ProjectFiles {
     // The editor reads model files as bytes (`memoryFs.readBinary`), so they go in as UTF-8, not text.
     files[`models/${name}.mtl`] = utf8.encode(materials.map((m) => `newmtl ${m}\nKd ${kd(MATERIALS[m]!.color)}\n`).join("\n"));
     files[`models/${name}.obj`] = utf8.encode(toObj(name, parts, `${name}.mtl`));
-    // TODO(lod): `models/${name}.obj.meta.json` sidecar with `lod` levels, and the `${name}_lod1..3.obj` files, for the lod variants.
+    // ADR 0446: the levels are generated when the editor loads the model; buildings are boxes with window slabs, so their edges may collapse.
+    if (variant.lod) files[`models/${name}.obj.meta.json`] = JSON.stringify({ format: "myco.import@1", lod: { ...LOD_DEFAULTS, permissive: name.startsWith("bld") } });
   }
   files["scenes/main.scene.json"] = JSON.stringify({ format: "myco.scene@5", nodes: [...baseNodes(b.camera, b.groundScale, b.groundMaterial), ...b.nodes] });
   return files;
 }
 
-const SCENES: Record<SceneName, { build: () => Built; objects: Record<string, number> }> = {
+const SCENES: Record<SceneName, { build: (lod: boolean) => Built; objects: Record<string, number> }> = {
   forest: { build: forest, objects: FOREST_OBJECTS },
   city: { build: city, objects: CITY_OBJECTS },
 };
 
-/** The scene variants the benchmark measures, in report order. */
+/** The variants each scene has, in report order. */
+const VARIANTS: Record<SceneName, readonly Variant[]> = {
+  forest: [{ instancing: "auto", lod: false }, { instancing: "thin", lod: false }, { instancing: "auto", lod: true }, { instancing: "thin", lod: true }],
+  city: [{ instancing: "auto", lod: false }, { instancing: "thin", lod: false }, { instancing: "auto", lod: true }],
+};
+
+/**
+ * The scene variants the benchmark measures, in report order. The ids are the report's keys, so they stay stable:
+ * `forest-auto`, `forest-thin`, `forest-auto-lod`, `forest-thin-lod`, `city-auto`, `city-thin`, `city-auto-lod`.
+ */
 export const BENCH_SCENES: readonly BenchScene[] = (["forest", "city"] as const).flatMap((scene) =>
-  // TODO(lod, occlusion): add the `lod` and `occlusion` variants here when their tasks land.
-  (["auto", "thin"] as const).map((instancing): BenchScene => {
-    const variant: Variant = { instancing };
+  // TODO(occlusion): add the `occlusion` variants here when their task lands.
+  VARIANTS[scene].map((variant): BenchScene => {
     const { build, objects } = SCENES[scene];
-    return { id: `${scene}-${instancing}`, scene, variant, objects, files: () => projectFiles(build(), variant) };
+    return { id: `${scene}-${variant.instancing}${variant.lod ? "-lod" : ""}`, scene, variant, objects, files: () => projectFiles(build(variant.lod), variant) };
   }),
 );
