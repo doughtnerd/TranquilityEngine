@@ -10,14 +10,17 @@
  *    submesh below 1 % of its triangles (at least 12).
  * 3. Measure each level's error as a sampled two-way Hausdorff distance against LOD0 (`hausdorff.ts`), as a fraction
  *    of LOD0's bounding-box diagonal: never meshoptimizer's estimate.
- * 4. The occluder stand-in: the coarsest level, with its measured error (sloppy stand-ins were dropped, 0447 §3).
+ * 4. The occluder stand-in: the coarsest level, hole-trimmed (ADR 0447 §3, `standInTrim.ts`): triangles whose own error
+ *    exceeds 0.5 % of the diagonal are dropped, and each kept one keeps its error and its edge neighbours. Where the
+ *    trimming module can't load there is no stand-in (an untrimmed one isn't conservative), with a warning once.
  * 5. Reorder each level's triangles for the vertex cache, then the shared vertices coarsest level first for vertex fetch,
  *    remapping every stream with the one table.
  */
 import { MeshoptEncoder } from "meshoptimizer/encoder";
 import { MeshoptSimplifier, type SimplifierFlags } from "meshoptimizer/simplifier";
-import type { Bounds6, LodSettings, OccluderSetting } from "./types";
+import type { Bounds6, LodSettings, OccluderSetting, OccluderStandIn } from "./types";
 import { hausdorffDistance, TriangleBvh } from "./hausdorff";
+import { loadStandInTrimmer, type StandInTrimmer } from "./standInTrim";
 import { remapIndices, remapStreams, UNUSED, vertexCount, weldRemap, type VertexStreams } from "./streams";
 
 /** An index range drawn with one surface (`MeshData.groups`' shape). */
@@ -49,7 +52,8 @@ export interface GeneratedLods {
   readonly streams: VertexStreams;
   /** Level 0 (the welded, reordered original) first. */
   readonly levels: readonly GeneratedLevel[];
-  readonly occluder: { readonly indices: Uint32Array; readonly error: number } | null;
+  /** The hole-trimmed stand-in (its `indices` are the coarsest level's own array when trimming kept every triangle). */
+  readonly occluder: OccluderStandIn | null;
   readonly bounds: Bounds6;
 }
 
@@ -135,6 +139,21 @@ function cacheOrder(indices: Uint32Array): Uint32Array {
 /** The fewest triangles a group of `triangles` keeps at any level: 1 %, at least 12 (or all it has). */
 const minimumTriangles = (triangles: number): number => Math.min(triangles, Math.max(12, Math.ceil(triangles * 0.01)));
 
+let trimmerWarned = false;
+
+/** The stand-in trimmer, or null (with a warning, once) when its module can't be loaded. */
+async function trimmer(): Promise<StandInTrimmer | null> {
+  try {
+    return await loadStandInTrimmer();
+  } catch (err) {
+    if (!trimmerWarned) {
+      trimmerWarned = true;
+      console.warn("[myco] couldn't load the occluder trimming module; models get no occluder stand-ins:", err);
+    }
+    return null;
+  }
+}
+
 /**
  * The levels of `source` with `settings`, and its occluder stand-in (`occluder`). Deterministic: the same input always
  * gives the same output, in Node and the browser alike.
@@ -196,8 +215,23 @@ export async function generateLods(source: LodSource, settings: LodSettings, occ
     return { indices: lv.indices, groups: keepGroups ? lv.groups : [], error, triangles: lv.indices.length / 3 };
   });
 
-  // 4. The occluder stand-in: the coarsest generated level.
+  // 4. The occluder stand-in: the coarsest generated level, hole-trimmed against LOD0.
   const coarsest = levels.length > 1 ? levels[levels.length - 1] : null;
-  const standIn = occluder !== "none" && coarsest ? { indices: coarsest.indices, error: coarsest.error } : null;
+  let standIn: OccluderStandIn | null = null;
+  const trim = occluder !== "none" && coarsest && coarsest.triangles > 0 && diagonal > 0 ? await trimmer() : null;
+  if (trim && coarsest) {
+    const trimmed = trim(positions, levelsIndexed[0].indices, coarsest.indices);
+    if (trimmed.indices.length > 0) {
+      standIn = {
+        // Trimming keeps triangles in order, so when it kept them all they're the level's own indices (stored once).
+        indices: trimmed.indices.length === coarsest.indices.length ? coarsest.indices : trimmed.indices,
+        // The whole stand-in's error stays the coarsest level's measured two-way Hausdorff error: trimming only removes
+        // triangles, and the runtime's conservative rules use each triangle's own error (`triangleErrors`).
+        error: coarsest.error,
+        triangleErrors: trimmed.triangleErrors,
+        neighbors: trimmed.neighbors,
+      };
+    }
+  }
   return { streams: finalStreams, levels, occluder: standIn, bounds };
 }

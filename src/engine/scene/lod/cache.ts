@@ -73,6 +73,13 @@ function hashArrays(arrays: readonly ArrayBufferView[]): string {
   return (a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0");
 }
 
+/**
+ * What the generator makes, beyond its input: bumped whenever the same input would give other output, so entries made by
+ * an older generator (memory or `.myco/lod/` files) are never hit. 2: hole-trimmed stand-ins with per-triangle errors
+ * and neighbours (ADR 0447 §3).
+ */
+const GENERATOR_VERSION = 2;
+
 /** The cache key of `source` generated with `settings` and `occluder`. */
 export function lodCacheKey(source: LodSource, settings: LodSettings, occluder: OccluderSetting): string {
   const s = source.streams;
@@ -83,6 +90,7 @@ export function lodCacheKey(source: LodSource, settings: LodSettings, occluder: 
     groups: source.groups,
     settings,
     occluder,
+    generator: GENERATOR_VERSION,
   });
   return `${hashArrays([...streamArrays(s), source.indices, new TextEncoder().encode(shape)])}:${s.positions.length / 3}:${source.indices.length}`;
 }

@@ -27,12 +27,12 @@ export interface LodPort {
   addEventListener(type: "message", listener: (event: MessageEvent) => void): void;
 }
 
-/** Every buffer of `lods`, once each (the occluder shares its level's indices). */
+/** Every buffer of `lods`, once each (the occluder's indices may be its level's own). */
 function transferList(lods: GeneratedLods): Transferable[] {
   const buffers = new Set<ArrayBufferLike>();
   for (const a of streamArrays(lods.streams)) buffers.add(a.buffer);
   for (const l of lods.levels) buffers.add(l.indices.buffer);
-  if (lods.occluder) buffers.add(lods.occluder.indices.buffer);
+  if (lods.occluder) for (const a of [lods.occluder.indices, lods.occluder.triangleErrors, lods.occluder.neighbors]) buffers.add(a.buffer);
   return [...buffers] as Transferable[];
 }
 

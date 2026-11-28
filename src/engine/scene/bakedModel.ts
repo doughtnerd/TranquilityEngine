@@ -23,7 +23,9 @@
  *                  "takes": [{ "name", "duration", "tracks": [0371 tracks] }], "clips": [{ "name", "take", "source": myco.anim-source@1, "settings" }],
  *                  "boneMap": {…}, "boneMapSource": "guessed" }
  *   // ADR 0446: per mesh with generated levels (LOD0 is its "indices", its vertices welded and reordered)
- *   // "lods": [{ "indices": [offset, count], "groups": […], "error": 0.006, "triangles": 512 }], "occluder": { "indices", "error" },
+ *   // "lods": [{ "indices": [offset, count], "groups": […], "error": 0.006, "triangles": 512 }],
+ *   // "occluder": { "indices", "error", "triangleErrors": [offset, count] (f32), "neighbors": [offset, count] (u32) },
+ *   //   (ADR 0447 §3: hole-trimmed; a stand-in without its per-triangle arrays loads as none)
  *   // "bounds": [minX, minY, minZ, maxX, maxY, maxZ], "pixelError": 1
  * }
  * ```
@@ -69,7 +71,7 @@ interface BakedJson {
     morphTargets?: { name: string; positions?: Range; normals?: Range; tangents?: Range }[];
     tangents?: Range;
     lods?: { indices: Range; groups: MeshData["groups"]; error: number; triangles: number }[];
-    occluder?: { indices: Range; error: number };
+    occluder?: { indices: Range; error: number; triangleErrors?: Range; neighbors?: Range };
     bounds?: Bounds6;
     pixelError?: number;
   }[];
@@ -177,7 +179,9 @@ export function encodeBakedModel(data: ModelData, settings: BakeSettings): { byt
     ...(m.lods
       ? {
           lods: m.lods.levels.slice(1).map((l) => ({ indices: array(l.mesh.data.indices)!, groups: l.mesh.data.groups.map((g) => ({ ...g })), error: l.error, triangles: l.triangles })),
-          ...(m.lods.occluder ? { occluder: { indices: array(m.lods.occluder.indices)!, error: m.lods.occluder.error } } : {}),
+          ...(m.lods.occluder
+            ? { occluder: { indices: array(m.lods.occluder.indices)!, error: m.lods.occluder.error, triangleErrors: array(m.lods.occluder.triangleErrors)!, neighbors: array(m.lods.occluder.neighbors)! } }
+            : {}),
           bounds: m.lods.bounds,
           pixelError: m.lods.pixelError,
         }
@@ -310,7 +314,8 @@ export function decodeBakedModel(bytes: ArrayBuffer, settings: BakeSettings, url
     if (!m.lods || !m.bounds) return mesh;
     return attachLods(mesh, {
       levels: m.lods.map((l) => ({ indices: u32(l.indices), groups: l.groups, error: l.error, triangles: l.triangles })),
-      occluder: m.occluder ? { indices: u32(m.occluder.indices), error: m.occluder.error } : null,
+      // A stand-in baked before trimming has no per-triangle arrays, and an untrimmed stand-in isn't conservative.
+      occluder: m.occluder?.triangleErrors && m.occluder.neighbors ? { indices: u32(m.occluder.indices), error: m.occluder.error, triangleErrors: f32(m.occluder.triangleErrors)!, neighbors: u32(m.occluder.neighbors) } : null,
       bounds: m.bounds,
       pixelError: m.pixelError ?? 1,
     });
