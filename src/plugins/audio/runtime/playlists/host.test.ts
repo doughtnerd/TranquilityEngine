@@ -5,6 +5,7 @@
 // as one-sample playlists, and the refusal of the retired audio event format.
 import { describe, expect, it, vi } from "vitest";
 import { GameObject } from "../../../../myco";
+import { World } from "../../../../engine/core/World";
 import { mixer } from "../../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { Audio } from "../index";
@@ -136,10 +137,22 @@ describe("a generator per World (0158 §6)", () => {
     playlistHost().keepWorlds(new Set());
     expect(picks("q.playlist.json", 0, 1)).toEqual(["b.wav"]); // key 0 kept its position
     expect(picks("q.playlist.json", 5, 1)).toEqual(["a.wav"]); // key 5 started over
-    playlistHost().noteWorld(6, {});
+    playlistHost().noteWorld(6, {} as never);
     picks("q.playlist.json", 6, 2);
-    playlistHost().noteWorld(6, {});
+    playlistHost().noteWorld(6, {} as never);
     expect(picks("q.playlist.json", 6, 1)).toEqual(["a.wav"]);
+  });
+
+  it("ADR 0462: worldOf names the World a key was noted for, not the active World; key 0 and an unnoted key give the active World", async () => {
+    await kit.boot(ROBIN());
+    const other = new World();
+    expect(World.active).not.toBe(other);
+    playlistHost().noteWorld(7, other);
+    expect(playlistHost().worldOf(7)).toBe(other);
+    expect(playlistHost().worldOf(0)).toBe(World.active);
+    expect(playlistHost().worldOf(8)).toBe(World.active);
+    playlistHost().forgetWorld(7);
+    expect(playlistHost().worldOf(7)).toBe(World.active);
   });
 });
 

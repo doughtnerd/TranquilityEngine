@@ -13,9 +13,8 @@ import type { World } from "../../../engine/core/World";
 import { rayGroupsFor, raycastInto, type WorldRayInto, type WorldRayQuery } from "../../../engine/core/worldServices";
 import { mixer } from "../../../engine/audio/mixer";
 import { addEditorOverlay, removeEditorOverlay, type EditorOverlay } from "../../../engine/editor";
-import { Camera } from "../../../engine/render/components";
 import { Audio } from "../runtime/Audio";
-import { AudioListener, listenerPose } from "../runtime/AudioListener";
+import { listenerNode } from "../runtime/AudioListener";
 import { AudioSource, worldKeyOf } from "../runtime/AudioSource";
 import { type ViewportToolContribution, editor, persisted, theme } from "../../../editor/sdk";
 import { occludedVoices, occlusionColors, occlusionOverlay, type OcclusionColors } from "./occlusionRays";
@@ -38,21 +37,13 @@ function subtree(node: GameObject, into: Set<GameObject> = new Set()): Set<GameO
   return into;
 }
 
-/** The listener the audio system uses for `world`: the first enabled AudioListener, else the lowest-depth enabled Camera. */
-function listenerNode(world: World): GameObject | null {
-  for (const l of world._componentsOfType(AudioListener)) if (l.isActiveAndEnabled) return l.node;
-  let best: Camera | null = null;
-  for (const c of world._componentsOfType(Camera)) if (c.isActiveAndEnabled && (!best || c.depth < best.depth)) best = c;
-  return best?.node ?? null;
-}
-
 /** The overlay of one play World now, from `Audio.debug()`; empty while the toggle is off or the World has no listener. */
 function worldOcclusionOverlay(world: World, colors: OcclusionColors, enabled: boolean): EditorOverlay {
   const none: EditorOverlay = { lines: [], handles: [] };
   if (!enabled) return none;
-  const listener = listenerNode(world);
+  const listener = listenerNode(world); // ADR 0462: the listener the audio system uses (always with a transform)
   const key = worldKeyOf(world);
-  if (!listener?.transform || key === 0) return none;
+  if (!listener || key === 0) return none;
   const info = Audio.debug();
   const voices = occludedVoices(info.voices, key);
   if (voices.length === 0) return none;
@@ -65,7 +56,7 @@ function worldOcclusionOverlay(world: World, colors: OcclusionColors, enabled: b
     groups = undefined; // a layer the project doesn't define: the pass reports it; the overlay just casts at every layer
   }
   const out: WorldRayInto = { node: null, distance: 0, point: { x: 0, y: 0, z: 0 } };
-  const pos = listenerPose(listener).position;
+  const pos = listener.transform!.worldPosition;
   return occlusionOverlay(
     voices,
     {

@@ -4,11 +4,9 @@
  * stops (`end`). The same caption isn't repeated within `minGap` seconds of its last start. The text is the key in the
  * captions string table (`audio.json` `localisation.captions`) in the subtitle language, read live.
  */
-import { World } from "../../../../engine/core/World";
 import type { Vec3Like } from "../../../../engine/core/math";
 import type { PlaylistCaption } from "../../../../engine/audio/playlist/types";
-import { Camera } from "../../../../engine/render/components";
-import { AudioListener, listenerPose } from "../AudioListener";
+import { listenerPoseIn } from "../AudioListener";
 import { onAudioSessionReleased } from "../audioSession";
 import { playlistHost, type HostedRuntime } from "../playlists/host";
 import type { PlaylistInstance } from "../playlists/instance";
@@ -75,18 +73,12 @@ function durationOf(i: PlaylistInstance, now: number): number | null {
   return end - now;
 }
 
-function listener(): { position: Vec3Like; right: Vec3Like } | null {
-  const world = World.active;
-  if (!world) return null;
-  let node = null;
-  for (const l of world._componentsOfType(AudioListener)) if (l.isActiveAndEnabled) { node = l.node; break; }
-  if (!node) {
-    let best: Camera | null = null;
-    for (const c of world._componentsOfType(Camera)) if (c.isActiveAndEnabled && (!best || c.depth < best.depth)) best = c;
-    node = best?.node ?? null;
-  }
-  if (!node?.transform) return null;
-  const { position, forward: f, up: u } = listenerPose(node);
+/** The listener of the World of key `world` (ADR 0462): its position and its right-hand direction; null without one. */
+function listener(world: number): { position: Vec3Like; right: Vec3Like } | null {
+  const w = playlistHost().worldOf(world);
+  const pose = w ? listenerPoseIn(w) : null;
+  if (!pose) return null;
+  const { position, forward: f, up: u } = pose;
   return { position, right: { x: u.y * f.z - u.z * f.y, y: u.z * f.x - u.x * f.z, z: u.x * f.y - u.y * f.x } };
 }
 
@@ -94,7 +86,7 @@ function listener(): { position: Vec3Like; right: Vec3Like } | null {
 function panOf(i: PlaylistInstance): number | null {
   const p = i.position;
   if (!p) return null;
-  const l = listener();
+  const l = listener(i.world);
   if (!l) return 0;
   const dx = p.x - l.position.x, dy = p.y - l.position.y, dz = p.z - l.position.z;
   const d = Math.hypot(dx, dy, dz);

@@ -8,8 +8,7 @@ import { Component } from "../../../../engine/core/Component";
 import { component, field } from "../../../../engine/core/registry";
 import { World } from "../../../../engine/core/World";
 import type { GameObject } from "../../../../engine/scene/GameObject";
-import { Camera } from "../../../../engine/render/components";
-import { AudioListener, listenerPose } from "../AudioListener";
+import { listenerPoseIn } from "../AudioListener";
 import type { AudioLineHandle } from "../localisation/lines";
 // A cycle with `dialogueSystem.ts` (it places said lines with `nearestSpeaker`); each side uses the other only when called.
 import { dialogueSystem, eventHasArgument, type SayOptions } from "./dialogueSystem";
@@ -26,18 +25,11 @@ export class AudioSpeaker extends Component {
   }
 }
 
-function listenerPosition(world: World): { x: number; y: number; z: number } | null {
-  for (const l of world._componentsOfType(AudioListener)) if (l.isActiveAndEnabled && l.node.transform) return listenerPose(l.node).position;
-  let best: Camera | null = null;
-  for (const c of world._componentsOfType(Camera)) if (c.isActiveAndEnabled && (!best || c.depth < best.depth)) best = c;
-  return best?.node.transform ? listenerPose(best.node).position : null;
-}
-
 /** The node of the enabled `AudioSpeaker` voicing `speaker` nearest the listener (the first when there is no listener); null when none. */
 export function nearestSpeaker(speaker: string): GameObject | null {
   const world = World.active;
   if (!world) return null;
-  const at = listenerPosition(world);
+  const at = listenerPoseIn(world)?.position ?? null; // ADR 0462
   let best: GameObject | null = null;
   let bestD = Infinity;
   for (const s of world._componentsOfType(AudioSpeaker)) {
