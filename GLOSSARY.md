@@ -181,6 +181,7 @@ User-facing guide: [docs/wiki/guide/animation.md](docs/wiki/guide/animation.md).
 - **Take:** in import, an animation stack of a model file that clip settings cut into clips. A recorded run of what the game asked of animation (`ANIM_*` records) is designed (ADR 0373) and not built.
 - **Debug link:** the versioned connection by which a running build is inspected from the editor (ADR 0376): topics, pulled subscriptions, commands applied at the next frame start.
 - **Binding path:** a track's or tween's target: a node path (child names joined by "/", first match per step, "" the root) relative to the Animator's or director's node, plus a field path (a field, an optional dotted sub-path, or "material.<name>" / "materials[N].<name>" on a MeshRenderer). Owned by engine/animation/bindingPath.ts (ADR 0452).
+- **Frame clock:** a clip's time-to-frame mapping (`anim_format::frames`, TS `compile/frames.ts`; ADR 0451): frame i sits at min(i / rate, duration), so a clip whose duration isn't a whole number of frames ends on a last frame placed at its duration.
 
 ## Tilemaps (ADR 0103)
 
