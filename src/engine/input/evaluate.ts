@@ -142,7 +142,7 @@ function compileMapping(spec: MappingSpec, context: string, index: number, addit
     else source = { kind: "single", control: ctl("control", spec.control) };
     const all: Control[] = source.kind === "single" ? [source.control] : source.kind === "dpad" ? [source.up, source.down, source.left, source.right] : source.kind === "axis" ? [source.negative, source.positive] : [...source.modifiers, source.control];
     const options = target.action.type.options;
-    const specs: ModifierSpec[] = [...(spec.modifiers ?? [])];
+    const specs: ModifierSpec[] = (spec.modifiers ?? []).filter((m) => !m.off); // a turned-off modifier is as if absent
     const stick = all.some(isStickControl);
     const override = a11y.deadzone;
     const hasDeadzone = specs.some((m) => "deadzone" in m);
@@ -231,7 +231,7 @@ function tableFor(world: World, index: number, previous: PlayerTable | undefined
   const actionModifiers = new Map<string, Modifier[]>();
   for (const set of actionSets()) {
     for (const a of set.actions) {
-      const specs = a.type.options.modifiers;
+      const specs = a.type.options.modifiers?.filter((m) => !m.off);
       if (!specs?.length) continue;
       try {
         actionModifiers.set(actionKey(set, a), specs.map(compileModifier));
@@ -379,6 +379,27 @@ export function lastEvaluation(world: World, player: GameObject): EvaluationTrac
     sources: new Map([...e.sources].map(([s, m]) => [actionKey(s.set, s.action), m])),
     consumed: new Map([...e.claims].map(([id, ctx]) => [controlById(id).path, ctx])),
   };
+}
+
+const livePaired: Paired = { keyboard: false, keyboardFamily: 0, pointer: false, pointerFamily: 1, touch: null, touchFamily: 6, pen: null, penFamily: 7, pads: [] };
+const liveOut = new Float32Array(3);
+const NOTHING_CONSUMED: ReadonlySet<number> = new Set();
+
+/**
+ * @internal What a mapping's controls read now for player `index`, combined (a D-pad's vector, an Axis's -1..1, a
+ * chord's control while its modifiers are held), before its modifiers: the Input dialog's live values (ADR 0433).
+ * Consumption isn't applied. Null when the mapping doesn't compile (an unknown action, a control that names nothing).
+ */
+export function mappingSourceValue(world: World, index: number, spec: MappingSpec): number[] | null {
+  let m: CompiledMapping | null;
+  try {
+    m = compileMapping({ ...spec, modifiers: [], triggers: [] }, "live", 0, -1, {}, []);
+  } catch {
+    return null;
+  }
+  if (!m) return null;
+  readSource(m, pairedDevices(world, index, livePaired), NOTHING_CONSUMED, liveOut);
+  return Array.from(liveOut.subarray(0, sourceDims(m)));
 }
 
 /**

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, Input } from "../index";
-import { UIButton, UIPanel, UIText } from "../ui/components";
+import { UIButton, UIInputField, UIPanel, UIText } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
 import { World } from "../core/World";
 import { UICore } from "../ui/UICore";
@@ -301,5 +301,91 @@ describe("z-index (ADR 0422)", () => {
     const orders = new Map(core.elements().map((e) => [e.comp, e.order]));
     expect([orders.get(clip), orders.get(inner), orders.get(after)]).toEqual([0, 1, 2]);
     expect(core.hitTest(50, 50)).toBe(after);
+  });
+});
+
+describe("content sizes where Yoga's shortcuts differ from CSS", () => {
+  // A HUD: a clock row, a shrink-to-fit middle of empty lines, and bars along the bottom of a space-between column.
+  const HUD = (lines: string) =>
+    buildUI(`<Canvas><div id="screen"><div id="top"/><div id="row"><div id="middle"><div id="lines">${lines}</div></div></div><div id="bottom"/></div></Canvas>`, {
+      css: `#screen { width: 100%; height: 100%; flex-direction: column; justify-content: space-between; padding: 12px }
+            #top { height: 40px }
+            #row { justify-content: center }
+            #middle, #lines { flex-direction: column; align-items: center }
+            #middle { padding: 18px }
+            #bottom { height: 80px }
+            .line { font-size: 20px }`,
+    });
+
+  it("lays a column of empty lines in a shrink-to-fit box out at its content's height, keeping the bottom row on screen", async () => {
+    const doc = HUD(`<span class="line"></span>`.repeat(8));
+    const core = await laidOut();
+    expect(box(core, panel(doc, "lines"))[3]).toBeLessThan(0.1);
+    expect(box(core, panel(doc, "middle"))[3]).toBeCloseTo(36, 1);
+    expect(box(core, panel(doc, "bottom"))).toEqual([12, 628, 1256, 80]);
+  });
+
+  it("does the same for a zero-width box with a height", async () => {
+    const doc = HUD(`<div class="line" width="0" height="24"/>`);
+    const core = await laidOut();
+    expect(box(core, panel(doc, "lines"))[3]).toBeCloseTo(24, 1);
+    expect(box(core, panel(doc, "bottom"))).toEqual([12, 628, 1256, 80]);
+  });
+
+  it("measures an empty text, or one of collapsed white space, as 0 × 0; a line of text and an empty input as a line", async () => {
+    const doc = buildUI(`<Canvas><div id="col"><span id="empty"></span><span id="spaces">   </span><span id="word">Hi</span><input id="field"/></div></Canvas>`, {
+      css: `#col { flex-direction: column; align-items: flex-start } span, input { font-size: 20px }`,
+    });
+    const core = await laidOut();
+    expect(box(core, byId(doc, "empty", UIText)).slice(2)).toEqual([0, 0]);
+    expect(box(core, byId(doc, "spaces", UIText)).slice(2)).toEqual([0, 0]);
+    expect(box(core, byId(doc, "word", UIText))[3]).toBeGreaterThan(20);
+    expect(core.rectOf(byId(doc, "field", UIInputField))!.height).toBeGreaterThan(20);
+  });
+});
+
+describe("baseline alignment (ADR 0434)", () => {
+  it("lines texts of different sizes up on their first lines' baselines, padding included, as CSS does", async () => {
+    const doc = buildUI(`<Canvas><div id="row"><span id="small">Ahoy</span><span id="big">Ahoy</span><span id="padded">Ahoy</span><div id="box" width="30" height="10"/></div></Canvas>`, {
+      css: `#row { align-items: baseline } span { line-height: 1.2 } #small { font-size: 20px } #big { font-size: 40px } #padded { font-size: 20px; padding-top: 10px }`,
+    });
+    const core = await laidOut();
+    // A line's baseline sits at half its leading plus the font's ascent (0.95 em): 19 px for 20 px text, 38 px for 40 px.
+    const top = (id: string) => box(core, byId(doc, id, UIText))[1];
+    expect(top("big")).toBeCloseTo(0, 3);
+    expect(top("small")).toBeCloseTo(19, 3);
+    expect(top("padded")).toBeCloseTo(9, 3);
+    // A box without text synthesises its baseline at its bottom edge.
+    expect(box(core, panel(doc, "box"))[1]).toBeCloseTo(28, 3);
+  });
+
+  it("aligns a container on its first item's baseline", async () => {
+    const doc = buildUI(`<Canvas><div id="row"><div id="col"><span id="first">One</span><span>Two</span></div><span id="big">Big</span></div></Canvas>`, {
+      css: `#row { align-items: baseline } #col { flex-direction: column; padding: 6px } span { line-height: 1.2; font-size: 20px } #big { font-size: 40px }`,
+    });
+    const core = await laidOut();
+    // The column's baseline: 6 px of padding and 19 px into its first line; the big text's is 38 px down.
+    expect(box(core, panel(doc, "col"))[1]).toBeCloseTo(13, 3);
+    expect(box(core, byId(doc, "big", UIText))[1]).toBeCloseTo(0, 3);
+  });
+});
+
+describe("calc() mixing % and px (ADR 0422 wave 5, resolved in the layout engine by 0434)", () => {
+  it("resolves nested calc() lengths against this layout's sizes, in one layout", async () => {
+    const doc = buildUI(`<Canvas><div id="outer"><div id="mid"><div id="inner"/></div><div id="abs"/></div></Canvas>`, {
+      css: `#outer { width: 400px; height: 300px; align-items: flex-start }
+            #mid { width: calc(50% + 10px); height: calc(100% - 20px); align-items: flex-start }
+            #inner { width: calc(50% + 10px); height: calc(50% - 5px) }
+            #abs { position: absolute; left: calc(25% + 4px); top: calc(50% - 10px); width: 10px; height: 10px }`,
+    });
+    const core = await laidOut();
+    expect(box(core, panel(doc, "mid"))).toEqual([0, 0, 210, 280]);
+    expect(box(core, panel(doc, "inner"))).toEqual([0, 0, 115, 135]);
+    expect(box(core, panel(doc, "abs")).slice(0, 2)).toEqual([104, 140]);
+    // The outer box grows: every calc() follows in the next layout.
+    panel(doc, "outer").width = 600 as never;
+    engine.step(DT);
+    core.sync(engine.world, 1280, 720);
+    expect(box(core, panel(doc, "inner"))[2]).toBe(165);
   });
 });

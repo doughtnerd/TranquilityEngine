@@ -1,7 +1,7 @@
 /**
  * The Tilemap component (ADR 0103): a grid of tiles from one tileset asset, in several layers
- * drawn in chunks. Cell (x, y) covers local x·cellSize.x .. (x+1)·cellSize.x (and the same in y),
- * on the node's XY plane, y up.
+ * drawn in chunks. On a square grid cell (x, y) covers local x·cellSize.x .. (x+1)·cellSize.x (and the same in y),
+ * on the node's XY plane, y up; isometric, staggered and hexagonal grids (ADR 0437) place cells as `grids.ts` says.
  *
  * The `layers` field is the scene data (run-length chunk strings, `format.ts`). At runtime the
  * component decodes it into typed arrays; scripts edit those through `setTile` and friends, and
@@ -17,11 +17,13 @@ import { Component } from "../../../engine/core/Component";
 import { defineBuffer } from "../../../engine/core/data";
 import { Vector2, Vector3, type Vec2Like, type Vec3Like } from "../../../engine/core/math";
 import { AssetRef, PlainObject, component, field } from "../../../engine/core/registry";
-import type { CollisionShapes2D, CollisionShapeSource2D, ShapeMerge2D } from "../../../engine/physics/shapeSource2D";
+import type { CollisionCellChunk2D, CollisionCellGroup2D, CollisionCells2D, CollisionShapeOptions2D, CollisionShapes2D, CollisionShapeSource2D, ShapeMerge2D } from "../../../engine/physics/shapeSource2D";
+import type { ShadowShapes2D, ShadowShapeSource2D } from "../../../engine/render/shadowShapeSource2D";
 import { Assets } from "../../../engine/scene/Assets";
-import { buildTileShapes } from "./collision";
+import type { TileShapes } from "./collision";
 import { paintTerrain, retileTerrain, type CellAccess } from "./autotile";
 import { cellRandom, RANDOM_BRUSH_STREAM } from "./cellHash";
+import { gridKey, tileGrid, type GridParams, type TileGrid } from "./grids";
 import {
   CHUNK_CELLS,
   CHUNK_SIZE,
@@ -38,7 +40,8 @@ import {
   tileIdOf,
   type TilemapLayerData,
 } from "./format";
-import { Tileset, parseTileset, pickWeighted, type TileDef } from "./tileset";
+import { Tileset, parseTileset, pickWeighted, type TileCollision, type TileDef } from "./tileset";
+import { TileShapeCache, type ShapeLayer } from "./tileShapeCache";
 
 /** One changed cell, in `TilemapChanges` and `onTileChanged` listeners. */
 export interface TileChange {
@@ -130,10 +133,13 @@ function loadTileset(path: string): Tileset | null {
   return ts;
 }
 
+/** ADR 0437: a Tilemap's cell layout. */
+export type TileGridShape = "square" | "isometric" | "staggered" | "hexagonal";
+
 let nextVersion = 1;
 
 @component("engine.Tilemap")
-export class Tilemap extends Component implements CollisionShapeSource2D {
+export class Tilemap extends Component implements CollisionShapeSource2D, ShadowShapeSource2D {
   /** The tileset asset (`*.tileset.json`) the cells' tile ids refer to. */
   @field(AssetRef, { kind: "tileset" }) tileset = "";
   /** One cell's width and height in local units. */
@@ -149,10 +155,30 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
    * The editor's Re-roll button does both. Shown under the Tilemap's fields rather than as one.
    */
   @field(Number, { hidden: true }) variantSeed = 0;
+  /** ADR 0437: the cell layout. `cellSize` is one cell's bounding box (a diamond's or hexagon's width and height). */
+  @field(String, { choices: ["square", "isometric", "staggered", "hexagonal"], animatable: false }) gridShape: TileGridShape = "square";
+  /** ADR 0437: staggered and hexagonal grids: which rows ("y") or columns ("x") shift by half a cell. */
+  @field(String, { choices: ["y", "x"], animatable: false, shownWhen: (t) => t.gridShape === "staggered" || t.gridShape === "hexagonal" }) staggerAxis: "x" | "y" = "y";
+  /** ADR 0437: staggered and hexagonal grids: whether the odd or the even rows (columns) shift. */
+  @field(String, { choices: ["odd", "even"], animatable: false, shownWhen: (t) => t.gridShape === "staggered" || t.gridShape === "hexagonal" }) staggerIndex: "odd" | "even" = "odd";
+  /** ADR 0437: hexagonal grids: the flat sides' length along the stagger axis, as a fraction of `cellSize` on that axis. */
+  @field(Number, { animatable: false, shownWhen: (t) => t.gridShape === "hexagonal" }) hexSide = 0.5;
+  /** ADR 0437: how fast tile animations play (0 stops them). */
+  @field(Number) animationSpeed = 1;
 
   private source: unknown = null;
   private runtime: RuntimeLayer[] = [];
   private listeners: ((change: TileChange) => void)[] = [];
+  private grid: { key: string; grid: TileGrid } | null = null;
+  /** ADR 0441: view-only opacity factors by layer index (`_setViewOpacity`). */
+  private readonly viewOpacity = new Map<number, number>();
+  /** ADR 0439: tile shapes merged per chunk. */
+  private shapeCache = new TileShapeCache();
+  /** The last shapes put together per merge mode (and "shadow"), with the key they were made for. */
+  private shapeResults = new Map<string, { key: string; shapes: CollisionShapes2D | ShadowShapes2D }>();
+  /** ADR 0444: the last whole cells offered, with the key they were made for, and each group's chunks (kept between calls). */
+  private cellResult: { key: string; cells: CollisionCells2D } | null = null;
+  private cellChunks = new Map<string, Map<string, { chunk: CollisionCellChunk2D; solid: boolean }>>();
   /** @internal Goes up when anything about the cells or layers changes. */
   _version = 0;
 
@@ -193,6 +219,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
         }
       }
       if (prev) for (const key of prev.chunks.keys()) if (!layer.chunks.has(key)) changed = true;
+      if (prev && !samePair(prev.meta.offset, meta.offset, 0)) changed = true; // collision follows the offset (ADR 0441)
       if (changed) layer.version = nextVersion++;
       meta.chunks = {}; // the runtime arrays hold the cells now
       meta.palette = {}; // and the runtime maps the palette
@@ -283,27 +310,174 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
     return loadTileset(this.tileset);
   }
 
-  // --- 2D collision shapes (ADR 0105, 0136) ---------------------------------------------------
+  // --- grid (ADR 0437) ------------------------------------------------------------------------
 
-  /** @internal The 2D shape source signature: changes with the cell size, the tileset and the colliding layers' cells. */
+  private gridParams(): GridParams {
+    return { shape: this.gridShape, cellSize: this.cellSize, staggerAxis: this.staggerAxis, staggerIndex: this.staggerIndex, hexSide: this.hexSide };
+  }
+
+  /** @internal The cell layout of the grid fields as they are now (one `TileGrid` per set of values). */
+  _grid(): TileGrid {
+    const params = this.gridParams();
+    const key = gridKey(params);
+    if (this.grid?.key !== key) this.grid = { key, grid: tileGrid(params) };
+    return this.grid.grid;
+  }
+
+  /** @internal What tells two grids apart: changes with the cell size and any grid field. */
+  _gridKey(): string {
+    return gridKey(this.gridParams());
+  }
+
+  // --- 2D collision and shadow shapes (ADR 0105, 0136, 0439, 0441) ------------------------------
+
+  /** @internal The 2D shape source signature: changes with the grid, the tileset and the colliding layers' cells and offsets. */
   collisionSignature(): string {
-    const layers = this._layers().map((l) => `${l.version}:${l.meta.collision}`).join(",");
-    return [this.cellSize.x, this.cellSize.y, this.tileset, this.tilesetAsset ? "ts" : "", layers].join("|");
+    const layers = this._layers().map((l) => `${l.version}:${l.meta.collision}:${offsetKey(l)}`).join(",");
+    const shape = this.gridShape === "square" || !this.gridShape ? [] : [this._gridKey()];
+    return [this.cellSize.x, this.cellSize.y, ...shape, this.tileset, this.tilesetAsset ? "ts" : "", layers].join("|");
   }
 
   /**
    * @internal The tiles' collision shapes (each tile's from the tileset; layers with `collision: false`
-   * skipped), for whatever 2D collider sits on this node. Null while the tileset is missing.
+   * skipped), for whatever 2D collider sits on this node. Null while the tileset is missing. On a square grid they are
+   * in cell units (`unit` is the cell size); on other grids in local units (`unit` 1 × 1, ADR 0437). A layer's
+   * `offset` (ADR 0441) moves its shapes. Merged per chunk and cached (ADR 0439): an edit re-merges the chunks it touched.
+   * With `withoutCells` on a square grid, the whole-cell ("full") tiles `collisionCells` offers are left out (ADR 0444).
    */
-  collisionShapes(merge: ShapeMerge2D): CollisionShapes2D | null {
+  collisionShapes(merge: ShapeMerge2D, options?: CollisionShapeOptions2D): CollisionShapes2D | null {
     const ts = this.tilesetAsset;
     if (!ts) return null;
-    const cells: { x: number; y: number; value: number }[] = [];
+    const withoutCells = !!options?.withoutCells && this._grid().shape === "square";
+    const key = `${this.collisionSignature()}|${tilesetToken(ts)}`;
+    const slot = withoutCells ? `${merge}|withoutCells` : merge;
+    const cached = this.shapeResults.get(slot);
+    if (cached?.key === key) return cached.shapes as CollisionShapes2D;
+    const shapes = this.mergedShapes("collision", merge, (l) => l.meta.collision, (id) => ts.tile(id)?.collision, ts, withoutCells);
+    this.shapeResults.set(slot, { key, shapes });
+    return shapes;
+  }
+
+  /**
+   * @internal ADR 0444: on a square grid, the colliding layers' whole-cell ("full") tiles per chunk, layers with the
+   * same offset together (a cell solid in several counts once), for colliders that keep cells as voxels. A chunk's
+   * version changes only when its cells there or the tileset change. Null on other grids or while the tileset is missing.
+   */
+  collisionCells(): CollisionCells2D | null {
+    const ts = this.tilesetAsset;
+    if (!ts || this._grid().shape !== "square") return null;
+    const token = tilesetToken(ts);
+    const key = `${this.collisionSignature()}|${token}`;
+    if (this.cellResult?.key === key) return this.cellResult.cells;
+    const unit = { x: this.cellSize.x, y: this.cellSize.y };
+    const layerGroups = new Map<string, { offset: [number, number]; layers: [number, RuntimeLayer][] }>();
     this._layers().forEach((l, i) => {
       if (!l.meta.collision) return;
-      for (const cell of this.tiles(i)) cells.push(cell);
+      const ok = offsetKey(l);
+      let g = layerGroups.get(ok);
+      if (!g) layerGroups.set(ok, (g = { offset: layerOffsetOf(l), layers: [] }));
+      g.layers.push([i, l]);
     });
-    return { unit: { x: this.cellSize.x, y: this.cellSize.y }, ...buildTileShapes(cells, (id) => ts.tile(id)?.collision, merge) };
+    const kept = new Map<string, Map<string, { chunk: CollisionCellChunk2D; solid: boolean }>>();
+    const groups: CollisionCellGroup2D[] = [];
+    for (const [ok, g] of layerGroups) {
+      const prev = this.cellChunks.get(ok);
+      const next = new Map<string, { chunk: CollisionCellChunk2D; solid: boolean }>();
+      const chunks: CollisionCellChunk2D[] = [];
+      for (const [, l] of g.layers) {
+        for (const [k, c] of l.chunks) {
+          if (next.has(k)) continue;
+          let version = `${token}`;
+          for (const [i, o] of g.layers) {
+            const oc = o.chunks.get(k);
+            if (oc) version += `|${i}:${oc.version}`;
+          }
+          let entry = prev?.get(k);
+          if (entry?.chunk.version !== version) {
+            const solid = new Uint8Array(CHUNK_CELLS);
+            let any = false;
+            for (const [, o] of g.layers) {
+              const cells = o.chunks.get(k)?.cells;
+              if (!cells) continue;
+              for (let i = 0; i < CHUNK_CELLS; i++) {
+                const raw = cells[i];
+                if (!raw || solid[i]) continue;
+                const id = this.resolve(o, tileIdOf(raw));
+                if (id && ts.tile(id)?.collision === "full") solid[i] = 1, any = true;
+              }
+            }
+            entry = { chunk: { cx: c.cx, cy: c.cy, version, solid }, solid: any };
+          }
+          next.set(k, entry);
+          if (entry.solid) chunks.push(entry.chunk);
+        }
+      }
+      kept.set(ok, next);
+      // Offsets are in local units; cells are in cell units.
+      groups.push({ key: ok, offset: { x: unit.x ? g.offset[0] / unit.x : 0, y: unit.y ? g.offset[1] / unit.y : 0 }, chunks });
+    }
+    this.cellChunks = kept;
+    const cells: CollisionCells2D = { unit, chunkSize: CHUNK_SIZE, groups };
+    this.cellResult = { key, cells };
+    return cells;
+  }
+
+  /**
+   * @internal The 2D shadow shape source signature (ADR 0439): changes with the grid, the tileset and every layer's
+   * cells and offsets (a layer's collision flag doesn't gate its shadows).
+   */
+  shadowSignature(): string {
+    const layers = this._layers().map((l) => `${l.version}:${offsetKey(l)}`).join(",");
+    return [this._gridKey(), this.tileset, this.tilesetAsset ? "ts" : "", layers].join("|");
+  }
+
+  /**
+   * @internal What the tiles cast 2D shadows with (ADR 0439), in local units: each tile's `occluder` ("collision", the
+   * default, is its collision shapes without the one-way ones; "full" the cell's outline; "none" nothing; or its own
+   * shapes in box units), whole cells merged into outlines per chunk as collision is, layer offsets applied. Every
+   * layer casts, whatever its collision flag. Null while the tileset is missing.
+   */
+  shadowShapes(): ShadowShapes2D | null {
+    const ts = this.tilesetAsset;
+    if (!ts) return null;
+    const key = `${this.shadowSignature()}|${tilesetToken(ts)}`;
+    const cached = this.shapeResults.get("shadow");
+    if (cached?.key === key) return cached.shapes as ShadowShapes2D;
+    const s = this.mergedShapes("shadow", "outline", () => true, (id) => occluderShapes(ts.tile(id)), ts);
+    const ux = s.unit.x, uy = s.unit.y;
+    const local = (pts: [number, number][]) => (ux === 1 && uy === 1 ? pts : pts.map(([x, y]): [number, number] => [x * ux, y * uy]));
+    const shapes: ShadowShapes2D = { loops: s.loops.map(local), polygons: s.polygons.map(local) };
+    this.shapeResults.set("shadow", { key, shapes });
+    return shapes;
+  }
+
+  /** Every `include`d layer's tiles merged (layers with the same offset together, through the per-chunk cache), each offset group moved by its offset. */
+  private mergedShapes(purpose: string, mode: ShapeMerge2D, include: (l: RuntimeLayer) => boolean, collisionOf: (id: number) => TileCollision | undefined, ts: Tileset, withoutWholeCells = false): CollisionShapes2D {
+    const grid = this._grid();
+    const square = grid.shape === "square";
+    const unit = square ? { x: this.cellSize.x, y: this.cellSize.y } : { x: 1, y: 1 };
+    const groups = new Map<string, { offset: [number, number]; layers: ShapeLayer[] }>();
+    this._layers().forEach((l, i) => {
+      if (!include(l)) return;
+      const ok = offsetKey(l);
+      let g = groups.get(ok);
+      if (!g) groups.set(ok, (g = { offset: layerOffsetOf(l), layers: [] }));
+      g.layers.push({ id: i, chunks: l.chunks, value: (stored) => this.valueOf(l, stored) });
+    });
+    const context = `${tilesetToken(ts)}|${this._gridKey()}`;
+    const prefix = `${purpose}|${mode}|`;
+    const used = new Set<string>();
+    const out: CollisionShapes2D = { unit, boxes: [], loops: [], polygons: [], oneWay: [], oneWayPolygons: [] };
+    for (const [ok, g] of groups) {
+      const slot = prefix + ok;
+      used.add(slot);
+      const s = this.shapeCache.shapes(slot, g.layers, collisionOf, mode, grid, context, withoutWholeCells);
+      // Offsets are in local units; square-grid shapes are in cell units.
+      const dx = unit.x ? g.offset[0] / unit.x : 0, dy = unit.y ? g.offset[1] / unit.y : 0;
+      appendShapes(out, dx || dy ? movedShapes(s, dx, dy) : s);
+    }
+    this.shapeCache.retain(prefix, used);
+    return out;
   }
 
   // --- layers --------------------------------------------------------------------------------
@@ -326,6 +500,69 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
 
   private indexOf(layer: number | string): number {
     return typeof layer === "string" ? this.layerIndex(layer) : layer;
+  }
+
+  private requireLayer(layer: number | string): RuntimeLayer {
+    const l = this.layerAt(layer);
+    if (!l) throw new Error(`Tilemap "${this.node.name}" has no layer ${JSON.stringify(layer)}.`);
+    return l;
+  }
+
+  /** ADR 0441: how far a layer's drawing and collision are shifted, in local units ((0, 0) for a missing layer). */
+  layerOffset(layer: number | string): Vector2 {
+    const o = this.layerAt(layer)?.meta.offset;
+    return new Vector2(o?.[0] ?? 0, o?.[1] ?? 0);
+  }
+
+  /**
+   * ADR 0441: shift a layer's drawing and collision by (x, y) local units. Cells keep their coordinates (`worldToCell`
+   * with the layer reads them under the offset). Changes the runtime layer only, like other script edits
+   * (`toLayerData()` writes it). Throws for a missing layer or a value that isn't finite.
+   */
+  setLayerOffset(layer: number | string, x: number, y: number): void {
+    const l = this.requireLayer(layer);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RangeError(`Tilemap "${this.node.name}": a layer offset is two finite numbers, not (${x}, ${y}).`);
+    const was = l.meta.offset ?? [0, 0];
+    if (was[0] === x && was[1] === y) return;
+    if (x === 0 && y === 0) delete l.meta.offset;
+    else l.meta.offset = [x, y];
+    l.version = nextVersion++; // collision follows the offset (ADR 0441)
+    this._version = nextVersion++;
+  }
+
+  /** ADR 0441: how much a layer moves with the view camera, per axis ((1, 1) moves with the map; for a missing layer too). */
+  layerParallax(layer: number | string): Vector2 {
+    const p = this.layerAt(layer)?.meta.parallax;
+    return new Vector2(p?.[0] ?? 1, p?.[1] ?? 1);
+  }
+
+  /**
+   * ADR 0441: a layer's parallax factor (Tiled's): 1 moves with the map, 0 stays with the view camera, 0.5 scrolls at
+   * half speed. Visual only: collision and `worldToCell` ignore it. Changes the runtime layer only, like other script
+   * edits. Throws for a missing layer or a value that isn't finite.
+   */
+  setLayerParallax(layer: number | string, x: number, y: number): void {
+    const l = this.requireLayer(layer);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RangeError(`Tilemap "${this.node.name}": a layer parallax is two finite numbers, not (${x}, ${y}).`);
+    const was = l.meta.parallax ?? [1, 1];
+    if (was[0] === x && was[1] === y) return;
+    if (x === 1 && y === 1) delete l.meta.parallax;
+    else l.meta.parallax = [x, y];
+    this._version = nextVersion++;
+  }
+
+  /**
+   * @internal ADR 0441: the editor's Dim inactive layers: draw layer `layer` at `factor` × its opacity in this World's
+   * view, or as it is (null). View state only: never touches `layers`, isn't saved or copied.
+   */
+  _setViewOpacity(layer: number, factor: number | null): void {
+    if (factor === null || !Number.isFinite(factor)) this.viewOpacity.delete(layer);
+    else this.viewOpacity.set(layer, Math.max(0, factor));
+  }
+
+  /** @internal ADR 0441: what the renderer multiplies a layer's opacity by (`_setViewOpacity`; 1 when unset). */
+  _viewOpacity(layer: number): number {
+    return this.viewOpacity.get(layer) ?? 1;
   }
 
   // --- cells ---------------------------------------------------------------------------------
@@ -421,6 +658,24 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
     }
   }
 
+  /**
+   * Replace every cell of tile `fromId` with tile `toId` (0 clears them), keeping each cell's flip flags, in one layer
+   * or every layer (ADR 0442). Returns how many cells changed. Changes are reported like other script edits
+   * (`TilemapChanges`, `onTileChanged`). Throws for a missing layer or a `toId` the tileset doesn't have.
+   */
+  replaceTile(fromId: number, toId: number, layer?: number | string): number {
+    if (layer !== undefined && !this.layerAt(layer)) throw new Error(`Tilemap "${this.node.name}" has no layer ${JSON.stringify(layer)}.`);
+    if (!fromId || fromId === toId) return 0;
+    const layers = layer === undefined ? this._layers().map((_, i) => i) : [this.indexOf(layer)];
+    let changed = 0;
+    for (const li of layers) {
+      for (const { x, y, id, flags } of [...this.tiles(li)]) {
+        if (id === fromId && this.setCell(x, y, toId ? cellValue(toId, flags) : 0, li)) changed++;
+      }
+    }
+    return changed;
+  }
+
   /** Remove every tile from a layer (or every layer). */
   clearAll(layer?: number | string): void {
     const layers = layer === undefined ? this._layers().map((_, i) => i) : [this.indexOf(layer)];
@@ -458,7 +713,8 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
 
   /** A layer's cells as auto-tiling reads and writes them. */
   private cellAccess(layer: number | string): CellAccess {
-    return { get: (x, y) => this.getCell(x, y, layer), set: (x, y, id) => void this.setTile(x, y, id, layer) };
+    const grid = this._grid();
+    return { get: (x, y) => this.getCell(x, y, layer), set: (x, y, id) => void this.setTile(x, y, id, layer), neighbours: (x, y) => grid.neighbours(x, y), neighbourCount: grid.neighbourCount };
   }
 
   /** Every non-empty cell of a layer (a cell whose tile the tileset no longer has reads as empty). */
@@ -512,21 +768,41 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
 
   // --- coordinates ---------------------------------------------------------------------------
 
-  /** The cell holding a point in the node's local space. */
-  localToCell(p: Vec2Like): Vector2 {
-    return new Vector2(Math.floor(p.x / this.cellSize.x), Math.floor(p.y / this.cellSize.y));
+  /**
+   * The cell holding a point in the node's local space (on any grid shape). With `layer`, the cell of that layer drawn
+   * there: its offset (ADR 0441) is taken off first (parallax is visual only and ignored).
+   */
+  localToCell(p: Vec2Like, layer?: number | string): Vector2 {
+    const o = layer === undefined ? undefined : this.layerAt(layer)?.meta.offset;
+    const [x, y] = this._grid().localToCell(p.x - (o?.[0] ?? 0), p.y - (o?.[1] ?? 0));
+    return new Vector2(x, y);
   }
 
   /** A cell's centre in the node's local space. */
   cellToLocal(x: number, y: number): Vector2 {
-    return new Vector2((Math.floor(x) + 0.5) * this.cellSize.x, (Math.floor(y) + 0.5) * this.cellSize.y);
+    const [lx, ly] = this._grid().cellToLocal(Math.floor(x), Math.floor(y));
+    return new Vector2(lx, ly);
   }
 
-  /** The cell holding a world point. */
-  worldToCell(p: Vec2Like | Vec3Like): Vector2 {
+  /**
+   * A cell's neighbours (ADR 0437): 8 on square, isometric and staggered grids (N NE E SE S SW W NW of the grid's own
+   * axes, so an isometric "N" is up-left on screen), 6 on hexagonal ones (clockwise from the first side at or clockwise
+   * of north). Auto-tiling patterns name them in this order.
+   */
+  cellNeighbours(x: number, y: number): Vector2[] {
+    return this._grid().neighbours(Math.floor(x), Math.floor(y)).map(([nx, ny]) => new Vector2(nx, ny));
+  }
+
+  /** A cell's corners in the node's local space, counter-clockwise (a square, a diamond or a hexagon). */
+  cellOutline(x: number, y: number): Vector2[] {
+    return this._grid().cellOutline(Math.floor(x), Math.floor(y)).map(([px, py]) => new Vector2(px, py));
+  }
+
+  /** The cell holding a world point. With `layer`, the cell of that layer drawn there, under its offset (ADR 0441). */
+  worldToCell(p: Vec2Like | Vec3Like, layer?: number | string): Vector2 {
     const t = this.node.transform;
     const local = t ? t.localToWorld.inverseTransformPoint({ x: p.x, y: p.y, z: (p as Vec3Like).z ?? 0 }) : p;
-    return this.localToCell(local);
+    return this.localToCell(local, layer);
   }
 
   /** A cell's centre in world space. */
@@ -542,9 +818,65 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
   }
 }
 
+/** A Tileset's number, so caches keyed by it notice a reloaded tileset (a new Tileset object). */
+const tilesetTokens = new WeakMap<Tileset, number>();
+let nextTilesetToken = 1;
+function tilesetToken(ts: Tileset): number {
+  let t = tilesetTokens.get(ts);
+  if (t === undefined) tilesetTokens.set(ts, (t = nextTilesetToken++));
+  return t;
+}
+
+/** ADR 0441: a layer's offset in local units. */
+function layerOffsetOf(l: RuntimeLayer): [number, number] {
+  const o = l.meta.offset;
+  return o && Number.isFinite(o[0]) && Number.isFinite(o[1]) ? [o[0], o[1]] : [0, 0];
+}
+
+function offsetKey(l: RuntimeLayer): string {
+  const [x, y] = layerOffsetOf(l);
+  return `${x},${y}`;
+}
+
+/**
+ * ADR 0439: what a tile casts shadows with, as a collision the shape merge reads (`TileCollision`): its occluder, or its
+ * collision for `"collision"` (one-way parts land among the one-way shapes, which cast nothing). Occluder shapes are
+ * never one-way.
+ */
+const solidOccluders = new WeakMap<object, TileCollision>();
+function occluderShapes(tile: Readonly<TileDef> | undefined): TileCollision | undefined {
+  if (!tile) return undefined;
+  const o = tile.occluder ?? "collision";
+  if (o === "collision") return tile.collision;
+  if (typeof o === "string") return o;
+  let solid = solidOccluders.get(o);
+  if (!solid) solidOccluders.set(o, (solid = { shapes: o.shapes.map((s) => ({ polygon: s.polygon })) }));
+  return solid;
+}
+
+/** Shapes moved by (dx, dy) shape units. */
+function movedShapes(s: TileShapes, dx: number, dy: number): TileShapes {
+  const move = (pts: [number, number][]) => pts.map(([x, y]): [number, number] => [x + dx, y + dy]);
+  const rect = (r: { x: number; y: number; w: number; h: number }) => ({ x: r.x + dx, y: r.y + dy, w: r.w, h: r.h });
+  return { boxes: s.boxes.map(rect), loops: s.loops.map(move), polygons: s.polygons.map(move), oneWay: s.oneWay.map(rect), oneWayPolygons: s.oneWayPolygons.map(move) };
+}
+
+function appendShapes(out: TileShapes, s: TileShapes): void {
+  for (const b of s.boxes) out.boxes.push(b);
+  for (const l of s.loops) out.loops.push(l);
+  for (const p of s.polygons) out.polygons.push(p);
+  for (const r of s.oneWay) out.oneWay.push(r);
+  for (const p of s.oneWayPolygons) out.oneWayPolygons.push(p);
+}
+
 function sameCells(a: Int32Array, b: Int32Array): boolean {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
+}
+
+/** Whether two optional pairs are the same, an absent one reading as (`missing`, `missing`). */
+function samePair(a: readonly [number, number] | undefined, b: readonly [number, number] | undefined, missing: number): boolean {
+  return (a?.[0] ?? missing) === (b?.[0] ?? missing) && (a?.[1] ?? missing) === (b?.[1] ?? missing);
 }
 
 function compareChunkKeys(a: string, b: string): number {

@@ -23,3 +23,36 @@
 .tileset-pattern button { padding: 0; font-size: 14px; line-height: 1; }
 .tileset-pattern-centre { display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--muted); border: 1px dashed var(--border); border-radius: 3px; }
 .tileset-data { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+/* The tile collision and shadow shape editor (ADR 0439). */
+.tile-shapes { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; min-width: 0; }
+.tile-shapes-row { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+.tile-shapes-row .hint { margin: 0 4px; }
+.tile-shapes-stage { overflow: auto; max-height: 360px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-sunken); line-height: 0; }
+.tile-shapes-canvas { display: block; image-rendering: pixelated; touch-action: none; cursor: default; }
+.tile-shapes-canvas:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+.tile-shapes-canvas.tool-rectangle, .tile-shapes-canvas.tool-polygon { cursor: crosshair; }
+.tile-shapes-zoom button { min-width: 22px; padding: 0 4px; }
+.tile-shapes-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 3px; }
+.tile-shapes-list li { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 6px; cursor: pointer; }
+.tile-shapes-list li + li { border-top: 1px solid var(--border); }
+.tile-shapes-list li:hover { background: var(--hover); }
+.tile-shapes-list li.selected { background: var(--accent-faint); }
+.tile-shapes[data-mode="shadow"] .tile-shapes-list li.selected { background: var(--accent2-soft); }
+.tile-shapes-list label { display: flex; align-items: center; gap: 3px; font-size: 11px; }
+.tile-shapes-points summary { cursor: pointer; font-size: 11px; color: var(--muted); }
+.tile-shapes-points input { margin-top: 3px; }
+.tileset-cell.also-selected { border-color: var(--accent); }
+/* The tile animation editor (ADR 0437). */
+.tile-animation { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; min-width: 0; }
+.tile-animation-title { font-size: 11px; color: var(--muted); }
+.tile-animation-body { display: flex; gap: 6px; align-items: flex-start; min-width: 0; }
+.tile-animation-preview { flex: none; width: 64px; height: 64px; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-sunken); }
+.tile-animation-frames { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tile-animation-frames li { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.tile-animation-frames select { flex: 1; min-width: 0; }
+.tile-animation-frames input[type="number"] { width: 52px; flex: none; }
+.tile-animation-buttons { display: flex; gap: 1px; flex: none; }
+.tile-animation-buttons button { min-width: 20px; padding: 0 3px; }
+.tile-animation-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tile-animation-row > select { flex: 1; min-width: 0; }
+.tile-animation-start { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }

@@ -7,6 +7,9 @@
  * - an added component's `data` (`{ addComponent }`);
  * - all of these again inside added nodes (`{ addNodes }`, ADR 0086), however deep they nest.
  *
+ * A `type` rule likewise sees every component id the file names: component entries, an override's `component`,
+ * `removeComponent`, `order` and `addComponent`, in nodes and added nodes alike.
+ *
  * Callers (the format migrations, asset cleanup) supply only their rule. The walk copies only what
  * changed, so a rule that changes nothing gives back the very same file.
  */
@@ -32,6 +35,8 @@ const isRename = (v: unknown): v is FieldRename => typeof v === "object" && v !=
 export type FieldRule = (component: string, field: string, value: unknown) => unknown;
 
 export interface SceneFileRule {
+  /** Every component id the file names, wherever it sits: the same id to keep it, or another (ADR 0439's aliases). Runs before `field`. */
+  readonly type?: (id: string) => string;
   /** Every component field value in the file, wherever it sits. */
   readonly field?: FieldRule;
   /**
@@ -76,7 +81,9 @@ function mapNode(n: NodeEntry, rule: SceneFileRule): NodeEntry {
   return out;
 }
 
-function mapComponent(c: ComponentEntry, rule: SceneFileRule): ComponentEntry {
+function mapComponent(entry: ComponentEntry, rule: SceneFileRule): ComponentEntry {
+  const type = rule.type && typeof entry.type === "string" ? rule.type(entry.type) : entry.type;
+  const c = type === entry.type ? entry : { ...entry, type };
   if (!rule.field || !c.data) return c;
   let data: Record<string, unknown> | null = null;
   for (const [name, value] of Object.entries(c.data)) {
@@ -92,7 +99,8 @@ function mapComponent(c: ComponentEntry, rule: SceneFileRule): ComponentEntry {
   return data ? { ...c, data } : c;
 }
 
-function mapOverride(o: OverrideEntry, rule: SceneFileRule): OverrideEntry | undefined {
+function mapOverride(entry: OverrideEntry, rule: SceneFileRule): OverrideEntry | undefined {
+  const o = rule.type ? mapOverrideTypes(entry, rule.type) : entry;
   let out = o;
   if (rule.field && o.component && o.field && "value" in o) {
     const value = rule.field(o.component, o.field, o.value);
@@ -107,6 +115,24 @@ function mapOverride(o: OverrideEntry, rule: SceneFileRule): OverrideEntry | und
   if (o.addNodes) {
     const addNodes = mapNodes(o.addNodes, rule);
     if (addNodes !== o.addNodes) out = { ...out, addNodes };
+  }
+  return out;
+}
+
+/** The override with `type` applied to the component ids it names itself (`addComponent` is mapped as a component). */
+function mapOverrideTypes(o: OverrideEntry, type: (id: string) => string): OverrideEntry {
+  let out = o;
+  if (typeof o.component === "string") {
+    const component = type(o.component);
+    if (component !== o.component) out = { ...out, component };
+  }
+  if (typeof o.removeComponent === "string") {
+    const removeComponent = type(o.removeComponent);
+    if (removeComponent !== o.removeComponent) out = { ...out, removeComponent };
+  }
+  if (Array.isArray(o.order)) {
+    const order = mapList(o.order, (id) => (typeof id === "string" ? type(id) : id));
+    if (order !== o.order) out = { ...out, order };
   }
   return out;
 }

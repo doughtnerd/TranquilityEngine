@@ -4,7 +4,9 @@
 // light's sun mark, and a caster's outline (its custom path with point handles). Pure: `lights2dTool.ts` places the
 // lines with the node's 2D frame and writes the patches through the component field write.
 
-export type V2 = [number, number];
+import { pointHandles, pointIndex, type V2 } from "../../../editor/sdk";
+
+export type { V2 };
 
 /** A light's fields the gizmo reads (as stored: vectors as `[x, y]`). */
 export interface LightGizmoFields {
@@ -111,46 +113,6 @@ export function dragLight(f: LightGizmoFields, handle: string, p: V2): Record<st
   }
   const i = pointIndex(handle);
   if (f.type === "freeform" && i !== null && f.shape[i]) return { shape: f.shape.map((q, k): V2 => (k === i ? [p[0], p[1]] : [q[0], q[1]])) };
-  return null;
-}
-
-/** Handles for an editable outline: `p:i` at each point, and `insert:i` mid-way along the edge after it (closed: back to the first). */
-export function pointHandles(points: readonly V2[], closed: boolean): Record<string, V2> {
-  const out: Record<string, V2> = {};
-  points.forEach((p, i) => (out[`p:${i}`] = [p[0], p[1]]));
-  const edges = closed ? points.length : points.length - 1;
-  for (let i = 0; i < edges && points.length >= 2; i++) {
-    const a = points[i]!, b = points[(i + 1) % points.length]!;
-    out[`insert:${i}`] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-  }
-  return out;
-}
-
-const pointIndex = (handle: string): number | null => {
-  const m = /^p:(\d+)$/.exec(handle);
-  return m ? Number(m[1]) : null;
-};
-
-/**
- * What a press on an outline's handle does: drag a point (`index`), insert one mid-edge and drag it (`points` holds the
- * new outline), remove one with Ctrl (never below `min` points), or nothing for an unknown handle.
- */
-export function pressPoints(points: readonly V2[], handle: string, ctrl: boolean, min = 3): { drag: number; points: V2[] } | { removed: V2[] } | { refused: string } | null {
-  const copy = points.map((p): V2 => [p[0], p[1]]);
-  const i = pointIndex(handle);
-  if (i !== null && copy[i]) {
-    if (!ctrl) return { drag: i, points: copy };
-    if (copy.length <= min) return { refused: `An outline needs at least ${min} points.` };
-    return { removed: copy.filter((_, k) => k !== i) };
-  }
-  const m = /^insert:(\d+)$/.exec(handle);
-  if (m) {
-    const at = Number(m[1]);
-    const a = copy[at], b = copy[(at + 1) % copy.length];
-    if (!a || !b) return null;
-    copy.splice(at + 1, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
-    return { drag: at + 1, points: copy };
-  }
   return null;
 }
 

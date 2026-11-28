@@ -21,7 +21,7 @@ import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter } from "../.
 import { historyPanel } from "../placeholder";
 import { addMarker, addRegion, deleteNote, editNote, moveNote, setRegionSpan } from "./notesEdits";
 import { InstanceDetails, MixerStrip, NoteDetails, PlayheadValues } from "./TakeInspector";
-import { busStrip, instanceParametersAt, parameterRows, playheadSummary, type BusStrip } from "./takeInspectorModel";
+import { instanceParametersAt, mixerStripRows, parameterRows, playheadSummary, type BusGains, type StripSource } from "./takeInspectorModel";
 import { isTakePath, takeEmptyCopy, takeFiles } from "./takeFiles";
 import { PlaylistsInTake } from "./PlaylistsInTake";
 import { TakeList } from "./TakeList";
@@ -36,6 +36,8 @@ import type { Take } from "../../../engine/audio/take/reader";
 import type { Effect } from "../../../engine/audio/effects/types";
 import { EFFECT_CATALOGUE, isBuiltinEffectType } from "../../../engine/audio/effects/catalogue";
 import { openMixDocument } from "../mixer/mixerDocument";
+import { recordedBus } from "../mixer/recordedBus";
+import { dbToGain } from "../../../engine/audio/project/gain";
 import { TakeTimelineView } from "./TakeTimelineView";
 import { whyNotImportable } from "../../../editor/assetImportFiles";
 import { BuildTakeControls } from "./BuildTakeControls";
@@ -573,35 +575,68 @@ function ReplayInspector() {
   return <Panel bodyClass="tk-panel-body">{body}</Panel>;
 }
 
-/** Bus readings at 10 Hz while the panel shows and the runtime is up. */
-function useBusStrips(): { running: boolean; strips: (BusStrip & { fx: string })[] } {
+/** A bus as the runtime reports it: its authored level and its gains now. */
+interface LiveBus {
+  readonly name: string;
+  readonly authored: number;
+  readonly gains: BusGains;
+}
+
+/** The runtime's bus readings at 10 Hz while the panel shows and the runtime is up. */
+function useLiveBuses(running: boolean): readonly LiveBus[] {
   const host = audioHost();
-  const running = host.playable.value;
-  const [strips, setStrips] = useState<(BusStrip & { fx: string })[]>([]);
+  const [buses, setBuses] = useState<readonly LiveBus[]>([]);
   useEffect(() => {
     if (!running) return;
     const read = () => {
       const a = host.audio;
-      const mix = openMixDocument()?.value.peek();
-      setStrips(
+      setBuses(
         a.buses
           .map((name) => a.bus(name))
           .filter((b) => b.exists)
-          .map((b) => ({ ...busStrip({ name: b.name, authored: b.authoredVolume, runtime: b.volume, duck: b.duckGain, peak: b.peak }), fx: effectsLine(mix?.buses.find((x) => x.name === b.name)?.effects ?? []) })),
+          .map((b) => ({ name: b.name, authored: b.authoredVolume, gains: { runtime: b.volume, duck: b.duckGain, peak: b.peak } })),
       );
     };
     read();
     const timer = setInterval(read, 100);
     return () => clearInterval(timer);
   }, [running]);
-  return { running, strips: running ? strips : [] };
+  return running ? buses : [];
 }
 
+/**
+ * The Mixer strip: while the open take's replay plays, the runtime's levels; paused (or with no runtime), each bus's level
+ * as the take recorded it at the playhead, read from the take's profile (`recordedBus`), so a scrub moves the meters.
+ */
 function MixerPanel() {
-  const { running, strips } = useBusStrips();
+  const running = audioHost().playable.value;
+  const live = useLiveBuses(running);
+  const replay = replayStore();
+  const open = replay.open.value;
+  const atPlayhead = !!open && (!replay.playing.value || !running);
+  const mix = openMixDocument()?.value.value;
+  const names = running ? live.map((b) => b.name) : (mix?.buses ?? []).map((b) => b.name);
+  const sources: StripSource[] = names.map((name) => {
+    const now = live.find((b) => b.name === name);
+    const authoredDb = mix?.buses.find((b) => b.name === name)?.volumeDb;
+    const then = atPlayhead ? recordedBus(name) : null;
+    return {
+      name,
+      authored: now?.authored ?? (authoredDb === undefined ? 1 : dbToGain(authoredDb)),
+      live: now?.gains ?? null,
+      recorded: then ? { runtime: then.volume, duck: then.duckGain, peak: then.peak } : null,
+    };
+  });
+  const rows = mixerStripRows(sources, atPlayhead);
+  const fx = (name: string) => effectsLine(mix?.buses.find((x) => x.name === name)?.effects ?? []);
   return (
     <Panel bodyClass="tk-panel-body">
-      <MixerStrip running={running} strips={strips} onOpenMixer={() => openMixer()} />
+      <MixerStrip
+        running={running}
+        at={rows.some((r) => r.recorded) ? replay.time.value : null}
+        strips={rows.map((r) => ({ ...r, fx: fx(r.name) }))}
+        onOpenMixer={() => openMixer()}
+      />
     </Panel>
   );
 }

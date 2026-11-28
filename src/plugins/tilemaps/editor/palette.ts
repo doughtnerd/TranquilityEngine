@@ -1,6 +1,6 @@
 // What the Tile Palette does besides drawing (ADR 0103): the stamp a block of tiles makes, and layer edits written
-// to the scene as one undoable write of `layers` (`editor.scene.writeField`).
-import type { Tilemap } from "../runtime";
+// to the scene as one undoable write of `layers` (`editor.scene.writeField`), and Replace with… (ADR 0442).
+import { Tilemap } from "../runtime";
 import type { Stamp } from "../runtime/brushes";
 import type { TilemapLayerData } from "../runtime/format";
 import { editor, type OpenScene } from "../../../editor/sdk";
@@ -32,6 +32,40 @@ export function editedLayers(map: Tilemap, edit: (layers: TilemapLayerData[]) =>
 /** Write `layers` to the node's Tilemap as one undoable step (prefab instances get an override). */
 export function commitLayers(scene: OpenScene, path: readonly string[], layers: TilemapLayerData[], label: string): void {
   editor.scene.edit(label, () => void editor.scene.writeField({ scene, path, type: "engine.Tilemap" }, "layers", layers), scene);
+}
+
+/** Where Replace with… replaces a tile (ADR 0442): the active layer, every layer of the map, or every Tilemap of the open scene with the same tileset. */
+export type ReplaceScope = "layer" | "layers" | "scene";
+
+/**
+ * Replace tile `from` by tile `to` (flip flags kept) in `scope`, written as one undoable step. `layer` is the active
+ * layer of the map at `path`. "scene" reaches the Tilemaps of the open scene's own nodes that use the map's tileset
+ * (not those inside prefab instances). Returns how many cells changed.
+ */
+export function replaceTileIn(scene: OpenScene, path: readonly string[], map: Tilemap, from: number, to: number, scope: ReplaceScope, layer: number): number {
+  const maps: { path: readonly string[]; map: Tilemap }[] = [{ path, map }];
+  if (scope === "scene") {
+    for (const root of scene.doc.roots()) {
+      for (const id of scene.doc.subtree(root)) {
+        const other = scene.sync.nodeFor([id])?.getBehavior(Tilemap);
+        if (other && other !== map && other.tileset === map.tileset) maps.push({ path: [id], map: other });
+      }
+    }
+  }
+  let changed = 0;
+  editor.scene.edit(
+    "Replace tile",
+    () => {
+      for (const m of maps) {
+        const n = m.map.replaceTile(from, to, scope === "layer" ? layer : undefined);
+        if (n === 0) continue;
+        changed += n;
+        editor.scene.writeField({ scene, path: m.path, type: "engine.Tilemap" }, "layers", m.map.toLayerData());
+      }
+    },
+    scene,
+  );
+  return changed;
 }
 
 /** Set the node's Tilemap tileset to a project path (or clear it). */

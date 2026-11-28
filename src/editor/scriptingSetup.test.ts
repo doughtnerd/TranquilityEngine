@@ -50,6 +50,15 @@ describe("the generated tsconfig with the engine's declarations", () => {
 export const speed: number = levels.speed;
 `);
     files.set(`${dir}/scripts/Uses.ts`, `import { Time, Vector3 } from "myco";\nexport const step: number = Time.deltaTime * new Vector3(1, 2, 3).x;\n`);
+    // Components whose fields come from an engine base class (LineRenderer and TrailRenderer extend
+    // RibbonRenderer): the base must be in the declarations, or they aren't Components to scripts.
+    files.set(`${dir}/scripts/Lines.ts`, `import { Color, GameObject, LineRenderer, TrailRenderer } from "myco";
+const node = GameObject.create("Line");
+const line: LineRenderer = node.addComponent(LineRenderer, { width: 0.5, alignment: "transformZ" });
+line.color = new Color(1, 1, 1, 0.5);
+line.setPositions([[0, 0, 0], [1, 0, 0]]);
+export const width: number = line.width + (node.getComponent(TrailRenderer)?.width ?? 0);
+`);
     const fileExists = (f: string) => files.has(f) || ts.sys.fileExists(f);
     const readFile = (f: string) => files.get(f) ?? ts.sys.readFile(f);
 
@@ -71,7 +80,7 @@ export const speed: number = levels.speed;
     });
     const program = ts.createProgram({ rootNames: config.fileNames, options: config.options, host });
     const errors = ts.getPreEmitDiagnostics(program).map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
-    expect(config.fileNames).toHaveLength(5);
+    expect(config.fileNames).toHaveLength(6);
     expect(errors).toEqual([]);
   });
 });

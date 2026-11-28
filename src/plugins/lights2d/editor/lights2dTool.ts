@@ -13,8 +13,8 @@ import { Assets } from "../../../engine/scene/Assets";
 import { splitSpriteRef } from "../../../engine/scene/importSettings";
 import { spriteFrame } from "../../../engine/render/spriteFrame";
 import { Light2D, ShadowCaster2D } from "../runtime";
-import { dragLight, lightHandles, lightLines, pointHandles, pressPoints, type LightGizmoFields, type V2 } from "./lightGizmoModel";
-import { type ComponentEditMode, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
+import { dragLight, lightHandles, lightLines, type LightGizmoFields, type V2 } from "./lightGizmoModel";
+import { type ComponentEditMode, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, pointHandles, pressPoints, theme, viewportColors } from "../../../editor/sdk";
 
 /** The tool's id: also its overlay id and its active-tool id. */
 export const LIGHTS2D_TOOL_ID = "myco.lights2d.shape";

@@ -13,7 +13,7 @@ import type { BabylonFeature, BabylonFeatureFactory, DrawnNode, FeatureSyncConte
 import { type Camera, SpriteRenderer } from "../../../engine/render/components";
 import type { DecalBatch, DecalHost, DecalLook } from "../../../engine/render/decals";
 import type { QuadBatch, QuadBatchHost, QuadMask } from "../../../engine/render/quadBatches";
-import { sortingOrder } from "../../../engine/render/sortOrder";
+import { drawPlace, ySortWithin } from "../../../engine/render/sortOrder";
 import { spriteFrame, type SpriteFrame } from "../../../engine/render/spriteFrame";
 import { Assets } from "../../../engine/scene/Assets";
 import type { GameObject } from "../../../engine/scene/GameObject";
@@ -50,7 +50,9 @@ interface Quads {
   texture: string;
   sortingLayer: string;
   orderInLayer: number;
-  /** Its draw order (`sortingOrder`), for picking. */
+  /** How far into its order it sits: its height in a y-sorted layer (`ySortWithin`, ADR 0440), else 0. */
+  within: number;
+  /** Its draw place (`drawPlace`), for picking. */
   order: number;
   /** Its 2D material asset (ADR 0399: "" the default, Sprite Lit). */
   material: string;
@@ -162,7 +164,7 @@ export class DecalRenderer implements BabylonFeature {
       usedQuads.add(key);
       let batch = this.quads.get(key);
       if (!batch) this.quads.set(key, (batch = this.host.quads.createBatch(`decal2d:${key}`)));
-      batch.setOrder(q.sortingLayer, q.orderInLayer);
+      batch.setOrder(q.sortingLayer, q.orderInLayer, q.within);
       batch.setMaterial(q.material);
       batch.setTriangles(q.texture, new Float32Array(q.positions), new Float32Array(q.uvs), quadIndices(q.positions.length / 12), new Float32Array(q.colors));
       batch.setTint("#ffffff", 1);
@@ -211,13 +213,16 @@ export class DecalRenderer implements BabylonFeature {
     const [w, h] = frame?.size ?? size ?? [1, 1];
     const [pvx, pvy] = frame?.pivot ?? [0.5, 0.5];
     const [u0, v0, u1, v1] = frame?.uv ?? [0, 0, 1, 1];
-    const order = sortingOrder(world.settings.render.sortingLayers, layer, orderInLayer); // the batch warns about an unknown layer
+    // In a y-sorted layer (ADR 0440) its sort point is its pivot's world height, so only decals at one height share a batch.
+    const render = world.settings.render, y = m[mo + 13]!;
+    const order = drawPlace(render, layer, orderInLayer, y); // the batch warns about an unknown layer
+    const within = ySortWithin(render, layer, y);
     const mask = receiver ? this.maskOf(receiver, m[mo + 14]!) : null;
     if (receiver && mask === undefined) return null; // the receiver's texture is loading
     // A placed Decal2D draws in a batch of its own (picked and framed by itself); spawned ones share by texture, order and receiver.
     const key = own ?? (mask && receiver ? `${image}|${order}|r${receiver.entity}` : `${image}|${order}`) + (material ? `|${material}` : "");
     let q = quads.get(key);
-    if (!q) quads.set(key, (q = { texture: image, sortingLayer: layer, orderInLayer, order, material, mask: mask ?? null, positions: [], uvs: [], colors: [], owners: [] }));
+    if (!q) quads.set(key, (q = { texture: image, sortingLayer: layer, orderInLayer, within, order, material, mask: mask ?? null, positions: [], uvs: [], colors: [], owners: [] }));
     const corners: [number, number, number, number][] = [
       [-pvx * w, -pvy * h, u0, v0],
       [(1 - pvx) * w, -pvy * h, u1, v0],

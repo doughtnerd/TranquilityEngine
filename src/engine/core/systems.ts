@@ -7,6 +7,7 @@ import type { DataComponentDef } from "./data";
 import { NO_ROWS, type Rows } from "./rows";
 import type { TimeState, World } from "./World";
 import { _isReplacingRegistrations, _recordRegistration } from "./registry";
+import { _running } from "./runningScript";
 import { DEFAULT_SYSTEM_WORLDS, worldsMatch, type WorldTag } from "./worlds";
 
 export type Phase = "input" | "fixedUpdate" | "update" | "lateUpdate";
@@ -293,10 +294,15 @@ export class Scheduler {
       dt,
       single: <V>(d: DataComponentDef) => world._singleData(d) as V | null,
     };
+    // ADR 0435: note the running system, for services that say who asked.
+    const outer = _running.system;
+    _running.system = def.name;
     try {
       def.run(def.query ? world._query(def.query, includes) : NO_ROWS, ctx);
     } catch (err) {
       console.error(`[myco] System "${def.name}" threw:`, err);
+    } finally {
+      _running.system = outer;
     }
   }
 }

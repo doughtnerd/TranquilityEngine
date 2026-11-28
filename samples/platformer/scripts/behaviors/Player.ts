@@ -2,7 +2,8 @@ import { GameBehavior, Input, Mathf, Physics2D, RigidBody2D, Tilemap, Time, Vect
 
 /**
  * The player: runs with A/D or the arrow keys and jumps with Space, W or Up when standing on
- * something. Coins, spikes and the flag are tiles; the player reads their tile data (ADR 0103).
+ * something; Down (or S) + Jump drops through the one-way plank underfoot (ADR 0439). Coins, spikes
+ * and the flag are tiles; the player reads their tile data (ADR 0103).
  */
 @behavior("game.Player")
 export class Player extends GameBehavior {
@@ -13,12 +14,14 @@ export class Player extends GameBehavior {
 
   coins = 0;
   won = false;
-  /** Read the keyboard; off, `move` and `jumpQueued` are set by other code (tests, touch controls). */
+  /** Read the keyboard; off, `move`, `jumpQueued` and `dropQueued` are set by other code (tests, touch controls). */
   useKeyboard = true;
   /** -1, 0 or 1: the direction to run in. */
   move = 0;
   /** Jump at the next fixed step, if standing on something. */
   jumpQueued = false;
+  /** Drop through the one-way planks underfoot at the next fixed step. */
+  dropQueued = false;
 
   private rb!: RigidBody2D;
   private map: Tilemap | null = null;
@@ -37,7 +40,11 @@ export class Player extends GameBehavior {
     if (Input.getKey("arrowleft") || Input.getKey("a")) move -= 1;
     if (Input.getKey("arrowright") || Input.getKey("d")) move += 1;
     this.move = move;
-    if (Input.getKeyDown("space") || Input.getKeyDown("w") || Input.getKeyDown("arrowup")) this.jumpQueued = true;
+    const down = Input.getKey("arrowdown") || Input.getKey("s");
+    if (Input.getKeyDown("space") || Input.getKeyDown("w") || Input.getKeyDown("arrowup")) {
+      if (down) this.dropQueued = true;
+      else this.jumpQueued = true;
+    }
   }
 
   fixedUpdate(): void {
@@ -45,7 +52,10 @@ export class Player extends GameBehavior {
     const target = this.move * this.runSpeed;
     const step = this.acceleration * Time.fixedDeltaTime;
     v.x = Mathf.clamp(target, v.x - step, v.x + step);
-    if (this.jumpQueued) {
+    if (this.dropQueued) {
+      this.rb.dropThrough();
+      this.dropQueued = false;
+    } else if (this.jumpQueued) {
       if (this.grounded) v.y = this.jumpSpeed;
       this.jumpQueued = false;
     }

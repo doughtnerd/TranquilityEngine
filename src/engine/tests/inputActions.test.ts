@@ -280,6 +280,17 @@ describe("actions and the default context (ADR 0336)", () => {
 });
 
 describe("contexts on nodes (ADR 0336)", () => {
+  it("skips a turned-off modifier (ADR 0433)", () => {
+    defineInputContext({ name: "test.offModifier", mappings: [{ action: "steer", control: "<Keyboard>/x", modifiers: [{ scale: 3, off: true }, { scale: 0.5 }] }] });
+    const node = GameObject.create("Steering");
+    node.addBehavior(InputContext, { context: "test.offModifier", priority: 10 });
+    step();
+    Input.inject.keyDown("x");
+    step();
+    expect(p0().value("steer")).toBe(0.5);
+    node.setActive(false);
+  });
+
   it("takes a control for a higher-priority context while its node is active", () => {
     const car = GameObject.create("Car");
     car.addBehavior(InputContext, { context: "test.vehicle", priority: 10 });

@@ -228,6 +228,28 @@ describe("lobby with several players, each in a page of their own (ADR 0067, 006
     expect(anne.engine._viewStates().find((v) => v.name === "Menu")).toMatchObject({ mainView: true, takesInput: true, viewHanded: false }); // and has the view back
   });
 
+  it("a quick-match room stops its own timer once a member readies up, and waits for the others", async () => {
+    const { host, url } = await lobbyHost();
+    const [anne, bart] = [await page(), await page()];
+    const [a, b] = [anne.Lobby, bart.Lobby];
+    anne.connect(url, "Anne");
+    bart.connect(url, "Bart");
+    await netUntil(host, () => a.state === "lobby" && b.state === "lobby", "both in the lobby");
+    a.quickMatch();
+    await netUntil(host, () => a.state === "room" && a.room?.quick === true, "Anne in a quick room");
+    b.quickMatch();
+    await netUntil(host, () => b.state === "room" && a.room?.members.length === 2, "Bart in Anne's room");
+    b.setReady(true);
+    await netUntil(host, () => a.room?.quick === false, "an ordinary room");
+    const lobbyTime = () => host._world("Lobby")!.time.realtimeSinceStartup;
+    const since = lobbyTime();
+    await netUntil(host, () => lobbyTime() - since > LOBBY.quickMatchWait! + 0.5, "longer than quickMatchWait");
+    expect(a.room?.state).toBe("waiting");
+    expect(host.findWorld("Match 1")).toBeNull();
+    a.setReady(true); // now everyone's ready: it counts down and starts
+    await netUntil(host, () => a.state === "match" && b.state === "match", "the match");
+  });
+
   it("private rooms by code, host settings, kicking, host hand-over and refusals with reasons", async () => {
     const { host, url } = await lobbyHost();
     const players: (typeof Lobby)[] = [];
@@ -339,6 +361,26 @@ describe("lobby over loopback (ADR 0068)", () => {
     await stepUntil([engine], () => engine._world("Lobby")!.time.realtimeSinceStartup - backAt > 2, "longer than quickMatchWait");
     expect(a.state).toBe("room");
     expect(engine.findWorld("Match 2")).toBeNull();
+  });
+
+  it("a quick-match room stops its own timer once the host picks a setting", async () => {
+    const engine = await create(bootstrap({ fillWithBots: true, quickMatchWait: 2, minPlayers: 1 }));
+    const a = playLocal(engine, "Anne");
+    await stepUntil([engine], () => a.state === "lobby", "lobby");
+    const lobbyTime = () => engine._world("Lobby")!.time.realtimeSinceStartup;
+
+    a.quickMatch();
+    await stepUntil([engine], () => a.state === "room" && a.room?.quick === true, "quick room");
+    a.setSetting("arena", "maze");
+    await stepUntil([engine], () => a.room?.quick === false, "an ordinary room");
+    let since = lobbyTime();
+    await stepUntil([engine], () => lobbyTime() - since > 3, "longer than quickMatchWait");
+    expect(a.state).toBe("room");
+    expect(engine.findWorld("Match 1")).toBeNull();
+    a.setReady(true); // everyone's ready: it counts down and starts
+    await stepUntil([engine], () => a.state === "match", "the ready match");
+    matchOf(engine, "Match 1").end({ winner: "Anne" });
+    await stepUntil([engine], () => a.state === "room" && a.room?.state === "waiting", "back in the room");
   });
 
   it("a match admits only ticketed connections, once; it ends when every player has left, or nobody joins in time", async () => {

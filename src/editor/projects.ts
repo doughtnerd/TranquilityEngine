@@ -8,11 +8,12 @@ import { Assets, type AssetSource, type ProjectSettingsInput } from "../engine";
 import { acquireProjectContext, type ProjectContext } from "../engine/core/projectContext";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { isSidecarPath, sidecarPath } from "../engine/scene/importSettings";
-import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder, textFileValue } from "../engine/scene/projectFiles";
+import { isProjectFile, isProjectFileText, isTsxPath, loadProjectFiles, projectFileKind, skipsFolder, textFileValue } from "../engine/scene/projectFiles";
 import { isScriptPath, isTextAsset, joinPath } from "./projectPaths";
 import { isUISourcePath } from "../projectCode/uiModules";
 import { readOnlyMessage } from "./readOnly";
 import { migrateLegacyAudio, settingsWithAudio } from "./audioProjectFile";
+import { ensureDefaultInputContext } from "./defaultInputContext";
 import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
 
 export { isTextAsset, joinPath };
@@ -293,7 +294,7 @@ class MapProject implements EditorProject {
         continue;
       }
       const found = new Set<string>();
-      const inside = await listFiles(fs, root, path, isProjectFile, found).catch(() => [] as string[]);
+      const inside = await listProjectFiles(fs, root, path, found).catch(() => [] as string[]);
       for (const f of [path, ...found]) this.folderSet.add(f);
       for (const f of inside) files.add(f);
     }
@@ -519,6 +520,18 @@ async function listFiles(fs: FileSystem, root: string, dir: string, accept: (pat
 }
 
 /**
+ * The project files under `dir` (ADR 0254): what `isProjectFile` accepts, and each `.tsx` whose text is a Tiled tileset
+ * (ADR 0438; a TypeScript `.tsx` stays out, as scripts are read apart).
+ */
+async function listProjectFiles(fs: FileSystem, root: string, dir: string, folders?: Set<string>): Promise<string[]> {
+  const found = await listFiles(fs, root, dir, (path) => isProjectFile(path) || isTsxPath(path), folders);
+  // Read as bytes, as the file then loads (a URL): only its start matters.
+  const head = (path: string) => fs.readBinary(joinPath(root, path)).then((b) => new TextDecoder().decode(b.subarray(0, 256)), () => "");
+  const keep = await Promise.all(found.map(async (path) => !isTsxPath(path) || isProjectFileText(path, await head(path))));
+  return found.filter((_, i) => keep[i]);
+}
+
+/**
  * Open a project folder: it must contain `project.json`. Loads every project file up front as its
  * asset value (ADR 0254: JSON parsed, text files' text, the rest as object URLs), since scene
  * loading looks assets up synchronously. With `readOnly` nothing is written, not even a migration, and the project
@@ -530,9 +543,11 @@ export async function openFolderProject(fs: FileSystem, root: string, options: {
   }
   // ADR 0344: an `audio` section still in project.json moves to audio.json before anything reads the files.
   if (!options.readOnly) await migrateLegacyAudio(fs, root);
+  // ADR 0433: every project has a default input context file.
+  if (!options.readOnly) await ensureDefaultInputContext(fs, root);
   const folders = new Set<string>();
   const sizes = new Map<string, number>();
-  const { values, texts, problems } = await loadProjectFiles(await listFiles(fs, root, "", isProjectFile, folders), {
+  const { values, texts, problems } = await loadProjectFiles(await listProjectFiles(fs, root, "", folders), {
     readText: (path) => fs.readText(joinPath(root, path)),
     url: async (path) => {
       const bytes = await fs.readBinary(joinPath(root, path));

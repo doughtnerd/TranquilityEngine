@@ -1,0 +1,50 @@
+{
+  "include": [
+    "src/editor/**/*.tsx"
+  ],
+  "exclude": [
+    "**/*.test.tsx",
+    "**/*.stories.tsx"
+  ],
+  "checks": {
+    "spinner": {
+      "behave": "page.loading / table.loading",
+      "pattern": "class(?:Name)?=\"[^\"]*\\bspin(?:ner)?\\b",
+      "fix": "Skeleton shaped like the area; a spinner only beside a button, field or status text (\"Saving…\")"
+    },
+    "disabledButton": {
+      "behave": "action.blocked",
+      "pattern": "<button\\b(?=(?:[^<>]|=>)*?\\sdisabled\\b)",
+      "fix": "A disabled button can't take focus, so its reason (title) is unreachable from the keyboard. Prefer aria-disabled plus a visible hint, or hide the action when it never applies"
+    },
+    "ariaOnlyLabel": {
+      "behave": "ui-ux-form: visible label",
+      "pattern": "<(?:input|select|textarea)\\b(?=(?:[^<>]|=>)*?\\saria-label=)(?!(?:[^<>]|=>)*?\\sid=)",
+      "fix": "When text naming the field is on screen, tie it with <label for> (or wrap the field in <label>). aria-label alone is fine only where no label is shown on purpose: a search box in a toolbar, an inline rename"
+    },
+    "iconOnlyButtonNoName": {
+      "behave": "ui-ux-active: icon buttons",
+      "pattern": "<button\\b(?!(?:[^<>]|=>)*?\\saria-label=)(?:[^<>]|=>)*>\\s*(?:<svg\\b(?:(?!</svg>)[\\s\\S])*</svg>|<\\w+Icon\\b[^>]*/>|[×⋯⧉▸▾✕+−])\\s*</button>",
+      "fix": "An icon-only button needs aria-label (title alone is not announced reliably)"
+    },
+    "hardColour": {
+      "behave": "CLAUDE.md: theme tokens",
+      "pattern": "(?i)(?<![\\w&-])#[0-9a-f]{3}(?:[0-9a-f]{3}(?:[0-9a-f]{2})?)?\\b(?=[\"'`;,) ])|\\brgba?\\(",
+      "fix": "Use var(--panel), var(--text), var(--accent)… from src/editor/theme.ts so Settings > Appearance themes it",
+      "skip": [
+        "src/editor/theme*.tsx"
+      ]
+    },
+    "okButton": {
+      "behave": "action.primary",
+      "pattern": ">\\s*(?:OK|Ok)\\s*</button>",
+      "fix": "Verb + noun (\"Save changes\")"
+    },
+    "areYouSure": {
+      "behave": "dialog.confirm",
+      "pattern": "(?i)are you sure",
+      "fix": "Title = question with the object, text = consequence with count and names; prefer undo over asking"
+    }
+  },
+  "notes": "Patterns are PCRE2 and may span lines (JSX attributes): search with ripgrep --pcre2 --multiline. Counts are hits per file; ui-ux-baseline.json holds the ratchet (check -> file -> count). The design boards for ADR 0433 were audited with the same checks on 2026-11-25 (HTML, outside the repo)."
+}

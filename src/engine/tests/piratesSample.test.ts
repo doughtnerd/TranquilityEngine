@@ -1,6 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, Input, Lobby, Replicated, SceneInstance } from "../index";
+import { LineRenderer } from "../../plugins/lines/runtime";
+import { Water } from "../../plugins/water/runtime";
 import { UIButton, UIPanel, UIText } from "../ui/components";
 import { UIView } from "../../plugins/ui/runtime/UIView";
 import type { UIHostElement } from "../ui/host/UIHost";
@@ -17,6 +19,7 @@ import "../../../samples/pirates/scripts/bots";
 import { navStats } from "../../../samples/pirates/scripts/navigation";
 import "../../../samples/pirates/scripts/rules";
 import "../../../samples/pirates/scripts/weather";
+import "../../../samples/pirates/scripts/seaMarks";
 import "../../../samples/pirates/scripts/behaviors/Bolt";
 import "../../../samples/pirates/scripts/behaviors/Actors";
 import "../../../samples/pirates/scripts/behaviors/Splash";
@@ -137,6 +140,7 @@ async function otherPage(project: Awaited<ReturnType<typeof readProject>>, addre
   await import("../../../samples/pirates/scripts/navigation");
   await import("../../../samples/pirates/scripts/rules");
   await import("../../../samples/pirates/scripts/weather");
+  await import("../../../samples/pirates/scripts/seaMarks");
   await import("../../../samples/pirates/scripts/behaviors/Bolt");
   await import("../../../samples/pirates/scripts/behaviors/Actors");
   await import("../../../samples/pirates/scripts/behaviors/Splash");
@@ -234,6 +238,20 @@ describe("the King of Pirates sample", () => {
     const mine = seen.filter((s) => s.rep.isOwnedLocally);
     expect(mine).toHaveLength(1);
     expect(mine[0].rep.isPredictedLocally).toBe(true);
+    // Ships under way churn the water on the client: each afloat and seen draws a stern wake and a bow wave lying on the
+    // waves (the marks are only for the eye: the server World draws none).
+    const marks = (world: World, name: string) => world._componentsOfType(LineRenderer).filter((l) => l.node.name === name && l.isActiveAndEnabled);
+    expect(marks(server, "Stern Wake")).toEqual([]);
+    expect(marks(client, "Stern Wake").length).toBeGreaterThan(0);
+    expect(marks(client, "Bow Wave").length).toBeGreaterThan(0);
+    for (const line of [...marks(client, "Stern Wake"), ...marks(client, "Bow Wave")]) {
+      expect(line.color.a).toBeGreaterThan(0);
+      expect(line.positionCount).toBeGreaterThan(2);
+      for (const p of line.positions) {
+        const sea = World._runIn(client, () => Water.sample(p.x, p.z))!.height;
+        expect(Math.abs(p.y - sea)).toBeLessThan(0.25);
+      }
+    }
     // The player's ship sails under their room slot's colours; the HUD names the bots.
     expect(mine[0].data.team).toBe(Lobby.me!.slot);
     // The HUD is a Svelte component (ui/Hud.svelte): its leaderboard rows are an {#each} of the captains.
@@ -335,6 +353,7 @@ describe("the King of Pirates sample", () => {
     await stepUntil(engine, () => title() === "The edge of the arena", "the near-edge warning", 120);
     place(0.3 * radius, 0.3 * radius, 0);
     await stepUntil(engine, () => !banner(), "the warning gone", 120);
+
     expect(errors).toEqual([]);
   });
 

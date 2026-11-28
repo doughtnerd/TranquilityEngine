@@ -121,6 +121,18 @@ describe("JSON and JavaScript files in a project", () => {
     expect(fs.files.get(joinPath(ROOT, "data/levels.json"))).toBe(LEVELS);
   });
 
+  it("keep a Tiled tileset saved as .tsx as a project file, never a script, and leave TypeScript .tsx out (ADR 0438)", async () => {
+    const bytes = (text: string) => new TextEncoder().encode(text);
+    fs.files.set(joinPath(ROOT, "tiles/terrain.tsx"), bytes('\uFEFF<?xml version="1.0" encoding="UTF-8"?>\n<tileset name="terrain"/>\n'));
+    fs.files.set(joinPath(ROOT, "tiles/bare.tsx"), bytes('<tileset name="bare"/>\n'));
+    fs.files.set(joinPath(ROOT, "tools/App.tsx"), bytes("export const App = () => <div />;\n"));
+    project = await openFolderProject(fs, ROOT);
+    expect(project.files).toContain("tiles/terrain.tsx");
+    expect(project.files).toContain("tiles/bare.tsx");
+    expect(project.files).not.toContain("tools/App.tsx");
+    expect([...project.scripts.keys()].some((p) => p.endsWith(".tsx"))).toBe(false);
+  });
+
   it("list tool modules, Markdown and text as files the Code panel opens, but not as scripts", async () => {
     const tools = { "tools/generate.mjs": "import { lib } from './lib.mjs';\n", "tools/lib.cjs": "module.exports = {};\n", "tools/types.mts": "export const n: number = 1;\n", "tools/old.cts": "export = 1;\n", "tools/README.md": "# Tools\n", "notes.txt": "todo\n" };
     for (const [path, text] of Object.entries(tools)) fs.files.set(joinPath(ROOT, path), text);

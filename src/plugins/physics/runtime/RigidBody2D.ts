@@ -73,6 +73,15 @@ export class RigidBody2D extends Component {
     this._commands.addTorque(this._state?.body, [torque], mode, this.mass, [!!this.constraints?.freezeRotation]);
   }
 
+  /**
+   * Pass down through every one-way collider (ADR 0439) the body stands on or overlaps now. One-way colliders reached
+   * later still hold it, so the next platform below catches it; solid colliders always do. Does nothing on a backend
+   * without one-way platforms.
+   */
+  dropThrough(): void {
+    physics2DOf(this._world)?.dropThrough(this);
+  }
+
   override _onDetach(): void {
     physics2DOf(this._world)?.releaseBody(this);
   }

@@ -2,7 +2,7 @@
 // the 2D Lighting settings edits, which fields each light type shows, and the lit preview.
 import { describe, expect, it } from "vitest";
 import { tangents2D } from "../../../engine/render/lights2D/tangents";
-import { dragLight, lightHandles, lightLines, pointHandles, pressPoints, type LightGizmoFields } from "./lightGizmoModel";
+import { dragLight, lightHandles, lightLines, type LightGizmoFields } from "./lightGizmoModel";
 import { hiddenLightFields, LIGHT_FIELDS } from "./lightFields";
 import { litPreview } from "./litPreview";
 import { customRows, newTextureName, removeTexture, renameProblem, renameTexture } from "./secondaryTexturesModel";
@@ -41,16 +41,6 @@ describe("the 2D light gizmo", () => {
     expect(handles["p:2"]).toEqual([2, 2]);
     expect(handles["insert:3"]).toEqual([0, 1]);
     expect(dragLight(f, "p:1", [3, -1])).toEqual({ shape: [[0, 0], [3, -1], [2, 2], [0, 2]] });
-  });
-
-  it("adds a point mid-edge, removes one with Ctrl (not below three), and drags", () => {
-    const tri: [number, number][] = [[0, 0], [2, 0], [1, 2]];
-    expect(pressPoints(tri, "insert:0", false)).toEqual({ drag: 1, points: [[0, 0], [1, 0], [2, 0], [1, 2]] });
-    expect(pressPoints(tri, "p:1", true)).toEqual({ refused: "An outline needs at least 3 points." });
-    expect(pressPoints([...tri, [0, 1]], "p:3", true)).toEqual({ removed: tri });
-    expect(pressPoints(tri, "p:0", false)).toMatchObject({ drag: 0 });
-    expect(pressPoints(tri, "nope", false)).toBeNull();
-    expect(Object.keys(pointHandles(tri, false))).toEqual(["p:0", "p:1", "p:2", "insert:0", "insert:1"]);
   });
 });
 

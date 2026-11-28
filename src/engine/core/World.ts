@@ -20,6 +20,7 @@ import type { NetworkTime } from "../net/time";
 import type { WorldTag } from "./worlds";
 import type { WorldOwner } from "./worldOwner";
 import { _disposeWorldServices, _interpolateWorldServices, _onComponentAttached, _worldServiceOf } from "./worldServices";
+import { _running } from "./runningScript";
 
 export type WorldKind = "runtime" | "editor" | "server";
 
@@ -1064,6 +1065,10 @@ export class World {
   /** Call one hook on one behaviour: the edit-mode gate, error and async rules every hook shares. */
   private invoke(b: GameBehavior, hook: string, args: readonly unknown[] = []): void {
     if (this.inEditMode(b._node.entity)) return; // scripts don't run in a scene being edited (ADR 0026)
+    // ADR 0435: note who runs, for services that say who asked (restored after, so a nested message hook unwinds).
+    const outerBehaviour = _running.behaviour, outerHook = _running.hook;
+    _running.behaviour = b;
+    _running.hook = hook;
     try {
       const result = ((b as unknown as Record<string, unknown>)[hook] as (...a: unknown[]) => unknown).apply(b, args as unknown[]);
       if (result instanceof Promise) {
@@ -1071,6 +1076,9 @@ export class World {
       }
     } catch (err) {
       console.error(`[myco] ${b.constructor.name}.${String(hook)} threw:`, err);
+    } finally {
+      _running.behaviour = outerBehaviour;
+      _running.hook = outerHook;
     }
   }
 

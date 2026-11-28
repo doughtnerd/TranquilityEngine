@@ -1,0 +1,187 @@
+/* The Input dialog (ADR 0433): action sets and contexts, list on the left, the selected one on the right, History beside.
+   Theme tokens only (src/editor/theme.ts). The right pane lays out by its own width (container queries). */
+.dialog-backdrop.input-dialog-backdrop { z-index: 29; } /* under the confirm dialog (30), which asks before deleting */
+.input-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, calc(100vw - 32px));
+  height: min(800px, calc(100vh - 32px));
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px var(--shadow);
+  outline: none;
+  font-size: var(--fs-md);
+}
+.input-dialog-head, .input-dialog-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+.input-dialog-head { border-bottom: 1px solid var(--border); }
+.input-dialog-foot { border-top: 1px solid var(--border); justify-content: flex-end; }
+.input-dialog-head h2 { margin: 0; font-size: var(--fs-lg); }
+.input-dialog-project { color: var(--muted); }
+.input-dialog-spacer { flex: 1; }
+.input-dialog-history { display: flex; gap: 4px; }
+.input-dialog-history button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.input-dialog-close { padding: 0 8px; }
+.input-dialog-status { margin-right: auto; color: var(--muted); }
+.input-dialog-status.failed { color: var(--danger); }
+
+.input-dialog-body { flex: 1; min-height: 0; display: flex; }
+.input-dialog-list { flex: none; width: 230px; overflow: auto; border-right: 1px solid var(--border); padding: 6px 0; background: var(--bg-sunken); }
+.input-dialog-list ul { list-style: none; margin: 0 0 8px; padding: 0; }
+.input-list-head { display: flex; align-items: center; gap: 6px; padding: 4px 10px; }
+.input-list-head h3 { flex: 1; margin: 0; font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.input-list-head button { padding: 0 7px; }
+.input-entry-button { display: flex; align-items: center; gap: 6px; width: 100%; padding: 3px 10px; border: 0; border-radius: 0; background: none; color: var(--text); text-align: left; font: inherit; }
+.input-entry-button:hover { background: var(--hover); }
+.input-entry.selected .input-entry-button { background: var(--selection); color: var(--selection-text); }
+.input-entry-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-code); }
+.input-entry-meta { color: var(--muted); font-size: var(--fs-sm); }
+.input-entry-clash, .input-tag { padding: 0 4px; border-radius: 3px; font-size: var(--fs-xs); background: var(--danger-soft); color: var(--warning); }
+.input-tag { background: var(--accent-faint); color: var(--muted); }
+.input-entry input { width: calc(100% - 16px); margin: 1px 8px; }
+
+.input-dialog-main { flex: 1; min-width: 0; overflow: auto; padding: 10px 14px; container-type: inline-size; container-name: input-pane; }
+.input-dialog-tree { flex: none; width: 260px; overflow: auto; border-left: 1px solid var(--border); }
+
+.input-dialog input[type="text"], .input-dialog input[type="number"], .input-dialog select {
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 5px;
+  font: inherit;
+}
+.input-dialog input:focus, .input-dialog select:focus { outline: none; border-color: var(--accent); }
+.input-dialog input[aria-invalid="true"] { border-color: var(--danger); }
+.input-dialog input.mono, .input-path, .input-dialog code { font-family: var(--font-code); }
+.input-dialog button.danger:hover:not(:disabled) { color: var(--danger); }
+
+.input-view h3 { margin: 0; font-size: var(--fs-md); }
+.input-fields { display: grid; grid-template-columns: 170px 1fr; gap: 6px 10px; align-items: center; margin-bottom: 10px; }
+.input-field { display: contents; }
+.input-field > span:first-child { color: var(--muted); }
+.input-checked { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.input-field-error { color: var(--danger); font-size: var(--fs-sm); }
+.input-note, .input-muted { color: var(--muted); }
+.input-note { margin: 4px 0 8px; }
+.input-warning { margin: 4px 0 8px; padding: 4px 8px; border-left: 3px solid var(--warning); background: var(--danger-soft); }
+.input-problems, .input-mapping-problems { margin: 4px 0 8px; padding-left: 18px; color: var(--danger); }
+.input-mapping-warnings { margin: 4px 0 0; padding-left: 18px; color: var(--warning); }
+.input-section-head { display: flex; align-items: center; gap: 8px; margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.input-count { color: var(--muted); }
+.input-add { margin-left: auto; }
+
+.input-actions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.input-action { padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; }
+.input-action.unmapped { border-color: var(--warning); }
+.input-action-row { display: grid; grid-template-columns: minmax(120px, 1fr) 150px 150px auto; gap: 6px; align-items: start; }
+.input-mapped-in, .input-unmapped { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 5px; }
+.input-mapped-label { color: var(--muted); }
+.input-unmapped { color: var(--warning); }
+.input-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 10px; }
+.input-chip-context { font-weight: 600; }
+.input-chip kbd { padding: 0 3px; border: 1px solid var(--border); border-radius: 3px; font-family: var(--font-code); font-size: var(--fs-xs); }
+.input-check { display: flex; align-items: center; gap: 6px; }
+.input-net { width: 100%; margin-top: 8px; border-collapse: collapse; }
+.input-net th { text-align: left; color: var(--muted); font-weight: normal; }
+.input-net th, .input-net td { padding: 3px 6px; border-bottom: 1px solid var(--border); }
+.input-users { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+
+.input-mappings { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.input-mapping { padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); outline: none; }
+.input-mapping:focus { border-color: var(--accent); }
+.input-mapping.has-problems { border-color: var(--danger); }
+.input-mapping.from-script { opacity: 0.85; border-style: dashed; }
+.input-mapping-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.input-mapping-action { flex: 1; min-width: 0; }
+.input-mapping-number { flex: none; min-width: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.input-mapping-tools, .input-step-tools { display: flex; gap: 2px; flex: none; }
+.input-mapping-tools button, .input-step-tools button { padding: 0 5px; }
+.input-mapping .import-row { display: grid; grid-template-columns: 90px 1fr; gap: 6px; align-items: center; margin: 3px 0; }
+.input-mapping .import-row input[type="text"], .input-mapping .import-row > select { width: 100%; }
+.input-control { display: flex; gap: 4px; min-width: 0; }
+.input-control input[type="text"] { flex: 1; font-family: var(--font-code); }
+.input-control select { width: 34px; flex: none; }
+.input-control button.active { background: var(--accent-soft); border-color: var(--accent); }
+.input-steps { margin: 6px 0 2px; }
+.input-steps-head { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.input-steps-head select { margin-left: auto; }
+.input-step { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 3px 0 0 8px; padding: 3px 0; border-top: 1px solid var(--border); }
+.input-step-name { min-width: 72px; }
+.input-step-params { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.input-step-raw { color: var(--muted); font-family: var(--font-code); overflow: hidden; text-overflow: ellipsis; }
+.input-param { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); }
+.input-param input[type="number"] { width: 64px; }
+.input-param input[type="text"] { width: 64px; }
+.input-combo { flex-direction: column; align-items: flex-start; }
+
+/* A folded mapping card: its head, with the controls in one line. */
+.input-mapping.folded .input-mapping-head { margin-bottom: 0; }
+.input-mapping-fold { flex: none; width: 20px; padding: 0; border: 0; background: none; color: var(--muted); }
+.input-mapping-fold:hover { color: var(--text); }
+.input-mapping.folded .input-mapping-action { flex: 0 1 auto; }
+.input-mapping-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-code); color: var(--text); }
+.input-steps-hint { font-size: var(--fs-sm); }
+
+/* Modifiers: an ordered stack, a value tried through it. */
+.input-try, .input-try-out { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 4px 8px; color: var(--muted); }
+.input-try input[type="number"] { width: 64px; }
+.input-trace { font-family: var(--font-code); color: var(--muted); white-space: nowrap; font-size: var(--fs-sm); }
+.input-trace.failed { color: var(--danger); }
+.input-try-out .input-trace { color: var(--text); }
+.input-modifier-list { margin-left: 4px; width: calc(100% - 4px); }
+.input-modifier-list .sortable-row { background: var(--bg-sunken); padding: 0 4px 0 2px; }
+.input-step.input-modifier { flex: 1; min-width: 0; margin: 0; border-top: 0; padding: 2px 0; }
+.input-step-number { min-width: 12px; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.input-step-more { flex: none; padding: 0 6px; border: 0; background: none; color: var(--muted); }
+.input-step-more:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+
+/* Triggers: chips grouped by how they combine. */
+.input-trigger-group { display: flex; align-items: center; gap: 8px; margin: 3px 0 0 8px; }
+.input-trigger-group-label { flex: none; width: 96px; color: var(--muted); font-size: var(--fs-sm); }
+.input-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; flex: 1; min-width: 0; }
+.input-trigger-chip { padding: 1px 8px; border: 1px solid var(--border); background: var(--bg-sunken); color: var(--text); font-family: var(--font-code); font-size: var(--fs-sm); }
+.input-trigger-chip:hover { border-color: var(--border-strong); }
+.input-trigger-chip.open { border-color: var(--accent); background: var(--accent-soft); }
+.input-dialog select.input-trigger-add { flex: none; width: 34px; }
+.input-trigger-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0 8px; padding: 5px 8px; border: 1px solid var(--accent); border-radius: 4px; background: var(--surface); }
+.input-combo-step { display: flex; align-items: center; gap: 4px; }
+
+/* The action picker. */
+.input-picker { position: relative; display: block; }
+.input-picker-button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; }
+.input-picker-button.missing .input-picker-name { color: var(--warning); }
+.input-picker-name { font-family: var(--font-code); }
+.input-picker-set, .input-picker-type, .input-picker-count { color: var(--muted); font-size: var(--fs-sm); }
+.input-picker-button .input-picker-set { margin-left: auto; }
+.input-picker-popup { position: absolute; z-index: 5; top: calc(100% + 2px); left: 0; right: 0; min-width: 260px; padding: 6px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 4px; box-shadow: 0 8px 20px var(--shadow); }
+.input-picker-popup input { width: 100%; }
+.input-picker-list { list-style: none; margin: 6px 0 0; padding: 0; max-height: 280px; overflow: auto; }
+.input-picker-list ul { list-style: none; margin: 0; padding: 0; }
+.input-picker-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 2px 4px; border: 0; background: none; color: var(--muted); text-align: left; font: inherit; }
+.input-picker-set-id { flex: 1; font-family: var(--font-code); }
+.input-picker-option { display: flex; align-items: center; gap: 8px; padding: 2px 4px 2px 20px; border-radius: 3px; cursor: default; }
+.input-picker-option.highlighted { background: var(--accent-soft); }
+.input-picker-option.create { padding-left: 8px; color: var(--link); }
+.input-picker-option mark { background: none; color: var(--accent); font-weight: 600; }
+.input-picker-note { padding: 4px; color: var(--muted); }
+.input-picker-hint { margin: 6px 0 0; color: var(--faint); font-size: var(--fs-sm); }
+
+/* Narrow panes (History open, a small window): fields and rows stack. */
+@container input-pane (max-width: 560px) {
+  .input-fields { grid-template-columns: 1fr; }
+  .input-field > span:first-child { margin-top: 4px; }
+  .input-action-row { grid-template-columns: 1fr 1fr; }
+  .input-mapping .import-row { grid-template-columns: 1fr; }
+}
+
+/* A turned-off modifier (ADR 0433): kept in the stack, skipped; its name struck through, its parameters dimmed. */
+.input-modifier.is-off .input-step-name { text-decoration: line-through; color: var(--muted); }
+.input-modifier.is-off .input-param,
+.input-modifier.is-off .input-step-raw { opacity: 0.6; }
+
+/* Live values while the game plays (ADR 0433): the badge replaces Try a value's fields. */
+.input-live-badge { font-size: var(--fs-sm); font-weight: 600; padding: 0 6px; border-radius: 3px; background: var(--success-soft); color: var(--success); border: 1px solid var(--success); }

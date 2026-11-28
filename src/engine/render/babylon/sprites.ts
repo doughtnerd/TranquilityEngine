@@ -18,7 +18,7 @@ import { authoredSize, splitSpriteRef } from "../../scene/importSettings";
 import { Camera, SpriteRenderer } from "../components";
 import { snapToGrid } from "../pixelPerfect";
 import { spriteClaimed } from "../spriteClaims";
-import { sortingOrder, unknownLayerMessage } from "../sortOrder";
+import { drawPlace, isYSorted, unknownLayerMessage, type YSortSettings } from "../sortOrder";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import type { BabylonFeature, DrawnNode, FeatureSyncContext } from "./feature";
 import { placeInLayer, SpriteBatcher, type SpriteItem } from "./layeredQuads";
@@ -32,6 +32,8 @@ export interface BabylonSpriteHost {
   pixelsPerUnit(): number;
   /** The project's sorting layers, bottom to top (`render.sortingLayers`). */
   sortingLayers(): readonly string[];
+  /** The project's y-sorted sorting layers (`render.ySortedLayers`, ADR 0440). */
+  ySortedLayers(): readonly string[];
   /**
    * A colour texture asset if loaded (sampled again if its import settings changed), else null: it starts loading and
    * `onReady` runs once it has (the material library's `texture`).
@@ -65,6 +67,8 @@ interface SpriteEntry {
   size: [number, number] | null;
   /** The world matrix the quad is frozen at (Babylon keeps it), or null before the first sync. */
   matrix: Matrix | null;
+  /** Its place (`drawPlace`: the draw order, plus its height in a y-sorted layer, ADR 0440), as last drawn. */
+  order: number;
 }
 
 const tmpMatrix = new Matrix();
@@ -113,7 +117,7 @@ export class BabylonSprites implements BabylonFeature {
     for (const [component, e] of this.sprites) {
       const shown = e.mesh ? e.mesh.isEnabled() : e.item !== null;
       if (!shown) continue;
-      yield { component, shape: e.mesh ? { kind: "quad", mesh: e.mesh } : null, order: this.sortOrder(component.sortingLayer, component.orderInLayer), size: e.size };
+      yield { component, shape: e.mesh ? { kind: "quad", mesh: e.mesh } : null, order: e.order, size: e.size };
     }
   }
 
@@ -126,15 +130,19 @@ export class BabylonSprites implements BabylonFeature {
     this.batcher.dispose();
   }
 
-  /** Draw order: `sortingLayer` index × 10000 + `orderInLayer`. */
-  sortOrder(layer: string, order: number): number {
-    return sortingOrder(this.host.sortingLayers(), layer, order, (l) => this.host.warnOnce(`layer|${l}`, unknownLayerMessage(l)));
+  /** Draw place: `sortingLayer` index × 10000 + `orderInLayer`, plus the height `y`'s offset in a y-sorted layer (ADR 0440). */
+  sortOrder(layer: string, order: number, y = 0): number {
+    return drawPlace(this.render(), layer, order, y, (l) => this.host.warnOnce(`layer|${l}`, unknownLayerMessage(l)));
+  }
+
+  private render(): YSortSettings {
+    return { sortingLayers: this.host.sortingLayers(), ySortedLayers: this.host.ySortedLayers() };
   }
 
   private syncSprite(world: World, s: SpriteRenderer, snap: number): void {
     let entry = this.sprites.get(s);
     if (!entry) {
-      entry = { mesh: null, look: null, item: null, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null };
+      entry = { mesh: null, look: null, item: null, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null, order: 0 };
       this.sprites.set(s, entry);
       this.spritesDirty = true;
     }
@@ -199,7 +207,12 @@ export class BabylonSprites implements BabylonFeature {
       entry.item = null;
     }
 
-    const order = this.sortOrder(s.sortingLayer, s.orderInLayer);
+    // Its sort point is the node's world position (the pivot), Unity's default (ADR 0440).
+    const e = s.node.entity;
+    const render = this.render();
+    const order = drawPlace(render, s.sortingLayer, s.orderInLayer, world.worldMatrix(e)[e * 16 + 13], (l) => this.host.warnOnce(`layer|${l}`, unknownLayerMessage(l)));
+    entry.order = order;
+    const ySorted = isYSorted(render, s.sortingLayer);
     const c = s.color;
     // Its own mesh's material takes the tint in place; a batch's is white, tinted by the instance colour.
     const request: Material2DRequest = mesh
@@ -213,15 +226,16 @@ export class BabylonSprites implements BabylonFeature {
       placeInLayer(mesh, order);
       if (frame && texSize) this.setSpriteGeometry(entry, frame, texSize.width, texSize.height);
     } else {
-      const item = (entry.item ??= { material, order, matrix: new Float32Array(16), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
+      const item = (entry.item ??= { material, order, ySorted, matrix: new Float32Array(16), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
       // The batch's instance colour multiplies the (white) albedo: linear, like the albedo colour.
       tmpColor.set(c.r, c.g, c.b).toLinearSpaceToRef(tmpColor);
-      if (item.color[0] !== tmpColor.r || item.color[1] !== tmpColor.g || item.color[2] !== tmpColor.b || item.color[3] !== c.a || item.order !== order || item.material !== material) {
+      if (item.color[0] !== tmpColor.r || item.color[1] !== tmpColor.g || item.color[2] !== tmpColor.b || item.color[3] !== c.a || item.order !== order || item.ySorted !== ySorted || item.material !== material) {
         item.color[0] = tmpColor.r;
         item.color[1] = tmpColor.g;
         item.color[2] = tmpColor.b;
         item.color[3] = c.a;
         item.order = order;
+        item.ySorted = ySorted;
         item.material = material;
         this.spritesDirty = true;
       }
@@ -237,7 +251,6 @@ export class BabylonSprites implements BabylonFeature {
     }
 
     // Scale the unit quad to size with the pivot at the node's origin (flips mirror about it).
-    const e = s.node.entity;
     // Without allocating, and frozen again only when it changed: freezing recomputes the bounds.
     Matrix.TranslationToRef(0.5 - px, 0.5 - py, 0, tmpSpriteA);
     Matrix.ScalingToRef(s.flipX ? -w : w, s.flipY ? -h : h, 1, tmpSpriteB);

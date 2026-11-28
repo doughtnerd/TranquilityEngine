@@ -1,15 +1,15 @@
 /**
- * The renderer-neutral UI core (ADR 0076): mirrors a World's UI components into a Yoga tree, lays it
+ * The renderer-neutral UI core (ADR 0076): mirrors a World's UI components into a layout tree (Taffy, ADR 0434), lays it
  * out, routes the pointer and keyboard to UI before game scripts run, and takes input fields' typing
  * through a hidden DOM `<input>`. A backend's drawing layer draws what `canvases()` and `elements()`
  * report, including each text element's resolved text run (ADR 0271), which is what it measured.
  * What each element kind is comes from `elementKinds.ts`. Nothing here is public API (ADR 0010).
  *
- * Yoga loads asynchronously (WebAssembly): the constructor starts the load and `sync` lays nothing
+ * The layout engine loads asynchronously (WebAssembly): the constructor starts the load and `sync` lays nothing
  * out until it's ready (`await core.ready` to wait). Without a `document` (Node) there is no typing
  * element; routing and layout work all the same.
  */
-import type { Node as YogaNode, Yoga } from "yoga-layout/load";
+import { LayoutTree, layoutEngineLoaded, loadLayoutEngine, type LayoutContent, type LayoutEdge, type LayoutFlexDirection, type LayoutItems, type LayoutBox, type LayoutNode, type LayoutWrap, type MeasureInput } from "./taffy/layoutTree";
 import { Mat4, Vector2 } from "../core/math";
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
@@ -22,7 +22,7 @@ import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInlineAtom, isInteractive
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
-import { canvasScale, estimateText, inRect, intersectRect, isMixedLength, loadYogaOnce, loadedYoga, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
+import { canvasScale, estimateText, inRect, intersectRect, uiBorderEdges, uiEdges, uiLength, uiLimit, type UICalcLength, type UIRect } from "./layout";
 import type { UIInlineAtomSize, UIInlineEditing, UIInlineRun, TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPaint, UIPart, UIPickRay, UIScrollbar, UIScrollInfo, UIScrollSnap, UIScrollSnapArea } from "./uiCoreTypes";
 import { fireUIEvent, uiDomCode, uiDomKey, uiEventRecord, UIDataTransfer, type UIEventData, type UIEventRecord } from "./events";
 import { advanceUIScrolling, canMove, uiEndScrollGesture, uiResnap, uiScrollBy, uiScrollMoving, uiScrollTo, uiStopScrolling, uiWheelScroll, type UIScrollable } from "./scrolling";
@@ -96,10 +96,10 @@ function onDrawnBox(e: Entry, x: number, y: number): boolean {
 interface Entry {
   readonly comp: UIComponentType;
   readonly kind: UIKind;
-  readonly node: YogaNode;
-  /** Its Yoga parent (null for a canvas root, or while it has none). */
+  readonly node: LayoutNode;
+  /** Its layout parent (null for a canvas root, or while it has none). */
   parent: Entry | null;
-  /** Yoga children as last attached, in order. */
+  /** Layout children as last attached, in order. */
   children: Entry[];
   /** Its canvas (itself for a canvas); null while it has none (not laid out). */
   canvas: CanvasEntry | null;
@@ -107,22 +107,17 @@ interface Entry {
   run: UITextRun | null;
   /** The font epoch `run` was measured in (a font arriving changes every text's size). */
   measuredEpoch: number;
-  /** The values last given to its Yoga node, by `applyProperties` slot, so unchanged ones aren't set again. */
+  /** The values last given to its layout node, by `applyProperties` slot, so unchanged ones aren't set again. */
   applied: unknown[];
   /** Last laid-out result, in its canvas's UI pixels. */
   box: { x: number; y: number; width: number; height: number; visible: boolean; opacity: number };
   /** Clip and draw order from the last layout (ADR 0422). */
   place: Placement;
   /**
-   * ADR 0422 wave 5: the parent's content size its lengths mixing % and px (`calc()`) were last resolved against, or
-   * absent when it has none. Layout runs again once when the parent's size turns out different.
-   */
-  calcBasis?: { width: number; height: number };
-  /**
-   * ADR 0428: a select's list: a Yoga root of its own that its options lay out in (the select's node is measured, for
+   * ADR 0428: a select's list: a layout root of its own that its options lay out in (the select's node is measured, for
    * its label, and has no children), placed below the select when it's read.
    */
-  popup?: YogaNode;
+  popup?: LayoutNode;
   /** ADR 0428: a form element's parts at the last layout, and their key (`formParts.ts`). */
   parts?: UIPart[] | null;
   partsKey?: string;
@@ -131,8 +126,13 @@ interface Entry {
   /** ADR 0428: what else a measured element's size depends on (a select's option labels, a text area's rows). */
   measureKey?: string;
   /**
+   * ADR 0434: its text's sizes by wrap width since it was last marked dirty: the layout engine asks a text for several sizes
+   * (min-content, max-content, its room), and the same width shouldn't reach the host's text measuring twice.
+   */
+  measured?: Map<number, MeasuredText>;
+  /**
    * ADR 0429: an inline run (a text's inline child): the element it's inside (its text, or an inline element), which events
-   * travel up through. It has no Yoga node in the tree; its box is its fragments' bounds, from its text's layout.
+   * travel up through. It has no layout node in the tree; its box is its fragments' bounds, from its text's layout.
    */
   inlineIn?: Entry | null;
   /** ADR 0429: a text with runs: its inline layout at its content width (null otherwise), and what it was laid out for. */
@@ -173,7 +173,7 @@ interface CollectWalk {
   readonly desired: Map<Entry, Entry[]>;
 }
 
-/** ADR 0429: the element events go up to from `e`: an inline run's text or inline element, else its Yoga parent. */
+/** ADR 0429: the element events go up to from `e`: an inline run's text or inline element, else its layout parent. */
 function up(e: Entry): Entry | null {
   return e.inlineIn ?? e.parent;
 }
@@ -203,13 +203,6 @@ function stacks(e: Entry): boolean {
 function zOf(e: Entry): number {
   const z = (e.comp as { zIndex?: number }).zIndex;
   return typeof z === "number" && Number.isFinite(z) ? z : 0;
-}
-
-/** The length fields that may hold a `calc()` mixing % and px (ADR 0422 wave 5). */
-const MIXED_FIELDS = ["width", "height", "top", "right", "bottom", "left", "minWidth", "maxWidth", "minHeight", "maxHeight", "flexBasis"] as const;
-
-function sameSize(a: { width: number; height: number }, b: { width: number; height: number }): boolean {
-  return Math.abs(a.width - b.width) < 1e-4 && Math.abs(a.height - b.height) < 1e-4;
 }
 
 /**
@@ -303,8 +296,8 @@ interface Gesture {
   accepts: boolean;
 }
 
-/** The Yoga node an entry's children are in: its own, or (ADR 0428) a select's list. */
-function holder(e: Entry): YogaNode {
+/** The layout node an entry's children are in: its own, or (ADR 0428) a select's list. */
+function holder(e: Entry): LayoutNode {
   return e.popup ?? e.node;
 }
 
@@ -381,12 +374,12 @@ function handlerOf(e: Entry): Entry | null {
 }
 
 export class UICore implements UICoreLike {
-  /** Resolves when Yoga has loaded. */
+  /** Resolves when the layout engine has loaded. */
   readonly ready: Promise<void>;
   layoutVersion = 0;
 
-  private yoga: Yoga | null = null;
-  private config: ReturnType<Yoga["Config"]["create"]> | null = null;
+  /** ADR 0434: the core's layout tree (every canvas, select list and inline atom is a root in it), once the engine has loaded. */
+  private tree: LayoutTree | null = null;
   private readonly entries = new Map<UIComponentType, Entry>();
   private readonly canvasEntries = new Map<UICanvas, CanvasEntry>();
   private interactiveMode: boolean;
@@ -445,21 +438,15 @@ export class UICore implements UICoreLike {
     this.host = options.host ?? {};
     this.passive = options.passive ?? false;
     this.removeHook = this.passive ? () => undefined : devices.addRouter((pointer) => this.route(pointer));
-    // With Yoga loaded already (another core loaded it), lay out from the first sync: a World that
+    // With the layout engine loaded already (another core loaded it), lay out from the first sync: a World that
     // syncs only when something changes (the editor's) may not sync again for a while.
-    const yoga = loadedYoga();
-    if (yoga) this.useYoga(yoga);
-    this.ready = yoga ? Promise.resolve() : loadYogaOnce().then((y) => this.useYoga(y));
+    if (layoutEngineLoaded()) this.useLayout();
+    this.ready = layoutEngineLoaded() ? Promise.resolve() : loadLayoutEngine().then(() => this.useLayout());
   }
 
-  /** Yoga's enum values by the components' names, made once. */
-  private tables: ReturnType<typeof yogaTables> | null = null;
-
-  private useYoga(yoga: Yoga): void {
-    if (this.disposed) return;
-    this.yoga = yoga;
-    this.config = yoga.Config.create();
-    this.config.setPointScaleFactor(0); // no rounding: boxes are exact in UI pixels
+  private useLayout(): void {
+    if (this.disposed || this.tree) return;
+    this.tree = new LayoutTree(); // boxes aren't rounded: they are exact in UI pixels
   }
 
   get hasScreenUI(): boolean {
@@ -507,7 +494,7 @@ export class UICore implements UICoreLike {
   rectOf(c: UIComponentType): { x: number; y: number; width: number; height: number } | null {
     const entry = this.entries.get(c);
     const canvas = entry?.canvas;
-    if (!entry || !canvas || canvas.comp.mode !== "screen" || !this.yoga) return null;
+    if (!entry || !canvas || canvas.comp.mode !== "screen" || !this.tree) return null;
     const s = canvas.scale;
     const b = entry.box;
     return { x: b.x * s, y: b.y * s, width: b.width * s, height: b.height * s };
@@ -521,8 +508,8 @@ export class UICore implements UICoreLike {
   // --- Sync -----------------------------------------------------------------------------------
 
   sync(world: World, width: number, height: number, deltaSeconds = 0): void {
-    if (this.disposed || !this.yoga) return;
-    const yoga = this.yoga;
+    const tree = this.tree;
+    if (this.disposed || !tree) return;
     this.world = world;
     // ADR 0427: smooth scrolls and momentum move on before layout reads the offsets (the routing core only).
     if (!this.passive && !this.relayingOut) advanceUIScrolling(world, deltaSeconds);
@@ -567,20 +554,14 @@ export class UICore implements UICoreLike {
 
     // Properties and layout.
     // ADR 0432: an atomic inline box is laid out (it's a run of its text only by its size).
-    for (const entry of this.entries.values()) if (entry.canvas && (!entry.inlineIn || entry.atomOf)) this.applyProperties(yoga, entry);
-    this.layoutAtoms(yoga);
+    for (const entry of this.entries.values()) if (entry.canvas && (!entry.inlineIn || entry.atomOf)) this.applyProperties(entry);
+    this.layoutAtoms(tree);
     const canvases = [...this.canvasEntries.values()].sort((a, b) => a.comp.sortOrder - b.comp.sortOrder);
     for (const canvas of canvases) {
       this.applyCanvas(canvas);
-      canvas.node.calculateLayout(canvas.width, canvas.height, yoga.DIRECTION_LTR);
+      // `calc()` mixing % and px (ADR 0422 wave 5) resolves in the layout engine, against this layout's sizes (0434).
+      tree.compute(canvas.node, canvas.width, canvas.height);
       this.readLayout(canvas);
-      // `calc()` mixing % and px (ADR 0422 wave 5) resolved against last frame's parent sizes: once more where they changed.
-      const stale = canvas.elements.filter((e) => e.calcBasis && e.parent && !sameSize(e.calcBasis, this.contentSize(e.parent)));
-      if (stale.length) {
-        for (const e of stale) this.applyProperties(yoga, e);
-        canvas.node.calculateLayout(canvas.width, canvas.height, yoga.DIRECTION_LTR);
-        this.readLayout(canvas);
-      }
     }
     this.collectResults(world, canvases);
     if (!this.passive && !this.relayingOut) this.noteScrolls(world);
@@ -633,17 +614,12 @@ export class UICore implements UICoreLike {
     this.lastScroll.delete(entry);
     if (this.active === c) this.unfocusDom();
     if (this.editing?.entry === entry) this.endEditing();
+    // Freeing a layout node takes it out of its parent and leaves its children without one.
     if (entry.parent) {
-      holder(entry.parent).removeChild(entry.node);
       entry.parent.children = entry.parent.children.filter((e) => e !== entry);
       entry.parent = null;
     }
-    for (const child of entry.children) {
-      if (child.parent === entry) {
-        holder(entry).removeChild(child.node);
-        child.parent = null;
-      }
-    }
+    for (const child of entry.children) if (child.parent === entry) child.parent = null;
     entry.children = [];
     entry.node.free();
     entry.popup?.free();
@@ -661,8 +637,8 @@ export class UICore implements UICoreLike {
     this.detachDom = null;
     this.doms.line = this.doms.area = undefined;
     this.dom = null;
-    this.config?.free();
-    this.config = null;
+    this.tree?.free();
+    this.tree = null;
     this.disposed = true;
     this.canvasList = [];
     this.elementList = [];
@@ -674,10 +650,11 @@ export class UICore implements UICoreLike {
   private ensure(c: UIComponentType): Entry {
     const existing = this.entries.get(c);
     if (existing) return existing;
-    const yoga = this.yoga!;
+    const tree = this.tree!;
     const kind = uiKindOf(c);
-    const node = yoga.Node.create(this.config ?? undefined);
     const run = textRunOf(c);
+    // A text-bearing element is a measured leaf: its size is its text's (measured only after `entry` below exists).
+    const node = run && kind !== "canvas" ? tree.create((input) => this.measureNode(entry, input)) : tree.create();
     const entry: Entry = { comp: c, kind, node, parent: null, children: [], canvas: null, run, measuredEpoch: fontEpoch(), applied: [], box: { x: 0, y: 0, width: 0, height: 0, visible: false, opacity: 1 }, place: NO_PLACE };
     if (kind === "canvas") {
       const canvas = entry as CanvasEntry;
@@ -687,21 +664,19 @@ export class UICore implements UICoreLike {
       canvas.painted = [];
       canvas.hitOrder = [];
       this.canvasEntries.set(c as UICanvas, canvas);
-    } else if (run) {
-      node.setMeasureFunc((w, wm) => this.measure(entry, wm === yoga.MEASURE_MODE_UNDEFINED ? Infinity : w));
     }
     // ADR 0428: a select's options lay out in a list of their own; a control's state as built is what a form resets to
     // (ADR 0448: unless its front end handed the form-control model one).
     if (kind === "select") {
-      entry.popup = yoga.Node.create(this.config ?? undefined);
-      entry.popup.setFlexDirection(yoga.FLEX_DIRECTION_COLUMN);
+      entry.popup = tree.create();
+      entry.popup.setFlexDirection("column");
     }
     if (!this.passive) controlState(c);
     this.entries.set(c, entry);
     return entry;
   }
 
-  /** Walk `node`'s descendants in order, listing each entry's wanted Yoga children (skipping nodes without a UI component). */
+  /** Walk `node`'s descendants in order, listing each entry's wanted layout children (skipping nodes without a UI component). */
   private collect(node: GameObject, parent: Entry, canvas: CanvasEntry, byNode: Map<number, UIComponentType>, placed: Set<Entry>, desired: Map<Entry, Entry[]>): void {
     const root: Entry[] = [];
     desired.set(parent, root);
@@ -709,7 +684,7 @@ export class UICore implements UICoreLike {
   }
 
   /**
-   * Walk `n`'s descendants in order into `list` (their Yoga parent's children), skipping nodes without a UI component;
+   * Walk `n`'s descendants in order into `list` (their layout parent's children), skipping nodes without a UI component;
    * `leaf` is the leaf element they're under (its children join its parent's list), if any.
    */
   private walkUI(w: CollectWalk, n: GameObject, list: Entry[], leaf?: Entry): void {
@@ -762,7 +737,7 @@ export class UICore implements UICoreLike {
 
   /**
    * ADR 0432: an atomic inline box `entry` (on `node`) inside `within` (its text or an inline element) on `text`'s lines:
-   * events go up through `within`; its Yoga node is a root of its own, its subtree laid out in it, and its size a run of the text.
+   * events go up through `within`; its layout node is a root of its own, its subtree laid out in it, and its size a run of the text.
    */
   private collectAtom(w: CollectWalk, node: GameObject, entry: Entry, within: Entry, text: Entry): void {
     entry.inlineIn = within;
@@ -796,32 +771,24 @@ export class UICore implements UICoreLike {
     walk(node);
   }
 
-  /** Make every Yoga node's children what `desired` says (and detach elements that have no place). */
+  /** Make every layout node's children what `desired` says (and detach elements that have no place). */
   private attach(desired: Map<Entry, Entry[]>): void {
     const wanted = (e: Entry) => desired.get(e) ?? [];
     // Detach first, so a node moving between parents is free before its new parent takes it.
     for (const entry of this.entries.values()) {
       const want = wanted(entry);
-      for (const c of entry.children) {
-        if (c.parent === entry && !want.includes(c)) {
-          holder(entry).removeChild(c.node);
-          c.parent = null;
-        }
-      }
+      const before = entry.children.length;
+      for (const c of entry.children) if (c.parent === entry && !want.includes(c)) c.parent = null;
       entry.children = entry.children.filter((c) => c.parent === entry);
+      if (entry.children.length !== before) holder(entry).setChildren(entry.children.map((c) => c.node));
     }
     for (const entry of this.entries.values()) {
       const want = wanted(entry);
       const same = entry.children.length === want.length && entry.children.every((c, i) => c === want[i]);
       if (same) continue;
-      for (const c of entry.children) {
-        holder(entry).removeChild(c.node);
-        c.parent = null;
-      }
-      want.forEach((c, i) => {
-        holder(entry).insertChild(c.node, i);
-        c.parent = entry;
-      });
+      for (const c of entry.children) c.parent = null;
+      holder(entry).setChildren(want.map((c) => c.node));
+      for (const c of want) c.parent = entry;
       entry.children = [...want];
     }
   }
@@ -830,7 +797,6 @@ export class UICore implements UICoreLike {
 
   private applyCanvas(canvas: CanvasEntry): void {
     const c = canvas.comp;
-    const yoga = this.yoga!;
     if (c.mode === "world") {
       canvas.scale = 1;
       canvas.width = c.referenceResolution.x;
@@ -841,19 +807,20 @@ export class UICore implements UICoreLike {
       canvas.width = this.width / s;
       canvas.height = this.height / s;
     }
+    // Only what changed goes to the layout engine, as for elements (its direction is the initial row).
     const n = canvas.node;
-    n.setFlexDirection(yoga.FLEX_DIRECTION_ROW);
-    n.setWidth(canvas.width);
-    n.setHeight(canvas.height);
-    n.setDisplay(c.isActiveAndEnabled ? yoga.DISPLAY_FLEX : yoga.DISPLAY_NONE);
+    const last = canvas.applied;
+    if (last[0] !== canvas.width) n.setWidth((last[0] = canvas.width));
+    if (last[1] !== canvas.height) n.setHeight((last[1] = canvas.height));
+    const display = c.isActiveAndEnabled ? "flex" : "none";
+    if (last[2] !== display) n.setDisplay((last[2] = display));
   }
 
-  private applyProperties(yoga: Yoga, entry: Entry): void {
+  private applyProperties(entry: Entry): void {
     if (entry.kind === "canvas") return;
     const c = entry.comp as Exclude<UIComponentType, UICanvas>;
     const n = entry.node;
-    const t = (this.tables ??= yogaTables(yoga));
-    // Each value goes to Yoga only when it differs from what the node was last given: a Yoga setter is
+    // Each value goes to the layout engine only when it differs from what the node was last given: a setter is
     // a call into WebAssembly, and about twenty per element every frame added up (ADR 0075 notes).
     const last = entry.applied;
     const put = (slot: number, value: unknown): boolean => {
@@ -862,53 +829,54 @@ export class UICore implements UICoreLike {
       return true;
     };
     let v: unknown;
-    if (put(0, (v = c.isActiveAndEnabled && c.display !== "none" ? yoga.DISPLAY_FLEX : yoga.DISPLAY_NONE))) n.setDisplay(v as never);
-    if (put(1, (v = t.flexDirections[c.flexDirection] ?? yoga.FLEX_DIRECTION_ROW))) n.setFlexDirection(v as never);
-    if (put(2, (v = t.justify[c.justifyContent] ?? yoga.JUSTIFY_FLEX_START))) n.setJustifyContent(v as never);
-    if (put(3, (v = t.align[c.alignItems] ?? yoga.ALIGN_STRETCH))) n.setAlignItems(v as never);
-    if (put(4, (v = finite(c.gap)))) n.setGap(yoga.GUTTER_ALL, v as number);
+    if (put(0, (v = c.isActiveAndEnabled && c.display !== "none" ? "flex" : "none"))) n.setDisplay(v as "flex" | "none");
+    if (put(1, (v = oneOf(c.flexDirection, FLEX_DIRECTIONS, "row")))) n.setFlexDirection(v as LayoutFlexDirection);
+    if (put(2, (v = oneOf(c.justifyContent, JUSTIFY, "flex-start")))) n.setJustifyContent(v as LayoutContent);
+    if (put(3, (v = oneOf(c.alignItems, ALIGN_ITEMS, "stretch")))) n.setAlignItems(v as LayoutItems);
+    if (put(4, (v = finite(c.gap)))) n.setGap(v as number);
     // ADR 0422 wave 1: each side its own value, else the all-sides one (slots 5, 6 and 16 are the top edges).
     const pad = uiEdges(c.padding, c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft);
     const mar = uiEdges(c.margin, c.marginTop, c.marginRight, c.marginBottom, c.marginLeft);
     let bor = uiBorderEdges(c);
     // ADR 0432: `scrollbar-gutter: stable` reserves the vertical scrollbar's space between the border and the padding:
-    // to Yoga, a wider border on that side (the padding box, `clientWidth`, shrinks; the drawn border doesn't change).
+    // to layout, a wider border on that side (the padding box, `clientWidth`, shrinks; the drawn border doesn't change).
     const gutter = gutterOf(c, directionOf(entry) === "rtl");
     if (gutter.right || gutter.left) bor = [bor[0], bor[1] + gutter.right, bor[2], bor[3] + gutter.left];
     for (let i = 0; i < 4; i++) {
-      const edge = t.edges[i];
+      const edge = EDGES[i];
       if (put(i === 0 ? 5 : 16 + i, pad[i])) n.setPadding(edge, pad[i]);
       if (put(i === 0 ? 6 : 19 + i, mar[i])) n.setMargin(edge, mar[i]);
       if (put(i === 0 ? 16 : 22 + i, bor[i])) n.setBorder(edge, bor[i]);
     }
-    // ADR 0422 wave 5: lengths mixing % and px resolve in pixels against the parent's content size (last layout's).
-    const basis = MIXED_FIELDS.some((f) => isMixedLength(c[f])) && entry.parent ? this.contentSize(entry.parent) : undefined;
-    entry.calcBasis = basis;
-    const bw = basis?.width, bh = basis?.height;
-    if (put(7, (v = uiLength(c.width, bw)))) n.setWidth(v as never);
-    if (put(8, (v = uiLength(c.height, bh)))) n.setHeight(v as never);
-    if (put(9, (v = c.positionType === "absolute" ? yoga.POSITION_TYPE_ABSOLUTE : yoga.POSITION_TYPE_RELATIVE))) n.setPositionType(v as never);
-    if (put(10, (v = autoToUndefined(uiLength(c.top, bh))))) n.setPosition(yoga.EDGE_TOP, v as never);
-    if (put(11, (v = autoToUndefined(uiLength(c.right, bw))))) n.setPosition(yoga.EDGE_RIGHT, v as never);
-    if (put(12, (v = autoToUndefined(uiLength(c.bottom, bh))))) n.setPosition(yoga.EDGE_BOTTOM, v as never);
-    if (put(13, (v = autoToUndefined(uiLength(c.left, bw))))) n.setPosition(yoga.EDGE_LEFT, v as never);
+    // ADR 0422 wave 5: a length mixing % and px is a `{ px, percent }` the layout engine resolves (0434); its slot holds a
+    // key, so an unchanged one isn't set again.
+    const L = (slot: number, value: LengthValue, set: (v: LengthValue) => void) => {
+      if (put(slot, lengthKey(value))) set(value);
+    };
+    L(7, uiLength(c.width), (x) => n.setWidth(x));
+    L(8, uiLength(c.height), (x) => n.setHeight(x));
+    if (put(9, (v = c.positionType === "absolute" ? "absolute" : "relative"))) n.setPosition(v as "absolute" | "relative");
+    L(10, uiLength(c.top), (x) => n.setInset("top", x));
+    L(11, uiLength(c.right), (x) => n.setInset("right", x));
+    L(12, uiLength(c.bottom), (x) => n.setInset("bottom", x));
+    L(13, uiLength(c.left), (x) => n.setInset("left", x));
     if (put(14, (v = finite(c.flexGrow)))) n.setFlexGrow(v as number);
     // Null: the kind's (text wraps to what's left; other boxes keep their size).
     // ADR 0427: in a parent the player scrolls along its main axis, content lays out unconstrained: a kind's default shrink is 0 there.
     if (put(15, (v = c.flexShrink === null || c.flexShrink === undefined ? (scrollsMainAxis(entry.parent) ? 0 : flexShrinkOf(entry.kind)) : finite(c.flexShrink)))) n.setFlexShrink(v as number);
-    if (put(26, (v = uiLimit(c.minWidth, bw)))) n.setMinWidth(v as never);
-    if (put(27, (v = uiLimit(c.maxWidth, bw)))) n.setMaxWidth(v as never);
-    if (put(28, (v = uiLimit(c.minHeight, bh)))) n.setMinHeight(v as never);
-    if (put(29, (v = uiLimit(c.maxHeight, bh)))) n.setMaxHeight(v as never);
-    if (put(30, (v = t.wrap[c.flexWrap] ?? yoga.WRAP_NO_WRAP))) n.setFlexWrap(v as never);
-    if (put(31, (v = t.alignSelf[c.alignSelf] ?? yoga.ALIGN_AUTO))) n.setAlignSelf(v as never);
-    if (put(32, (v = t.alignContent[c.alignContent] ?? yoga.ALIGN_STRETCH))) n.setAlignContent(v as never);
-    const rowParent = entry.parent?.kind === "canvas" || /^row/.test((entry.parent?.comp as { flexDirection?: string } | undefined)?.flexDirection ?? "");
-    if (put(33, (v = uiLength(c.flexBasis, rowParent ? bw : bh) ?? "auto"))) n.setFlexBasis(v as never);
-    if (put(34, (v = Number.isFinite(c.aspectRatio) && c.aspectRatio > 0 ? c.aspectRatio : undefined))) n.setAspectRatio(v as never);
-    if (put(35, (v = isUserScroller(c) ? yoga.OVERFLOW_SCROLL : clipsChildren(c) ? yoga.OVERFLOW_HIDDEN : yoga.OVERFLOW_VISIBLE))) n.setOverflow(v as never);
-    // ADR 0432: `direction` (null inherits, Yoga's own inheritance from the canvas's LTR).
-    if (put(36, (v = c.direction === "rtl" ? yoga.DIRECTION_RTL : c.direction === "ltr" ? yoga.DIRECTION_LTR : yoga.DIRECTION_INHERIT))) n.setDirection(v as never);
+    // ADR 0434: an unset min size is CSS's `auto` (the content-based minimum), an unset max size `none`.
+    L(26, uiLimit(c.minWidth), (x) => n.setMinWidth(x));
+    L(27, uiLimit(c.maxWidth), (x) => n.setMaxWidth(x));
+    L(28, uiLimit(c.minHeight), (x) => n.setMinHeight(x));
+    L(29, uiLimit(c.maxHeight), (x) => n.setMaxHeight(x));
+    if (put(30, (v = oneOf(c.flexWrap, WRAPS, "nowrap")))) n.setFlexWrap(v as LayoutWrap);
+    if (put(31, (v = oneOf(c.alignSelf, ALIGN_SELF, "auto")))) n.setAlignSelf(v as LayoutItems | "auto");
+    if (put(32, (v = oneOf(c.alignContent, ALIGN_CONTENT, "stretch")))) n.setAlignContent(v as LayoutContent);
+    L(33, uiLength(c.flexBasis) ?? "auto", (x) => n.setFlexBasis(x));
+    if (put(34, (v = Number.isFinite(c.aspectRatio) && c.aspectRatio > 0 ? c.aspectRatio : undefined))) n.setAspectRatio(v as number | undefined);
+    if (put(35, (v = isUserScroller(c) ? "scroll" : clipsChildren(c) ? "hidden" : "visible"))) n.setOverflow(v as "scroll" | "hidden" | "visible");
+    // ADR 0432: `direction` (null inherits from the nearest element that sets it, else LTR); Taffy doesn't inherit it (0434).
+    if (put(36, (v = directionOf(entry)))) n.setDirection(v as "ltr" | "rtl");
 
     if (entry.run) this.updateRun(entry);
   }
@@ -929,7 +897,10 @@ export class UICore implements UICoreLike {
       entry.run = run;
       entry.measuredEpoch = epoch;
       entry.measureKey = key;
-      if (remeasure) entry.node.markDirty();
+      if (remeasure) {
+        entry.measured?.clear();
+        entry.node.markDirty();
+      }
     }
   }
 
@@ -937,10 +908,10 @@ export class UICore implements UICoreLike {
   private readonly atomSizes: UIInlineAtomSizes = (c) => this.entries.get(c)?.atomSize ?? null;
 
   /**
-   * ADR 0432: lay every atomic inline box out in its own Yoga tree at its content's size (CSS's shrink-to-fit with room to
+   * ADR 0432: lay every atomic inline box out as a layout root of its own at its content's size (CSS's shrink-to-fit with room to
    * spare), innermost first, each text holding atoms taking their sizes into its runs before the box it's in is laid out.
    */
-  private layoutAtoms(yoga: Yoga): void {
+  private layoutAtoms(tree: LayoutTree): void {
     const items: { e: Entry; depth: number }[] = [];
     const depthOf = (e: Entry) => {
       let d = 0;
@@ -960,10 +931,10 @@ export class UICore implements UICoreLike {
         continue;
       }
       const n = e.node;
-      n.calculateLayout(undefined, undefined, yoga.DIRECTION_LTR);
-      const margin = (edge: number) => (Number.isFinite(n.getComputedMargin(edge)) ? n.getComputedMargin(edge) : 0);
-      const ml = margin(yoga.EDGE_LEFT), mr = margin(yoga.EDGE_RIGHT), mt = margin(yoga.EDGE_TOP), mb = margin(yoga.EDGE_BOTTOM);
-      const w = n.getComputedWidth(), h = n.getComputedHeight();
+      tree.compute(n);
+      const b = n.layout();
+      const ml = fin(b.margin.left), mr = fin(b.margin.right), mt = fin(b.margin.top), mb = fin(b.margin.bottom);
+      const w = b.width, h = b.height;
       const shown = e.comp.isActiveAndEnabled && (e.comp as { display?: string }).display !== "none";
       const size = shown ? { width: w + ml + mr, height: h + mt + mb, baseline: mt + this.atomBaseline(e, h, mb) } : { width: 0, height: 0, baseline: 0 };
       const was = e.atomSize;
@@ -977,22 +948,20 @@ export class UICore implements UICoreLike {
    * show its overflow (as CSS's inline blocks; an image, an SVG, a video, a checkbox).
    */
   private atomBaseline(atom: Entry, height: number, marginBottom: number): number {
-    const yoga = this.yoga!;
     const bottom = height + marginBottom;
     if (clipsChildren(atom.comp)) return bottom;
     const find = (e: Entry, oy: number): number | null => {
       for (let i = e.children.length - 1; i >= 0; i--) {
         const ch = e.children[i];
         if (!ch.comp.isActiveAndEnabled || (ch.comp as { display?: string }).display === "none") continue;
-        const found = find(ch, oy + ch.node.getComputedTop());
+        const found = find(ch, oy + ch.node.layout().y);
         if (found !== null) return found;
       }
       const run = e.run;
       if (!run) return null;
-      const n = e.node;
-      const side = (edge: number) => (Number.isFinite(n.getComputedPadding(edge)) ? n.getComputedPadding(edge) : 0) + (Number.isFinite(n.getComputedBorder(edge)) ? n.getComputedBorder(edge) : 0);
+      const b = e.node.layout();
       const fs = run.fontSize, lh = fs * run.lineHeight;
-      const contentBottom = n.getComputedHeight() - side(yoga.EDGE_BOTTOM);
+      const contentBottom = b.height - insetOf(b, "bottom");
       return oy + contentBottom - (lh - (INLINE_ASCENT + INLINE_DESCENT) * fs) / 2 - INLINE_DESCENT * fs;
     };
     return find(atom, 0) ?? bottom;
@@ -1012,21 +981,34 @@ export class UICore implements UICoreLike {
     return layoutInline(run.runs!, { maxWidth: run.wrap === "none" ? Infinity : maxWidth, alignWidth, wrap: run.wrap, lineHeight: run.lineHeight, align: run.align, direction: run.direction, fontSize: run.fontSize, keepTrailingBreak: !!run.editable, boxes: run.boxes }, this.runWidth);
   }
 
-  /** An entry's content box size at its last layout (a canvas's own size): what its children's percentages are of. */
-  private contentSize(e: Entry): { width: number; height: number } {
-    if (e.kind === "canvas") return { width: (e as CanvasEntry).width, height: (e as CanvasEntry).height };
-    const n = e.node;
-    const y = this.yoga!;
-    const fin = (v: number) => (Number.isFinite(v) ? v : 0);
-    const across = (a: number, b: number) => fin(n.getComputedPadding(a)) + fin(n.getComputedPadding(b)) + fin(n.getComputedBorder(a)) + fin(n.getComputedBorder(b));
-    return {
-      width: Math.max(0, fin(n.getComputedWidth()) - across(y.EDGE_LEFT, y.EDGE_RIGHT)),
-      height: Math.max(0, fin(n.getComputedHeight()) - across(y.EDGE_TOP, y.EDGE_BOTTOM)),
-    };
+
+
+  /**
+   * ADR 0434: a measured leaf's size for the layout engine. A known width is kept (the text wraps to it); otherwise the text
+   * wraps to the room (none under a max-content constraint, every chance under a min-content one) and its width is CSS's
+   * shrink-to-fit width, min(max-content, max(min-content, room)): text that wrapped takes the whole room, not its widest line.
+   */
+  private measureNode(entry: Entry, input: MeasureInput): MeasuredText {
+    if (input.knownWidth !== undefined) return { ...this.measureCached(entry, input.knownWidth), width: input.knownWidth };
+    const room = input.availableWidth === -Infinity ? 0 : input.availableWidth;
+    const size = this.measureCached(entry, room);
+    if (!Number.isFinite(room) || size.width >= room) return size;
+    return this.measureCached(entry, Infinity).width > room ? { ...size, width: room } : size;
   }
 
-  /** Measure the entry's text run, wrapped to `maxWidth` unless it doesn't wrap. */
-  private measure(entry: Entry, maxWidth: number): { width: number; height: number } {
+  /** `measure`, remembered per width until the entry is marked dirty. */
+  private measureCached(entry: Entry, maxWidth: number): MeasuredText {
+    const cache = (entry.measured ??= new Map());
+    let size = cache.get(maxWidth);
+    if (!size) cache.set(maxWidth, (size = this.measure(entry, maxWidth)));
+    return size;
+  }
+
+  /**
+   * Measure the entry's text run, wrapped to `maxWidth` unless it doesn't wrap, with its first line's baseline down from
+   * its content box's top (ADR 0434: what `align-items: baseline` lines up). An empty plain text has no line, so none.
+   */
+  private measure(entry: Entry, maxWidth: number): MeasuredText {
     const run = entry.run;
     if (!run) return { width: 0, height: 0 };
     const measure = (r: TextMeasureRequest) => this.host.measureText?.(r) ?? estimateText(r);
@@ -1035,48 +1017,51 @@ export class UICore implements UICoreLike {
     if (entry.kind === "select") {
       let width = 0;
       for (const text of selectLabels(entry.comp as UISelect)) width = Math.max(width, measure({ ...run, text, maxWidth: Infinity }).width);
-      return { width, height: lineHeight };
+      return { width, height: lineHeight, baseline: firstBaseline(run) };
     }
     if (entry.kind === "textarea") {
       const rows = Math.max(1, Math.round((entry.comp as UITextArea).rows) || 1);
-      return { width: Number.isFinite(maxWidth) ? maxWidth : 20 * run.fontSize * 0.55, height: rows * lineHeight };
+      return { width: Number.isFinite(maxWidth) ? maxWidth : 20 * run.fontSize * 0.55, height: rows * lineHeight, baseline: firstBaseline(run) };
     }
     // ADR 0429: inline runs measure together, as they're laid out and drawn.
     if (run.runs) {
       const laid = this.layoutRuns(run, maxWidth);
-      return { width: laid.width, height: laid.height };
+      return { width: laid.width, height: laid.height, baseline: laid.lines[0]?.baseline };
     }
+    // An empty text (once its white space has collapsed) has no line box, as an empty block in CSS: 0 × 0.
+    if (entry.kind === "text" && run.text === "") return { width: 0, height: 0 };
     const request: TextMeasureRequest = { ...run, maxWidth: run.wrap === "none" ? Infinity : maxWidth };
-    return measure(request);
+    return { ...measure(request), baseline: firstBaseline(run) };
   }
 
   /**
-   * Read Yoga's boxes into the entries' absolute (canvas UI pixel) boxes, visibility and opacity, in tree order; then
+   * Read the layout's boxes into the entries' absolute (canvas UI pixel) boxes, visibility and opacity, in tree order; then
    * their clips (`overflow: hidden` ancestors' padding boxes) and draw order (ADR 0422).
    */
   private readLayout(canvas: CanvasEntry): void {
     canvas.elements = [];
     const cv = canvas.comp.isActiveAndEnabled;
     canvas.box = { x: 0, y: 0, width: canvas.width, height: canvas.height, visible: cv, opacity: 1 };
-    const yoga = this.yoga!;
+    const tree = this.tree!;
     type Walk = (visible: boolean, opacity: number, clip: UIRect | null, clipper: Entry | null, clips: readonly ClipStep[], reachClips: readonly ClipStep[], parentTransform: UIAffine | null, parentFilter: readonly UIFilterStep[] | null) => void;
     const walk = (parent: Entry, ox: number, oy: number, ...rest: Parameters<Walk>) => {
-      for (const e of parent.children) visit(e, ox + e.node.getComputedLeft(), oy + e.node.getComputedTop(), ...rest);
+      for (const e of parent.children) {
+        const b = e.node.layout();
+        visit(e, ox + b.x, oy + b.y, b, ...rest);
+      }
     };
     /** One element, its border box at `x`, `y` (canvas UI pixels, layout space), then its children. */
-    const visit = (e: Entry, x: number, y: number, ...[visible, opacity, clip, clipper, clips, reachClips, parentTransform, parentFilter]: Parameters<Walk>): void => {
+    const visit = (e: Entry, x: number, y: number, laid: LayoutBox, ...[visible, opacity, clip, clipper, clips, reachClips, parentTransform, parentFilter]: Parameters<Walk>): void => {
       {
         const c = e.comp as Exclude<UIComponentType, UICanvas>;
-        const n = e.node;
         const v = visible && c.isActiveAndEnabled && c.visible && c.display !== "none";
         const o = opacity * c.opacity;
-        const width = n.getComputedWidth(), height = n.getComputedHeight();
+        const { width, height } = laid;
         e.box = { x, y, width, height, visible: v, opacity: o };
         let childClip: UIRect | null = null;
         let scroll: UIScrollInfo | null = null;
         if (clipsChildren(c)) {
-          const bl = n.getComputedBorder(yoga.EDGE_LEFT), bt = n.getComputedBorder(yoga.EDGE_TOP);
-          const br = n.getComputedBorder(yoga.EDGE_RIGHT), bb = n.getComputedBorder(yoga.EDGE_BOTTOM);
+          const { left: bl, top: bt, right: br, bottom: bb } = laid.border;
           childClip = { x: x + bl, y: y + bt, width: Math.max(0, width - bl - br), height: Math.max(0, height - bt - bb) };
           scroll = this.scrollOf(e, childClip, bl, bt);
         }
@@ -1098,11 +1083,12 @@ export class UICore implements UICoreLike {
           // outside every clip; shown only while the select is open.
           const list = e.popup;
           list.setMinWidth(width);
-          list.calculateLayout(undefined, undefined, yoga.DIRECTION_LTR);
-          const lh = list.getComputedHeight();
+          tree.compute(list);
+          const lb = list.layout();
+          const lh = lb.height;
           const below = y + height;
           const top = below + lh > canvas.height && y - lh >= 0 ? y - lh : below;
-          walk(e, x - list.getComputedLeft(), top - list.getComputedTop(), v && (c as UISelect).open, o, null, null, [], [], transform, filter);
+          walk(e, x - lb.x, top - lb.y, v && (c as UISelect).open, o, null, null, [], [], transform, filter);
           return;
         }
         // ADR 0427: its children are drawn moved by its scroll; only a clip that doesn't scroll keeps navigation out.
@@ -1113,7 +1099,7 @@ export class UICore implements UICoreLike {
         // ADR 0432: a text's atomic inline boxes, where its lines put them (each its own laid-out subtree), as its children.
         for (const atom of e.kind === "text" ? (e.atoms ?? []) : []) {
           const at = this.atomPlace(e, atom);
-          if (at) visit(atom, at.x, at.y, ...inner);
+          if (at) visit(atom, at.x, at.y, atom.node.layout(), ...inner);
         }
         walk(e, x - sx, y - sy, ...inner);
       }
@@ -1131,14 +1117,12 @@ export class UICore implements UICoreLike {
   private atomPlace(text: Entry, atom: Entry): { x: number; y: number } | null {
     const laid = text.inline, runs = text.run?.runs;
     if (!laid || !runs) return null;
-    const yoga = this.yoga!;
     const inset = laid.inset ?? { x: 0, y: 0 };
     for (const line of laid.lines) {
       for (const f of line.fragments) {
         if (runs[f.run].owner !== atom.comp || !runs[f.run].atom) continue;
-        const n = atom.node;
-        const margin = (edge: number) => (Number.isFinite(n.getComputedMargin(edge)) ? n.getComputedMargin(edge) : 0);
-        return { x: text.box.x + inset.x + f.x + margin(yoga.EDGE_LEFT), y: text.box.y + inset.y + f.top + margin(yoga.EDGE_TOP) };
+        const m = atom.node.layout().margin;
+        return { x: text.box.x + inset.x + f.x + fin(m.left), y: text.box.y + inset.y + f.top + fin(m.top) };
       }
     }
     return null;
@@ -1157,11 +1141,9 @@ export class UICore implements UICoreLike {
       e.inlineHits = undefined;
       return;
     }
-    const yoga = this.yoga!;
-    const n = e.node;
-    const side = (edge: number) => (Number.isFinite(n.getComputedPadding(edge)) ? n.getComputedPadding(edge) : 0) + (Number.isFinite(n.getComputedBorder(edge)) ? n.getComputedBorder(edge) : 0);
-    const pl = side(yoga.EDGE_LEFT), pt = side(yoga.EDGE_TOP);
-    const inner = Math.max(0, e.box.width - pl - side(yoga.EDGE_RIGHT));
+    const b = e.node.layout();
+    const pl = insetOf(b, "left"), pt = insetOf(b, "top");
+    const inner = Math.max(0, e.box.width - pl - insetOf(b, "right"));
     const insetKey = `${pl}|${pt}`;
     const f = e.inlineFor;
     let laid = e.inline;
@@ -1221,11 +1203,8 @@ export class UICore implements UICoreLike {
    * areas are measured here, and (the routing core, nothing holding it) it snaps again to what the layout moved.
    */
   private scrollOf(e: Entry, client: UIRect, bl: number, bt: number): UIScrollInfo {
-    const yoga = this.yoga!;
     const c = e.comp as UIScrollable;
-    const n = e.node;
-    const pl = n.getComputedPadding(yoga.EDGE_LEFT), pt = n.getComputedPadding(yoga.EDGE_TOP);
-    const pr = n.getComputedPadding(yoga.EDGE_RIGHT), pb = n.getComputedPadding(yoga.EDGE_BOTTOM);
+    const { left: pl, top: pt, right: pr, bottom: pb } = e.node.layout().padding;
     const origin = e.kind === "textarea" ? { x: false, y: false } : endOrigin(e);
     // The content's edges from the padding box's corner (the start ones from the content box, so none reach nothing).
     let left = pl, top = pt, right = 0, bottom = 0;
@@ -1239,11 +1218,11 @@ export class UICore implements UICoreLike {
     for (const ch of e.popup ? [] : e.children) {
       const cc = ch.comp as UIScrollable;
       if (!cc.isActiveAndEnabled || cc.display === "none") continue;
-      const cn = ch.node;
-      left = Math.min(left, cn.getComputedLeft() - bl - cn.getComputedMargin(yoga.EDGE_LEFT));
-      top = Math.min(top, cn.getComputedTop() - bt - cn.getComputedMargin(yoga.EDGE_TOP));
-      right = Math.max(right, cn.getComputedLeft() - bl + cn.getComputedWidth() + cn.getComputedMargin(yoga.EDGE_RIGHT));
-      bottom = Math.max(bottom, cn.getComputedTop() - bt + cn.getComputedHeight() + cn.getComputedMargin(yoga.EDGE_BOTTOM));
+      const cb = ch.node.layout();
+      left = Math.min(left, cb.x - bl - cb.margin.left);
+      top = Math.min(top, cb.y - bt - cb.margin.top);
+      right = Math.max(right, cb.x - bl + cb.width + cb.margin.right);
+      bottom = Math.max(bottom, cb.y - bt + cb.height + cb.margin.bottom);
     }
     const minX = origin.x ? Math.min(0, left - pl) : 0, minY = origin.y ? Math.min(0, top - pt) : 0;
     const maxX = origin.x ? 0 : Math.max(0, right + pr - client.width), maxY = origin.y ? 0 : Math.max(0, bottom + pb - client.height);
@@ -1302,12 +1281,12 @@ export class UICore implements UICoreLike {
       for (const ch of parent.popup ? [] : parent.children) {
         const cc = ch.comp as UIScrollable;
         if (ch.inlineIn || !cc.isActiveAndEnabled || cc.display === "none") continue;
-        const cn = ch.node;
-        const x = ox + cn.getComputedLeft(), y = oy + cn.getComputedTop();
+        const cb = ch.node.layout();
+        const x = ox + cb.x, y = oy + cb.y;
         const ab = cc.scrollSnapAlignBlock ?? "none", ai = cc.scrollSnapAlignInline ?? "none";
         if (ab !== "none" || ai !== "none") {
           const ml = f(cc.scrollMarginLeft), mt = f(cc.scrollMarginTop);
-          const area = { x: x - ml, y: y - mt, width: cn.getComputedWidth() + ml + f(cc.scrollMarginRight), height: cn.getComputedHeight() + mt + f(cc.scrollMarginBottom) };
+          const area = { x: x - ml, y: y - mt, width: cb.width + ml + f(cc.scrollMarginRight), height: cb.height + mt + f(cc.scrollMarginBottom) };
           const px = sx ? position(ai, area.x, area.width, port.x, port.width) : null;
           const py = sy ? position(ab, area.y, area.height, port.y, port.height) : null;
           if (px !== null || py !== null) areas.push({ comp: cc, x: px, y: py, stop: cc.scrollSnapStop === "always", area });
@@ -2115,7 +2094,7 @@ export class UICore implements UICoreLike {
   cornersOf(c: UIComponentType): UICorners | null {
     const entry = this.entries.get(c);
     const canvas = entry?.canvas;
-    if (!entry || !canvas || !this.yoga) return null;
+    if (!entry || !canvas || !this.tree) return null;
     const b = entry.box;
     const p = entry.place;
     // ADR 0422 wave 3: the corners as drawn (its transform), and as laid out in its parent's frame (its ancestors' only).
@@ -2232,18 +2211,43 @@ export class UICore implements UICoreLike {
   }
 }
 
-/** Yoga's enum values by the components' property values. */
-function yogaTables(yoga: Yoga) {
-  return {
-    flexDirections: { row: yoga.FLEX_DIRECTION_ROW, column: yoga.FLEX_DIRECTION_COLUMN, "row-reverse": yoga.FLEX_DIRECTION_ROW_REVERSE, "column-reverse": yoga.FLEX_DIRECTION_COLUMN_REVERSE } as Record<string, number>,
-    justify: { "flex-start": yoga.JUSTIFY_FLEX_START, center: yoga.JUSTIFY_CENTER, "flex-end": yoga.JUSTIFY_FLEX_END, "space-between": yoga.JUSTIFY_SPACE_BETWEEN, "space-around": yoga.JUSTIFY_SPACE_AROUND, "space-evenly": yoga.JUSTIFY_SPACE_EVENLY } as Record<string, number>,
-    align: { "flex-start": yoga.ALIGN_FLEX_START, center: yoga.ALIGN_CENTER, "flex-end": yoga.ALIGN_FLEX_END, stretch: yoga.ALIGN_STRETCH, baseline: yoga.ALIGN_BASELINE } as Record<string, number>,
-    // ADR 0422 wave 1.
-    edges: [yoga.EDGE_TOP, yoga.EDGE_RIGHT, yoga.EDGE_BOTTOM, yoga.EDGE_LEFT] as const,
-    wrap: { nowrap: yoga.WRAP_NO_WRAP, wrap: yoga.WRAP_WRAP, "wrap-reverse": yoga.WRAP_WRAP_REVERSE } as Record<string, number>,
-    alignSelf: { auto: yoga.ALIGN_AUTO, "flex-start": yoga.ALIGN_FLEX_START, center: yoga.ALIGN_CENTER, "flex-end": yoga.ALIGN_FLEX_END, stretch: yoga.ALIGN_STRETCH, baseline: yoga.ALIGN_BASELINE } as Record<string, number>,
-    alignContent: { "flex-start": yoga.ALIGN_FLEX_START, center: yoga.ALIGN_CENTER, "flex-end": yoga.ALIGN_FLEX_END, stretch: yoga.ALIGN_STRETCH, "space-between": yoga.ALIGN_SPACE_BETWEEN, "space-around": yoga.ALIGN_SPACE_AROUND, "space-evenly": yoga.ALIGN_SPACE_EVENLY } as Record<string, number>,
-  };
+// ADR 0434: the keywords each layout property takes (anything else is its initial value).
+const FLEX_DIRECTIONS: readonly string[] = ["row", "column", "row-reverse", "column-reverse"];
+const JUSTIFY: readonly string[] = ["flex-start", "center", "flex-end", "space-between", "space-around", "space-evenly"];
+const ALIGN_ITEMS: readonly string[] = ["flex-start", "center", "flex-end", "stretch", "baseline"];
+const ALIGN_SELF: readonly string[] = ["auto", ...ALIGN_ITEMS];
+const ALIGN_CONTENT: readonly string[] = ["flex-start", "center", "flex-end", "stretch", "space-between", "space-around", "space-evenly"];
+const WRAPS: readonly string[] = ["nowrap", "wrap", "wrap-reverse"];
+const EDGES: readonly LayoutEdge[] = ["top", "right", "bottom", "left"];
+type LengthValue = number | `${number}%` | UICalcLength | "auto" | undefined;
+
+/** A length as a value `applyProperties` can compare with what it last set (a `calc()` by its two numbers). */
+function lengthKey(v: LengthValue): string | number | undefined {
+  return typeof v === "object" ? `calc(${v.percent}% + ${v.px}px)` : v;
+}
+
+/** `v` when it's one of `allowed`, else `fallback`. */
+function oneOf(v: string | null | undefined, allowed: readonly string[], fallback: string): string {
+  return typeof v === "string" && allowed.includes(v) ? v : fallback;
+}
+
+/** A measured text's size and its first baseline down from its content box's top (none for an empty text). */
+type MeasuredText = { width: number; height: number; baseline?: number };
+
+/** A run's first line's baseline down from its top: half the leading, then the font's ascent (as text is drawn, 0432). */
+function firstBaseline(run: UITextRun): number {
+  const fs = run.fontSize, lh = fs * run.lineHeight;
+  return (lh - (INLINE_ASCENT + INLINE_DESCENT) * fs) / 2 + INLINE_ASCENT * fs;
+}
+
+/** A finite number, else 0. */
+function fin(v: number): number {
+  return Number.isFinite(v) ? v : 0;
+}
+
+/** A laid-out box's padding plus border on one side: how far its content box is inset from its border box. */
+function insetOf(b: LayoutBox, side: LayoutEdge): number {
+  return fin(b.padding[side]) + fin(b.border[side]);
 }
 
 /** ADR 0427: true when the player scrolls `parent` along its flex direction (its children then keep their size along it). */
@@ -2257,11 +2261,6 @@ function scrollsMainAxis(parent: Entry | null): boolean {
 
 function finite(n: number): number {
   return Number.isFinite(n) ? n : 0;
-}
-
-/** Yoga reads `undefined` as unset; `"auto"` for a position edge means the same. */
-function autoToUndefined(v: number | `${number}%` | "auto" | undefined): number | `${number}%` | undefined {
-  return v === "auto" ? undefined : v;
 }
 
 function sameCanvases(a: readonly UILaidOutCanvas[], b: readonly UILaidOutCanvas[]): boolean {

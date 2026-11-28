@@ -1,0 +1,14 @@
+[package]
+name = "layout-wasm"
+description = "The WebAssembly boundary of Myco's UI layout engine (ADR 0434)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+layout-core.workspace = true
+wasm-bindgen.workspace = true

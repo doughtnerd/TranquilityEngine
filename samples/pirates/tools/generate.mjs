@@ -13,9 +13,10 @@ function write(dir, name, data) {
   mkdirSync(join(root, dir), { recursive: true });
   writeFileSync(join(root, dir, name), data);
 }
+/** Delete files the generator no longer makes; a kept file's `.meta.json` (its import settings) stays too. */
 function clean(dir, keep) {
   try {
-    for (const f of readdirSync(join(root, dir))) if (!keep.has(f)) rmSync(join(root, dir, f));
+    for (const f of readdirSync(join(root, dir))) if (!keep.has(f) && !keep.has(f.replace(/\.meta\.json$/, ""))) rmSync(join(root, dir, f));
   } catch {}
 }
 

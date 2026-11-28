@@ -105,6 +105,11 @@ describe("exporting Svelte UI", () => {
       { source: "ui/Hud.svelte", module: "code/ui/Hud.svelte.js" },
     ]);
     expect(plan.copies).toEqual(["project.json", "scenes/main.scene.json", "ui/theme.css", "ui/unused.css"]);
+    // Every module the player imports is a file of the build at that address (on Windows, too, where esbuild's output paths are the drive's).
+    for (const { module } of plan.manifest.scripts) expect(plan.generated.has(module), module).toBe(true);
+    for (const path of plan.generated.keys()) expect(path, path).not.toMatch(/^[A-Za-z]:|^\/|\\/);
+    // No import is left with the linker's build-file prefix, which a browser can't load.
+    for (const [path, code] of plan.generated) expect(typeof code === "string" ? code : "", path).not.toContain("myco-build:");
     // Every import is a file of the build: the bundle's chunks, and the player's UI host entry beside myco.js. No bare
     // `svelte/*` import is left for the player to provide.
     const ui = uiFiles(plan);

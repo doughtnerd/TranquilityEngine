@@ -2,8 +2,8 @@
  * Input contexts (ADR 0336): bindings as data, switched on by a component on a node.
  *
  * - A context is a `*.input.json` asset (`InputContextSpec`) or one registered in code with
- *   `defineInputContext`. The **default context** is made of the actions' inline defaults
- *   (`button("<Keyboard>/space")`) and is always active for every player, at priority 0.
+ *   `defineInputContext`. The **default context** is `input/default.input.json` (ADR 0433) plus the code
+ *   sets' inline defaults (`button("<Keyboard>/space")`), and is always active for every player, at priority 0.
  * - `InputContext` on a node switches a context on while the node is active in the hierarchy, at
  *   its priority, for one player: a vehicle prefab carries `InputContext(vehicle, 10)`, a pause
  *   menu its `menu` context. Nothing is pushed or popped by hand.
@@ -18,8 +18,11 @@ import type { InputContextSpec, MappingSpec } from "./contextTypes";
 
 export type { InputContextSpec, MappingSpec, ModifierSpec, TriggerSpec, TriggerType } from "./contextTypes";
 
-/** The name of the context made of the actions' inline defaults. */
+/** The name of the default context: `input/default.input.json` and the code sets' inline defaults. */
 export const DEFAULT_CONTEXT = "default";
+
+/** The default context's file (ADR 0433): every project has one; it holds each action's everyday controls. */
+export const DEFAULT_CONTEXT_PATH = "input/default.input.json";
 
 const registered = new Map<string, InputContextSpec>();
 /** Bumped when contexts are registered or a context asset changes: compiled tables rebuild. */
@@ -47,13 +50,20 @@ export function defineInputContext(spec: InputContextSpec): InputContextSpec {
   return spec;
 }
 
-let defaultCache: { version: number; spec: InputContextSpec } | null = null;
+let defaultCache: { version: string; spec: InputContextSpec } | null = null;
 
-/** The default context: every action's inline default mappings. */
+/**
+ * The default context: the mappings of `input/default.input.json` (ADR 0433), then every code set's inline
+ * defaults (ADR 0336).
+ */
 export function defaultContext(): InputContextSpec {
-  const version = actionSetsVersion();
+  const version = `${contextsVersion}.${actionSetsVersion()}`;
   if (defaultCache?.version === version) return defaultCache.spec;
   const mappings: MappingSpec[] = [];
+  if (Assets.has(DEFAULT_CONTEXT_PATH)) {
+    const raw = Assets.json<Partial<InputContextSpec>>(DEFAULT_CONTEXT_PATH);
+    if (raw && typeof raw === "object" && Array.isArray(raw.mappings)) mappings.push(...raw.mappings);
+  }
   for (const set of actionSets()) {
     for (const a of set.actions) {
       for (const d of a.type.defaults) {
@@ -71,7 +81,7 @@ export function defaultContext(): InputContextSpec {
  * (a context asset without a name takes its path). Null when there's none.
  */
 export function resolveContext(ref: string): InputContextSpec | null {
-  if (ref === DEFAULT_CONTEXT) return defaultContext();
+  if (ref === DEFAULT_CONTEXT || ref === DEFAULT_CONTEXT_PATH) return defaultContext();
   const known = registered.get(ref);
   if (known) return known;
   if (ref.endsWith(".json") && Assets.has(ref)) {
