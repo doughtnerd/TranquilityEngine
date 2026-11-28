@@ -117,7 +117,26 @@ export interface QualityTier {
   particles: ParticleQuality;
   /** 2D lighting quality (ADR 0399): light texture scale, shadowed lights, soft shadows, normal maps, layer batches (`LIGHTS_2D_QUALITY`). */
   lights2D: Lights2DQuality;
+  /**
+   * Multiplies every `LODGroup`'s screen-relative height before its level is chosen (ADR 0446 §5; 0.1–5): above 1 keeps
+   * detail longer, below 1 drops it sooner.
+   */
+  lodBias: number;
+  /** The most detailed LOD level this tier draws (ADR 0446 §5; a whole number, 0–7): 1 never draws LOD0. */
+  lodFirstLevel: number;
+  /** Whether `LODGroup`s with `fade: "crossfade"` crossfade between levels (ADR 0446 §4); off, they switch at once. */
+  lodCrossfade: boolean;
+  /** The occlusion culling depth buffer (ADR 0447 §5): off, low (256×128) or high (320×180). */
+  occlusionBuffer: OcclusionBufferQuality;
+  /** Occluder triangles rasterised per view (ADR 0447 §5; a whole number, 0–200000). */
+  occluderBudget: number;
+  /** How many views per frame run occlusion culling (ADR 0447 §4; a whole number, 0–8): 1 is the main camera. */
+  occlusionViews: number;
 }
+
+/** The occlusion culling depth buffer's size (ADR 0447 §5): off, low (256×128) or high (320×180). */
+export type OcclusionBufferQuality = "off" | "low" | "high";
+export const OCCLUSION_BUFFER_QUALITIES: readonly OcclusionBufferQuality[] = ["off", "low", "high"];
 
 export interface GraphicsSettings {
   /** From lowest to highest. At least one. */
@@ -159,27 +178,31 @@ export const defaultGraphics = (): GraphicsSettings => ({
   autoDetect: false,
   targetFrameRate: 60,
   tiers: [
-    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", shadowCascades: 1, cascadedLights: 1, shadowDistance: 30, anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low", lights2D: "low" },
-    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", shadowCascades: 2, cascadedLights: 1, shadowDistance: 50, anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "low", particles: "medium", lights2D: "medium" },
-    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, cascadedLights: 2, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high", lights2D: "high" },
-    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", shadowCascades: 4, cascadedLights: 4, shadowDistance: 120, anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, reflectionProbes: "high", particles: "high", lights2D: "high" },
+    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", shadowCascades: 1, cascadedLights: 1, shadowDistance: 30, anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low", lights2D: "low", lodBias: 0.6, lodFirstLevel: 1, lodCrossfade: false, occlusionBuffer: "off", occluderBudget: 0, occlusionViews: 1 },
+    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", shadowCascades: 2, cascadedLights: 1, shadowDistance: 50, anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "low", particles: "medium", lights2D: "medium", lodBias: 0.8, lodFirstLevel: 0, lodCrossfade: true, occlusionBuffer: "low", occluderBudget: 10000, occlusionViews: 1 },
+    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, cascadedLights: 2, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high", lights2D: "high", lodBias: 1, lodFirstLevel: 0, lodCrossfade: true, occlusionBuffer: "low", occluderBudget: 10000, occlusionViews: 1 },
+    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", shadowCascades: 4, cascadedLights: 4, shadowDistance: 120, anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, reflectionProbes: "high", particles: "high", lights2D: "high", lodBias: 1.5, lodFirstLevel: 0, lodCrossfade: true, occlusionBuffer: "high", occluderBudget: 20000, occlusionViews: 1 },
   ],
 });
 
 /** A new tier's values (the High tier's), with the given name. */
 export const defaultTier = (name: string): QualityTier => ({ ...defaultGraphics().tiers[2], name });
 
+/** The LOD and occlusion fields (ADR 0446 §5, 0447 §5), which tiers written before them don't have. */
+const VISIBILITY_KEYS = ["lodBias", "lodFirstLevel", "lodCrossfade", "occlusionBuffer", "occluderBudget", "occlusionViews"] as const;
+
 /**
  * The tier settings that change the pipelines draws need (ADR 0080), as a key: the sample count, the
  * passes (post-processing, ambient occlusion, depth of field, bloom), shadow maps and cascades, the
- * shader level graph materials compile for, and probe captures. Not the render scale or particle budget.
+ * shader level graph materials compile for, probe captures, and LOD crossfade (its fade shader variants, ADR 0446 §4).
+ * Not the render scale or particle budget.
  */
 export function pipelineTierKey(t: Readonly<QualityTier>): string {
-  return [t.antialias, t.shadows, t.shadowCascades, t.shaderLevel, t.postProcessing, t.bloom, t.ambientOcclusion, t.depthOfField, t.reflectionProbes].join("|");
+  return [t.antialias, t.shadows, t.shadowCascades, t.shaderLevel, t.postProcessing, t.bloom, t.ambientOcclusion, t.depthOfField, t.reflectionProbes, t.lodCrossfade].join("|");
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "cascadedLights", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField", "reflectionProbes", "particles", "lights2D"];
+const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "cascadedLights", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField", "reflectionProbes", "particles", "lights2D", ...VISIBILITY_KEYS];
 
 /**
  * Read a `graphics` section leniently: bad values are reported and replaced by the default
@@ -203,6 +226,10 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
         return;
       }
       const tier = defaultTier(t.name);
+      // A tier written before LOD and occlusion existed takes the same-named default tier's values for them (High's for
+      // any other name), so a project's own "Low" keeps Low's LOD settings and occlusion off.
+      const sameNamed = defaultGraphics().tiers.find((d) => d.name === t.name);
+      if (sameNamed) Object.assign(tier, Object.fromEntries(VISIBILITY_KEYS.map((key) => [key, sameNamed[key]])));
       for (const key of Object.keys(t)) if (!TIER_KEYS.includes(key)) problems.push(`${at} ("${t.name}"): unknown setting "${key}".`);
       const bad = (key: string, expected: string) => problems.push(`${at} ("${t.name}"): ${key} should be ${expected}; using ${JSON.stringify(tier[key as keyof QualityTier])}.`);
       if (t.renderScale !== undefined) {
@@ -225,7 +252,20 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
         if (typeof t.anisotropy === "number" && Number.isInteger(t.anisotropy) && t.anisotropy >= 1 && t.anisotropy <= 16) tier.anisotropy = t.anisotropy;
         else bad("anisotropy", "a whole number from 1 to 16");
       }
-      const choice = <K extends "antialias" | "shadows" | "shaderLevel" | "ambientOcclusion" | "reflectionProbes" | "particles" | "lights2D">(key: K, options: readonly QualityTier[K][]) => {
+      const whole = (key: "lodFirstLevel" | "occluderBudget" | "occlusionViews", max: number) => {
+        const v = t[key];
+        if (v === undefined) return;
+        if (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= max) tier[key] = v;
+        else bad(key, `a whole number from 0 to ${max}`);
+      };
+      if (t.lodBias !== undefined) {
+        if (typeof t.lodBias === "number" && t.lodBias >= 0.1 && t.lodBias <= 5) tier.lodBias = t.lodBias;
+        else bad("lodBias", "a number from 0.1 to 5");
+      }
+      whole("lodFirstLevel", 7);
+      whole("occluderBudget", 200000);
+      whole("occlusionViews", 8);
+      const choice = <K extends "antialias" | "shadows" | "shaderLevel" | "ambientOcclusion" | "reflectionProbes" | "particles" | "lights2D" | "occlusionBuffer">(key: K, options: readonly QualityTier[K][]) => {
         const v = t[key];
         if (v === undefined) return;
         if (options.includes(v as QualityTier[K])) tier[key] = v as QualityTier[K];
@@ -237,10 +277,11 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
       choice("ambientOcclusion", AO_QUALITIES);
       choice("reflectionProbes", PROBE_QUALITIES);
       choice("particles", PARTICLE_QUALITIES);
+      choice("occlusionBuffer", OCCLUSION_BUFFER_QUALITIES);
       // A tier written before 2D lighting existed follows its shader level (the same low/medium/high scale) rather than High's value.
       if (t.lights2D === undefined) tier.lights2D = tier.shaderLevel;
       else choice("lights2D", LIGHTS_2D_QUALITIES);
-      for (const key of ["postProcessing", "bloom", "depthOfField"] as const) {
+      for (const key of ["postProcessing", "bloom", "depthOfField", "lodCrossfade"] as const) {
         if (t[key] === undefined) continue;
         if (typeof t[key] === "boolean") tier[key] = t[key] as boolean;
         else bad(key, "true or false");

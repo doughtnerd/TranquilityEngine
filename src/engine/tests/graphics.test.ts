@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultGraphics, detectPlatform, PARTICLE_SCALE, parseGraphics, SHADOW_MAP_SIZE, type QualityTier } from "../core/graphics";
+import { defaultGraphics, detectPlatform, PARTICLE_SCALE, parseGraphics, pipelineTierKey, SHADOW_MAP_SIZE, type QualityTier } from "../core/graphics";
 import { resolveSettings } from "../core/settings";
 import { Graphics, QUALITY_KEY } from "../render/Graphics";
 import { MemoryStorage, Storage } from "../platform/Storage";
@@ -8,7 +8,7 @@ import { MemoryStorage, Storage } from "../platform/Storage";
 // Graphics class that switches the active tier.
 
 const DEFAULT_NAMES = ["Low", "Medium", "High", "Ultra"];
-const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, cascadedLights: 2, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high", lights2D: "high" };
+const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, cascadedLights: 2, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high", lights2D: "high", lodBias: 1, lodFirstLevel: 0, lodCrossfade: true, occlusionBuffer: "low", occluderBudget: 10000, occlusionViews: 1 };
 
 afterEach(() => {
   Graphics._configure(defaultGraphics());
@@ -26,8 +26,8 @@ describe("parseGraphics", () => {
     const raw = {
       defaultTier: "Only",
       tiers: [
-        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", shadowCascades: 1, cascadedLights: 1, shadowDistance: 20, anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low", lights2D: "low" },
-        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", shadowCascades: 4, cascadedLights: 3, shadowDistance: 500, anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true, reflectionProbes: "high", particles: "medium", lights2D: "medium" },
+        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", shadowCascades: 1, cascadedLights: 1, shadowDistance: 20, anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low", lights2D: "low", lodBias: 0.5, lodFirstLevel: 2, lodCrossfade: false, occlusionBuffer: "off", occluderBudget: 0, occlusionViews: 0 },
+        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", shadowCascades: 4, cascadedLights: 3, shadowDistance: 500, anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true, reflectionProbes: "high", particles: "medium", lights2D: "medium", lodBias: 2, lodFirstLevel: 0, lodCrossfade: true, occlusionBuffer: "high", occluderBudget: 30000, occlusionViews: 2 },
       ],
     };
     const { graphics, problems } = parseGraphics(raw);
@@ -184,6 +184,42 @@ describe("parseGraphics", () => {
     expect(graphics.tiers.map((t) => t.name)).toEqual(DEFAULT_NAMES);
     expect(graphics.defaultTier).toBe("High");
     expect(problems).toHaveLength(1);
+  });
+});
+
+describe("LOD and occlusion tier fields (ADR 0446 §5, 0447 §5)", () => {
+  const visibility = (t: QualityTier) => [t.lodBias, t.lodFirstLevel, t.lodCrossfade, t.occlusionBuffer, t.occluderBudget, t.occlusionViews];
+
+  it("has each default tier's values", () => {
+    expect(defaultGraphics().tiers.map(visibility)).toEqual([
+      [0.6, 1, false, "off", 0, 1],
+      [0.8, 0, true, "low", 10000, 1],
+      [1, 0, true, "low", 10000, 1],
+      [1.5, 0, true, "high", 20000, 1],
+    ]);
+  });
+
+  it("fills them in for tiers written before they existed: the same-named default tier's, else High's, with no problems", () => {
+    const tiers = ["Low", "Medium", "High", "Ultra", "Custom"].map((name) => ({ name, renderScale: 1 }));
+    const { graphics, problems } = parseGraphics({ defaultTier: "High", tiers });
+    expect(problems).toEqual([]);
+    expect(graphics.tiers.map(visibility)).toEqual([...defaultGraphics().tiers.map(visibility), visibility(defaultGraphics().tiers[2])]);
+  });
+
+  it("keeps valid values and reports bad ones, using the default", () => {
+    const ok = parseGraphics({ defaultTier: "Low", tiers: [{ name: "Low", lodBias: 2, lodFirstLevel: 0, lodCrossfade: true, occlusionBuffer: "high", occluderBudget: 5000, occlusionViews: 2 }] });
+    expect(ok.problems).toEqual([]);
+    expect(visibility(ok.graphics.tiers[0])).toEqual([2, 0, true, "high", 5000, 2]);
+    const bad = parseGraphics({ defaultTier: "Low", tiers: [{ name: "Low", lodBias: 0, lodFirstLevel: 1.5, lodCrossfade: "yes", occlusionBuffer: "max", occluderBudget: -1, occlusionViews: 9 }] });
+    expect(bad.problems).toHaveLength(6);
+    for (const key of ["lodBias", "lodFirstLevel", "lodCrossfade", "occlusionBuffer", "occluderBudget", "occlusionViews"]) expect(bad.problems.some((p) => p.includes(key))).toBe(true);
+    expect(visibility(bad.graphics.tiers[0])).toEqual(visibility(defaultGraphics().tiers[0]));
+  });
+
+  it("puts lodCrossfade in the pipeline key (fade shader variants) and leaves the other fields out", () => {
+    const high = defaultGraphics().tiers[2];
+    expect(pipelineTierKey({ ...high, lodCrossfade: false })).not.toBe(pipelineTierKey(high));
+    expect(pipelineTierKey({ ...high, lodBias: 0.5, lodFirstLevel: 2, occlusionBuffer: "off", occluderBudget: 1, occlusionViews: 0 })).toBe(pipelineTierKey(high));
   });
 });
 

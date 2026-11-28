@@ -9,8 +9,11 @@ import { World } from "../core/World";
 import { pixelCenterOffset, pixelPerfectView } from "./pixelPerfect";
 import type { PixelGrid } from "./RenderSurface";
 import { Material } from "./Material";
-import { modelVariantsIfLoaded } from "../scene/models";
+import { meshesIfLoaded, modelVariantsIfLoaded, type ModelMesh } from "../scene/models";
 import { sampleLights2D } from "./lights2D/sample";
+import { registerLodMemberType } from "./visibility/lodMember";
+import { visibilityService } from "./visibility/service";
+import type { LodMember, LodVisibility, OcclusionRole } from "./visibility/types";
 
 /** Draws a textured quad (ADR 0014). */
 @component("engine.SpriteRenderer")
@@ -189,6 +192,13 @@ export class Camera extends Component {
    * later: cameras drawing into textures draw after the ones on the canvas). Empty: the canvas.
    */
   @field(AssetRef, { kind: "rendertexture" }) targetTexture = "";
+  /**
+   * Skip drawing objects hidden behind others (ADR 0447 §4). Takes effect for perspective cameras drawing to the canvas
+   * only: orthographic and render-texture cameras never occlusion-cull, and the quality tier can turn it off for every
+   * camera (`occlusionBuffer`).
+   */
+  @field(Boolean, { description: "Skip drawing objects hidden behind others. Perspective cameras drawing to the canvas only; the quality tier can turn it off." })
+  occlusionCulling = true;
 
   /** The enabled camera with the lowest depth in the current World (ADR 0032). */
   static get main(): Camera | null {
@@ -341,7 +351,7 @@ function rotate(q: Quaternion, x: number, y: number, z: number): Vector3 {
  * World's Lights; a World with no Light gets a default sun and ambient light.
  */
 @component("engine.MeshRenderer")
-export class MeshRenderer extends Component {
+export class MeshRenderer extends Component implements LodMember {
   @field(AssetRef, { kind: "mesh" }) mesh = "builtin:cube";
   /**
    * A material asset (`asset:materials/wood.material.json`). Empty: the model's own materials,
@@ -365,6 +375,22 @@ export class MeshRenderer extends Component {
    * slot with a material asset keeps it. The choices are `variants`.
    */
   @field(String) variant = "";
+  /**
+   * Its part in occlusion culling (ADR 0447 §3). Auto: hides what's behind it when it has occluder geometry, an opaque
+   * material and is wide enough on screen, and is hidden when something covers it. Occluder: hides what's behind it
+   * whatever its width. Occludee: never hides anything, is hidden when covered. None: never hides anything and is always
+   * drawn. Scripts may change it every frame (a door that occludes when closed).
+   */
+  @field(String, {
+    choices: ["auto", "occluder", "occludee", "none"],
+    description: "Its part in occlusion culling. Auto: hides what's behind it when wide enough on screen, and is hidden when covered. Occluder: always hides what's behind it. Occludee: is hidden when covered, hides nothing. None: always drawn.",
+  })
+  occlusion: OcclusionRole = "auto";
+
+  /** @internal The LOD0 model meshes it draws (ADR 0446 §2: what an `LODGroup` controls), or null while its model loads. */
+  lodMeshes(): readonly ModelMesh[] | null {
+    return meshesIfLoaded(this.mesh);
+  }
 
   /** The names of the material variants the model offers (ADR 0118): empty until it has loaded, or for a model without variants. */
   get variants(): readonly string[] {
@@ -543,6 +569,58 @@ export class MeshRenderer extends Component {
 
   override _onDetach(): void {
     this._world.render?.release(this);
+  }
+}
+
+registerLodMemberType(MeshRenderer);
+
+/** How an `LODGroup` changes level (ADR 0446 §4): at once, or with a dithered crossfade. */
+export type LodFade = "none" | "crossfade";
+
+/**
+ * Draws its node's meshes in less detail as they get smaller on screen (ADR 0446 §2). It controls every `MeshRenderer`
+ * (and the animation plugin's `SkinnedMeshRenderer`) on its node and below, stopping at a nested `LODGroup`: they switch
+ * level together, each mesh drawing its own generated level (its last when it has fewer). Levels are chosen per camera
+ * from the group's screen-relative height: its size as a share of the view's height, times the quality tier's
+ * `lodBias`.
+ */
+@component("engine.LODGroup")
+export class LODGroup extends Component {
+  /**
+   * Transition heights, descending, one per level (at most 8): level i draws while the screen-relative height is at
+   * least `levels[i]`; below the last value the group isn't drawn (a last value of 0 never culls). Empty: automatic,
+   * derived from the meshes' measured simplification error and their import settings' `pixelError`.
+   */
+  @field([Number], { description: "Screen heights (0–1) where each level stops drawing, descending; below the last the group is culled (end with 0 to never cull). Empty: automatic, from the meshes' measured error." })
+  levels: number[] = [];
+  /** How a level change looks: at once, or a dithered crossfade over `fadeDuration` (when the quality tier allows it). */
+  @field(String, { choices: ["none", "crossfade"], description: "How a level change looks: at once, or a dithered crossfade (when the quality tier allows it)." })
+  fade: LodFade = "crossfade";
+  /** How long a crossfade lasts, in seconds. */
+  @field(Number, { description: "How long a crossfade lasts, in seconds." })
+  fadeDuration = 0.3;
+  /** -1 chooses the level automatically; n always draws level n (for debugging). */
+  @field(Number, { description: "-1 chooses the level automatically; a level number always draws that level (for debugging)." })
+  forceLevel = -1;
+  /**
+   * The group's size in world units, the measure the screen height is taken of. 0: automatic, the diagonal of its
+   * meshes' combined bounds times the node's largest world scale.
+   */
+  @field(Number, { description: "The group's size in world units for its screen height. 0: automatic, from its meshes' bounds." })
+  size = 0;
+
+  /**
+   * The level drawn for the main camera (the enabled Camera with the lowest depth), -1 while the group is too small to
+   * draw (`visibility` is then "lodCulled"); 0 with no camera. Read-only; the same in the editor, the player and a
+   * headless World.
+   */
+  get currentLevel(): number {
+    return visibilityService(this._world)?.levelOf(this) ?? 0;
+  }
+
+  /** Why the group is or isn't drawn for the main camera: "drawn", "lodCulled", "offScreen" or "occluded"; "drawn" with no camera. */
+  get visibility(): LodVisibility {
+    return visibilityService(this._world)?.visibilityOf(this) ?? "drawn";
   }
 }
 

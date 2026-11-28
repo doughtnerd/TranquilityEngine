@@ -1,0 +1,231 @@
+// LOD selection (ADR 0446 §2–3): screen-relative heights, bias, first level, forced levels, hysteresis, culling,
+// automatic heights, shadow casters and the frustum test, through `selectLevels` and `automaticHeights`.
+import { describe, expect, it } from "vitest";
+import { AUTOMATIC_CULL_HEIGHT, SelectionState, automaticHeights, selectLevels, type SelectionGroups, type SelectionOut, type SelectionTier } from "./select";
+import { LOD_CULLED, type VisibilityView } from "./types";
+import { makeView } from "./views";
+
+interface G {
+  at?: [number, number, number];
+  r?: number;
+  size?: number;
+  heights: number[];
+  force?: number;
+}
+
+function groups(list: G[]): SelectionGroups {
+  const n = list.length;
+  const g = { count: n, sphere: new Float32Array(n * 4), size: new Float32Array(n), heights: new Float32Array(n * 8), heightStart: new Uint32Array(n), heightCount: new Uint8Array(n), forceLevel: new Int16Array(n) };
+  list.forEach((x, i) => {
+    g.sphere.set([...(x.at ?? [0, 0, 10]), x.r ?? 0.5], i * 4);
+    g.size[i] = x.size ?? 1;
+    g.heightStart[i] = i * 8;
+    g.heightCount[i] = x.heights.length;
+    g.heights.set(x.heights, i * 8);
+    g.forceLevel[i] = x.force ?? -1;
+  });
+  return g;
+}
+
+const out = (n = 8): SelectionOut => ({ levels: new Uint8Array(n), casterLevels: new Uint8Array(n), hidden: new Uint8Array(n), fade: new Float32Array(n).fill(9) });
+const TIER: SelectionTier = { lodBias: 1, lodFirstLevel: 0, shadowDistance: 50 };
+
+/** A view at the origin looking along +Z: 90° vertical field of view (tan = 1, so h = size / (2·d)) or orthographic. */
+function view(options: { projection?: "perspective" | "orthographic"; orthoHalfHeight?: number; persistent?: boolean; key?: string } = {}): VisibilityView {
+  return makeView({
+    key: options.key ?? "cam/camera",
+    kind: "camera",
+    position: [0, 0, 0],
+    right: [1, 0, 0],
+    up: [0, 1, 0],
+    forward: [0, 0, 1],
+    projection: options.projection ?? "perspective",
+    fovY: Math.PI / 2,
+    orthoHalfHeight: options.orthoHalfHeight ?? 5,
+    near: 0.1,
+    far: 1000,
+    widthPx: 1000,
+    heightPx: 1000,
+    persistent: options.persistent ?? true,
+    occlusion: false,
+  });
+}
+
+/** The level one group gets at distance `d` straight ahead. */
+function levelAt(d: number, g: Omit<G, "at">, tier: SelectionTier = TIER, v = view({ persistent: false })): number {
+  const o = out();
+  selectLevels(v, groups([{ ...g, at: [0, 0, d] }]), tier, new SelectionState(), o);
+  return o.levels[0];
+}
+
+const HEIGHTS = [0.5, 0.2, 0.05];
+
+describe("selectLevels", () => {
+  it("measures perspective height as size / (2·d·tan(fovY / 2)) and draws the first level it reaches", () => {
+    expect(levelAt(0.5, { heights: HEIGHTS })).toBe(0); // h = 1
+    expect(levelAt(1, { heights: HEIGHTS })).toBe(0); // h = 0.5: on the threshold draws it
+    expect(levelAt(2, { heights: HEIGHTS })).toBe(1); // h = 0.25
+    expect(levelAt(2.2, { heights: HEIGHTS })).toBe(1); // h ≈ 0.23
+  });
+
+  it("drops a level as the group gets smaller on screen, and culls below the last height", () => {
+    expect(levelAt(2.6, { heights: HEIGHTS })).toBe(2); // h ≈ 0.19
+    expect(levelAt(9.5, { heights: HEIGHTS })).toBe(2); // h ≈ 0.053
+    expect(levelAt(11, { heights: HEIGHTS })).toBe(LOD_CULLED); // h ≈ 0.045
+    expect(levelAt(11, { heights: [0.5, 0.2, 0] })).toBe(2); // a last height of 0 never culls
+    expect(levelAt(4, { heights: HEIGHTS, size: 3 })).toBe(1); // h = 0.375: size scales h
+    expect(levelAt(4, { heights: HEIGHTS, size: 6 })).toBe(0); // h = 0.75
+  });
+
+  it("measures orthographic height as size / (2·orthoHalfHeight), whatever the distance", () => {
+    const ortho = view({ projection: "orthographic", orthoHalfHeight: 5, persistent: false });
+    expect(levelAt(1, { heights: HEIGHTS, size: 3 }, TIER, ortho)).toBe(1); // h = 0.3
+    expect(levelAt(500, { heights: HEIGHTS, size: 3 }, TIER, ortho)).toBe(1);
+    expect(levelAt(500, { heights: HEIGHTS, size: 10 }, TIER, ortho)).toBe(0); // h = 1
+    expect(levelAt(500, { heights: HEIGHTS, size: 0.4 }, TIER, ortho)).toBe(LOD_CULLED); // h = 0.04
+  });
+
+  it("multiplies h by the tier's lodBias", () => {
+    expect(levelAt(5, { heights: HEIGHTS })).toBe(2); // h = 0.1
+    expect(levelAt(5, { heights: HEIGHTS }, { ...TIER, lodBias: 2.5 })).toBe(1); // 0.25
+    expect(levelAt(5, { heights: HEIGHTS }, { ...TIER, lodBias: 0.4 })).toBe(LOD_CULLED); // 0.04
+  });
+
+  it("never draws a level finer than the tier's lodFirstLevel, clamped to the group's last level", () => {
+    const low = { ...TIER, lodFirstLevel: 1 };
+    expect(levelAt(0.5, { heights: HEIGHTS }, low)).toBe(1);
+    expect(levelAt(5, { heights: HEIGHTS }, low)).toBe(2);
+    expect(levelAt(11, { heights: HEIGHTS }, low)).toBe(LOD_CULLED);
+    expect(levelAt(0.5, { heights: [0] }, low)).toBe(0); // a group with one level draws it
+    expect(levelAt(0.5, { heights: HEIGHTS }, { ...TIER, lodFirstLevel: 7 })).toBe(2);
+  });
+
+  it("lets forceLevel win over distance, culling and the first level", () => {
+    expect(levelAt(0.5, { heights: HEIGHTS, force: 2 })).toBe(2);
+    expect(levelAt(100, { heights: HEIGHTS, force: 1 })).toBe(1);
+    expect(levelAt(100, { heights: HEIGHTS, force: 0 }, { ...TIER, lodFirstLevel: 1 })).toBe(0);
+  });
+
+  describe("hysteresis (4 %) in persistent views", () => {
+    // heights [0.2, 0.05], size 1: h = 1 / (2·d).
+    const at = (h: number) => 1 / (2 * h);
+    function run(hs: number[], persistent = true): number[] {
+      const state = new SelectionState();
+      const v = view({ persistent });
+      return hs.map((h) => {
+        const o = out();
+        selectLevels(v, groups([{ at: [0, 0, at(h)], heights: [0.2, 0.05] }]), TIER, state, o);
+        return o.levels[0];
+      });
+    }
+
+    it("keeps a level until h crosses the threshold by 4 %, going coarser", () => {
+      expect(run([0.21, 0.195, 0.193, 0.19])).toEqual([0, 0, 0, 1]);
+    });
+
+    it("keeps a level until h crosses the threshold by 4 %, going finer", () => {
+      expect(run([0.19, 0.205, 0.207, 0.21])).toEqual([1, 1, 1, 0]);
+    });
+
+    it("applies to culling too", () => {
+      expect(run([0.06, 0.049, 0.0485, 0.047, 0.051, 0.0515, 0.053])).toEqual([1, 1, 1, LOD_CULLED, LOD_CULLED, LOD_CULLED, 1]);
+    });
+
+    it("isn't kept for views that don't persist (probe faces, thumbnails)", () => {
+      expect(run([0.21, 0.195, 0.205])).toEqual([0, 0, 0]);
+      expect(run([0.21, 0.195, 0.205], false)).toEqual([0, 1, 0]);
+    });
+
+    it("is kept per view key, and forgotten per group", () => {
+      const state = new SelectionState();
+      const g = (h: number) => groups([{ at: [0, 0, at(h)], heights: [0.2, 0.05] }]);
+      const sel = (key: string, h: number) => {
+        const o = out();
+        selectLevels(view({ key }), g(h), TIER, state, o);
+        return o.levels[0];
+      };
+      expect(sel("a", 0.21)).toBe(0);
+      expect(sel("b", 0.19)).toBe(1);
+      expect(sel("a", 0.195)).toBe(0); // a stays at 0
+      expect(sel("b", 0.205)).toBe(1); // b stays at 1
+      state.forget(0);
+      expect(sel("a", 0.195)).toBe(1); // no history: h alone
+      state.dropView("b");
+      expect(sel("b", 0.205)).toBe(0);
+    });
+  });
+
+  it("hides groups outside the frustum but still chooses their level (their shadows draw)", () => {
+    const o = out();
+    const g = groups([
+      { at: [0, 0, -5], heights: HEIGHTS }, // behind
+      { at: [0, 0, 5], heights: HEIGHTS }, // ahead
+      { at: [20, 0, 10], r: 0.5, heights: HEIGHTS }, // far right of a 90° view (aspect 1: x ≤ z)
+      { at: [10.3, 0, 10], r: 0.5, heights: HEIGHTS }, // straddles the right side
+      { at: [0, 0, 1000.4], r: 0.5, heights: HEIGHTS }, // straddles the far plane
+      { at: [0, 0, 1001], r: 0.5, heights: [0] }, // beyond it
+    ]);
+    selectLevels(view(), g, TIER, new SelectionState(), o);
+    expect([...o.hidden.subarray(0, 6)]).toEqual([1, 0, 1, 0, 0, 1]);
+    expect(o.levels[0]).toBe(2); // h = 0.1 at 5 m behind
+  });
+
+  it("casts LOD-culled groups' shadows at their coarsest level within shadowDistance, and casters draw the view's level", () => {
+    const o = out();
+    const g = groups([
+      { at: [0, 0, 2], heights: HEIGHTS }, // level 1
+      { at: [0, 0, 40], r: 1, heights: HEIGHTS }, // culled, 39 m to its surface
+      { at: [0, 0, 52], r: 1, heights: HEIGHTS }, // culled, 51 m
+      { at: [0, 0, -40], heights: HEIGHTS, size: 50 }, // off-screen, level 0: still casts
+    ]);
+    selectLevels(view(), g, TIER, new SelectionState(), o);
+    expect([...o.levels.subarray(0, 4)]).toEqual([1, LOD_CULLED, LOD_CULLED, 0]);
+    expect([...o.casterLevels.subarray(0, 4)]).toEqual([1, 2, LOD_CULLED, 0]);
+  });
+
+  it("writes 0 fade values (crossfade comes later)", () => {
+    const o = out();
+    selectLevels(view(), groups([{ heights: HEIGHTS }, { heights: [0] }]), TIER, new SelectionState(), o);
+    expect([...o.fade.subarray(0, 2)]).toEqual([0, 0]);
+  });
+});
+
+describe("automaticHeights", () => {
+  const err = (h: number, pixelError = 1) => pixelError / (1080 * h);
+
+  it("derives h = pixelError / (1080 × error) per transition, ending with 0.01 (the rock example)", () => {
+    const rock = { levels: [{ error: 0 }, { error: err(0.149) }, { error: err(0.093) }, { error: err(0.056) }], pixelError: 1 };
+    const h = automaticHeights([rock]);
+    expect(h).toHaveLength(4);
+    [0.149, 0.093, 0.056, AUTOMATIC_CULL_HEIGHT].forEach((v, i) => expect(h[i]).toBeCloseTo(v, 6));
+  });
+
+  it("scales with pixelError", () => {
+    const h = automaticHeights([{ levels: [{ error: 0 }, { error: err(0.1) }], pixelError: 2 }]);
+    expect(h[0]).toBeCloseTo(0.2, 6);
+  });
+
+  it("draws LOD0 and never culls when no member has levels", () => {
+    expect(automaticHeights([])).toEqual([0]);
+    expect(automaticHeights([{ levels: [{ error: 0 }], pixelError: 1 }])).toEqual([0]);
+  });
+
+  it("takes the smallest height over members, a member past its last level counting with its last error", () => {
+    const a = { levels: [{ error: 0 }, { error: err(0.3) }, { error: err(0.1) }, { error: err(0.05) }], pixelError: 1 };
+    const b = { levels: [{ error: 0 }, { error: err(0.2) }], pixelError: 1 };
+    const h = automaticHeights([a, b]);
+    expect(h).toHaveLength(4);
+    expect(h[0]).toBeCloseTo(0.2, 6); // b's level 1 is the stricter
+    expect(h[1]).toBeCloseTo(0.1, 6); // a's 0.1 against b's last (0.2)
+    expect(h[2]).toBeCloseTo(0.05, 6);
+    expect(h[3]).toBe(AUTOMATIC_CULL_HEIGHT);
+  });
+
+  it("keeps the heights descending", () => {
+    const h = automaticHeights([{ levels: [{ error: 0 }, { error: err(0.05) }, { error: err(0.2) }, { error: err(0.001) }], pixelError: 1 }]);
+    expect(h[0]).toBeCloseTo(0.05, 6);
+    expect(h[1]).toBeCloseTo(0.05, 6);
+    expect(h[2]).toBeCloseTo(0.001, 6);
+    expect(h[3]).toBeCloseTo(0.001, 6); // the last value never above the one before
+  });
+});
