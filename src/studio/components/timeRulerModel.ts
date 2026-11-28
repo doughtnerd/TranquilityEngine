@@ -4,6 +4,7 @@
 //
 // A beat lasts 60 / bpm seconds and a bar holds the meter's numerator beats (BPM counts the meter's beats, as the
 // prototype's bars:beats display does); bars and beats count from 1, ticks from 0.
+import { meterParts } from "../../engine/audio/meter";
 
 export type TimeFormat = "timecode" | "samples" | "bars";
 
@@ -37,10 +38,7 @@ export interface RulerTick {
   readonly label?: string;
 }
 
-const beatsPerBar = (ctx: TimeContext): number => {
-  const n = Number((ctx.meter ?? "4/4").split("/")[0]);
-  return Number.isInteger(n) && n > 0 ? n : 4;
-};
+const beatsPerBar = (ctx: TimeContext): number => meterParts(ctx.meter).beatsPerBar;
 
 /** The format actually shown: bars need a tempo. */
 export const effectiveFormat = (format: TimeFormat, ctx: TimeContext): TimeFormat => (format === "bars" && !ctx.bpm ? "timecode" : format);

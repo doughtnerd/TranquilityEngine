@@ -55,6 +55,12 @@ describe("Sequence: clips on the timeline", () => {
     expect(fake.plays[0]!.volume).toBeCloseTo(Math.pow(10, -12 / 20), 6);
   });
 
+  it("a track at the fader's −60 dB floor is silent, not 0.001 (ADR 0456)", async () => {
+    await kit.boot({ "s.playlist.json": seq({ length: 1, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 1 }], { volume: -60 })] }) });
+    Audio.play("s.playlist.json");
+    expect(fake.plays[0]!.volume).toBe(0);
+  });
+
   it("solo plays only the soloed tracks; a track's output sends it to that bus", async () => {
     await kit.boot({
       "s.playlist.json": seq({ length: 1, tracks: [

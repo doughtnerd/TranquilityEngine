@@ -437,8 +437,9 @@ describe("rays: exclusion, multi-ray and hits", () => {
     const f = makeFrame();
     step(f);
     pass.run(f, view, settings({ budgetMs: 0.5 }));
-    // Top 4: centre ray wood + concrete + concrete (3 hits, -72 dB floored at -60), side rays clear: mean of linear gains.
-    const centre = db(-60);
+    // Top 4: centre ray wood + concrete + concrete (3 hits, -72 dB floored at -60, which is silence: ADR 0456), side rays
+    // clear: mean of linear gains.
+    const centre = 0;
     expect(view.lastGain[0]).toBeCloseTo((centre + 1 + 1) / 3, 6);
     expect(view.lastLp[0]).toBeCloseTo(Math.pow(2, (Math.log2(800) + 2 * Math.log2(22000)) / 3), 0);
     const wetCentre = (1 - (1 - WOOD) * 0.5) * (1 - (1 - CONCRETE) * 0.6) ** 2;

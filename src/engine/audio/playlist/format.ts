@@ -27,6 +27,7 @@ import { attenuationToJson, parseAttenuation } from "../attenuation/format";
 import { effectSpec, effectsToJson, parseEffects } from "../effects/catalogue";
 import { curveToJson, IdScope, isFiniteNumber, isRecord, LenientReader, CURVE_KEY_LIMIT, type JsonRecord } from "../lenientRead";
 import type { EffectLevel } from "../effects/types";
+import { parseMeter } from "../meter";
 import { isLabelled, MAX_LOCAL_PARAMETERS, parseParameters, type ParameterDef } from "../parameters";
 import { loopBehaviourToJson, loopOverrideToJson, parseLoopBehaviour, parseLoopOverride } from "./loopBehaviour";
 import {
@@ -80,7 +81,6 @@ export const CHANGE_WHEN: readonly ChangeWhen[] = ["now", "beat", "bar", "exit",
 export const TIME_INPUTS = ["voiceTime", "clipTime", "sequenceTime"] as const;
 
 const WHEN_FULL = ["stealOldest", "stealQuietest", "stealFarthest", "refuse"] as const;
-const METER = /^\d{1,2}\/\d{1,2}$/;
 const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
 const FX_TARGET = /^fx:[^:]+:[^:]+$/;
 /** ADR 0360 §4: a generator parameter target, `gen:<param>`. */
@@ -603,11 +603,7 @@ class PlaylistReader {
     if (o.tempo !== undefined && o.tempo !== null) {
       const t = r.record(o.tempo, `${where}.tempo`);
       if (t) {
-        let meter = "4/4";
-        if (t.meter !== undefined) {
-          if (typeof t.meter === "string" && METER.test(t.meter) && !t.meter.split("/").some((n) => Number(n) === 0)) meter = t.meter;
-          else r.problem(`${where}.tempo.meter`, 'must be a meter like "4/4"; using "4/4".');
-        }
+        const meter = parseMeter(t.meter, `${where}.tempo.meter`, r);
         out.tempo = { bpm: r.num(t.bpm, `${where}.tempo.bpm`, 120, 20, 400), meter };
       }
     }
