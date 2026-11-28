@@ -244,6 +244,7 @@ JointMotor: type
 JointSettings: type
 JointSpring: type
 KnownAssetFieldKind: type
+LODGroup: value
 LifecycleHooks: type
 Light2D: value
 Light2DNormals: type
@@ -272,6 +273,8 @@ LocalText: value
 LocalToWorld: value
 Locale: value
 LocaleLanguage: type
+LodFade: type
+LodVisibility: type
 MAX_CLOUD_LAYERS: value
 MAX_STR_BYTES: value
 MapObject: value
@@ -331,6 +334,8 @@ NetworkTime: type
 NodeBuilder: value
 NodeComponentOptions: type
 NodeEntry: type
+OcclusionBufferQuality: type
+OcclusionRole: type
 OneShotOptions: type
 OverrideEntry: type
 PEN_BUTTONS: value
