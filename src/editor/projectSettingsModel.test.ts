@@ -222,7 +222,7 @@ describe("the Project panel's settings", () => {
       d = setTierValue(d, 0, "antialias", "msaa");
       d = setTierValue(d, 0, "anisotropy", 2);
       d = setTierValue(d, 0, "shaderLevel", "medium");
-      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, cascadedLights: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low", lights2D: "low" });
+      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, cascadedLights: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low", lights2D: "low", lodBias: 0.6, lodFirstLevel: 1, lodCrossfade: false, occlusionBuffer: "off", occluderBudget: 0, occlusionViews: 1 });
       expect(settingsProblems(d)).toEqual([]);
       expect(graphicsOf(setDefaultTier(d, "Low")).defaultTier).toBe("Low");
       expect(setDefaultTier(d, "Nope")).toBe(d);

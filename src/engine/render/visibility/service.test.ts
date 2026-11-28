@@ -189,6 +189,7 @@ describe("cameraView", () => {
 class LevelsProbe extends Component implements LodMember {
   withLevels = true;
   readonly occlusion: OcclusionRole = "auto";
+  readonly castShadows = true;
   lodMeshes(): readonly ModelMesh[] | null {
     return this.withLevels ? WITH_LEVELS : WITHOUT;
   }

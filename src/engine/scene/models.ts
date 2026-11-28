@@ -4,7 +4,7 @@
  * a MeshRenderer or MeshCollider and never sees anything here.
  *
  * A model loads into its meshes in model space: each mesh's place in the file and the model's
-import settings (scale, up axis, normals; ADR 0040 sidecars) are baked into its geometry, so a
+ * import settings (scale, up axis, normals; ADR 0040 sidecars) are baked into its geometry, so a
  * mesh drawn at a node's origin sits where it sits in the file. References:
  *
  * - `asset:models/robot.fbx` — every mesh of the model;

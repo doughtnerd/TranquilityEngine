@@ -56,6 +56,8 @@ export interface LodMember {
   /** The LOD0 model meshes it draws, or null while its model loads. */
   lodMeshes(): readonly ModelMesh[] | null;
   readonly occlusion: OcclusionRole;
+  /** Whether it casts shadows (casters follow `VisibilityResult.casterLevels`). */
+  readonly castShadows: boolean;
 }
 
 /** One view's result: the renderer side draws exactly this. */

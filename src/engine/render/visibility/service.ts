@@ -67,7 +67,7 @@ interface ViewEntry {
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
 /** Whether a member casts shadows (members without the field do). */
-const castsShadows = (m: Member) => (m as { castShadows?: unknown }).castShadows !== false;
+const castsShadows = (m: Member) => m.castShadows;
 
 /** @internal One World's visibility stage. */
 export class VisibilityService {
