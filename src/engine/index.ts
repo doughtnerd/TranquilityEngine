@@ -25,7 +25,7 @@ export { defineSystem, type Phase, type Row, type SystemContext, type SystemDef 
 export type { Rows } from "./core/rows";
 export { defineWorldService, worldService, type WorldServiceKey } from "./core/worldServices";
 export type { InputJoinPolicy, ProjectSettings, ProjectSettingsInput, ScaleMode } from "./core/settings";
-export type { AntialiasMode, GraphicsSettings, ParticleQuality, QualityTier, ShaderLevel, ShadowQuality } from "./core/graphics";
+export type { AntialiasMode, GraphicsSettings, OcclusionBufferQuality, ParticleQuality, QualityTier, ShaderLevel, ShadowQuality } from "./core/graphics";
 export { Graphics } from "./render/Graphics";
 
 export { GameObject, type InstantiateOptions } from "./scene/GameObject";
@@ -41,7 +41,8 @@ export type { MaterialSettings, MaterialShader } from "./scene/material";
 // ParticleSystem (and ParticlePropertyValue) are the Particles plugin's public exports (`src/myco.ts`, ADR 0135);
 // SpriteRenderer, MeshRenderer, Environment, PostProcessing, WaterSurface and the UI Components
 // are the Sprites, Meshes, Environment, Post-processing, UI and Water plugins' (ADR 0140).
-export { Camera, Fog, Light, ReflectionProbe, type FogMode, type LightType, type MaterialPropertyValue, type ProbeRefresh, type Projection } from "./render/components";
+export { Camera, Fog, LODGroup, Light, ReflectionProbe, type FogMode, type LightType, type LodFade, type MaterialPropertyValue, type ProbeRefresh, type Projection } from "./render/components";
+export type { LodVisibility, OcclusionRole } from "./render/visibility/types";
 export { CameraViewOffset } from "./render/cameraViewOffset";
 export { Material, type MaterialValue } from "./render/Material";
 export type { WaterWave } from "./render/water/gerstner";
