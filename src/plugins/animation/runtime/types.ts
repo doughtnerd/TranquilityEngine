@@ -27,7 +27,7 @@ export type AnimatorCullingMode = "always" | "whenVisible" | "rootMotionOnly";
 export type AnimatorRootMotion = "none" | "transform" | "characterController" | "rigidBody";
 
 /** What an Animator's update-rate LOD measures (ADR 0370): nothing (every frame), distance to the camera, or screen size. */
-export type AnimatorLodMetric = "off" | "distance" | "screenSize";
+export type AnimatorLodMetric = "off" | "distance" | "screenSize" | "lodGroup";
 
 /** What a `BoneAttachment` copies from its bone (ADR 0372). */
 export type BoneAttachmentFollow = "position" | "rotation" | "both";
